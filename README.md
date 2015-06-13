@@ -8,7 +8,7 @@ Compatible with: Delphi 7-XE7 (but not with the Android and iOS targets), FreePa
 
 ## Features
 
-Kraft Physics Engine has the following features :
+Kraft Physics Engine has the following features:
 
 - Rigid body dynamics
 - Discrete collision detection
@@ -30,7 +30,7 @@ Kraft Physics Engine has the following features :
 
 - Sphere casting / Linear casting
 - Raycast vehicles      
-- More joint constraint types (for example cone twist, universal and/or general 6D0F)
+- More joint constraint types (for example cone twist, universal and/or general 6DOF)
 - Cloths / Soft body
 
 ## License
