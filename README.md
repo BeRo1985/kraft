@@ -4,6 +4,8 @@ Kraft Physics Engine is an open source Object Pascal physics engine library that
 
 Author : Benjamin 'BeRo' Rosseaux
 
+Compatible with: Delphi 7-XE7 (but not with the Android and iOS targets), FreePascal >= 2.6.2 (with almost all FPC-supported targets including Android and iOS) 
+
 ## Features
 
 Kraft Physics Engine has the following features :
