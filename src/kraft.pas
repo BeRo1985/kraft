@@ -116,7 +116,7 @@ unit kraft;
 
 {-$define UseMoreCollisionGroups}
 
-{$define DebugDraw}
+{-$define DebugDraw}
 
 {-$define memdebug}
 
@@ -8413,6 +8413,7 @@ begin
  pc.y:=p.y-c.y;
  pc.z:=p.z-c.z;
 
+ // Determine the parametric position s for the projection of P onto AB (i.e. PPU2 = A+s*AB, where
  // s = snom/(snom+sdenom), and then parametric position t for P projected onto AC
  snom:=(ab.x*pa.x)+(ab.y*pa.y)+(ab.z*pa.z);
  sdenom:=(pb.x*(a.x-b.x))+(pb.y*(a.y-b.y))+(pb.z*(a.z-b.z));
