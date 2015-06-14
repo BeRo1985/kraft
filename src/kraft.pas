@@ -391,9 +391,7 @@ type PKraftForceMode=^TKraftForceMode;
 
      PKraftQuaternion=^TKraftQuaternion;
      TKraftQuaternion=record
-      case longint of
-       0:(x,y,z,w:TKraftScalar);
-       1:(Vector:TKraftVector3;Scalar:TKraftScalar);
+      x,y,z,w:TKraftScalar;
      end;
 
      PKraftMatrix2x2=^TKraftMatrix2x2;
@@ -8027,7 +8025,9 @@ function QuaternionGenerator(AQuaternion:TKraftQuaternion):TKraftVector3; {$ifde
 var s:TKraftScalar;
 begin
  s:=sqrt(1.0-sqr(AQuaternion.w));
- result:=AQuaternion.Vector;
+ result.x:=AQuaternion.x;
+ result.y:=AQuaternion.y;
+ result.z:=AQuaternion.z;
  if s>0.0 then begin
   result:=Vector3ScalarMul(result,s);
  end;
@@ -8133,11 +8133,15 @@ begin
 end;
 
 function QuaternionFromToRotation(const FromDirection,ToDirection:TKraftVector3):TKraftQuaternion; {$ifdef caninline}inline;{$endif}
+var t:TKraftVector3;
 begin
- result.Vector:=Vector3Cross(FromDirection,ToDirection);
- result.Scalar:=sqrt((sqr(FromDirection.x)+sqr(FromDirection.y)+sqr(FromDirection.z))*
-                     (sqr(ToDirection.x)+sqr(ToDirection.y)+sqr(ToDirection.z)))+
-                ((FromDirection.x*ToDirection.x)+(FromDirection.y*ToDirection.y)+(FromDirection.z*ToDirection.z));
+ t:=Vector3Cross(Vector3Norm(FromDirection),Vector3Norm(ToDirection));
+ result.x:=t.x;
+ result.y:=t.y;
+ result.z:=t.z;
+ result.w:=sqrt((sqr(FromDirection.x)+sqr(FromDirection.y)+sqr(FromDirection.z))*
+                (sqr(ToDirection.x)+sqr(ToDirection.y)+sqr(ToDirection.z)))+
+               ((FromDirection.x*ToDirection.x)+(FromDirection.y*ToDirection.y)+(FromDirection.z*ToDirection.z));
 end;
 
 
@@ -22346,10 +22350,10 @@ begin
 
  // Extract cos(theta/2) and |sin(theta/2)|
  CosHalfAngle:=RelativeRotation.w;
- SinHalfAngleAbs:=Vector3Length(RelativeRotation.Vector);
+ SinHalfAngleAbs:=Vector3Length(PKraftVector3(pointer(@RelativeRotation))^);
 
  // Compute the dot product of the relative rotation axis and the hinge axis
- DotProduct:=Vector3Dot(RelativeRotation.Vector,PKraftVector3(pointer(@A1))^);
+ DotProduct:=Vector3Dot(PKraftVector3(pointer(@RelativeRotation))^,PKraftVector3(pointer(@A1))^);
 
  // If the relative rotation axis and the hinge axis are pointing the same direction
  if DotProduct>=0.0 then begin
@@ -24861,9 +24865,9 @@ begin
 
  WarmStarting:=true;
  
-//ContinuousMode:=kcmNone;
+ ContinuousMode:=kcmNone;
 //ContinuousMode:=kcmMotionClamping;
- ContinuousMode:=kcmTimeOfImpactSubSteps;
+//ContinuousMode:=kcmTimeOfImpactSubSteps;
 
  ContinuousAgainstDynamics:=false;
 
