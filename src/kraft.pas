@@ -26308,7 +26308,9 @@ begin
  TimeStep.DeltaTimeRatio:=LastInverseDeltaTime*TimeStep.DeltaTime;
  TimeStep.WarmStarting:=WarmStarting;
 
+{$ifdef DebugDraw}
  ContactManager.CountDebugConvexHullVertexLists:=0;
+{$endif}
 
  OldFPUPrecisionMode:=GetPrecisionMode;
  if OldFPUPrecisionMode<>PhysicsFPUPrecisionMode then begin
