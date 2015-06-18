@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2015-06-13-17-32-0000                       *
+ *                        Version 2015-06-18-23-28-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -240,6 +240,9 @@ type PKraftForceMode=^TKraftForceMode;
      PKraftConstraintFlags=^TKraftConstraintFlags;
 
      TKraftConstraintFlags=set of TKraftConstraintFlag;
+
+     PKraftConstraintLimitBehavior=^TKraftConstraintLimitBehavior;
+     TKraftConstraintLimitBehavior=(kclbLimitDistance,kclbLimitMaximumDistance,kclbLimitMinimumDistance);
 
      PKraftShapeType=^TKraftShapeType;
      TKraftShapeType=(kstUnknown=0,
@@ -644,6 +647,7 @@ type PKraftForceMode=^TKraftForceMode;
      TKraftMeshTriangle=record
       Next:longint;
       Vertices:array[0..2] of longint;
+      Normals:array[0..2] of longint;
       Plane:TKraftPlane;
       AABB:TKraftAABB;
      end;
@@ -660,6 +664,10 @@ type PKraftForceMode=^TKraftForceMode;
      TKraftMeshSkipListNodes=array of TKraftMeshSkipListNode;
 
      TKraftMesh=class
+      private
+
+       procedure CalculateNormals;
+
       public
 
        Physics:TKraft;
@@ -669,6 +677,9 @@ type PKraftForceMode=^TKraftForceMode;
 
        Vertices:array of TKraftVector3;
        CountVertices:longint;
+
+       Normals:array of TKraftVector3;
+       CountNormals:longint;
 
        Triangles:TKraftMeshTriangles;
        CountTriangles:longint;
@@ -683,9 +694,11 @@ type PKraftForceMode=^TKraftForceMode;
 
        function AddVertex(const AVertex:TKraftVector3):longint;
 
-       function AddTriangle(const AVertexIndex0,AVertexIndex1,AVertexIndex2:longint):longint;
+       function AddNormal(const ANormal:TKraftVector3):longint;
 
-       procedure Load(const AVertices:PKraftVector3;const ACountVertices:longint;const AIndices:pointer;const ACountIndices:longint); overload;
+       function AddTriangle(const AVertexIndex0,AVertexIndex1,AVertexIndex2:longint;const ANormalIndex0:longint=-1;const ANormalIndex1:longint=-1;ANormalIndex2:longint=-1):longint;
+
+       procedure Load(const AVertices:PKraftVector3;const ACountVertices:longint;const ANormals:PKraftVector3;const ACountNormals:longint;const AVertexIndices,ANormalIndices:pointer;const ACountIndices:longint); overload;
        procedure Load(const ASourceData:pointer;const ASourceSize:longint); overload;
 
        procedure Scale(const WithFactor:TKraftScalar); overload;
@@ -1452,6 +1465,9 @@ type PKraftForceMode=^TKraftForceMode;
        procedure ApplyImpulseAtPosition(const Point,Impulse:TKraftVector3);
        procedure ApplyImpulseAtRelativePosition(const RelativePosition,Impulse:TKraftVector3);
 
+       procedure SetForceAtPosition(const AForce,APosition:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+       procedure AddForceAtPosition(const AForce,APosition:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+
        procedure SetWorldForce(const AForce:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
        procedure AddWorldForce(const AForce:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
 
@@ -1577,6 +1593,47 @@ type PKraftForceMode=^TKraftForceMode;
        function GetMaximalForce:TKraftScalar; virtual;
        procedure SetWorldPoint(AWorldPoint:TKraftVector3); virtual;
        procedure SetMaximalForce(AMaximalForce:TKraftScalar); virtual;
+     end;
+
+     // Keeps body at some fixed distance to a world plane.
+     TKraftConstraintJointWorldPlaneDistance=class(TKraftConstraintJoint)
+      private
+       IslandIndex:longint;
+       InverseMass:TKraftScalar;
+       SolverVelocity:PKraftSolverVelocity;
+       SolverPosition:PKraftSolverPosition;
+       WorldInverseInertiaTensor:TKraftMatrix3x3;
+       RelativePosition:TKraftVector3;
+       LocalCenter:TKraftVector3;
+       LocalAnchor:TKraftVector3;
+       mU:TKraftVector3;
+       WorldPoint:TKraftVector3;
+       WorldPlane:TKraftPlane;
+       WorldDistance:TKraftScalar;
+       FrequencyHz:TKraftScalar;
+       DampingRatio:TKraftScalar;
+       AccumulatedImpulse:TKraftScalar;
+       Gamma:TKraftScalar;
+       Bias:TKraftScalar;
+       Mass:TKraftScalar;
+       LimitBehavior:TKraftConstraintLimitBehavior;
+       DoubleSidedWorldPlane:longbool;
+       SoftConstraint:longbool;
+       Skip:longbool;
+      public
+       constructor Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody;const ALocalAnchorPoint:TKraftVector3;const AWorldPlane:TKraftPlane;const ADoubleSidedWorldPlane:boolean=true;const AWorldDistance:single=1.0;const ALimitBehavior:TKraftConstraintLimitBehavior=kclbLimitDistance;const AFrequencyHz:TKraftScalar=0.0;const ADampingRatio:TKraftScalar=0.0;const ACollideConnected:boolean=false); reintroduce;
+       destructor Destroy; override;
+       procedure InitializeConstraintsAndWarmStart(const Island:TKraftIsland;const TimeStep:TKraftTimeStep); override;
+       procedure SolveVelocityConstraint(const Island:TKraftIsland;const TimeStep:TKraftTimeStep); override;
+       function SolvePositionConstraint(const Island:TKraftIsland;const TimeStep:TKraftTimeStep):boolean; override;
+       function GetAnchor:TKraftVector3; virtual;
+       function GetReactionForce(const InverseDeltaTime:TKraftScalar):TKraftVector3; override;
+       function GetReactionTorque(const InverseDeltaTime:TKraftScalar):TKraftVector3; override;
+       function GetWorldPoint:TKraftVector3; virtual;
+       function GetWorldPlane:TKraftPlane; virtual;
+       procedure SetWorldPlane(const AWorldPlane:TKraftPlane); virtual;
+       function GetWorldDistance:TKraftScalar; virtual;
+       procedure SetWorldDistance(const AWorldDistance:TKraftScalar); virtual;
      end;
 
      // Keeps bodies at some fixed distance from each other.
@@ -8261,26 +8318,26 @@ begin
   AABBMax.z:=a.z;
  end;
  if AABBMin.x<AABBMin.y then begin
-  if AABBMin.y<AABBMin.z then begin
-   TimeMin:=AABBMin.z;
+  if AABBMin.x<AABBMin.z then begin
+   TimeMin:=AABBMin.x;
   end else begin
-   TimeMin:=AABBMin.y;
+   TimeMin:=AABBMin.z;
   end;
  end else begin
-  if AABBMin.x<AABBMin.z then begin
-   TimeMin:=AABBMin.z;
+  if AABBMin.y<AABBMin.z then begin
+   TimeMin:=AABBMin.y;
   end else begin
-   TimeMin:=AABBMin.x;
+   TimeMin:=AABBMin.z;
   end;
  end;
- if AABBMax.x<AABBMax.y then begin
-  if AABBMax.x<AABBMax.z then begin
+ if AABBMax.x>AABBMax.y then begin
+  if AABBMax.x>AABBMax.z then begin
    TimeMax:=AABBMax.x;
   end else begin
    TimeMax:=AABBMax.z;
   end;
  end else begin
-  if AABBMax.y<AABBMax.z then begin
+  if AABBMax.y>AABBMax.z then begin
    TimeMax:=AABBMax.y;
   end else begin
    TimeMax:=AABBMax.z;
@@ -13722,6 +13779,9 @@ begin
  Vertices:=nil;
  CountVertices:=0;
 
+ Normals:=nil;
+ CountNormals:=0;
+
  Triangles:=nil;
  CountTriangles:=0;
 
@@ -13744,6 +13804,8 @@ destructor TKraftMesh.Destroy;
 begin
 
  SetLength(Vertices,0);
+
+ SetLength(Normals,0);
 
  SetLength(Triangles,0);
 
@@ -13776,7 +13838,17 @@ begin
  Vertices[result]:=AVertex;
 end;
 
-function TKraftMesh.AddTriangle(const AVertexIndex0,AVertexIndex1,AVertexIndex2:longint):longint;
+function TKraftMesh.AddNormal(const ANormal:TKraftVector3):longint;
+begin
+ result:=CountNormals;
+ inc(CountNormals);
+ if CountNormals>length(Normals) then begin
+  SetLength(Normals,CountNormals*2);
+ end;
+ Normals[result]:=ANormal;
+end;
+
+function TKraftMesh.AddTriangle(const AVertexIndex0,AVertexIndex1,AVertexIndex2:longint;const ANormalIndex0:longint=-1;const ANormalIndex1:longint=-1;ANormalIndex2:longint=-1):longint;
 var Triangle:PKraftMeshTriangle;
 begin
  result:=CountTriangles;
@@ -13788,16 +13860,22 @@ begin
  Triangle^.Vertices[0]:=AVertexIndex0;
  Triangle^.Vertices[1]:=AVertexIndex1;
  Triangle^.Vertices[2]:=AVertexIndex2;
+ Triangle^.Normals[0]:=ANormalIndex0;
+ Triangle^.Normals[1]:=ANormalIndex1;
+ Triangle^.Normals[2]:=ANormalIndex2;
  Triangle^.Plane.Normal:=Vector3NormEx(Vector3Cross(Vector3Sub(Vertices[Triangle^.Vertices[1]],Vertices[Triangle^.Vertices[0]]),Vector3Sub(Vertices[Triangle^.Vertices[2]],Vertices[Triangle^.Vertices[0]])));
  Triangle^.Plane.Distance:=-Vector3Dot(Triangle^.Plane.Normal,Vertices[Triangle^.Vertices[0]]);
  Triangle^.Next:=-1;
 end;
 
-procedure TKraftMesh.Load(const AVertices:PKraftVector3;const ACountVertices:longint;const AIndices:pointer;const ACountIndices:longint);
+procedure TKraftMesh.Load(const AVertices:PKraftVector3;const ACountVertices:longint;const ANormals:PKraftVector3;const ACountNormals:longint;const AVertexIndices,ANormalIndices:pointer;const ACountIndices:longint);
 var i:longint;
     Triangle:PKraftMeshTriangle;
-    p:plongint;
+    v,n:plongint;
+    HasNormals:boolean;
 begin
+
+ HasNormals:=assigned(ANormals) and (ACountNormals>0) and assigned(ANormalIndices);
 
  Vertices:=nil;
  CountVertices:=ACountVertices;
@@ -13806,18 +13884,42 @@ begin
   Vertices[i]:=PKraftVector3s(AVertices)^[i];
  end;
 
+ Normals:=nil;
+ if HasNormals then begin
+  CountNormals:=ACountNormals;
+  SetLength(Normals,CountNormals);
+  for i:=0 to CountNormals-1 do begin
+   Normals[i]:=PKraftVector3s(ANormals)^[i];
+  end;
+ end else begin
+  CountNormals:=0;
+ end;
+
  Triangles:=nil;
  CountTriangles:=ACountIndices div 3;
  SetLength(Triangles,CountTriangles);
- p:=AIndices;
+ v:=AVertexIndices;
+ n:=ANormalIndices;
  for i:=0 to CountTriangles-1 do begin
   Triangle:=@Triangles[i];
-  Triangle^.Vertices[0]:=p^;
-  inc(p);
-  Triangle^.Vertices[1]:=p^;
-  inc(p);
-  Triangle^.Vertices[2]:=p^;
-  inc(p);
+  Triangle^.Vertices[0]:=v^;
+  inc(v);
+  Triangle^.Vertices[1]:=v^;
+  inc(v);
+  Triangle^.Vertices[2]:=v^;
+  inc(v);
+  if HasNormals then begin
+   Triangle^.Normals[0]:=n^;
+   inc(n);
+   Triangle^.Normals[1]:=n^;
+   inc(n);
+   Triangle^.Normals[2]:=n^;
+   inc(n);
+  end else begin
+   Triangle^.Normals[0]:=-1;
+   Triangle^.Normals[1]:=-1;
+   Triangle^.Normals[2]:=-1;
+  end;
   Triangle^.Plane.Normal:=Vector3NormEx(Vector3Cross(Vector3Sub(Vertices[Triangle^.Vertices[1]],Vertices[Triangle^.Vertices[0]]),Vector3Sub(Vertices[Triangle^.Vertices[2]],Vertices[Triangle^.Vertices[0]])));
   Triangle^.Plane.Distance:=-Vector3Dot(Triangle^.Plane.Normal,Vertices[Triangle^.Vertices[0]]);
   Triangle^.Next:=-1;
@@ -14255,6 +14357,43 @@ begin
  end;
 end;
 
+procedure TKraftMesh.CalculateNormals;
+var TriangleIndex,NormalIndex,Counter:longint;
+    NormalCounts:array of longint;
+    Triangle:PKraftMeshTriangle;
+begin
+ NormalCounts:=nil;
+ try
+  if CountTriangles>0 then begin
+   CountNormals:=CountVertices;
+   SetLength(NormalCounts,CountNormals);
+   SetLength(Normals,CountNormals);
+   for NormalIndex:=0 to CountNormals-1 do begin
+    NormalCounts[NormalIndex]:=0;
+    Normals[NormalIndex]:=Vector3Origin;
+   end;
+   for TriangleIndex:=0 to CountTriangles-1 do begin
+    Triangle:=@Triangles[TriangleIndex];
+    Triangle^.Normals[0]:=Triangle^.Vertices[0];
+    Triangle^.Normals[1]:=Triangle^.Vertices[1];
+    Triangle^.Normals[2]:=Triangle^.Vertices[2];
+    Triangle^.Plane.Normal:=Vector3NormEx(Vector3Cross(Vector3Sub(Vertices[Triangle^.Vertices[1]],Vertices[Triangle^.Vertices[0]]),Vector3Sub(Vertices[Triangle^.Vertices[2]],Vertices[Triangle^.Vertices[0]])));
+    Triangle^.Plane.Distance:=-Vector3Dot(Triangle^.Plane.Normal,Vertices[Triangle^.Vertices[0]]);
+    for Counter:=0 to 2 do begin
+     NormalIndex:=Triangle^.Normals[Counter];
+     inc(NormalCounts[NormalIndex]);
+     Vector3DirectAdd(Normals[NormalIndex],Triangle^.Plane.Normal);
+    end;
+   end;
+   for NormalIndex:=0 to CountNormals-1 do begin
+    Vector3Normalize(Normals[NormalIndex]);
+   end;
+  end;
+ finally
+  SetLength(NormalCounts,0);
+ end;
+end;
+
 procedure TKraftMesh.Finish;
 type PAABBTreeNode=^TAABBTreeNode;
      TAABBTreeNode=record
@@ -14283,6 +14422,13 @@ begin
  end;
  if length(Triangles)<>CountTriangles then begin
   SetLength(Triangles,CountTriangles);
+ end;
+ for Index:=0 to CountTriangles-1 do begin
+  Triangle:=@Triangles[Index];
+  if (Triangle^.Normals[0]<0) or (Triangle^.Normals[1]<0) or (Triangle^.Normals[2]<0) then begin
+   CalculateNormals;
+   break;
+  end;
  end;
  if CountSkipListNodes=0 then begin
   if CountTriangles>0 then begin
@@ -16580,19 +16726,28 @@ begin
  if Vector3LengthSquared(Direction)>EPSILON then begin
   Nearest:=3.4e+38;
   First:=true;
-  SkipListNodeIndex:=0;
+  SkipListNodeIndex:=0;  
   while SkipListNodeIndex<Mesh.CountSkipListNodes do begin
    SkipListNode:=@Mesh.SkipListNodes[SkipListNodeIndex];
-   if AABBRayIntersection(SkipListNode^.AABB,Origin,Direction,Time) then begin
+   if AABBRayIntersect(SkipListNode^.AABB,Origin,Direction) then begin
     TriangleIndex:=SkipListNode^.TriangleIndex;
     while TriangleIndex>=0 do begin
      Triangle:=@Mesh.Triangles[TriangleIndex];
-     if RayIntersectTriangle(Origin,Direction,Mesh.Vertices[Triangle^.Vertices[0]],Mesh.Vertices[Triangle^.Vertices[1]],Mesh.Vertices[Triangle^.Vertices[2]],Time,u,v) then begin
+     if RayIntersectTriangle(Origin,
+                             Direction,
+                             Mesh.Vertices[Triangle^.Vertices[0]],
+                             Mesh.Vertices[Triangle^.Vertices[1]],
+                             Mesh.Vertices[Triangle^.Vertices[2]],
+                             Time,
+                             u,
+                             v) then begin
       p:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time));
       if ((Time>=0.0) and (Time<=RayCastData.MaxTime)) and (First or (Time<Nearest)) then begin
        First:=false;
        Nearest:=Time;
-       Normal:=Vector3NormEx(Vector3Cross(Vector3Sub(Mesh.Vertices[Triangle^.Vertices[1]],Mesh.Vertices[Triangle^.Vertices[0]]),Vector3Sub(Mesh.Vertices[Triangle^.Vertices[2]],Mesh.Vertices[Triangle^.Vertices[0]])));
+       Normal:=Vector3Norm(Vector3Add(Vector3ScalarMul(Mesh.Normals[Triangle^.Normals[0]],1.0-(u+v)),
+                           Vector3Add(Vector3ScalarMul(Mesh.Normals[Triangle^.Normals[1]],u),
+                                      Vector3ScalarMul(Mesh.Normals[Triangle^.Normals[2]],v))));
        RayCastData.TimeOfImpact:=Time;
        RayCastData.Point:=p;
        RayCastData.Normal:=Normal;
@@ -16636,28 +16791,24 @@ begin
   for i:=0 to Mesh.CountTriangles-1 do begin
    Triangle:=@Mesh.Triangles[i];
 {$ifdef UseDouble}
-   glNormal3dv(@Triangle^.Plane.Normal);
+   glNormal3dv(@Mesh.Normals[Triangle^.Normals[0]]);
    glVertex3dv(@Mesh.Vertices[Triangle^.Vertices[0]]);
+   glNormal3dv(@Mesh.Normals[Triangle^.Normals[1]]);
    glVertex3dv(@Mesh.Vertices[Triangle^.Vertices[1]]);
+   glNormal3dv(@Mesh.Normals[Triangle^.Normals[2]]);
    glVertex3dv(@Mesh.Vertices[Triangle^.Vertices[2]]);
-  {glNormal3f(-Triangle^.Plane.Normal.x,-Triangle^.Plane.Normal.y,-Triangle^.Plane.Normal.z);
-   glVertex3dv(@Mesh.Vertices[Triangle^.Vertices[0]]);
-   glVertex3dv(@Mesh.Vertices[Triangle^.Vertices[2]]);
-   glVertex3dv(@Mesh.Vertices[Triangle^.Vertices[1]]);{}
 {$else}
-   glNormal3fv(@Triangle^.Plane.Normal);
+   glNormal3fv(@Mesh.Normals[Triangle^.Normals[0]]);
    glVertex3fv(@Mesh.Vertices[Triangle^.Vertices[0]]);
+   glNormal3fv(@Mesh.Normals[Triangle^.Normals[1]]);
    glVertex3fv(@Mesh.Vertices[Triangle^.Vertices[1]]);
+   glNormal3fv(@Mesh.Normals[Triangle^.Normals[2]]);
    glVertex3fv(@Mesh.Vertices[Triangle^.Vertices[2]]);
-  {glNormal3f(-Triangle^.Plane.Normal.x,-Triangle^.Plane.Normal.y,-Triangle^.Plane.Normal.z);
-   glVertex3fv(@Mesh.Vertices[Triangle^.Vertices[0]]);
-   glVertex3fv(@Mesh.Vertices[Triangle^.Vertices[2]]);
-   glVertex3fv(@Mesh.Vertices[Triangle^.Vertices[1]]);{}
 {$endif}
 
   end;
   glEnd;
-  
+
   glEndList;
  end;
 
@@ -20449,6 +20600,18 @@ begin
  AngularVelocity:=Vector3Add(AngularVelocity,Vector3TermMatrixMul(Vector3Cross(RelativePosition,Impulse),WorldInverseInertiaTensor));
 end;
 
+procedure TKraftRigidBody.SetForceAtPosition(const AForce,APosition:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+begin
+ SetWorldForce(AForce,AForceMode);
+ SetWorldTorque(Vector3TermMatrixMul(Vector3Cross(Vector3Sub(aPosition,Sweep.c),AForce),WorldInverseInertiaTensor),AForceMode);
+end;
+
+procedure TKraftRigidBody.AddForceAtPosition(const AForce,APosition:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+begin
+ AddWorldForce(AForce,AForceMode);
+ AddWorldTorque(Vector3TermMatrixMul(Vector3Cross(Vector3Sub(APosition,Sweep.c),AForce),WorldInverseInertiaTensor),AForceMode);
+end;
+
 procedure TKraftRigidBody.SetWorldForce(const AForce:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
 begin
  Force:=Vector3Origin;
@@ -21025,6 +21188,357 @@ end;
 procedure TKraftConstraintJointGrab.SetMaximalForce(AMaximalForce:TKraftScalar);
 begin
  MaximalForce:=AMaximalForce;
+end;
+
+// Keeps body at some fixed distance to a world plane.
+{TKraftConstraintJointWorldPlaneDistance=class(TKraftConstraintJoint)
+private
+IslandIndex:longint;
+InverseMass:TKraftScalar;
+SolverVelocity:PKraftSolverVelocity;
+SolverPosition:PKraftSolverPosition;
+WorldInverseInertiaTensor:TKraftMatrix3x3;
+RelativePosition:TKraftVector3;
+LocalCenter:TKraftVector3;
+LocalAnchor:TKraftVector3;
+mU:TKraftVector3;
+WorldPoint:TKraftPlane;
+WorldPlane:TKraftPlane;
+AnchorDistanceLength:TKraftScalar;
+FrequencyHz:TKraftScalar;
+DampingRatio:TKraftScalar;
+AccumulatedImpulse:TKraftScalar;
+Gamma:TKraftScalar;
+Bias:TKraftScalar;
+Mass:TKraftScalar;
+public}
+
+constructor TKraftConstraintJointWorldPlaneDistance.Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody;const ALocalAnchorPoint:TKraftVector3;const AWorldPlane:TKraftPlane;const ADoubleSidedWorldPlane:boolean=true;const AWorldDistance:single=1.0;const ALimitBehavior:TKraftConstraintLimitBehavior=kclbLimitDistance;const AFrequencyHz:TKraftScalar=0.0;const ADampingRatio:TKraftScalar=0.0;const ACollideConnected:boolean=false);
+begin
+
+ LocalAnchor:=ALocalAnchorPoint;
+
+ WorldPlane:=AWorldPlane;
+
+ WorldPoint:=Vector3ScalarMul(AWorldPlane.Normal,-AWorldPlane.Distance);
+
+ DoubleSidedWorldPlane:=ADoubleSidedWorldPlane;
+ 
+ WorldDistance:=AWorldDistance;
+
+// AnchorDistanceLength:=AWorldDistance;//Vector3Dist(WorldPoint,Vector3TermMatrixMul(ALocalAnchorPoint,ARigidBody.WorldTransform));
+
+ LimitBehavior:=ALimitBehavior;
+
+ FrequencyHz:=AFrequencyHz;
+ DampingRatio:=ADampingRatio;
+ AccumulatedImpulse:=0.0;
+ Gamma:=0.0;
+ Bias:=0.0;
+
+ if ACollideConnected then begin
+  Include(Flags,kcfCollideConnected);
+ end else begin
+  Exclude(Flags,kcfCollideConnected);
+ end;
+
+ RigidBodies[0]:=ARigidBody;
+ RigidBodies[1]:=nil;
+
+ inherited Create(APhysics);
+
+end;
+
+destructor TKraftConstraintJointWorldPlaneDistance.Destroy;
+begin
+ inherited Destroy;
+end;
+
+procedure TKraftConstraintJointWorldPlaneDistance.InitializeConstraintsAndWarmStart(const Island:TKraftIsland;const TimeStep:TKraftTimeStep);
+var cA,vA,wA:PKraftVector3;
+    qA:PKraftQuaternion;
+    crAu,P,AbsolutePosition:TKraftVector3;
+    l,TotalInverseMass,C,Omega,k,h,d:TKraftScalar;
+begin
+
+ IslandIndex:=RigidBodies[0].IslandIndices[Island.IslandIndex];
+
+ LocalCenter:=RigidBodies[0].Sweep.LocalCenter;
+
+ InverseMass:=RigidBodies[0].InverseMass;
+
+ WorldInverseInertiaTensor:=RigidBodies[0].WorldInverseInertiaTensor;
+
+ SolverVelocity:=@Island.Solver.Velocities[IslandIndex];
+
+ SolverPosition:=@Island.Solver.Positions[IslandIndex];
+
+ cA:=@SolverPosition^.Position;
+ qA:=@SolverPosition^.Orientation;
+ vA:=@SolverVelocity^.LinearVelocity;
+ wA:=@SolverVelocity^.AngularVelocity;
+
+ RelativePosition:=Vector3TermQuaternionRotate(Vector3Sub(LocalAnchor,LocalCenter),qA^);
+ AbsolutePosition:=Vector3Add(cA^,RelativePosition);
+
+ WorldPoint:=Vector3Add(AbsolutePosition,Vector3ScalarMul(WorldPlane.Normal,-PlaneVectorDistance(WorldPlane,AbsolutePosition)));
+                         
+ if DoubleSidedWorldPlane then begin
+
+  mU:=Vector3Sub(WorldPoint,AbsolutePosition);
+
+  // Handle singularity
+  l:=Vector3Length(mU);
+  if l>Physics.LinearSlop then begin
+   Vector3Scale(mU,1.0/l);
+  end else begin
+   mU:=Vector3Origin;
+  end;
+
+ end else begin
+
+  l:=PlaneVectorDistance(WorldPlane,AbsolutePosition);
+
+  if abs(l)>Physics.LinearSlop then begin
+   mU:=Vector3Neg(WorldPlane.Normal);
+  end else begin
+   mU:=Vector3Origin;
+  end;
+
+ end;
+
+ SoftConstraint:=FrequencyHz>EPSILON;
+
+ if SoftConstraint then begin
+
+  // No limit state skipping for soft contraints
+  Skip:=false;
+
+ end else begin
+
+  // Limit state skipping for non-soft contraints
+  case LimitBehavior of
+   kclbLimitMinimumDistance:begin
+    Skip:=l>(WorldDistance+Physics.LinearSlop);
+   end;
+   kclbLimitMaximumDistance:begin
+    Skip:=l<(WorldDistance-Physics.LinearSlop);
+   end;
+   else begin
+    Skip:=false;
+   end;
+  end;
+
+ end;
+
+ if not Skip then begin
+
+  crAu:=Vector3Cross(RelativePosition,mU);
+
+  TotalInverseMass:=RigidBodies[0].InverseMass+
+                    Vector3Dot(Vector3TermMatrixMul(crAu,WorldInverseInertiaTensor),crAu);
+
+  // Compute the effective mass matrix
+  if TotalInverseMass<>0.0 then begin
+   Mass:=1.0/TotalInverseMass;
+  end else begin
+   Mass:=0.0;
+  end;
+
+  if SoftConstraint then begin
+
+   C:=l-WorldDistance;
+
+   // Frequency
+   Omega:=pi2*FrequencyHz;
+
+   // Damping coefficient
+   d:=2.0*Mass*DampingRatio*Omega;
+
+   // Spring stiffness
+   k:=Mass*sqr(Omega);
+
+   // Magic formulas
+   h:=TimeStep.DeltaTime;
+   Gamma:=h*(d+(h*k));
+   if Gamma<>0.0 then begin
+    Gamma:=1.0/Gamma;
+   end else begin
+    Gamma:=0.0;
+   end;
+   Bias:=C*h*k*Gamma;
+
+   TotalInverseMass:=TotalInverseMass+Gamma;
+
+   if TotalInverseMass<>0.0 then begin
+    Mass:=1.0/TotalInverseMass;
+   end else begin
+    Mass:=0.0;
+   end;
+
+  end else begin
+
+   Gamma:=0.0;
+   Bias:=0.0;
+
+  end;
+
+ end;
+
+ if Physics.WarmStarting and not Skip then begin
+
+  AccumulatedImpulse:=AccumulatedImpulse*TimeStep.DeltaTimeRatio;
+
+  P:=Vector3ScalarMul(mU,AccumulatedImpulse);
+
+  Vector3DirectSub(vA^,Vector3ScalarMul(P,InverseMass));
+  Vector3DirectSub(wA^,Vector3TermMatrixMul(Vector3Cross(RelativePosition,P),WorldInverseInertiaTensor));
+
+ end else begin
+
+  AccumulatedImpulse:=0.0;
+
+ end;
+
+
+end;
+
+procedure TKraftConstraintJointWorldPlaneDistance.SolveVelocityConstraint(const Island:TKraftIsland;const TimeStep:TKraftTimeStep);
+var vA,wA:PKraftVector3;
+    vpA,P:TKraftVector3;
+    Cdot,Impulse,OldImpulse:TKraftScalar;
+begin
+
+ if not Skip then begin
+
+  vA:=@SolverVelocity^.LinearVelocity;
+  wA:=@SolverVelocity^.AngularVelocity;
+
+  // Cdot = dot(u, v + cross(w, r))
+  vpA:=Vector3Add(vA^,Vector3Cross(wA^,RelativePosition));
+  Cdot:=Vector3Dot(mU,Vector3Neg(vpA));
+
+  Impulse:=-(Mass*((Cdot+Bias)+(Gamma*AccumulatedImpulse)));
+
+  if SoftConstraint then begin
+   case LimitBehavior of
+    kclbLimitMinimumDistance:begin
+     OldImpulse:=AccumulatedImpulse;
+     AccumulatedImpulse:=Max(0.0,AccumulatedImpulse+Impulse);
+     Impulse:=AccumulatedImpulse-OldImpulse;
+    end;
+    kclbLimitMaximumDistance:begin
+     OldImpulse:=AccumulatedImpulse;
+     AccumulatedImpulse:=Min(0.0,AccumulatedImpulse+Impulse);
+     Impulse:=AccumulatedImpulse-OldImpulse;
+    end;
+    else begin
+     AccumulatedImpulse:=AccumulatedImpulse+Impulse;
+    end;
+   end;
+  end else begin
+   AccumulatedImpulse:=AccumulatedImpulse+Impulse;
+  end;
+  
+  P:=Vector3ScalarMul(mU,Impulse);
+
+  Vector3DirectSub(vA^,Vector3ScalarMul(P,InverseMass));
+  Vector3DirectSub(wA^,Vector3TermMatrixMul(Vector3Cross(RelativePosition,P),WorldInverseInertiaTensor));
+
+ end;
+
+end;
+
+function TKraftConstraintJointWorldPlaneDistance.SolvePositionConstraint(const Island:TKraftIsland;const TimeStep:TKraftTimeStep):boolean;
+var cA:PKraftVector3;
+    qA:PKraftQuaternion;
+    rA,AbsolutePosition,u,P:TKraftVector3;
+    l,C,Impulse:TKraftScalar;
+begin
+ if SoftConstraint or Skip then begin
+
+  // There is no position correction for soft distance constraints or invalid limit states
+  result:=true;
+
+ end else begin
+
+  cA:=@SolverPosition^.Position;
+  qA:=@SolverPosition^.Orientation;
+
+  rA:=Vector3TermQuaternionRotate(Vector3Sub(LocalAnchor,LocalCenter),qA^);
+
+  AbsolutePosition:=Vector3Add(cA^,RelativePosition);
+
+  if DoubleSidedWorldPlane then begin
+
+   WorldPoint:=Vector3Add(AbsolutePosition,Vector3ScalarMul(WorldPlane.Normal,-PlaneVectorDistance(WorldPlane,AbsolutePosition)));
+
+   u:=Vector3Sub(WorldPoint,AbsolutePosition);
+
+   l:=Vector3LengthNormalize(u);
+
+   C:=Min(Max(l-WorldDistance,-Physics.MaximalLinearCorrection),Physics.MaximalLinearCorrection);
+
+   Impulse:=-(Mass*C);
+
+   P:=Vector3ScalarMul(u,Impulse);
+
+  end else begin
+
+   C:=Min(Max(WorldDistance-PlaneVectorDistance(WorldPlane,AbsolutePosition),-Physics.MaximalLinearCorrection),Physics.MaximalLinearCorrection);
+
+   Impulse:=-(Mass*C);
+
+   P:=Vector3ScalarMul(WorldPlane.Normal,Impulse);
+
+  end;
+
+  Vector3DirectSub(cA^,Vector3ScalarMul(P,InverseMass));
+  QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3Cross(rA,Vector3Neg(P)),WorldInverseInertiaTensor),1.0);
+
+  result:=abs(C)<Physics.LinearSlop;
+
+ end;
+end;
+
+function TKraftConstraintJointWorldPlaneDistance.GetAnchor:TKraftVector3;
+begin
+ result:=Vector3TermMatrixMul(LocalAnchor,RigidBodies[0].WorldTransform);
+end;
+                                         
+function TKraftConstraintJointWorldPlaneDistance.GetReactionForce(const InverseDeltaTime:TKraftScalar):TKraftVector3;
+begin
+ result:=Vector3ScalarMul(mU,AccumulatedImpulse*InverseDeltaTime);
+end;
+
+function TKraftConstraintJointWorldPlaneDistance.GetReactionTorque(const InverseDeltaTime:TKraftScalar):TKraftVector3;
+begin
+ result:=Vector3Origin;
+end;
+
+function TKraftConstraintJointWorldPlaneDistance.GetWorldPoint:TKraftVector3;
+begin
+ result:=WorldPoint;
+end;
+
+function TKraftConstraintJointWorldPlaneDistance.GetWorldPlane:TKraftPlane;
+begin
+ result:=WorldPlane;
+end;
+
+procedure TKraftConstraintJointWorldPlaneDistance.SetWorldPlane(const AWorldPlane:TKraftPlane);
+begin
+ WorldPlane:=AWorldPlane;
+end;
+
+function TKraftConstraintJointWorldPlaneDistance.GetWorldDistance:TKraftScalar;
+begin
+ result:=WorldDistance;
+end;
+
+procedure TKraftConstraintJointWorldPlaneDistance.SetWorldDistance(const AWorldDistance:TKraftScalar);
+begin
+ WorldDistance:=AWorldDistance;
 end;
 
 constructor TKraftConstraintJointDistance.Create(const APhysics:TKraft;const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const ALocalAnchorPointA,ALocalAnchorPointB:TKraftVector3;const AFrequencyHz:TKraftScalar=0.0;const ADampingRatio:TKraftScalar=0.0;const ACollideConnected:boolean=false);
