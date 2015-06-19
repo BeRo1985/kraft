@@ -20215,8 +20215,8 @@ end;
 
 procedure TKraftRigidBody.SynchronizeTransform;
 begin
- WorldTransform:=QuaternionToMatrix4x4(Sweep.q0);
- PKraftVector3(pointer(@WorldTransform[3,0]))^.xyz:=Vector3Sub(Sweep.c0,Vector3TermMatrixMulBasis(Sweep.LocalCenter,WorldTransform)).xyz;
+ WorldTransform:=QuaternionToMatrix4x4(Sweep.q);
+ PKraftVector3(pointer(@WorldTransform[3,0]))^.xyz:=Vector3Sub(Sweep.c,Vector3TermMatrixMulBasis(Sweep.LocalCenter,WorldTransform)).xyz;
 end;
 
 procedure TKraftRigidBody.SynchronizeTransformIncludingShapes;
@@ -25007,15 +25007,28 @@ begin
   end;
  end;
 
+ // Leap of faith to new safe state.
+ for i:=0 to CountRigidBodies-1 do begin
+  RigidBody:=RigidBodies[i];
+  if RigidBody.RigidBodyType=krbtDynamic then begin
+   SolverPosition:=@Solver.Positions[i];
+   RigidBody.Sweep.c0:=SolverPosition^.Position;
+   RigidBody.Sweep.q0:=SolverPosition^.Orientation;
+  end;
+ end;
+
  Solver.InitializeConstraints;
 
- Solver.WarmStart;
+ // No warm starting is needed for TOI events because warm
+ // starting impulses were applied in the discrete solver.
 
  for Iteration:=0 to Physics.VelocityIterations-1 do begin
   Solver.SolveVelocityConstraints;
  end;
- Solver.StoreImpulses;
 
+ // Don't store the TOI contact forces for warm starting
+ // because they can be quite large.
+                       
  for i:=0 to CountRigidBodies-1 do begin
 
   RigidBody:=RigidBodies[i];
