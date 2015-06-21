@@ -1313,7 +1313,7 @@ type PKraftForceMode=^TKraftForceMode;
      TKraftRigidBody=class
       private
        function GetAngularMomentum:TKraftVector3;
-       procedure SetAngularMomentumEx(const NewAngularMomentum:TKraftVector3);
+       procedure SetAngularMomentum(const NewAngularMomentum:TKraftVector3);
       public
 
        Physics:TKraft;
@@ -1480,13 +1480,19 @@ type PKraftForceMode=^TKraftForceMode;
        procedure SetBodyTorque(const ATorque:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
        procedure AddBodyTorque(const ATorque:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
 
-       procedure SetAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
-       procedure AddAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+       procedure SetWorldAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+       procedure AddWorldAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
 
-       procedure SetAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
-       procedure AddAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+       procedure SetBodyAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+       procedure AddBodyAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
 
-       property AngularMomentum:TKraftVector3 read GetAngularMomentum write SetAngularMomentumEx;
+       procedure SetWorldAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+       procedure AddWorldAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+
+       procedure SetBodyAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+       procedure AddBodyAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+
+       property AngularMomentum:TKraftVector3 read GetAngularMomentum write SetAngularMomentum;
      end;
 
      PKraftSolverVelocity=^TKraftSolverVelocity;
@@ -20680,7 +20686,7 @@ begin
 end;
 
 procedure TKraftRigidBody.SetBodyTorque(const ATorque:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
-begin                                
+begin
  SetWorldTorque(Vector3TermMatrixMulBasis(ATorque,WorldTransform),AForceMode);
 end;
 
@@ -20689,13 +20695,13 @@ begin
  AddWorldTorque(Vector3TermMatrixMulBasis(ATorque,WorldTransform),AForceMode);
 end;
 
-procedure TKraftRigidBody.SetAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+procedure TKraftRigidBody.SetWorldAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
 begin
  AngularVelocity:=Vector3Origin;
- AddAngularVelocity(AAngularVelocity,AForceMode);
+ AddWorldAngularVelocity(AAngularVelocity,AForceMode);
 end;
 
-procedure TKraftRigidBody.AddAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+procedure TKraftRigidBody.AddWorldAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
 begin
  case AForceMode of
   kfmForce:begin
@@ -20717,24 +20723,44 @@ begin
  end;
 end;
 
-procedure TKraftRigidBody.SetAngularMomentumEx(const NewAngularMomentum:TKraftVector3);
+procedure TKraftRigidBody.SetBodyAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
 begin
- AngularVelocity:=Vector3TermMatrixMul(NewAngularMomentum,WorldInverseInertiaTensor);
+ SetWorldAngularVelocity(Vector3TermMatrixMulBasis(AAngularVelocity,WorldTransform),AForceMode);
 end;
 
-procedure TKraftRigidBody.SetAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+procedure TKraftRigidBody.AddBodyAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
 begin
- SetAngularVelocity(Vector3TermMatrixMul(AAngularMomentum,WorldInverseInertiaTensor),AForceMode);
+ AddWorldAngularVelocity(Vector3TermMatrixMulBasis(AAngularVelocity,WorldTransform),AForceMode);
 end;
 
-procedure TKraftRigidBody.AddAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+procedure TKraftRigidBody.SetWorldAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
 begin
- AddAngularVelocity(Vector3TermMatrixMul(AAngularMomentum,WorldInverseInertiaTensor),AForceMode);
+ SetWorldAngularVelocity(Vector3TermMatrixMul(AAngularMomentum,WorldInverseInertiaTensor),AForceMode);
+end;
+
+procedure TKraftRigidBody.AddWorldAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+begin
+ AddWorldAngularVelocity(Vector3TermMatrixMul(AAngularMomentum,WorldInverseInertiaTensor),AForceMode);
+end;
+
+procedure TKraftRigidBody.SetBodyAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+begin
+ SetBodyAngularVelocity(Vector3TermMatrixMul(AAngularMomentum,BodyInverseInertiaTensor),AForceMode);
+end;
+
+procedure TKraftRigidBody.AddBodyAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+begin
+ AddBodyAngularVelocity(Vector3TermMatrixMul(AAngularMomentum,BodyInverseInertiaTensor),AForceMode);
 end;
 
 function TKraftRigidBody.GetAngularMomentum:TKraftVector3;
 begin
  result:=Vector3TermMatrixMul(AngularVelocity,WorldInertiaTensor);
+end;
+
+procedure TKraftRigidBody.SetAngularMomentum(const NewAngularMomentum:TKraftVector3);
+begin
+ AngularVelocity:=Vector3TermMatrixMul(NewAngularMomentum,WorldInverseInertiaTensor);
 end;
 
 constructor TKraftConstraint.Create(const APhysics:TKraft);
