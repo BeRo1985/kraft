@@ -20314,11 +20314,6 @@ procedure TKraftRigidBody.Finish;
     Shape:=Shape.ShapeNext;
    end;
 
-   if ForcedMass>EPSILON then begin
-    Matrix3x3ScalarMul(BodyInertiaTensor,ForcedMass/Mass);
-    Mass:=ForcedMass;
-   end;
-
    if Mass>EPSILON then begin
 
     InverseMass:=1.0/Mass;
@@ -20373,6 +20368,12 @@ procedure TKraftRigidBody.Finish;
 
      Matrix3x3Inverse(BodyInertiaTensor,BodyInverseInertiaTensor);
 
+    end;
+
+    if ForcedMass>EPSILON then begin
+     Matrix3x3ScalarMul(BodyInertiaTensor,ForcedMass/Mass);
+     Mass:=ForcedMass;
+     InverseMass:=1.0/Mass;
     end;
 
    end else begin
@@ -21189,29 +21190,6 @@ procedure TKraftConstraintJointGrab.SetMaximalForce(AMaximalForce:TKraftScalar);
 begin
  MaximalForce:=AMaximalForce;
 end;
-
-// Keeps body at some fixed distance to a world plane.
-{TKraftConstraintJointWorldPlaneDistance=class(TKraftConstraintJoint)
-private
-IslandIndex:longint;
-InverseMass:TKraftScalar;
-SolverVelocity:PKraftSolverVelocity;
-SolverPosition:PKraftSolverPosition;
-WorldInverseInertiaTensor:TKraftMatrix3x3;
-RelativePosition:TKraftVector3;
-LocalCenter:TKraftVector3;
-LocalAnchor:TKraftVector3;
-mU:TKraftVector3;
-WorldPoint:TKraftPlane;
-WorldPlane:TKraftPlane;
-AnchorDistanceLength:TKraftScalar;
-FrequencyHz:TKraftScalar;
-DampingRatio:TKraftScalar;
-AccumulatedImpulse:TKraftScalar;
-Gamma:TKraftScalar;
-Bias:TKraftScalar;
-Mass:TKraftScalar;
-public}
 
 constructor TKraftConstraintJointWorldPlaneDistance.Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody;const ALocalAnchorPoint:TKraftVector3;const AWorldPlane:TKraftPlane;const ADoubleSidedWorldPlane:boolean=true;const AWorldDistance:single=1.0;const ALimitBehavior:TKraftConstraintLimitBehavior=kclbLimitDistance;const AFrequencyHz:TKraftScalar=0.0;const ADampingRatio:TKraftScalar=0.0;const ACollideConnected:boolean=false);
 begin
