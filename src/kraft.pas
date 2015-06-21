@@ -7411,6 +7411,9 @@ asm
  sqrtss xmm0,xmm0
  shufps xmm0,xmm0,$00
  divps xmm2,xmm0
+ subps xmm1,xmm2
+ cmpps xmm1,xmm0,7
+ andps xmm2,xmm1
  movups dqword ptr [AQuaternion],xmm2
 end;
 {$else}
@@ -7439,6 +7442,9 @@ asm
  sqrtss xmm0,xmm0
  shufps xmm0,xmm0,$00
  divps xmm2,xmm0
+ subps xmm1,xmm2
+ cmpps xmm1,xmm0,7
+ andps xmm2,xmm1
  movups dqword ptr [result],xmm2
 end;
 {$else}
@@ -13982,6 +13988,9 @@ var SrcPos:longint;
     Triangle^.Vertices[0]:=ReadLongWord;
     Triangle^.Vertices[1]:=ReadLongWord;
     Triangle^.Vertices[2]:=ReadLongWord;
+    Triangle^.Normals[0]:=-1;
+    Triangle^.Normals[1]:=-1;
+    Triangle^.Normals[2]:=-1;
    end;
    SetLength(Vertices,CountVertices);
    for Counter:=0 to CountVertices-1 do begin
