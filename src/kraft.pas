@@ -363,10 +363,12 @@ type PKraftForceMode=^TKraftForceMode;
      TKraftVector3=record
       case byte of
        0:(x,y,z{$ifdef SIMD},w{$endif}:TKraftScalar);
-       1:(xyz:array[0..2] of TKraftScalar);
-       2:(RawVector:TKraftRawVector3);
+       1:(Pitch,Yaw,Roll:single);
+       2:(xyz:array[0..2] of TKraftScalar);
+       3:(PitchYawRoll:array[0..2] of single);
+       4:(RawVector:TKraftRawVector3);
 {$ifdef SIMD}
-       3:(xyzw:array[0..3] of TKraftScalar);
+       5:(xyzw:array[0..3] of TKraftScalar);
 {$endif}
      end;
 
@@ -1112,6 +1114,7 @@ type PKraftForceMode=^TKraftForceMode;
 
      TKraftContactManagerOnContactBeginHook=procedure(const ContactPair:PKraftContactPair) of object;
      TKraftContactManagerOnContactEndHook=procedure(const ContactPair:PKraftContactPair) of object;
+     TKraftContactManagerOnContactStayHook=procedure(const ContactPair:PKraftContactPair) of object;
 
      PKraftContactIndices=^TKraftContactIndices;
      TKraftContactIndices=array[0..MAX_CONTACTS-1] of longint;
@@ -1198,6 +1201,7 @@ type PKraftForceMode=^TKraftForceMode;
 
        OnContactBegin:TKraftContactManagerOnContactBeginHook;
        OnContactEnd:TKraftContactManagerOnContactEndHook;
+       OnContactStay:TKraftContactManagerOnContactStayHook;
 
        OnCanCollide:TKraftContactManagerOnCanCollide;
 
@@ -18762,6 +18766,7 @@ begin
 
  OnContactBegin:=nil;
  OnContactEnd:=nil;
+ OnContactStay:=nil;
 
  OnCanCollide:=nil;
 
@@ -19317,6 +19322,10 @@ begin
   end else if Flags=[kcfWasColliding] then begin
    if assigned(OnContactEnd) then begin
     OnContactEnd(ContactPair);
+   end;
+  end else if Flags=[kcfColliding,kcfWasColliding] then begin
+   if assigned(OnContactStay) then begin
+    OnContactStay(ContactPair);
    end;
   end;
  end;
