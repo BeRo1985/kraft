@@ -713,6 +713,12 @@ type PKraftForceMode=^TKraftForceMode;
 
      end;
 
+     PKraftContactPair=^TKraftContactPair;
+
+     TKraftShapeOnContactBeginHook=procedure(const ContactPair:PKraftContactPair;const WithShape:TKraftShape) of object;
+     TKraftShapeOnContactEndHook=procedure(const ContactPair:PKraftContactPair;const WithShape:TKraftShape) of object;
+     TKraftShapeOnContactStayHook=procedure(const ContactPair:PKraftContactPair;const WithShape:TKraftShape) of object;
+
      TKraftShape=class
       private
 
@@ -773,6 +779,10 @@ type PKraftForceMode=^TKraftForceMode;
        AngularMotionDisc:TKraftScalar;
 
        FeatureRadius:TKraftScalar;
+
+       OnContactBegin:TKraftShapeOnContactBeginHook;
+       OnContactEnd:TKraftShapeOnContactEndHook;
+       OnContactStay:TKraftShapeOnContactStayHook;
 
        constructor Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody);
        destructor Destroy; override;
@@ -1074,8 +1084,6 @@ type PKraftForceMode=^TKraftForceMode;
       FaceQueryBA:TKraftContactFaceQuery;
       EdgeQuery:TKraftContactEdgeQuery;
      end;
-
-     PKraftContactPair=^TKraftContactPair;
 
      PKraftContactPairEdge=^TKraftContactPairEdge;
      TKraftContactPairEdge=record
@@ -14926,6 +14934,10 @@ begin
  DrawDisplayList:=0;
 {$endif}
 
+ OnContactBegin:=nil;
+ OnContactEnd:=nil;
+ OnContactStay:=nil;
+
 end;
 
 destructor TKraftShape.Destroy;
@@ -19252,6 +19264,12 @@ begin
     if assigned(OnContactEnd) and ((ContactPair^.Flags*[kcfColliding,kcfWasColliding])<>[]) then begin
      OnContactEnd(ContactPair);
     end;
+    if assigned(ContactPair^.Shapes[0]) and assigned(ContactPair^.Shapes[0].OnContactEnd) then begin
+     ContactPair^.Shapes[0].OnContactEnd(ContactPair,ContactPair^.Shapes[1]);
+    end;
+    if assigned(ContactPair^.Shapes[1]) and assigned(ContactPair^.Shapes[1].OnContactEnd) then begin
+     ContactPair^.Shapes[1].OnContactEnd(ContactPair,ContactPair^.Shapes[0]);
+    end;
     NextContactPair:=ContactPair^.Next;
     RemoveContact(ContactPair);
     ContactPair:=NextContactPair;
@@ -19270,6 +19288,12 @@ begin
    if assigned(OnContactEnd) and ((ContactPair^.Flags*[kcfColliding,kcfWasColliding])<>[]) then begin
     OnContactEnd(ContactPair);
    end;
+   if assigned(ContactPair^.Shapes[0]) and assigned(ContactPair^.Shapes[0].OnContactEnd) then begin
+    ContactPair^.Shapes[0].OnContactEnd(ContactPair,ContactPair^.Shapes[1]);
+   end;
+   if assigned(ContactPair^.Shapes[1]) and assigned(ContactPair^.Shapes[1].OnContactEnd) then begin
+    ContactPair^.Shapes[1].OnContactEnd(ContactPair,ContactPair^.Shapes[0]);
+   end;
    NextContactPair:=ContactPair^.Next;
    RemoveContact(ContactPair);
    ContactPair:=NextContactPair;
@@ -19282,6 +19306,12 @@ begin
     if assigned(OnContactEnd) and ((ContactPair^.Flags*[kcfColliding,kcfWasColliding])<>[]) then begin
      OnContactEnd(ContactPair);
     end;             
+    if assigned(ContactPair^.Shapes[0]) and assigned(ContactPair^.Shapes[0].OnContactEnd) then begin
+     ContactPair^.Shapes[0].OnContactEnd(ContactPair,ContactPair^.Shapes[1]);
+    end;
+    if assigned(ContactPair^.Shapes[1]) and assigned(ContactPair^.Shapes[1].OnContactEnd) then begin
+     ContactPair^.Shapes[1].OnContactEnd(ContactPair,ContactPair^.Shapes[0]);
+    end;
     NextContactPair:=ContactPair^.Next;
     RemoveContact(ContactPair);
     ContactPair:=NextContactPair;
@@ -19319,13 +19349,31 @@ begin
    if assigned(OnContactBegin) then begin
     OnContactBegin(ContactPair);
    end;
+   if assigned(ContactPair^.Shapes[0]) and assigned(ContactPair^.Shapes[0].OnContactBegin) then begin
+    ContactPair^.Shapes[0].OnContactBegin(ContactPair,ContactPair^.Shapes[1]);
+   end;
+   if assigned(ContactPair^.Shapes[1]) and assigned(ContactPair^.Shapes[1].OnContactBegin) then begin
+    ContactPair^.Shapes[1].OnContactBegin(ContactPair,ContactPair^.Shapes[0]);
+   end;
   end else if Flags=[kcfWasColliding] then begin
    if assigned(OnContactEnd) then begin
     OnContactEnd(ContactPair);
    end;
+   if assigned(ContactPair^.Shapes[0]) and assigned(ContactPair^.Shapes[0].OnContactEnd) then begin
+    ContactPair^.Shapes[0].OnContactEnd(ContactPair,ContactPair^.Shapes[1]);
+   end;
+   if assigned(ContactPair^.Shapes[1]) and assigned(ContactPair^.Shapes[1].OnContactEnd) then begin
+    ContactPair^.Shapes[1].OnContactEnd(ContactPair,ContactPair^.Shapes[0]);
+   end;
   end else if Flags=[kcfColliding,kcfWasColliding] then begin
    if assigned(OnContactStay) then begin
     OnContactStay(ContactPair);
+   end;
+   if assigned(ContactPair^.Shapes[0]) and assigned(ContactPair^.Shapes[0].OnContactStay) then begin
+    ContactPair^.Shapes[0].OnContactStay(ContactPair,ContactPair^.Shapes[1]);
+   end;
+   if assigned(ContactPair^.Shapes[1]) and assigned(ContactPair^.Shapes[1].OnContactStay) then begin
+    ContactPair^.Shapes[1].OnContactStay(ContactPair,ContactPair^.Shapes[0]);
    end;
   end;
  end;
