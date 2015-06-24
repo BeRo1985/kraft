@@ -19265,14 +19265,27 @@ begin
 
   if kcfFiltered in ContactPair^.Flags then begin
    if (not RigidBodyA.CanCollideWith(RigidBodyB)) or (assigned(OnCanCollide) and not OnCanCollide(ShapeA,ShapeB)) then begin
-    if assigned(OnContactEnd) and ((ContactPair^.Flags*[kcfColliding,kcfWasColliding])<>[]) then begin
-     OnContactEnd(ContactPair);
-    end;
-    if assigned(ContactPair^.Shapes[0]) and assigned(ContactPair^.Shapes[0].OnContactEnd) then begin
-     ContactPair^.Shapes[0].OnContactEnd(ContactPair,ContactPair^.Shapes[1]);
-    end;
-    if assigned(ContactPair^.Shapes[1]) and assigned(ContactPair^.Shapes[1].OnContactEnd) then begin
-     ContactPair^.Shapes[1].OnContactEnd(ContactPair,ContactPair^.Shapes[0]);
+    if (ContactPair^.Flags*[kcfColliding,kcfWasColliding])<>[] then begin
+     if (ContactPair^.Flags*[kcfColliding,kcfWasColliding])=[kcfColliding] then begin
+      if assigned(OnContactBegin) then begin
+       OnContactBegin(ContactPair);
+      end;
+      if assigned(ContactPair^.Shapes[0]) and assigned(ContactPair^.Shapes[0].OnContactBegin) then begin
+       ContactPair^.Shapes[0].OnContactBegin(ContactPair,ContactPair^.Shapes[1]);
+      end;
+      if assigned(ContactPair^.Shapes[1]) and assigned(ContactPair^.Shapes[1].OnContactBegin) then begin
+       ContactPair^.Shapes[1].OnContactBegin(ContactPair,ContactPair^.Shapes[0]);
+      end;
+     end;
+     if assigned(OnContactEnd) then begin
+      OnContactEnd(ContactPair);
+     end;
+     if assigned(ContactPair^.Shapes[0]) and assigned(ContactPair^.Shapes[0].OnContactEnd) then begin
+      ContactPair^.Shapes[0].OnContactEnd(ContactPair,ContactPair^.Shapes[1]);
+     end;
+     if assigned(ContactPair^.Shapes[1]) and assigned(ContactPair^.Shapes[1].OnContactEnd) then begin
+      ContactPair^.Shapes[1].OnContactEnd(ContactPair,ContactPair^.Shapes[0]);
+     end;
     end;
     NextContactPair:=ContactPair^.Next;
     RemoveContact(ContactPair);
@@ -19289,14 +19302,27 @@ begin
   end;
 
   if not AABBIntersect(ShapeA.WorldAABB,ShapeB.WorldAABB) then begin
-   if assigned(OnContactEnd) and ((ContactPair^.Flags*[kcfColliding,kcfWasColliding])<>[]) then begin
-    OnContactEnd(ContactPair);
-   end;
-   if assigned(ContactPair^.Shapes[0]) and assigned(ContactPair^.Shapes[0].OnContactEnd) then begin
-    ContactPair^.Shapes[0].OnContactEnd(ContactPair,ContactPair^.Shapes[1]);
-   end;
-   if assigned(ContactPair^.Shapes[1]) and assigned(ContactPair^.Shapes[1].OnContactEnd) then begin
-    ContactPair^.Shapes[1].OnContactEnd(ContactPair,ContactPair^.Shapes[0]);
+   if (ContactPair^.Flags*[kcfColliding,kcfWasColliding])<>[] then begin
+    if (ContactPair^.Flags*[kcfColliding,kcfWasColliding])=[kcfColliding] then begin
+     if assigned(OnContactBegin) then begin
+      OnContactBegin(ContactPair);
+     end;
+     if assigned(ContactPair^.Shapes[0]) and assigned(ContactPair^.Shapes[0].OnContactBegin) then begin
+      ContactPair^.Shapes[0].OnContactBegin(ContactPair,ContactPair^.Shapes[1]);
+     end;
+     if assigned(ContactPair^.Shapes[1]) and assigned(ContactPair^.Shapes[1].OnContactBegin) then begin
+      ContactPair^.Shapes[1].OnContactBegin(ContactPair,ContactPair^.Shapes[0]);
+     end;
+    end;
+    if assigned(OnContactEnd) then begin
+     OnContactEnd(ContactPair);
+    end;
+    if assigned(ContactPair^.Shapes[0]) and assigned(ContactPair^.Shapes[0].OnContactEnd) then begin
+     ContactPair^.Shapes[0].OnContactEnd(ContactPair,ContactPair^.Shapes[1]);
+    end;
+    if assigned(ContactPair^.Shapes[1]) and assigned(ContactPair^.Shapes[1].OnContactEnd) then begin
+     ContactPair^.Shapes[1].OnContactEnd(ContactPair,ContactPair^.Shapes[0]);
+    end;
    end;
    NextContactPair:=ContactPair^.Next;
    RemoveContact(ContactPair);
@@ -19307,14 +19333,27 @@ begin
   if assigned(ContactPair^.MeshContactPair) and (ContactPair^.ElementIndex>=0) then begin
    if not AABBIntersect(TKraftShapeMesh(ContactPair^.MeshContactPair.ShapeMesh).Mesh.Triangles[ContactPair^.ElementIndex].AABB,
                                                 ContactPair^.MeshContactPair.ConvexAABBInMeshLocalSpace) then begin
-    if assigned(OnContactEnd) and ((ContactPair^.Flags*[kcfColliding,kcfWasColliding])<>[]) then begin
-     OnContactEnd(ContactPair);
-    end;             
-    if assigned(ContactPair^.Shapes[0]) and assigned(ContactPair^.Shapes[0].OnContactEnd) then begin
-     ContactPair^.Shapes[0].OnContactEnd(ContactPair,ContactPair^.Shapes[1]);
-    end;
-    if assigned(ContactPair^.Shapes[1]) and assigned(ContactPair^.Shapes[1].OnContactEnd) then begin
-     ContactPair^.Shapes[1].OnContactEnd(ContactPair,ContactPair^.Shapes[0]);
+    if (ContactPair^.Flags*[kcfColliding,kcfWasColliding])<>[] then begin
+     if (ContactPair^.Flags*[kcfColliding,kcfWasColliding])=[kcfColliding] then begin
+      if assigned(OnContactBegin) then begin
+       OnContactBegin(ContactPair);
+      end;
+      if assigned(ContactPair^.Shapes[0]) and assigned(ContactPair^.Shapes[0].OnContactBegin) then begin
+       ContactPair^.Shapes[0].OnContactBegin(ContactPair,ContactPair^.MeshContactPair.ShapeMesh);
+      end;
+      if assigned(ContactPair^.MeshContactPair.ShapeMesh) and assigned(ContactPair^.MeshContactPair.ShapeMesh.OnContactBegin) then begin
+       ContactPair^.Shapes[1].OnContactBegin(ContactPair,ContactPair^.Shapes[0]);
+      end;
+     end;
+     if assigned(OnContactEnd) then begin
+      OnContactEnd(ContactPair);
+     end;
+     if assigned(ContactPair^.Shapes[0]) and assigned(ContactPair^.Shapes[0].OnContactEnd) then begin
+      ContactPair^.Shapes[0].OnContactEnd(ContactPair,ContactPair^.MeshContactPair.ShapeMesh);
+     end;
+     if assigned(ContactPair^.MeshContactPair.ShapeMesh) and assigned(ContactPair^.MeshContactPair.ShapeMesh.OnContactEnd) then begin
+      ContactPair^.MeshContactPair.ShapeMesh.OnContactEnd(ContactPair,ContactPair^.Shapes[0]);
+     end;
     end;
     NextContactPair:=ContactPair^.Next;
     RemoveContact(ContactPair);
