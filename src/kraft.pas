@@ -780,6 +780,8 @@ type PKraftForceMode=^TKraftForceMode;
 
        FeatureRadius:TKraftScalar;
 
+       ContinuousMinimumRadiusScaleFactor:TKraftScalar;
+
        OnContactBegin:TKraftShapeOnContactBeginHook;
        OnContactEnd:TKraftShapeOnContactEndHook;
        OnContactStay:TKraftShapeOnContactStayHook;
@@ -2621,7 +2623,7 @@ const daabbtNULLNODE=-1;
 
       AABB_MULTIPLIER=2.0;
 
-      AABB_MAX_EXPANSION=2.0;
+      AABB_MAX_EXPANSION=128.0;
 
       AABBExtensionVector:TKraftVector3=(x:AABB_EXTENSION;y:AABB_EXTENSION;z:AABB_EXTENSION);
 
@@ -14930,6 +14932,8 @@ begin
 
  FeatureRadius:=0.0;
 
+ ContinuousMinimumRadiusScaleFactor:=0.0;
+
 {$ifdef DebugDraw}
  DrawDisplayList:=0;
 {$endif}
@@ -25818,7 +25822,7 @@ function TKraft.GetConservativeAdvancementTimeOfImpact(const ShapeA:TKraftShape;
 const Radius=1e-3;
 var Tries:longint;
     BoundingRadiusA,BoundingRadiusB,MaximumAngularProjectedVelocity,RelativeLinearVelocityLength,Lambda,LastLambda,
-    ProjectedLinearVelocity,DistanceLambda,Distance:TKraftScalar;
+    ProjectedLinearVelocity,DistanceLambda,Distance,ContinuousMinimumRadiusScaleFactor:TKraftScalar;
     MeshShape:TKraftShapeMesh;
     MeshTriangle:PKraftMeshTriangle;
     ShapeTriangle:TKraftShapeTriangle;
@@ -25864,7 +25868,10 @@ begin
   exit;
  end;
 
- if RelativeLinearVelocityLength<Max(EPSILON,Min(Shapes[0].ShapeSphere.Radius,Shapes[1].ShapeSphere.Radius)*0.25) then begin
+ ContinuousMinimumRadiusScaleFactor:=Max(ShapeA.ContinuousMinimumRadiusScaleFactor,ShapeB.ContinuousMinimumRadiusScaleFactor);
+
+ if (ContinuousMinimumRadiusScaleFactor>EPSILON) and
+    (RelativeLinearVelocityLength<Max(EPSILON,Min(Shapes[0].ShapeSphere.Radius,Shapes[1].ShapeSphere.Radius)*ContinuousMinimumRadiusScaleFactor)) then begin
   exit;
  end;
 
@@ -25948,7 +25955,8 @@ const sfmNONE=0;
       sfmEDGES=6;
 var Iteration,TryIteration,RootIteration,SeparationFunctionMode:longint;
     Unprocessed,Overlapping:boolean;
-    t0,t1,s0,s1,a0,a1,t,s,tS,tT0,tT1,TotalRadius,Target,Tolerance,Distance,CurrentDistance,L:TKraftScalar;
+    t0,t1,s0,s1,a0,a1,t,s,tS,tT0,tT1,TotalRadius,Target,Tolerance,Distance,CurrentDistance,L,
+    ContinuousMinimumRadiusScaleFactor:TKraftScalar;
     ShapeTriangle:TKraftShapeTriangle;
     MeshShape:TKraftShapeMesh;
     MeshTriangle:PKraftMeshTriangle;
@@ -26019,7 +26027,9 @@ begin
   Shapes[1]:=ShapeB;
  end;
 
- if Vector3Length(Vector3Sub(Vector3Sub(SweepB.c0,SweepB.c),Vector3Sub(SweepA.c0,SweepA.c)))<Max(EPSILON,Min(Shapes[0].ShapeSphere.Radius,Shapes[1].ShapeSphere.Radius)*0.125) then begin
+ ContinuousMinimumRadiusScaleFactor:=Max(ShapeA.ContinuousMinimumRadiusScaleFactor,ShapeB.ContinuousMinimumRadiusScaleFactor);
+ if (ContinuousMinimumRadiusScaleFactor>EPSILON) and
+    (Vector3Length(Vector3Sub(Vector3Sub(SweepB.c0,SweepB.c),Vector3Sub(SweepA.c0,SweepA.c)))<Max(EPSILON,Min(Shapes[0].ShapeSphere.Radius,Shapes[1].ShapeSphere.Radius)*ContinuousMinimumRadiusScaleFactor)) then begin
   exit;
  end;
 
@@ -26474,10 +26484,111 @@ begin
 
 end;
 
+procedure TKraft.SolveContinuousMotionClamping(const TimeStep:TKraftTimeStep);
+var RigidBody:TKraftRigidBody;
+    ContactPair:PKraftContactPair;
+    Beta:TKraftScalar;
+    NeedUpdate:boolean;
+    ContactPairEdge:PKraftContactPairEdge;
+    RigidBodies:array[0..1] of TKraftRigidBody;
+    Sweeps:array[0..1] of TKraftSweep;
+begin
+
+ NeedUpdate:=false;
+
+ RigidBody:=RigidBodyFirst;
+ while assigned(RigidBody) do begin
+  RigidBody.Sweep.Alpha0:=0.0;
+  RigidBody.TimeOfImpact:=1.0;
+  RigidBody.Island:=nil;
+  RigidBody.Flags:=RigidBody.Flags-[krbfIslandVisited,krbfIslandStatic];
+  RigidBody:=RigidBody.RigidBodyNext;
+ end;
+
+ ContactPair:=ContactManager.ContactPairFirst;
+ while assigned(ContactPair) do begin
+  ContactPair^.Island:=nil;
+  ContactPair^.Flags:=ContactPair^.Flags-[kcfInIsland,kcfTimeOfImpact];
+  ContactPair^.TimeOfImpactCount:=0;
+  ContactPair^.TimeOfImpact:=1.0;
+  ContactPair:=ContactPair.Next;
+ end;
+
+ RigidBody:=RigidBodyFirst;
+ while assigned(RigidBody) do begin
+  if RigidBody.RigidBodyType=krbtDynamic then begin
+   ContactPairEdge:=RigidBody.ContactPairEdgeFirst;
+   while assigned(ContactPairEdge) do begin
+    ContactPair:=ContactPairEdge^.ContactPair;
+    if (not (kcfInIsland in ContactPair^.Flags)) and
+       (((RigidBody.Flags*[krbfAwake,krbfActive])=[krbfAwake,krbfActive]) or
+        ((ContactPairEdge^.OtherRigidBody.Flags*[krbfAwake,krbfActive])=[krbfAwake,krbfActive])) and
+       (not (((ksfSensor in ContactPair^.Shapes[0].Flags) or
+              (ksfSensor in ContactPair^.Shapes[1].Flags)) or
+             ((krbfSensor in RigidBody.Flags) or
+              (krbfSensor in ContactPairEdge^.OtherRigidBody.Flags)))) and
+       (not (((RigidBody.RigidBodyType=krbtDynamic) and (ContactPairEdge^.OtherRigidBody.RigidBodyType=krbtDynamic)) and not
+             (ContactManager.Physics.ContinuousAgainstDynamics and
+              ((krbfContinuousAgainstDynamics in RigidBody.Flags) or
+               (krbfContinuousAgainstDynamics in ContactPairEdge^.OtherRigidBody.Flags)
+              )
+             )
+            )
+       ) then begin
+     ContactPair^.Flags:=ContactPair^.Flags+[kcfInIsland];
+     if not (kcfColliding in ContactPair^.Flags) then begin
+      RigidBodies[0]:=ContactPair^.Shapes[0].RigidBody;
+      RigidBodies[1]:=ContactPair^.Shapes[1].RigidBody;
+      if assigned(RigidBodies[0]) and assigned(RigidBodies[1]) then begin
+       Sweeps[0]:=SweepTermNormalize(RigidBodies[0].Sweep);
+       Sweeps[1]:=SweepTermNormalize(RigidBodies[1].Sweep);
+       if GetTimeOfImpact(ContactPair^.Shapes[0],
+                          Sweeps[0],
+                          ContactPair^.Shapes[1],
+                          ContactPair^.ElementIndex,
+                          Sweeps[1],
+                          TimeStep,
+                          0,
+                          Beta) then begin
+        // Check for that the object will not get stucking, when it is alreading colliding at beginning
+        if Beta>0.0 then begin
+         RigidBodies[0].TimeOfImpact:=Min(RigidBodies[0].TimeOfImpact,Beta);
+         RigidBodies[1].TimeOfImpact:=Min(RigidBodies[1].TimeOfImpact,Beta);
+        end;
+       end;
+      end;
+     end;
+    end;
+    ContactPairEdge:=ContactPairEdge^.Next;
+   end;
+  end;
+  RigidBody:=RigidBody.RigidBodyNext;
+ end;
+
+ RigidBody:=RigidBodyFirst;
+ while assigned(RigidBody) do begin
+  if (RigidBody.RigidBodyType=krbtDynamic) and ({(RigidBody.TimeOfImpact>0.0) and} (RigidBody.TimeOfImpact<1.0)) then begin
+// writeln(RigidBody.TimeOfImpact:1:8);
+   RigidBody.Advance(RigidBody.TimeOfImpact);
+   RigidBody.SynchronizeProxies;
+   NeedUpdate:=true;
+  end;
+  RigidBody:=RigidBody.RigidBodyNext;
+ end;
+
+ if NeedUpdate then begin
+  ContactManager.CountMeshTriangleContactQueueItems:=0;
+  ContactManager.DoBroadPhase;
+  ContactManager.DoMidPhase;
+  ContactManager.DoNarrowPhase;
+ end;
+
+end;
+
 procedure TKraft.SolveContinuousTimeOfImpactSubSteps(const TimeStep:TKraftTimeStep);
 const FLAG_VISITED=1 shl 0;
       FLAG_STATIC=1 shl 1;
-var TryIndex,Index,SubIndex,LastCount,Count,IndexA,IndexB{},c{}:longint;
+var TryIndex,Index,SubIndex,LastCount,Count,IndexA,IndexB{,c{}:longint;
     NeedUpdate:boolean;
     RigidBody,CurrentRigidBody,OtherRigidBody:TKraftRigidBody;
     ContactPair,MinimumContactPair:PKraftContactPair;
@@ -26515,7 +26626,7 @@ begin
   MinimumContactPair:=nil;
   MinimumAlpha:=1.0;
 
-  c:=0;
+//c:=0;
 
   ContactPair:=ContactManager.ContactPairFirst;
   while assigned(ContactPair) do begin
@@ -26604,7 +26715,7 @@ begin
     MinimumContactPair:=ContactPair;
    end;
 
-   inc(c);
+// inc(c);
    ContactPair:=ContactPair^.Next;
 
   end;
@@ -26614,9 +26725,9 @@ begin
    break;
   end;
 
-  if c>=0 then begin
-   //writeln(TryIndex:4,' ',c:4,' ',MinimumAlpha:1:8);
-  end;
+{ if c>=0 then begin
+   writeln(TryIndex:4,' ',c:4,' ',MinimumAlpha:1:8);
+  end;{}
 
   RigidBodies[0]:=MinimumContactPair^.Shapes[0].RigidBody;
   RigidBodies[1]:=MinimumContactPair^.Shapes[1].RigidBody;
@@ -26753,107 +26864,6 @@ begin
  end;
 
  if NeedUpdate then begin
-  ContactManager.DoNarrowPhase;
- end;
-
-end;
-
-procedure TKraft.SolveContinuousMotionClamping(const TimeStep:TKraftTimeStep);
-var RigidBody:TKraftRigidBody;
-    ContactPair:PKraftContactPair;
-    Beta:TKraftScalar;
-    NeedUpdate:boolean;
-    ContactPairEdge:PKraftContactPairEdge;
-    RigidBodies:array[0..1] of TKraftRigidBody;
-    Sweeps:array[0..1] of TKraftSweep;
-begin
-
- NeedUpdate:=false;
-
- RigidBody:=RigidBodyFirst;
- while assigned(RigidBody) do begin
-  RigidBody.Sweep.Alpha0:=0.0;
-  RigidBody.TimeOfImpact:=1.0;
-  RigidBody.Island:=nil;
-  RigidBody.Flags:=RigidBody.Flags-[krbfIslandVisited,krbfIslandStatic];
-  RigidBody:=RigidBody.RigidBodyNext;
- end;
-
- ContactPair:=ContactManager.ContactPairFirst;
- while assigned(ContactPair) do begin
-  ContactPair^.Island:=nil;
-  ContactPair^.Flags:=ContactPair^.Flags-[kcfInIsland,kcfTimeOfImpact];
-  ContactPair^.TimeOfImpactCount:=0;
-  ContactPair^.TimeOfImpact:=1.0;
-  ContactPair:=ContactPair.Next;
- end;
-
- RigidBody:=RigidBodyFirst;
- while assigned(RigidBody) do begin
-  if RigidBody.RigidBodyType=krbtDynamic then begin
-   ContactPairEdge:=RigidBody.ContactPairEdgeFirst;
-   while assigned(ContactPairEdge) do begin
-    ContactPair:=ContactPairEdge^.ContactPair;
-    if (not (kcfInIsland in ContactPair^.Flags)) and
-       (((RigidBody.Flags*[krbfAwake,krbfActive])=[krbfAwake,krbfActive]) or
-        ((ContactPairEdge^.OtherRigidBody.Flags*[krbfAwake,krbfActive])=[krbfAwake,krbfActive])) and
-       (not (((ksfSensor in ContactPair^.Shapes[0].Flags) or
-              (ksfSensor in ContactPair^.Shapes[1].Flags)) or
-             ((krbfSensor in RigidBody.Flags) or
-              (krbfSensor in ContactPairEdge^.OtherRigidBody.Flags)))) and
-       (not (((RigidBody.RigidBodyType=krbtDynamic) and (ContactPairEdge^.OtherRigidBody.RigidBodyType=krbtDynamic)) and not
-             (ContactManager.Physics.ContinuousAgainstDynamics and
-              ((krbfContinuousAgainstDynamics in RigidBody.Flags) or
-               (krbfContinuousAgainstDynamics in ContactPairEdge^.OtherRigidBody.Flags)
-              )
-             )
-            )
-       ) then begin
-     ContactPair^.Flags:=ContactPair^.Flags+[kcfInIsland];
-     if not (kcfColliding in ContactPair^.Flags) then begin
-      RigidBodies[0]:=ContactPair^.Shapes[0].RigidBody;
-      RigidBodies[1]:=ContactPair^.Shapes[1].RigidBody;
-      if assigned(RigidBodies[0]) and assigned(RigidBodies[1]) then begin
-       Sweeps[0]:=SweepTermNormalize(RigidBodies[0].Sweep);
-       Sweeps[1]:=SweepTermNormalize(RigidBodies[1].Sweep);
-       if GetTimeOfImpact(ContactPair^.Shapes[0],
-                          Sweeps[0],
-                          ContactPair^.Shapes[1],
-                          ContactPair^.ElementIndex,
-                          Sweeps[1],
-                          TimeStep,
-                          0,
-                          Beta) then begin
-        // Check for that the object will not get stucking, when it is alreading colliding at beginning
-        if Beta>0.0 then begin
-         RigidBodies[0].TimeOfImpact:=Min(RigidBodies[0].TimeOfImpact,Beta);
-         RigidBodies[1].TimeOfImpact:=Min(RigidBodies[1].TimeOfImpact,Beta);
-        end;
-       end;
-      end;
-     end;
-    end;
-    ContactPairEdge:=ContactPairEdge^.Next;
-   end;
-  end;
-  RigidBody:=RigidBody.RigidBodyNext;
- end;
-
- RigidBody:=RigidBodyFirst;
- while assigned(RigidBody) do begin
-  if (RigidBody.RigidBodyType=krbtDynamic) and ({(RigidBody.TimeOfImpact>0.0) and} (RigidBody.TimeOfImpact<1.0)) then begin
-// writeln(RigidBody.TimeOfImpact);
-   RigidBody.Advance(RigidBody.TimeOfImpact);
-   RigidBody.SynchronizeProxies;
-   NeedUpdate:=true;
-  end;
-  RigidBody:=RigidBody.RigidBodyNext;
- end;
-
- if NeedUpdate then begin
-  ContactManager.CountMeshTriangleContactQueueItems:=0;
-  ContactManager.DoBroadPhase;
-  ContactManager.DoMidPhase;
   ContactManager.DoNarrowPhase;
  end;
 
