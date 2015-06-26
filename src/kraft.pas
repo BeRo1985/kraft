@@ -1312,9 +1312,9 @@ type PKraftForceMode=^TKraftForceMode;
 
      end;
 
-     TKraftRigidBodyOnDamping=procedure(RigidBody:TKraftRigidBody;const TimeStep:TKraftTimeStep) of object;
+     TKraftRigidBodyOnDamping=procedure(const RigidBody:TKraftRigidBody;const TimeStep:TKraftTimeStep) of object;
 
-     TKraftRigidBodyOnStep=procedure(RigidBody:TKraftRigidBody;const TimeStep:TKraftTimeStep) of object;
+     TKraftRigidBodyOnStep=procedure(const RigidBody:TKraftRigidBody;const TimeStep:TKraftTimeStep) of object;
 
      TKraftConstraint=class;
 
