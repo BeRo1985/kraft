@@ -1312,7 +1312,9 @@ type PKraftForceMode=^TKraftForceMode;
 
      end;
 
-     TKraftRigidBodyOnFixedStep=procedure(RigidBody:TKraftRigidBody;const TimeStep:TKraftTimeStep) of object;
+     TKraftRigidBodyOnDamping=procedure(RigidBody:TKraftRigidBody;const TimeStep:TKraftTimeStep) of object;
+
+     TKraftRigidBodyOnStep=procedure(RigidBody:TKraftRigidBody;const TimeStep:TKraftTimeStep) of object;
 
      TKraftConstraint=class;
 
@@ -1430,8 +1432,10 @@ type PKraftForceMode=^TKraftForceMode;
        ContactPairEdgeFirst:PKraftContactPairEdge;
        ContactPairEdgeLast:PKraftContactPairEdge;
 
-       OnPreFixedStep:TKraftRigidBodyOnFixedStep;
-       OnPostFixedStep:TKraftRigidBodyOnFixedStep;
+       OnDamping:TKraftRigidBodyOnDamping;
+
+       OnPreStep:TKraftRigidBodyOnStep;
+       OnPostStep:TKraftRigidBodyOnStep;
 
        constructor Create(const APhysics:TKraft);
        destructor Destroy; override;
@@ -20081,8 +20085,8 @@ begin
  ContactPairEdgeFirst:=nil;
  ContactPairEdgeLast:=nil;
 
- OnPreFixedStep:=nil;
- OnPostFixedStep:=nil;
+ OnPreStep:=nil;
+ OnPostStep:=nil;
 
 end;
 
@@ -24873,6 +24877,10 @@ begin
    // Integrate angular velocity
    RigidBody.AngularVelocity:=Vector3Add(RigidBody.AngularVelocity,Vector3ScalarMul(Vector3TermMatrixMul(RigidBody.Torque,RigidBody.WorldInverseInertiaTensor),TimeStep.DeltaTime));
 
+   if assigned(RigidBody.OnDamping) then begin
+    RigidBody.OnDamping(RigidBody,TimeStep);
+   end;
+
    // From Box2D
    // Apply damping.
    // ODE: dv/dt + c * v = 0
@@ -26978,8 +26986,8 @@ begin
 
  RigidBody:=RigidBodyFirst;
  while assigned(RigidBody) do begin
-  if assigned(RigidBody.OnPreFixedStep) then begin
-   RigidBody.OnPreFixedStep(RigidBody,TimeStep);
+  if assigned(RigidBody.OnPreStep) then begin
+   RigidBody.OnPreStep(RigidBody,TimeStep);
   end;
   RigidBody:=RigidBody.RigidBodyNext;
  end;
@@ -27027,8 +27035,8 @@ begin
    RigidBody.Force:=Vector3Origin;
    RigidBody.Torque:=Vector3Origin;
   end;
-  if assigned(RigidBody.OnPostFixedStep) then begin
-   RigidBody.OnPostFixedStep(RigidBody,TimeStep);
+  if assigned(RigidBody.OnPostStep) then begin
+   RigidBody.OnPostStep(RigidBody,TimeStep);
   end;
   RigidBody:=RigidBody.RigidBodyNext;
  end;
