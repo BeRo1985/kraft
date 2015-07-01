@@ -24453,8 +24453,6 @@ begin
      Lambda:=NewImpulse-TangentImpulse[TangentIndex];
      ContactPoint^.TangentImpulse[TangentIndex]:=NewImpulse;
 
-//   writeln(Lambda:1:8,' l ');
-
      P:=Vector3ScalarMul(t[TangentIndex],Lambda);
 
      Vector3DirectSub(vA,Vector3ScalarMul(P,mA));
@@ -24474,8 +24472,6 @@ begin
    NewImpulse:=Max(0.0,NormalImpulse+Lambda);
    Lambda:=NewImpulse-NormalImpulse;
    ContactPoint^.NormalImpulse:=NewImpulse;
-
-//  writeln(Lambda:1:8,' n');
 
    P:=Vector3ScalarMul(Normal,Lambda);
 
