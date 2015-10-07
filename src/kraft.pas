@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2015-06-13-17-32-0000                       *
+ *                        Version 2015-10-07-08-02-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -36,7 +36,7 @@
       http://github.com/BeRo1985/kraft                                        *
  * 4. Write code, which is compatible with Delphi 7-XE7 and FreePascal >= 2.6 *
  *    so don't use generics/templates, operator overloading and another newer *
- *    syntax features than Delphi 7 has support for that.                     *    
+ *    syntax features than Delphi 7 has support for that.                     *
  * 5. Don't use Delphi VCL, FreePascal FCL or Lazarus LCL libraries/units.    *
  * 6. No use of third-party libraries/units as possible, but if needed, make  *
  *    it out-ifdef-able                                                       *
@@ -203,6 +203,24 @@ const EPSILON={$ifdef UseDouble}1e-14{$else}1e-5{$endif}; // actually {$ifdef Us
 
       PhysicsFPUExceptionMask:TFPUExceptionMask=[exInvalidOp,exDenormalized,exZeroDivide,exOverflow,exUnderflow,exPrecision];
 
+      KRAFT_QUICKHULL_FACE_MARK_VISIBLE=1;
+      KRAFT_QUICKHULL_FACE_MARK_NON_CONVEX=2;
+      KRAFT_QUICKHULL_FACE_MARK_NON_DELETED=3;
+
+      KRAFT_QUICKHULL_FACE_FLAG_CLOCKWISE=1 shl 0;
+      KRAFT_QUICKHULL_FACE_FLAG_INDEXED_FROM_ONE=1 shl 1;
+      KRAFT_QUICKHULL_FACE_FLAG_INDEXED_FROM_ZERO=1 shl 2;
+      KRAFT_QUICKHULL_FACE_FLAG_POINT_RELATIVE=1 shl 3;
+
+      KRAFT_QUICKHULL_AUTOMATIC_TOLERANCE=-1;
+
+      KRAFT_QUICKHULL_MERGE_TYPE_NONCONVEX_WRT_LARGER_FACE=1;
+      KRAFT_QUICKHULL_MERGE_TYPE_NONCONVEX=2;
+
+      KRAFT_QUICKHULL_HASHBITS=8;
+      KRAFT_QUICKHULL_HASHSIZE=1 shl KRAFT_QUICKHULL_HASHBITS;
+      KRAFT_QUICKHULL_HASHMASK=KRAFT_QUICKHULL_HASHSIZE-1;
+
 type PKraftForceMode=^TKraftForceMode;
      TKraftForceMode=(kfmForce,        // The unit of the force parameter is applied to the rigidbody as mass*distance/time^2.
                       kfmAcceleration, // The unit of the force parameter is applied to the rigidbody as distance/time^2.
@@ -240,6 +258,9 @@ type PKraftForceMode=^TKraftForceMode;
      PKraftConstraintFlags=^TKraftConstraintFlags;
 
      TKraftConstraintFlags=set of TKraftConstraintFlag;
+
+     PKraftConstraintLimitBehavior=^TKraftConstraintLimitBehavior;
+     TKraftConstraintLimitBehavior=(kclbLimitDistance,kclbLimitMaximumDistance,kclbLimitMinimumDistance);
 
      PKraftShapeType=^TKraftShapeType;
      TKraftShapeType=(kstUnknown=0,
@@ -360,10 +381,12 @@ type PKraftForceMode=^TKraftForceMode;
      TKraftVector3=record
       case byte of
        0:(x,y,z{$ifdef SIMD},w{$endif}:TKraftScalar);
-       1:(xyz:array[0..2] of TKraftScalar);
-       2:(RawVector:TKraftRawVector3);
+       1:(Pitch,Yaw,Roll:single);
+       2:(xyz:array[0..2] of TKraftScalar);
+       3:(PitchYawRoll:array[0..2] of single);
+       4:(RawVector:TKraftRawVector3);
 {$ifdef SIMD}
-       3:(xyzw:array[0..3] of TKraftScalar);
+       5:(xyzw:array[0..3] of TKraftScalar);
 {$endif}
      end;
 
@@ -391,9 +414,7 @@ type PKraftForceMode=^TKraftForceMode;
 
      PKraftQuaternion=^TKraftQuaternion;
      TKraftQuaternion=record
-      case longint of
-       0:(x,y,z,w:TKraftScalar);
-       1:(Vector:TKraftVector3;Scalar:TKraftScalar);
+      x,y,z,w:TKraftScalar;
      end;
 
      PKraftMatrix2x2=^TKraftMatrix2x2;
@@ -552,11 +573,229 @@ type PKraftForceMode=^TKraftForceMode;
       Normal:TKraftVector3;
      end;
 
+     EKraftQuickHull=class(Exception);
+
+     PKraftQuickHullIntegerArray=^TKraftQuickHullIntegerArray;
+     TKraftQuickHullIntegerArray=array[0..(2147483647 div sizeof(longint))-1] of longint;
+
+     TKraftQuickHullIntegerList=class
+      private
+       List:PKraftQuickHullIntegerArray;
+       CountItems:longint;
+       Allocated:longint;
+       IsSorted:boolean;
+       function GetItem(Index:longint):longint;
+       procedure SetItem(Index:longint;Value:longint);
+       function GetItemPointer(Index:longint):pointer;
+      public
+       constructor Create;
+       destructor Destroy; override;
+       procedure Clear;
+       function Add(Item:longint):longint;
+       procedure AddSorted(Item:longint);
+       procedure Insert(Index:longint;Item:longint);
+       procedure Delete(Index:longint);
+       function Remove(Item:longint):longint;
+       function Find(Item:longint):longint;
+       function IndexOf(Item:longint):longint;
+       procedure Exchange(Index1,Index2:longint);
+       procedure SetCapacity(NewCapacity:longint);
+       procedure SetCount(NewCount:longint);
+       procedure Sort;
+       property Count:longint read CountItems;
+       property Capacity:longint read Allocated write SetCapacity;
+       property Item[Index:longint]:longint read GetItem write SetItem; default;
+       property Items[Index:longint]:longint read GetItem write SetItem;
+       property PItems[Index:longint]:pointer read GetItemPointer;
+     end;
+
+     TKraftQuickHull=class;
+
+     PKraftQuickHullVector3D=^TKraftQuickHullVector3D;
+     TKraftQuickHullVector3D=object
+      x:double;
+      y:double;
+      z:double;
+      function Init(const ax:double=0.0;const ay:double=0.0;const az:double=0.0):TKraftQuickHullVector3D;
+      procedure SetValue(i:longint;const v:double);
+      function GetValue(i:longint):double;
+      procedure Add(const v0,v1:TKraftQuickHullVector3D); overload;
+      procedure Add(const v:TKraftQuickHullVector3D); overload;
+      procedure Sub(const v0,v1:TKraftQuickHullVector3D); overload;
+      procedure Sub(const v:TKraftQuickHullVector3D); overload;
+      procedure Scale(const v:TKraftQuickHullVector3D;const s:double); overload;
+      procedure Scale(const s:double); overload;
+      function Length:double;
+      function LengthSquared:double;
+      function Distance(const v:TKraftQuickHullVector3D):double;
+      function DistanceSquared(const v:TKraftQuickHullVector3D):double;
+      procedure Normalize;
+      function Dot(const v:TKraftQuickHullVector3D):double;
+      procedure CrossProduct(const v0,v1:TKraftQuickHullVector3D);
+      procedure SetRandom(Lower,Upper:double);
+      function Equals(const v:TKraftQuickHullVector3D):boolean;
+     end;
+
+     TKraftQuickHullVector3DArray=array of TKraftQuickHullVector3D;
+
+     TKraftQuickHullOutputFace=array of longint;
+
+     TKraftQuickHullOutputFaces=array of TKraftQuickHullOutputFace;
+
+     TKraftQuickHullHalfEdge=class;
+
+     TKraftQuickHullFace=class;
+
+     TKraftQuickHullVertex=class
+      public
+       Instance:TKraftQuickHull;
+       Point:TKraftQuickHullVector3D;
+       Index:longint;
+       Previous:TKraftQuickHullVertex;
+       Next:TKraftQuickHullVertex;
+       Face:TKraftQuickHullFace;
+       HashNext:TKraftQuickHullVertex;
+       constructor Create(const AInstance:TKraftQuickHull);
+       destructor Destroy; override;
+     end;
+
+     PKraftQuickHullThreeVertices=^TKraftQuickHullThreeVertices;
+     TKraftQuickHullThreeVertices=array[0..2] of TKraftQuickHullVertex;
+
+     PKraftQuickHullVertexList=^TKraftQuickHullVertexList;
+     TKraftQuickHullVertexList=object
+      public
+       Head:TKraftQuickHullVertex;
+       Tail:TKraftQuickHullVertex;
+       procedure Clear;
+       procedure Add(vtx:TKraftQuickHullVertex);
+       procedure AddAll(vtx:TKraftQuickHullVertex);
+       procedure Delete(vtx:TKraftQuickHullVertex); overload;
+       procedure Delete(vtx1,vtx2:TKraftQuickHullVertex); overload;
+       procedure InsertBefore(vtx,Next:TKraftQuickHullVertex);
+       function First:TKraftQuickHullVertex;
+       function IsEmpty:boolean;
+     end;
+
+     PKraftQuickHullFaceList=^TKraftQuickHullFaceList;
+     TKraftQuickHullFaceList=object
+      public
+       Head:TKraftQuickHullFace;
+       Tail:TKraftQuickHullFace;
+       procedure Clear;
+       procedure Add(vtx:TKraftQuickHullFace);
+       function First:TKraftQuickHullFace;
+       function IsEmpty:boolean;
+     end;
+
+     TKraftQuickHullFace=class
+      public
+       Instance:TKraftQuickHull;
+       Next:TKraftQuickHullFace;
+       he0:TKraftQuickHullHalfEdge;
+       Normal:TKraftQuickHullVector3D;
+       Area:double;
+       Centroid:TKraftQuickHullVector3D;
+       PlaneOffset:double;
+       Index:longint;
+       CountVertices:longint;
+       Mark:longint;
+       Outside:TKraftQuickHullVertex;
+       constructor Create(const AInstance:TKraftQuickHull);
+       constructor CreatePolygon(const AInstance:TKraftQuickHull;const AVertices:array of TKraftQuickHullVertex;const AIndices:array of longint);
+       constructor CreateTriangle(const AInstance:TKraftQuickHull;const v0,v1,v2:TKraftQuickHullVertex;const AMinArea:double=0.0);
+       destructor Destroy; override;
+       procedure ComputeCentroid(var ACentroid:TKraftQuickHullVector3D);
+       procedure ComputeNormal(var ANormal:TKraftQuickHullVector3D); overload;
+       procedure ComputeNormal(var ANormal:TKraftQuickHullVector3D;const AMinArea:double); overload;
+       procedure ComputeNormalAndCentroid; overload;
+       procedure ComputeNormalAndCentroid(const AMinArea:double); overload;
+       function GetEdge(i:longint):TKraftQuickHullHalfEdge;
+       function GetFirstEdge:TKraftQuickHullHalfEdge;
+       function FindEdge(const vt,vh:TKraftQuickHullVertex):TKraftQuickHullHalfEdge;
+       function DistanceToPlane(const p:TKraftQuickHullVector3D):double;
+       function ConnectHalfEdges(const hedgePrev,hedge:TKraftQuickHullHalfEdge):TKraftQuickHullFace;
+       procedure CheckConsistency;
+       function MergeAdjacentFace(const hedgeAdj:TKraftQuickHullHalfEdge;const Discarded:TList):longint;
+       function AreaSquared(const hedge0,hedge1:TKraftQuickHullHalfEdge):double;
+       procedure Triangulate(var NewFaces:TKraftQuickHullFaceList;const MinArea:double);
+     end;
+
+     TKraftQuickHullHalfEdge=class
+      public
+       Instance:TKraftQuickHull;
+       Vertex:TKraftQuickHullVertex;
+       Face:TKraftQuickHullFace;
+       Next:TKraftQuickHullHalfEdge;
+       Previous:TKraftQuickHullHalfEdge;
+       Opposite:TKraftQuickHullHalfEdge;
+       constructor Create(const AInstance:TKraftQuickHull;const v:TKraftQuickHullVertex=nil;const f:TKraftQuickHullFace=nil);
+       destructor Destroy; override;
+       procedure SetOpposite(const Edge:TKraftQuickHullHalfEdge);
+       function Head:TKraftQuickHullVertex;
+       function Tail:TKraftQuickHullVertex;
+       function OppositeFace:TKraftQuickHullFace;
+       function Length:double;
+       function LengthSquared:double;
+     end;
+
+     PKraftQuickHullVertexHashTable=^TKraftQuickHullVertexHashTable;
+     TKraftQuickHullVertexHashTable=array[0..KRAFT_QUICKHULL_HASHSIZE-1] of TKraftQuickHullVertex;
+
+     TKraftQuickHull=class
+      public
+       GarbageCollectedClassInstances:TList;
+       FindIndex:longint;
+       PointBuffer:TList;
+       VertexHashTable:TKraftQuickHullVertexHashTable;
+       VertexPointIndices:TKraftQuickHullIntegerList;
+       DiscardedFaces:TList;
+       MinVertices:TKraftQuickHullThreeVertices;
+       MaxVertices:TKraftQuickHullThreeVertices;
+       Faces:TList;
+       Horizon:TList;
+       NewFaces:TKraftQuickHullFaceList;
+       Unclaimed:TKraftQuickHullVertexList;
+       Claimed:TKraftQuickHullVertexList;
+       CountVertices:longint;
+       CountFaces:longint;
+       CountPoints:longint;
+       ExplicitTolerance:double;
+       Tolerance:double;
+       CharLength:double;
+       constructor Create;
+       destructor Destroy; override;
+       procedure Reset;
+       procedure AddPoint(const x,y,z:double);
+       procedure AddPointToFace(const AVertex:TKraftQuickHullVertex;const AFace:TKraftQuickHullFace);
+       procedure RemovePointFromFace(const AVertex:TKraftQuickHullVertex;const AFace:TKraftQuickHullFace);
+       function RemoveAllPointsFromFace(const AFace:TKraftQuickHullFace):TKraftQuickHullVertex;
+       function FindHalfEdge(const Tail,Head:TKraftQuickHullVertex):TKraftQuickHullHalfEdge;
+       procedure Triangulate;
+       procedure ComputeMinAndMax;
+       procedure CreateInitialSimplex;
+       function NextPointToAdd:TKraftQuickHullVertex;
+       procedure DeleteFacePoints(Face,AbsorbingFace:TKraftQuickHullFace);
+       procedure CalculateHorizon(const EyePoint:TKraftQuickHullVector3D;Edge0:TKraftQuickHullHalfEdge;const Face:TKraftQuickHullFace;const Horizon:TList);
+       function AddAdjoiningFace(const EyeVertex:TKraftQuickHullVertex;const he:TKraftQuickHullHalfEdge):TKraftQuickHullHalfEdge;
+       procedure AddNewFaces(const NewFaces:TKraftQuickHullFaceList;const EyeVertex:TKraftQuickHullVertex;const Horizon:TList);
+       function OppFaceDistance(he:TKraftQuickHullHalfEdge):double;
+       function DoAdjacentMerge(const Face:TKraftQuickHullFace;const MergeType:longint):boolean;
+       procedure ResolveUnclaimedPoints(NewFaces:TKraftQuickHullFaceList);
+       procedure AddPointToHull(const EyeVertex:TKraftQuickHullVertex);
+       procedure MarkFaceVertices(const Face:TKraftQuickHullFace;const Mark:longint);
+       procedure ReindexFacesAndVertices;
+       procedure BuildHull;
+       procedure GetFaceIndices(out OutputFace:TKraftQuickHullOutputFace;const Face:TKraftQuickHullFace;const Flags:longint);
+       procedure GetVertices(out OutputVertices:TKraftQuickHullVector3DArray);
+       procedure GetFaces(out OutputFaces:TKraftQuickHullOutputFaces);
+     end;
+
      PKraftConvexHullVertex=^TKraftConvexHullVertex;
      TKraftConvexHullVertex=record
       Position:TKraftVector3;
       CountAdjacencies:longint;
-      Adjacencies:array[0..6] of longint;
+      Adjacencies:array of longint;
      end;
 
      PPKraftConvexHullVertices=^TPKraftConvexHullVertices;
@@ -628,7 +867,7 @@ type PKraftForceMode=^TKraftForceMode;
        procedure Transform(const WithMatrix:TKraftMatrix3x3); overload;
        procedure Transform(const WithMatrix:TKraftMatrix4x4); overload;
 
-       procedure Build(const AMaximumCountConvexHullPoints:longint=-1);
+       procedure Build(const AMaximumCountConvexHullPoints:longint=-1;const ADegeneratedConvexHullIsError:boolean=true;const AUserDefinedTolerance:double=-1.0);
 
        procedure Update;
 
@@ -646,6 +885,7 @@ type PKraftForceMode=^TKraftForceMode;
      TKraftMeshTriangle=record
       Next:longint;
       Vertices:array[0..2] of longint;
+      Normals:array[0..2] of longint;
       Plane:TKraftPlane;
       AABB:TKraftAABB;
      end;
@@ -662,6 +902,10 @@ type PKraftForceMode=^TKraftForceMode;
      TKraftMeshSkipListNodes=array of TKraftMeshSkipListNode;
 
      TKraftMesh=class
+      private
+
+       procedure CalculateNormals;
+
       public
 
        Physics:TKraft;
@@ -671,6 +915,9 @@ type PKraftForceMode=^TKraftForceMode;
 
        Vertices:array of TKraftVector3;
        CountVertices:longint;
+
+       Normals:array of TKraftVector3;
+       CountNormals:longint;
 
        Triangles:TKraftMeshTriangles;
        CountTriangles:longint;
@@ -685,9 +932,11 @@ type PKraftForceMode=^TKraftForceMode;
 
        function AddVertex(const AVertex:TKraftVector3):longint;
 
-       function AddTriangle(const AVertexIndex0,AVertexIndex1,AVertexIndex2:longint):longint;
+       function AddNormal(const ANormal:TKraftVector3):longint;
 
-       procedure Load(const AVertices:PKraftVector3;const ACountVertices:longint;const AIndices:pointer;const ACountIndices:longint); overload;
+       function AddTriangle(const AVertexIndex0,AVertexIndex1,AVertexIndex2:longint;const ANormalIndex0:longint=-1;const ANormalIndex1:longint=-1;ANormalIndex2:longint=-1):longint;
+
+       procedure Load(const AVertices:PKraftVector3;const ACountVertices:longint;const ANormals:PKraftVector3;const ACountNormals:longint;const AVertexIndices,ANormalIndices:pointer;const ACountIndices:longint); overload;
        procedure Load(const ASourceData:pointer;const ASourceSize:longint); overload;
 
        procedure Scale(const WithFactor:TKraftScalar); overload;
@@ -699,6 +948,12 @@ type PKraftForceMode=^TKraftForceMode;
        procedure Finish;
 
      end;
+
+     PKraftContactPair=^TKraftContactPair;
+
+     TKraftShapeOnContactBeginHook=procedure(const ContactPair:PKraftContactPair;const WithShape:TKraftShape) of object;
+     TKraftShapeOnContactEndHook=procedure(const ContactPair:PKraftContactPair;const WithShape:TKraftShape) of object;
+     TKraftShapeOnContactStayHook=procedure(const ContactPair:PKraftContactPair;const WithShape:TKraftShape) of object;
 
      TKraftShape=class
       private
@@ -760,6 +1015,12 @@ type PKraftForceMode=^TKraftForceMode;
        AngularMotionDisc:TKraftScalar;
 
        FeatureRadius:TKraftScalar;
+
+       ContinuousMinimumRadiusScaleFactor:TKraftScalar;
+
+       OnContactBegin:TKraftShapeOnContactBeginHook;
+       OnContactEnd:TKraftShapeOnContactEndHook;
+       OnContactStay:TKraftShapeOnContactStayHook;
 
        constructor Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody);
        destructor Destroy; override;
@@ -1062,8 +1323,6 @@ type PKraftForceMode=^TKraftForceMode;
       EdgeQuery:TKraftContactEdgeQuery;
      end;
 
-     PKraftContactPair=^TKraftContactPair;
-
      PKraftContactPairEdge=^TKraftContactPairEdge;
      TKraftContactPairEdge=record
       Previous:PKraftContactPairEdge;
@@ -1101,6 +1360,7 @@ type PKraftForceMode=^TKraftForceMode;
 
      TKraftContactManagerOnContactBeginHook=procedure(const ContactPair:PKraftContactPair) of object;
      TKraftContactManagerOnContactEndHook=procedure(const ContactPair:PKraftContactPair) of object;
+     TKraftContactManagerOnContactStayHook=procedure(const ContactPair:PKraftContactPair) of object;
 
      PKraftContactIndices=^TKraftContactIndices;
      TKraftContactIndices=array[0..MAX_CONTACTS-1] of longint;
@@ -1187,6 +1447,7 @@ type PKraftForceMode=^TKraftForceMode;
 
        OnContactBegin:TKraftContactManagerOnContactBeginHook;
        OnContactEnd:TKraftContactManagerOnContactEndHook;
+       OnContactStay:TKraftContactManagerOnContactStayHook;
 
        OnCanCollide:TKraftContactManagerOnCanCollide;
 
@@ -1287,7 +1548,9 @@ type PKraftForceMode=^TKraftForceMode;
 
      end;
 
-     TKraftRigidBodyOnFixedStep=procedure(RigidBody:TKraftRigidBody;const TimeStep:TKraftTimeStep) of object;
+     TKraftRigidBodyOnDamping=procedure(const RigidBody:TKraftRigidBody;const TimeStep:TKraftTimeStep) of object;
+
+     TKraftRigidBodyOnStep=procedure(const RigidBody:TKraftRigidBody;const TimeStep:TKraftTimeStep) of object;
 
      TKraftConstraint=class;
 
@@ -1302,7 +1565,7 @@ type PKraftForceMode=^TKraftForceMode;
      TKraftRigidBody=class
       private
        function GetAngularMomentum:TKraftVector3;
-       procedure SetAngularMomentumEx(const NewAngularMomentum:TKraftVector3);
+       procedure SetAngularMomentum(const NewAngularMomentum:TKraftVector3);
       public
 
        Physics:TKraft;
@@ -1405,8 +1668,10 @@ type PKraftForceMode=^TKraftForceMode;
        ContactPairEdgeFirst:PKraftContactPairEdge;
        ContactPairEdgeLast:PKraftContactPairEdge;
 
-       OnPreFixedStep:TKraftRigidBodyOnFixedStep;
-       OnPostFixedStep:TKraftRigidBodyOnFixedStep;
+       OnDamping:TKraftRigidBodyOnDamping;
+
+       OnPreStep:TKraftRigidBodyOnStep;
+       OnPostStep:TKraftRigidBodyOnStep;
 
        constructor Create(const APhysics:TKraft);
        destructor Destroy; override;
@@ -1454,6 +1719,9 @@ type PKraftForceMode=^TKraftForceMode;
        procedure ApplyImpulseAtPosition(const Point,Impulse:TKraftVector3);
        procedure ApplyImpulseAtRelativePosition(const RelativePosition,Impulse:TKraftVector3);
 
+       procedure SetForceAtPosition(const AForce,APosition:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+       procedure AddForceAtPosition(const AForce,APosition:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+
        procedure SetWorldForce(const AForce:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
        procedure AddWorldForce(const AForce:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
 
@@ -1466,13 +1734,19 @@ type PKraftForceMode=^TKraftForceMode;
        procedure SetBodyTorque(const ATorque:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
        procedure AddBodyTorque(const ATorque:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
 
-       procedure SetAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
-       procedure AddAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+       procedure SetWorldAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+       procedure AddWorldAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
 
-       procedure SetAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
-       procedure AddAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+       procedure SetBodyAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+       procedure AddBodyAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
 
-       property AngularMomentum:TKraftVector3 read GetAngularMomentum write SetAngularMomentumEx;
+       procedure SetWorldAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+       procedure AddWorldAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+
+       procedure SetBodyAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+       procedure AddBodyAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+
+       property AngularMomentum:TKraftVector3 read GetAngularMomentum write SetAngularMomentum;
      end;
 
      PKraftSolverVelocity=^TKraftSolverVelocity;
@@ -1579,6 +1853,47 @@ type PKraftForceMode=^TKraftForceMode;
        function GetMaximalForce:TKraftScalar; virtual;
        procedure SetWorldPoint(AWorldPoint:TKraftVector3); virtual;
        procedure SetMaximalForce(AMaximalForce:TKraftScalar); virtual;
+     end;
+
+     // Keeps body at some fixed distance to a world plane.
+     TKraftConstraintJointWorldPlaneDistance=class(TKraftConstraintJoint)
+      private
+       IslandIndex:longint;
+       InverseMass:TKraftScalar;
+       SolverVelocity:PKraftSolverVelocity;
+       SolverPosition:PKraftSolverPosition;
+       WorldInverseInertiaTensor:TKraftMatrix3x3;
+       RelativePosition:TKraftVector3;
+       LocalCenter:TKraftVector3;
+       LocalAnchor:TKraftVector3;
+       mU:TKraftVector3;
+       WorldPoint:TKraftVector3;
+       WorldPlane:TKraftPlane;
+       WorldDistance:TKraftScalar;
+       FrequencyHz:TKraftScalar;
+       DampingRatio:TKraftScalar;
+       AccumulatedImpulse:TKraftScalar;
+       Gamma:TKraftScalar;
+       Bias:TKraftScalar;
+       Mass:TKraftScalar;
+       LimitBehavior:TKraftConstraintLimitBehavior;
+       DoubleSidedWorldPlane:longbool;
+       SoftConstraint:longbool;
+       Skip:longbool;
+      public
+       constructor Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody;const ALocalAnchorPoint:TKraftVector3;const AWorldPlane:TKraftPlane;const ADoubleSidedWorldPlane:boolean=true;const AWorldDistance:single=1.0;const ALimitBehavior:TKraftConstraintLimitBehavior=kclbLimitDistance;const AFrequencyHz:TKraftScalar=0.0;const ADampingRatio:TKraftScalar=0.0;const ACollideConnected:boolean=false); reintroduce;
+       destructor Destroy; override;
+       procedure InitializeConstraintsAndWarmStart(const Island:TKraftIsland;const TimeStep:TKraftTimeStep); override;
+       procedure SolveVelocityConstraint(const Island:TKraftIsland;const TimeStep:TKraftTimeStep); override;
+       function SolvePositionConstraint(const Island:TKraftIsland;const TimeStep:TKraftTimeStep):boolean; override;
+       function GetAnchor:TKraftVector3; virtual;
+       function GetReactionForce(const InverseDeltaTime:TKraftScalar):TKraftVector3; override;
+       function GetReactionTorque(const InverseDeltaTime:TKraftScalar):TKraftVector3; override;
+       function GetWorldPoint:TKraftVector3; virtual;
+       function GetWorldPlane:TKraftPlane; virtual;
+       procedure SetWorldPlane(const AWorldPlane:TKraftPlane); virtual;
+       function GetWorldDistance:TKraftScalar; virtual;
+       procedure SetWorldDistance(const AWorldDistance:TKraftScalar); virtual;
      end;
 
      // Keeps bodies at some fixed distance from each other.
@@ -2548,7 +2863,7 @@ const daabbtNULLNODE=-1;
 
       AABB_MULTIPLIER=2.0;
 
-      AABB_MAX_EXPANSION=2.0;
+      AABB_MAX_EXPANSION=128.0;
 
       AABBExtensionVector:TKraftVector3=(x:AABB_EXTENSION;y:AABB_EXTENSION;z:AABB_EXTENSION);
 
@@ -7350,6 +7665,9 @@ asm
  sqrtss xmm0,xmm0
  shufps xmm0,xmm0,$00
  divps xmm2,xmm0
+ subps xmm1,xmm2
+ cmpps xmm1,xmm0,7
+ andps xmm2,xmm1
  movups dqword ptr [AQuaternion],xmm2
 end;
 {$else}
@@ -7378,6 +7696,9 @@ asm
  sqrtss xmm0,xmm0
  shufps xmm0,xmm0,$00
  divps xmm2,xmm0
+ subps xmm1,xmm2
+ cmpps xmm1,xmm0,7
+ andps xmm2,xmm1
  movups dqword ptr [result],xmm2
 end;
 {$else}
@@ -8027,7 +8348,9 @@ function QuaternionGenerator(AQuaternion:TKraftQuaternion):TKraftVector3; {$ifde
 var s:TKraftScalar;
 begin
  s:=sqrt(1.0-sqr(AQuaternion.w));
- result:=AQuaternion.Vector;
+ result.x:=AQuaternion.x;
+ result.y:=AQuaternion.y;
+ result.z:=AQuaternion.z;
  if s>0.0 then begin
   result:=Vector3ScalarMul(result,s);
  end;
@@ -8133,11 +8456,15 @@ begin
 end;
 
 function QuaternionFromToRotation(const FromDirection,ToDirection:TKraftVector3):TKraftQuaternion; {$ifdef caninline}inline;{$endif}
+var t:TKraftVector3;
 begin
- result.Vector:=Vector3Cross(FromDirection,ToDirection);
- result.Scalar:=sqrt((sqr(FromDirection.x)+sqr(FromDirection.y)+sqr(FromDirection.z))*
-                     (sqr(ToDirection.x)+sqr(ToDirection.y)+sqr(ToDirection.z)))+
-                ((FromDirection.x*ToDirection.x)+(FromDirection.y*ToDirection.y)+(FromDirection.z*ToDirection.z));
+ t:=Vector3Cross(Vector3Norm(FromDirection),Vector3Norm(ToDirection));
+ result.x:=t.x;
+ result.y:=t.y;
+ result.z:=t.z;
+ result.w:=sqrt((sqr(FromDirection.x)+sqr(FromDirection.y)+sqr(FromDirection.z))*
+                (sqr(ToDirection.x)+sqr(ToDirection.y)+sqr(ToDirection.z)))+
+               ((FromDirection.x*ToDirection.x)+(FromDirection.y*ToDirection.y)+(FromDirection.z*ToDirection.z));
 end;
 
 
@@ -8257,26 +8584,26 @@ begin
   AABBMax.z:=a.z;
  end;
  if AABBMin.x<AABBMin.y then begin
-  if AABBMin.y<AABBMin.z then begin
-   TimeMin:=AABBMin.z;
+  if AABBMin.x<AABBMin.z then begin
+   TimeMin:=AABBMin.x;
   end else begin
-   TimeMin:=AABBMin.y;
+   TimeMin:=AABBMin.z;
   end;
  end else begin
-  if AABBMin.x<AABBMin.z then begin
-   TimeMin:=AABBMin.z;
+  if AABBMin.y<AABBMin.z then begin
+   TimeMin:=AABBMin.y;
   end else begin
-   TimeMin:=AABBMin.x;
+   TimeMin:=AABBMin.z;
   end;
  end;
- if AABBMax.x<AABBMax.y then begin
-  if AABBMax.x<AABBMax.z then begin
+ if AABBMax.x>AABBMax.y then begin
+  if AABBMax.x>AABBMax.z then begin
    TimeMax:=AABBMax.x;
   end else begin
    TimeMax:=AABBMax.z;
   end;
  end else begin
-  if AABBMax.y<AABBMax.z then begin
+  if AABBMax.y>AABBMax.z then begin
    TimeMax:=AABBMax.y;
   end else begin
    TimeMax:=AABBMax.z;
@@ -12092,12 +12419,32 @@ type PConvexHullVector=^TConvexHullVector;
       x,y,z:double;
      end;
 
-     TConvexHullPoints=array of TConvexHullVector;
+     TConvexHullVectors=array of TConvexHullVector;
 
      PConvexHullTriangle=^TConvexHullTriangle;
      TConvexHullTriangle=array[0..2] of longint;
 
      TConvexHullTriangles=array of TConvexHullTriangle;
+
+     PConvexHullPlane=^TConvexHullPlane;
+     TConvexHullPlane=record
+      Normal:TConvexHullVector;
+      Distance:double;
+     end;
+
+     TConvexHullPlanes=array of TConvexHullPlane;
+
+     PConvexHullPolygon=^TConvexHullPolygon;
+     TConvexHullPolygon=record
+      Indices:array of longint;
+      Count:longint;
+      Plane:TConvexHullPlane;
+     end;
+
+     TConvexHullPolygons=record
+      Items:array of TConvexHullPolygon;
+      Count:longint;
+     end;
 
 function CompareConvexHullPoints(const a,b:pointer):longint;
  function IsSameValue(const a,b:double):boolean;
@@ -12132,108 +12479,1407 @@ begin
  end;
 end;
 
-function GenerateConvexHull(var Points:TConvexHullPoints;var OutTriangles:TConvexHullTriangles;const MaximumOutputPoints:longint=-1):boolean;
-const DOUBLE_PREC:double=2.2204460492503131e-16;
+function ConvexHullIsSameValue(const a,b:double):boolean;
+const FuzzFactor=1000;
+      DoubleResolution=1e-15*FuzzFactor;
+var EpsilonTolerance:double;
+begin
+ EpsilonTolerance:=abs(a);
+ if EpsilonTolerance>abs(b) then begin
+  EpsilonTolerance:=abs(b);
+ end;
+ EpsilonTolerance:=EpsilonTolerance*DoubleResolution;
+ if EpsilonTolerance<DoubleResolution then begin
+  EpsilonTolerance:=DoubleResolution;
+ end;
+ if a>b then begin
+  result:=(a-b)<=EpsilonTolerance;
+ end else begin
+  result:=(b-a)<=EpsilonTolerance;
+ end;
+end;
+
+function ConvexHullVectorCompare(const v1,v2:TConvexHullVector):boolean;
+begin
+ result:=ConvexHullIsSameValue(v1.x,v2.x) and ConvexHullIsSameValue(v1.y,v2.y) and ConvexHullIsSameValue(v1.z,v2.z);
+end;
+
+function ConvexHullVectorNeg(const v:TConvexHullVector):TConvexHullVector;
+begin
+ result.x:=-v.x;
+ result.y:=-v.y;
+ result.z:=-v.z;
+end;
+
+function ConvexHullVectorSub(const v1,v2:TConvexHullVector):TConvexHullVector;
+begin
+ result.x:=v1.x-v2.x;
+ result.y:=v1.y-v2.y;
+ result.z:=v1.z-v2.z;
+end;
+
+function ConvexHullVectorAdd(const v1,v2:TConvexHullVector):TConvexHullVector;
+begin
+ result.x:=v1.x+v2.x;
+ result.y:=v1.y+v2.y;
+ result.z:=v1.z+v2.z;
+end;
+
+function ConvexHullVectorCross(const v1,v2:TConvexHullVector):TConvexHullVector;
+begin
+ result.x:=(v1.y*v2.z)-(v1.z*v2.y);
+ result.y:=(v1.z*v2.x)-(v1.x*v2.z);
+ result.z:=(v1.x*v2.y)-(v1.y*v2.x);
+end;
+
+function ConvexHullVectorScale(const v:TConvexHullVector;const Scale:double):TConvexHullVector;
+begin
+ result.x:=v.x*Scale;
+ result.y:=v.y*Scale;
+ result.z:=v.z*Scale;
+end;
+
+function ConvexHullVectorDivide(const v:TConvexHullVector;const Divisor:double):TConvexHullVector;
+begin
+ result.x:=v.x/Divisor;
+ result.y:=v.y/Divisor;
+ result.z:=v.z/Divisor;
+end;
+
+function ConvexHullVectorLengthSquared(const v:TConvexHullVector):double;
+begin
+ result:=sqr(v.x)+sqr(v.y)+sqr(v.z);
+end;
+
+function ConvexHullVectorLength(const v:TConvexHullVector):double;
+begin
+ result:=sqrt(sqr(v.x)+sqr(v.y)+sqr(v.z));
+end;
+
+function ConvexHullVectorDot(const v1,v2:TConvexHullVector):double;
+begin
+ result:=(v1.x*v2.x)+(v1.y*v2.y)+(v1.z*v2.z);
+end;
+
+function ConvexHullVectorNormalize(const v:TConvexHullVector):TConvexHullVector;
+var l:double;
+begin
+ l:=sqr(v.x)+sqr(v.y)+sqr(v.z);
+ if l>EPSILON then begin
+  l:=sqrt(l);
+  result.x:=v.x/l;
+  result.y:=v.y/l;
+  result.z:=v.z/l;
+ end else begin
+  result.x:=0.0;
+  result.y:=0.0;
+  result.z:=0.0;
+ end;
+end;
+
+function ConvexHullVectorLerp(const v1,v2:TConvexHullVector;const w:double):TConvexHullVector;
+var iw:double;
+begin
+ if w<0.0 then begin
+  result:=v1;
+ end else if w>1.0 then begin
+  result:=v2;
+ end else begin
+  iw:=1.0-w;
+  result.x:=(iw*v1.x)+(w*v2.x);
+  result.y:=(iw*v1.y)+(w*v2.y);
+  result.z:=(iw*v1.z)+(w*v2.z);
+ end;
+end;
+
+procedure ConvexHullGetPlaneSpace(const n:TConvexHullVector;var p,q:TConvexHullVector); {$ifdef caninline}inline;{$endif}
+var a,k:double;
+begin
+ if abs(n.z)>0.70710678118 then begin
+  a:=sqr(n.y)+sqr(n.z);
+  k:=1.0/sqrt(a);
+  p.x:=0.0;
+  p.y:=-(n.z*k);
+  p.z:=n.y*k;
+  q.x:=a*k;
+  q.y:=-(n.x*p.z);
+  q.z:=n.x*p.y;
+ end else begin
+  a:=sqr(n.x)+sqr(n.y);
+  k:=1.0/sqrt(a);
+  p.x:=-(n.y*k);
+  p.y:=n.x*k;
+  p.z:=0.0;
+  q.x:=-(n.z*p.y);
+  q.y:=n.z*p.x;
+  q.z:=a*k;
+ end;
+end;
+
+function ConvexHullCalculateArea(const v0,v1,v2:TConvexHullVector):double;
+begin
+ result:=ConvexHullVectorLengthSquared(ConvexHullVectorCross(ConvexHullVectorSub(v1,v0),ConvexHullVectorSub(v2,v0)));
+end;
+
+function ConvexHullCalculateVolume(const v0,v1,v2,v3:TConvexHullVector):double;
+var a,b,c:TConvexHullVector;
+begin
+ a:=ConvexHullVectorSub(v0,v3);
+ b:=ConvexHullVectorSub(v1,v3);
+ c:=ConvexHullVectorSub(v2,v3);
+ result:=(a.x*((b.z*c.y)-(b.y*c.z)))+(a.y*((b.x*c.z)-(b.z*c.x)))+(a.z*((b.y*c.x)-(b.x*c.y)));
+end;
+
+procedure ConvexHullComputePolygonNewellPlane(const Vertices:TConvexHullVectors;var Polygon:TConvexHullPolygon);
+var VertexIndex:longint;
+    Last,Current:PConvexHullVector;
+    Plane:PConvexHullPlane;
+    Centroid,Normal:TConvexHullVector;
+begin
+ if Polygon.Count>0 then begin
+  Centroid.x:=0.0;
+  Centroid.y:=0.0;
+  Centroid.z:=0.0;
+  Normal.x:=0.0;
+  Normal.y:=0.0;
+  Normal.z:=0.0;
+  Last:=@Vertices[Polygon.Indices[Polygon.Count-1]];
+  for VertexIndex:=0 to Polygon.Count-1 do begin
+   Current:=@Vertices[Polygon.Indices[VertexIndex]];
+   Normal.x:=Normal.x+((Last^.y-Current^.y)*(Last^.z+Current^.z));
+   Normal.y:=Normal.y+((Last^.z-Current^.z)*(Last^.x+Current^.x));
+   Normal.z:=Normal.z+((Last^.x-Current^.x)*(Last^.y+Current^.y));
+   Centroid.x:=Centroid.x+Current^.x;
+   Centroid.y:=Centroid.y+Current^.y;
+   Centroid.z:=Centroid.z+Current^.z;
+   Last:=Current;
+  end;
+  Plane:=@Polygon.Plane;
+  Plane^.Normal:=ConvexHullVectorNormalize(Normal);
+  Plane^.Distance:=-ConvexHullVectorDot(Plane^.Normal,ConvexHullVectorDivide(Centroid,Polygon.Count));
+ end else begin
+  Plane:=@Polygon.Plane;
+  Plane^.Normal.x:=0.0;
+  Plane^.Normal.y:=0.0;
+  Plane^.Normal.z:=0.0;
+  Plane^.Distance:=0.0;
+ end;
+end;
+
+const BSP_COPLANAR=0;
+      BSP_FRONT=1;
+      BSP_BACK=2;
+      BSP_SPANNING=3;
+
+type PConvexHullBSPVertex=^TConvexHullBSPVertex;
+     TConvexHullBSPVertex=object
+      public
+       Position:TConvexHullVector;
+     end;
+
+     PConvexHullBSPPolygonVertices=^TConvexHullBSPPolygonVertices;
+     TConvexHullBSPPolygonVertices=object
+      public
+       Vertices:array of TConvexHullBSPVertex;
+       CountVertices:longint;
+       procedure Initialize;
+       procedure Deinitialize;
+       function Clone:TConvexHullBSPPolygonVertices;
+       procedure Add(const Vertex:TConvexHullBSPVertex);
+     end;
+
+     PConvexHullBSPPolygon=^TConvexHullBSPPolygon;
+     TConvexHullBSPPolygon=object
+      public
+       Vertices:TConvexHullBSPPolygonVertices;
+       Plane:TConvexHullPlane;
+       procedure Initialize;
+       procedure Deinitialize;
+       procedure CalculateProperties;
+       procedure Flip;
+       function Clone:TConvexHullBSPPolygon;
+       function ClassifyVertex(const Vertex:TConvexHullVector):longint;
+       function ClassifySide(const Polygon:TConvexHullBSPPolygon):longint;
+     end;
+
+     TConvexHullBSPPolygons=array of TConvexHullBSPPolygon;
+
+     PConvexHullBSPPolygonList=^TConvexHullBSPPolygonList;
+     TConvexHullBSPPolygonList=object
+      public
+       Polygons:TConvexHullBSPPolygons;
+       CountPolygons:longint;
+       procedure Initialize;
+       procedure Deinitialize;
+       function Clone:TConvexHullBSPPolygonList;
+       procedure Add(const Polygon:TConvexHullBSPPolygon);
+     end;
+
+     TConvexHullBSPNode=class
+      public
+       PolygonList:TConvexHullBSPPolygonList;
+       Divider:TConvexHullBSPPolygon;
+       HasDivider:boolean;
+       FrontNode:TConvexHullBSPNode;
+       BackNode:TConvexHullBSPNode;
+       constructor Create(const InputPolygonList:TConvexHullBSPPolygonList);
+       destructor Destroy; override;
+       function IsConvex:boolean;
+       procedure Build(const InputPolygonList:TConvexHullBSPPolygonList);
+       procedure AllPolygons(var OutputPolygonList:TConvexHullBSPPolygonList);
+       function Clone:TConvexHullBSPNode;
+       function Invert:TConvexHullBSPNode;
+       procedure ClipPolygons(const InputPolygonList:TConvexHullBSPPolygonList;var OutputPolygonList:TConvexHullBSPPolygonList);
+       procedure ClipTo(Node:TConvexHullBSPNode);
+     end;
+
+     TConvexHullBSPTree=class
+      public
+       Root:TConvexHullBSPNode;
+       constructor Create(const InputPolygonList:TConvexHullBSPPolygonList); overload;
+       constructor Create(const Node:TConvexHullBSPNode); overload;
+       destructor Destroy; override;
+       function Subtract(OtherTree:TConvexHullBSPTree):TConvexHullBSPNode;
+       function Union(OtherTree:TConvexHullBSPTree):TConvexHullBSPNode;
+       function Intersection(OtherTree:TConvexHullBSPTree):TConvexHullBSPNode;
+       function Difference(OtherTree:TConvexHullBSPTree):TConvexHullBSPNode;
+       function Invert:TConvexHullBSPNode;
+       procedure GetTrianglePolygons(out OutputPolygonList:TConvexHullBSPPolygonList);
+       procedure GetPolygons(out OutputPolygonList:TConvexHullBSPPolygonList);
+     end;
+
+procedure TConvexHullBSPPolygonVertices.Initialize;
+begin
+ Vertices:=nil;
+ CountVertices:=0;
+end;
+
+procedure TConvexHullBSPPolygonVertices.Deinitialize;
+begin
+ SetLength(Vertices,0);
+ CountVertices:=0;
+end;
+
+function TConvexHullBSPPolygonVertices.Clone:TConvexHullBSPPolygonVertices;
+begin
+ result.Initialize;
+ result.Vertices:=copy(Vertices);
+ result.CountVertices:=CountVertices;
+end;
+
+procedure TConvexHullBSPPolygonVertices.Add(const Vertex:TConvexHullBSPVertex);
+begin
+ if (CountVertices+1)>length(Vertices) then begin
+  SetLength(Vertices,(CountVertices+1)*2);
+ end;
+ Vertices[CountVertices]:=Vertex;
+ inc(CountVertices);
+end;
+
+procedure TConvexHullBSPPolygon.Initialize;
+begin
+ Vertices.Initialize;
+end;
+
+procedure TConvexHullBSPPolygon.Deinitialize;
+begin
+ Vertices.Deinitialize;
+end;
+
+procedure TConvexHullBSPPolygonList.Initialize;
+begin
+ Polygons:=nil;
+ CountPolygons:=0;
+end;
+
+procedure TConvexHullBSPPolygon.CalculateProperties;
+begin
+ Plane.Normal:=ConvexHullVectorNormalize(ConvexHullVectorCross(ConvexHullVectorSub(Vertices.Vertices[2].Position,Vertices.Vertices[0].Position),ConvexHullVectorSub(Vertices.Vertices[1].Position,Vertices.Vertices[0].Position)));
+ Plane.Distance:=-ConvexHullVectorDot(Plane.Normal,Vertices.Vertices[0].Position);
+end;
+
+procedure TConvexHullBSPPolygon.Flip;
+var i:longint;
+    Vertex:TConvexHullBSPVertex;
+begin
+ for i:=0 to (Vertices.CountVertices shr 1)-1 do begin
+  Vertex:=Vertices.Vertices[i];
+  Vertices.Vertices[i]:=Vertices.Vertices[Vertices.CountVertices-(i+1)];
+  Vertices.Vertices[Vertices.CountVertices-(i+1)]:=Vertex;
+ end;
+ Plane.Normal:=ConvexHullVectorNeg(Plane.Normal);
+ Plane.Distance:=-Plane.Distance;
+end;
+
+function TConvexHullBSPPolygon.Clone:TConvexHullBSPPolygon;
+begin
+ result.Initialize;
+ result.Vertices:=Vertices.Clone;
+ result.Plane:=Plane;
+end;
+
+
+function TConvexHullBSPPolygon.ClassifyVertex(const Vertex:TConvexHullVector):longint;
+var SideValue:double;
+begin
+ SideValue:=ConvexHullVectorDot(Plane.Normal,Vertex)+Plane.Distance;
+ if SideValue<(-EPSILON) then begin
+  result:=BSP_BACK;
+ end else if SideValue>EPSILON then begin
+  result:=BSP_FRONT;
+ end else begin
+  result:=BSP_COPLANAR;
+ end;
+end;
+
+function TConvexHullBSPPolygon.ClassifySide(const Polygon:TConvexHullBSPPolygon):longint;
+var i,Positive,Negative:longint;
+begin
+ Positive:=0;
+ Negative:=0;
+ for i:=0 to Polygon.Vertices.CountVertices-1 do begin
+  case ClassifyVertex(Polygon.Vertices.Vertices[i].Position) of
+   BSP_BACK:begin
+    inc(Negative);
+   end;
+   BSP_FRONT:begin
+    inc(Positive);
+   end;
+  end;
+ end;
+ if (Positive>0) and (Negative=0) then begin
+  result:=BSP_FRONT;
+ end else if (Positive=0) and (Negative>0) then begin
+  result:=BSP_BACK;
+ end else if (Positive=0) and (Negative=0) then begin
+  result:=BSP_COPLANAR;
+ end else begin
+  result:=BSP_SPANNING;
+ end;
+end;
+
+procedure TConvexHullBSPPolygonSplit(const This,Polygon:TConvexHullBSPPolygon;var CoplanarFrontList,CoplanarBackList,FrontList,BackList:TConvexHullBSPPolygonList);
+var i,j,ci,cj:longint;
+    t:single;
+    fv,bv:TConvexHullBSPPolygonVertices;
+    vi,vj:PConvexHullBSPVertex;
+    v:TConvexHullBSPVertex;
+    p:TConvexHullBSPPolygon;
+begin
+ case This.ClassifySide(Polygon) of
+  BSP_COPLANAR:begin
+   if ConvexHullVectorDot(This.Plane.Normal,Polygon.Plane.Normal)>0.0 then begin
+    CoplanarFrontList.Add(Polygon);
+   end else begin
+    CoplanarBackList.Add(Polygon);
+   end;
+  end;
+  BSP_FRONT:begin
+   FrontList.Add(Polygon);
+  end;
+  BSP_BACK:begin
+   BackList.Add(Polygon);
+  end;
+  else {SPANNING:}begin
+   fv.Initialize;
+   bv.Initialize;
+   try
+    for i:=0 to Polygon.Vertices.CountVertices-1 do begin
+     j:=i+1;
+     if j>=Polygon.Vertices.CountVertices then begin
+      j:=0;
+     end;
+     vi:=@Polygon.Vertices.Vertices[i];
+     vj:=@Polygon.Vertices.Vertices[j];
+     ci:=This.ClassifyVertex(vi^.Position);
+     cj:=This.ClassifyVertex(vj^.Position);
+     if ci<>BSP_BACK then begin
+      fv.Add(vi^);
+     end;
+     if ci<>BSP_FRONT then begin
+      bv.Add(vi^);
+     end;
+     if (ci or cj)=BSP_SPANNING then begin
+      t:=(ConvexHullVectorDot(This.Plane.Normal,vi^.Position)+This.Plane.Distance)/ConvexHullVectorDot(This.Plane.Normal,ConvexHullVectorSub(vj^.Position,vi^.Position));
+      v.Position:=ConvexHullVectorLerp(vi^.Position,vj^.Position,t);
+      fv.Add(v);
+      bv.Add(v);
+     end;
+    end;
+    if fv.CountVertices>=3 then begin
+     p.Vertices:=fv.Clone;
+     p.CalculateProperties;
+     FrontList.Add(p);
+    end;
+    if bv.CountVertices>=3 then begin
+     p.Vertices:=bv.Clone;
+     p.CalculateProperties;
+     BackList.Add(p);
+    end;
+   finally
+    fv.Deinitialize;
+    bv.Deinitialize;
+   end;
+  end;
+ end;
+end;
+
+procedure TConvexHullBSPPolygonList.Deinitialize;
+var i:longint;
+begin
+ for i:=0 to CountPolygons-1 do begin
+  Polygons[i].Deinitialize;
+ end;
+ SetLength(Polygons,0);
+ CountPolygons:=0;
+end;
+
+function TConvexHullBSPPolygonList.Clone:TConvexHullBSPPolygonList;
+var i:longint;
+begin
+ result.Initialize;
+ for i:=0 to CountPolygons-1 do begin
+  result.Add(Polygons[i].Clone);
+ end;
+end;
+
+procedure TConvexHullBSPPolygonList.Add(const Polygon:TConvexHullBSPPolygon);
+begin
+ if (CountPolygons+1)>length(Polygons) then begin
+  SetLength(Polygons,(CountPolygons+1)*2);
+ end;
+ Polygons[CountPolygons]:=Polygon;
+ inc(CountPolygons);
+end;
+
+constructor TConvexHullBSPNode.Create(const InputPolygonList:TConvexHullBSPPolygonList);
+var i:longint;
+    FrontList,BackList:TConvexHullBSPPolygonList;
+begin
+ inherited Create;
+ PolygonList.Initialize;
+ FillChar(Divider,SizeOf(TConvexHullBSPPolygon),AnsiChar(#0));
+ HasDivider:=false;
+ FrontNode:=nil;
+ BackNode:=nil;
+ FrontList.Initialize;
+ BackList.Initialize;
+ try
+  if InputPolygonList.CountPolygons>0 then begin
+   Divider:=InputPolygonList.Polygons[0].Clone;
+   HasDivider:=true;
+   for i:=0 to InputPolygonList.CountPolygons-1 do begin
+    TConvexHullBSPPolygonSplit(Divider,InputPolygonList.Polygons[i],PolygonList,PolygonList,FrontList,BackList);
+   end;
+   if FrontList.CountPolygons>0 then begin
+    FrontNode:=TConvexHullBSPNode.Create(FrontList);
+   end;
+   if BackList.CountPolygons>0 then begin
+    BackNode:=TConvexHullBSPNode.Create(BackList);
+   end;
+  end;
+ finally
+  FrontList.Deinitialize;
+  BackList.Deinitialize;
+ end;
+end;
+
+destructor TConvexHullBSPNode.Destroy;
+begin
+ PolygonList.Deinitialize;
+ Divider.Deinitialize;
+ FreeAndNil(FrontNode);
+ FreeAndNil(BackNode);
+ inherited Destroy;
+end;
+
+function TConvexHullBSPNode.IsConvex:boolean;
+var i,j:longint;
+begin
+ result:=true;
+ for i:=0 to PolygonList.CountPolygons-1 do begin
+  for j:=0 to PolygonList.CountPolygons-1 do begin
+   if (i<>j) and (PolygonList.Polygons[i].ClassifySide(PolygonList.Polygons[j])<>BSP_BACK) then begin
+    result:=false;
+    exit;
+   end;
+  end;
+ end;
+end;
+
+procedure TConvexHullBSPNode.Build(const InputPolygonList:TConvexHullBSPPolygonList);
+var i:longint;
+    FrontList,BackList:TConvexHullBSPPolygonList;
+begin
+ FrontList.Initialize;
+ BackList.Initialize;
+ try
+  if InputPolygonList.CountPolygons>0 then begin
+   if not HasDivider then begin
+    Divider:=InputPolygonList.Polygons[0].Clone;
+   end;
+   for i:=0 to InputPolygonList.CountPolygons-1 do begin
+    TConvexHullBSPPolygonSplit(Divider,InputPolygonList.Polygons[i],PolygonList,PolygonList,FrontList,BackList);
+   end;
+   if FrontList.CountPolygons>0 then begin
+    if assigned(FrontNode) then begin
+     FrontNode.Build(FrontList);
+    end else begin
+     FrontNode:=TConvexHullBSPNode.Create(FrontList);
+    end;
+   end;
+   if BackList.CountPolygons>0 then begin
+    if assigned(BackNode) then begin
+     BackNode.Build(BackList);
+    end else begin
+     BackNode:=TConvexHullBSPNode.Create(BackList);
+    end;
+   end;
+  end;
+ finally
+  FrontList.Deinitialize;
+  BackList.Deinitialize;
+ end;
+end;
+
+procedure TConvexHullBSPNode.AllPolygons(var OutputPolygonList:TConvexHullBSPPolygonList);
+var i:longint;
+begin
+ for i:=0 to PolygonList.CountPolygons-1 do begin
+  OutputPolygonList.Add(PolygonList.Polygons[i].Clone);
+ end;
+ if assigned(FrontNode) then begin
+  FrontNode.AllPolygons(OutputPolygonList);
+ end;
+ if assigned(BackNode) then begin
+  BackNode.AllPolygons(OutputPolygonList);
+ end;
+end;
+
+function TConvexHullBSPNode.Clone:TConvexHullBSPNode;
+var EmptyList:TConvexHullBSPPolygonList;
+begin
+ EmptyList.Initialize;
+ try
+  result:=TConvexHullBSPNode.Create(EmptyList);
+  result.PolygonList:=PolygonList.Clone;
+  result.Divider:=Divider.Clone;
+  result.HasDivider:=HasDivider;
+  if assigned(FrontNode) then begin
+   result.FrontNode:=FrontNode.Clone;
+  end else begin
+   result.FrontNode:=nil;
+  end;
+  if assigned(BackNode) then begin
+   result.BackNode:=BackNode.Clone;
+  end else begin
+   result.BackNode:=nil;
+  end;
+ finally
+  EmptyList.Deinitialize;
+ end;
+end;
+
+function TConvexHullBSPNode.Invert:TConvexHullBSPNode;
+var i:longint;
+    Temp:TConvexHullBSPNode;
+begin
+ for i:=0 to PolygonList.CountPolygons-1 do begin
+  PolygonList.Polygons[i].Flip;
+ end;
+ Divider.Flip;
+ if assigned(FrontNode) then begin
+  FrontNode.Invert;
+ end;
+ if assigned(BackNode) then begin
+  BackNode.Invert;
+ end;
+ Temp:=FrontNode;
+ FrontNode:=BackNode;
+ BackNode:=Temp;
+ result:=self;
+end;
+
+procedure TConvexHullBSPNode.ClipPolygons(const InputPolygonList:TConvexHullBSPPolygonList;var OutputPolygonList:TConvexHullBSPPolygonList);
+var i:longint;
+    FrontList,BackList,TempList:TConvexHullBSPPolygonList;
+begin
+ FrontList.Initialize;
+ BackList.Initialize;
+ TempList.Initialize;
+ try
+  if HasDivider then begin
+   for i:=0 to InputPolygonList.CountPolygons-1 do begin
+    TConvexHullBSPPolygonSplit(Divider,InputPolygonList.Polygons[i],PolygonList,PolygonList,FrontList,BackList);
+   end;
+   if assigned(FrontNode) then begin
+    TempList:=FrontList.Clone;
+    FrontList.Deinitialize;
+    FrontNode.ClipPolygons(TempList,FrontList);
+   end;
+   if assigned(BackNode) then begin
+    TempList:=BackList.Clone;
+    BackList.Deinitialize;
+    BackNode.ClipPolygons(TempList,BackList);
+   end else begin
+    BackList.Deinitialize;
+   end;
+   for i:=0 to FrontList.CountPolygons-1 do begin
+    OutputPolygonList.Add(FrontList.Polygons[i]);
+   end;
+   for i:=0 to BackList.CountPolygons-1 do begin
+    OutputPolygonList.Add(BackList.Polygons[i]);
+   end;
+  end else begin
+   for i:=0 to InputPolygonList.CountPolygons-1 do begin
+    OutputPolygonList.Add(InputPolygonList.Polygons[i]);
+   end;
+  end;
+ finally
+  FrontList.Deinitialize;
+  BackList.Deinitialize;
+  TempList.Deinitialize;
+ end;
+end;
+
+procedure TConvexHullBSPNode.ClipTo(Node:TConvexHullBSPNode);
+var TempList:TConvexHullBSPPolygonList;
+begin
+ TempList.Initialize;
+ try
+  TempList:=PolygonList.Clone;
+  PolygonList.Deinitialize;
+  Node.ClipPolygons(TempList,PolygonList);
+ finally
+  TempList.Deinitialize;
+ end;
+ if assigned(FrontNode) then begin
+  FrontNode.ClipTo(Node);
+ end;
+ if assigned(BackNode) then begin
+  BackNode.ClipTo(Node);
+ end;
+end;
+
+constructor TConvexHullBSPTree.Create(const InputPolygonList:TConvexHullBSPPolygonList);
+begin
+ inherited Create;
+ Root:=TConvexHullBSPNode.Create(InputPolygonList);
+end;
+
+constructor TConvexHullBSPTree.Create(const Node:TConvexHullBSPNode);
+begin
+ inherited Create;
+ Root:=Node;
+end;
+
+destructor TConvexHullBSPTree.Destroy;
+begin
+ FreeAndNil(Root);
+ inherited Destroy;
+end;
+
+function TConvexHullBSPTree.Subtract(OtherTree:TConvexHullBSPTree):TConvexHullBSPNode;
+var a,b:TConvexHullBSPNode;
+    TempList:TConvexHullBSPPolygonList;
+begin
+ b:=nil;
+ TempList.Initialize;
+ try
+  a:=Root.Clone;
+  b:=OtherTree.Root.Clone;
+  a.Invert;
+  a.ClipTo(b);
+  b.ClipTo(a);
+  b.Invert;
+  b.ClipTo(a);
+  b.Invert;
+  b.AllPolygons(TempList);
+  a.Build(TempList);
+  a.Invert;
+  result:=a;
+ finally
+  TempList.Deinitialize;
+  b.Free;
+ end;
+end;
+
+function TConvexHullBSPTree.Union(OtherTree:TConvexHullBSPTree):TConvexHullBSPNode;
+var a,b:TConvexHullBSPNode;
+    TempList:TConvexHullBSPPolygonList;
+begin
+ b:=nil;
+ TempList.Initialize;
+ try
+  a:=Root.Clone;
+  b:=OtherTree.Root.Clone;
+  a.ClipTo(b);
+  b.ClipTo(a);
+  b.Invert;
+  b.ClipTo(a);
+  b.Invert;
+  b.AllPolygons(TempList);
+  a.Build(TempList);
+  result:=a;
+ finally
+  TempList.Deinitialize;
+  b.Free;
+ end;
+end;
+
+function TConvexHullBSPTree.Intersection(OtherTree:TConvexHullBSPTree):TConvexHullBSPNode;
+var a,b:TConvexHullBSPNode;
+    TempList:TConvexHullBSPPolygonList;
+begin
+ b:=nil;
+ TempList.Initialize;
+ try
+  a:=Root.Clone;
+  b:=OtherTree.Root.Clone;
+  a.Invert;
+  b.ClipTo(a);
+  b.Invert;
+  a.ClipTo(a);
+  b.ClipTo(a);
+  b.AllPolygons(TempList);
+  a.Build(TempList);
+  a.Invert;
+  result:=a;
+ finally
+  TempList.Deinitialize;
+  b.Free;
+ end;
+end;
+
+function TConvexHullBSPTree.Difference(OtherTree:TConvexHullBSPTree):TConvexHullBSPNode;
+var a,b:TConvexHullBSPNode;
+    TempList:TConvexHullBSPPolygonList;
+begin
+ a:=nil;
+ b:=nil;
+ TempList.Initialize;
+ try
+  a:=Root.Clone;
+  b:=OtherTree.Root.Clone;
+
+  a.ClipTo(b);
+  b.ClipTo(a);
+  b.Invert;
+  b.ClipTo(a);
+  b.Invert;
+  b.AllPolygons(TempList);
+  a.Build(TempList);
+
+  b.Free;
+  
+  b:=OtherTree.Root.Clone;
+  b.ClipTo(a);
+  a.ClipTo(b);
+  a.Invert;
+  a.ClipTo(b);
+  a.Invert;
+  a.AllPolygons(TempList);
+  b.Build(TempList);
+
+  result:=b.Clone;
+ finally
+  TempList.Deinitialize;
+  a.Free;
+  b.Free;
+ end;
+end;
+
+function TConvexHullBSPTree.Invert:TConvexHullBSPNode;
+begin
+ result:=Root.Clone.Invert;
+end;
+
+procedure TConvexHullBSPTree.GetTrianglePolygons(out OutputPolygonList:TConvexHullBSPPolygonList);
+var i,j:longint;
+    TempList:TConvexHullBSPPolygonList;
+    Polygon:TConvexHullBSPPolygon;
+begin
+ TempList.Initialize;
+ Polygon.Initialize;
+ try
+  Root.AllPolygons(TempList);
+  SetLength(Polygon.Vertices.Vertices,3);
+  Polygon.Vertices.CountVertices:=3;
+  for i:=0 to TempList.CountPolygons-1 do begin
+   for j:=2 to TempList.Polygons[i].Vertices.CountVertices-1 do begin
+    Polygon.Vertices.Vertices[0]:=TempList.Polygons[i].Vertices.Vertices[0];
+    Polygon.Vertices.Vertices[1]:=TempList.Polygons[i].Vertices.Vertices[j-1];
+    Polygon.Vertices.Vertices[2]:=TempList.Polygons[i].Vertices.Vertices[j];
+    Polygon.CalculateProperties;
+    OutputPolygonList.Add(Polygon.Clone);
+   end;
+  end;
+ finally
+  Polygon.Deinitialize;
+  TempList.Deinitialize;
+ end;
+end;
+
+procedure TConvexHullBSPTree.GetPolygons(out OutputPolygonList:TConvexHullBSPPolygonList);
+var i:longint;                                          
+    TempList:TConvexHullBSPPolygonList;
+begin
+ TempList.Initialize;
+ try
+  Root.AllPolygons(TempList);
+  for i:=0 to TempList.CountPolygons-1 do begin
+   OutputPolygonList.Add(TempList.Polygons[i].Clone);
+  end;
+ finally
+  TempList.Deinitialize;
+ end;
+end;
+
+function GenerateConvexHull(var Points:TConvexHullVectors;var OutTriangles:TConvexHullTriangles;const MaximumOutputPoints:longint=-1;const UserDefinedTolerance:double=-1.0):boolean;
+const ModuloThree:array[0..5] of longint=(0,1,2,0,1,2);
+      DOUBLE_PREC:double=2.2204460492503131e-16;
       EPSILON=1e-10;
-type PTriangle=^TTriangle;
-     TTriangle=record
-      Vertices:array[0..2] of longint;
-      PlaneNormal:TConvexHullVector;
-      PlaneOffset:double;
-      Deleted:longbool;
+type PInt3=^TInt3;
+     TInt3=array[0..2] of longint;
+     TInt3s=array of TInt3;
+     PInt4=^TInt4;
+     TInt4=array[0..3] of longint;
+     PTri=^TTri;
+     TTri=record
+      v:TInt3;
+      n:TInt3;
+      ID:longint;
+      vmax:longint;
+      Rise:double;
      end;
-     TTriangles=array of TTriangle;
-     PEdge=^TEdge;
-     TEdge=record
-      Vertices:array[0..1] of longint;
-      Deleted:longbool;
-     end;
-     TEdges=array of TEdge;
-var Triangles:TTriangles;
-    CountTriangles:longint;
-    ProcessedPointBitmap:array of longword;
-    CountPoints:longint;
-    Edges:TEdges;
-    CountEdges:longint;
-    DeletedTriangles:array of longint;
-    CountDeletedTriangles:longint;
+     TTris=array of TTri;
+var CountPoints:longint;
     MinPoint,MaxPoint:TConvexHullVector;
     Tolerance:double;
- function IsSameValue(const a,b:double):boolean;
- const FuzzFactor=1000;
-       DoubleResolution=1e-15*FuzzFactor;
- var EpsilonTolerance:double;
+ function Roll3(const a:TInt3):TInt3;
  begin
-  EpsilonTolerance:=abs(a);
-  if EpsilonTolerance>abs(b) then begin
-   EpsilonTolerance:=abs(b);
-  end;
-  EpsilonTolerance:=EpsilonTolerance*DoubleResolution;
-  if EpsilonTolerance<DoubleResolution then begin
-   EpsilonTolerance:=DoubleResolution;
-  end;
-  if a>b then begin
-   result:=(a-b)<=EpsilonTolerance;
-  end else begin
-   result:=(b-a)<=EpsilonTolerance;
-  end;
+  result[0]:=a[1];
+  result[1]:=a[2];
+  result[2]:=a[0];
  end;
- function VectorCompare(const v1,v2:TConvexHullVector):boolean;
+ function Equal3(const a,b:TInt3):boolean;
  begin
-  result:=IsSameValue(v1.x,v2.x) and IsSameValue(v1.y,v2.y) and IsSameValue(v1.z,v2.z);
+  result:=((a[0]=b[0]) and (a[1]=b[1]) and (a[2]=b[2]));
  end;
- function VectorSub(const v1,v2:TConvexHullVector):TConvexHullVector;
+ function IsA(const a,b:TInt3):boolean;
  begin
-  result.x:=v1.x-v2.x;
-  result.y:=v1.y-v2.y;
-  result.z:=v1.z-v2.z;
+  result:=Equal3(a,b) or Equal3(Roll3(a),b) or Equal3(a,Roll3(b));
  end;
- function VectorAdd(const v1,v2:TConvexHullVector):TConvexHullVector;
+ function B2B(const a,b:TInt3):boolean;
+ var c:TInt3;
  begin
-  result.x:=v1.x+v2.x;
-  result.y:=v1.y+v2.y;
-  result.z:=v1.z+v2.z;
+  c[0]:=b[2];
+  c[1]:=b[1];
+  c[2]:=b[0];
+  result:=IsA(a,c);
  end;
- function VectorCross(const v1,v2:TConvexHullVector):TConvexHullVector;
+ function TriNormal(const v0,v1,v2:TConvexHullVector):TConvexHullVector;
+ var cp:TConvexHullVector;
+     m:double;
  begin
-  result.x:=(v1.y*v2.z)-(v1.z*v2.y);
-  result.y:=(v1.z*v2.x)-(v1.x*v2.z);
-  result.z:=(v1.x*v2.y)-(v1.y*v2.x);
- end;
- function VectorLengthSquared(const v:TConvexHullVector):double;
- begin
-  result:=sqr(v.x)+sqr(v.y)+sqr(v.z);
- end;
- function VectorDot(const v1,v2:TConvexHullVector):double;
- begin
-  result:=(v1.x*v2.x)+(v1.y*v2.y)+(v1.z*v2.z);
- end;
- function VectorNorm(const v:TConvexHullVector):TConvexHullVector;
- var l:double;
- begin
-  l:=sqr(v.x)+sqr(v.y)+sqr(v.z);
-  if l>EPSILON then begin
-   l:=sqrt(l);
-   result.x:=v.x/l;
-   result.y:=v.y/l;
-   result.z:=v.z/l;
-  end else begin
+  cp:=ConvexHullVectorCross(ConvexHullVectorSub(v1,v0),ConvexHullVectorSub(v2,v0));
+  m:=ConvexHullVectorLength(cp);
+  if m=0.0 then begin
    result.x:=0.0;
    result.y:=0.0;
-   result.z:=0.0;
+   result.z:=1.0;
+  end else begin
+   result.x:=cp.x/m;
+   result.y:=cp.y/m;
+   result.z:=cp.z/m;
   end;
  end;
- function CalculateArea(const v0,v1,v2:TConvexHullVector):double;
+ function Above(const Vertices:TConvexHullVectors;const t:TInt3;const p:TConvexHullVector;const Epsilon:double):boolean;
+ var n:TConvexHullVector;
  begin
-  result:=VectorLengthSquared(VectorCross(VectorSub(v1,v0),VectorSub(v2,v0)));
+  n:=TriNormal(Vertices[t[0]],Vertices[t[1]],Vertices[t[2]]);
+  result:=ConvexHullVectorDot(n,ConvexHullVectorSub(p,Vertices[t[0]]))>Epsilon;
  end;
- function CalculateVolume(const v0,v1,v2,v3:TConvexHullVector):double;
- var a,b,c:TConvexHullVector;
+ function HasEdges(const t:TInt3;const a,b:longint):boolean;
+ var i,i1:longint;
  begin
-  a:=VectorSub(v0,v3);
-  b:=VectorSub(v1,v3);
-  c:=VectorSub(v2,v3);
-  result:=(a.x*((b.z*c.y)-(b.y*c.z)))+(a.y*((b.x*c.z)-(b.z*c.x)))+(a.z*((b.y*c.x)-(b.x*c.y)));
+  for i:=0 to 2 do begin
+   i1:=ModuloThree[i+1];
+   if (t[i]=a) and (t[i1]=b) then begin
+    result:=true;
+    exit;
+   end;
+  end;
+  result:=false;
+ end;
+ function HasVertex(const t:TInt3;const v:longint):boolean;
+ begin
+  result:=(t[0]=v) or (t[1]=v) or (t[2]=v);
+ end;
+ function HasSharedEdge(const a,b:TInt3):boolean;
+ var i,i1:longint;
+ begin
+  for i:=0 to 2 do begin
+   i1:=ModuloThree[i+1];
+   if HasEdges(a,b[i1],b[i]) then begin
+    result:=true;
+    exit;
+   end;
+  end;
+  result:=false;
+ end;
+ function Tri(const a,b,c,id:longint;const na:longint=-1;const nb:longint=-1;const nc:longint=-1):TTri;
+ begin
+  FillChar(result,SizeOf(TTri),#0);
+  result.v[0]:=a;
+  result.v[1]:=b;
+  result.v[2]:=c;
+  result.n[0]:=na;
+  result.n[1]:=nb;
+  result.n[2]:=nc;
+  result.ID:=ID;
+  result.vmax:=-1;
+  result.Rise:=0.0;
+ end;
+ function TriDead(const Tri:TTri):boolean;
+ begin
+  result:=Tri.n[0]<0;
+ end;
+ function TriNEIB(const Tri:TTri;const va,vb:longint):plongint;
+ var i,i1,i2:longint;
+ begin
+  for i:=0 to 2 do begin
+   i1:=ModuloThree[i+1];
+   i2:=ModuloThree[i+2];
+   if (Tri.v[i]=va) and (Tri.v[i1]=vb) then begin
+    result:=@Tri.n[i2];
+    exit;
+   end;
+   if (Tri.v[i]=vb) and (Tri.v[i1]=va) then begin
+    result:=@Tri.n[i2];
+    exit;
+   end;
+  end;
+  result:=nil;
+  raise EKraftDegeneratedConvexHull.Create('Degenerated convex hull');
+ end;
+ procedure NNFix(var Tris:TTris;const CountTris,k:longint);
+ var i,i1,i2:longint;
+     nn:plongint;
+ begin
+  if Tris[k].ID>=0 then begin
+   Assert(Tris[k].ID=k);
+   for i:=0 to 2 do begin
+    i1:=ModuloThree[i+1];
+    i2:=ModuloThree[i+2];
+    if Tris[k].n[i]>=0 then begin
+     nn:=TriNEIB(Tris[Tris[k].n[i]],Tris[k].v[i2],Tris[k].v[i1]);
+     nn^:=k;
+    end;
+   end;
+  end;
+ end;
+ procedure SwapN(var Tris:TTris;const CountTris,a,b:longint);
+ var TempTri:TTri;
+     TempID:longint;
+ begin
+  TempTri:=Tris[a];
+  Tris[a]:=Tris[b];
+  Tris[b]:=TempTri;
+  TempID:=Tris[a].ID;
+  Tris[a].ID:=Tris[b].ID;
+  Tris[b].ID:=TempID;
+  NNFix(Tris,CountTris,a);
+  NNFix(Tris,CountTris,b);
+ end;
+ procedure B2BFix(var Tris:TTris;const CountTris,s,t:longint);
+ var i,i1,i2,va,vb:longint;
+ begin
+  for i:=0 to 2 do begin
+   i1:=ModuloThree[i+1];
+   i2:=ModuloThree[i+2];
+   va:=Tris[s].v[i1];
+	 vb:=Tris[s].v[i2];
+   Assert(TriNEIB(Tris[TriNEIB(Tris[s],va,vb)^],vb,va)^=Tris[s].ID);
+	 Assert(TriNEIB(Tris[TriNEIB(Tris[t],va,vb)^],vb,va)^=Tris[t].ID);
+	 TriNEIB(Tris[TriNEIB(Tris[s],va,vb)^],vb,va)^:=TriNEIB(Tris[t],vb,va)^;
+	 TriNEIB(Tris[TriNEIB(Tris[t],vb,va)^],va,vb)^:=TriNEIB(Tris[s],va,vb)^;
+  end;
+  Tris[s].n[0]:=-1;
+  Tris[s].n[1]:=-1;
+  Tris[s].n[2]:=-1;
+  Tris[t].n[0]:=-1;
+  Tris[t].n[1]:=-1;
+  Tris[t].n[2]:=-1;
+ end;
+ procedure CheckIt(const Tris:TTris;const CountTris:longint;const t:TTri);
+ var i,i1,i2,a,b:longint;
+ begin
+  Assert(Tris[t.ID].ID=t.ID);
+  Assert(@Tris[t.ID]=@t);
+  for i:=0 to 2 do begin
+   i1:=ModuloThree[i+1];
+   i2:=ModuloThree[i+2];
+   a:=t.v[i1];
+	 b:=t.v[i2];
+   Assert(a<>b);
+   Assert(TriNEIB(Tris[t.n[i]],b,a)^=t.ID);
+  end;
+ end;
+ function Extrudable(const Tris:TTris;const CountTris:longint;const Epsilon:double):longint;
+ var t,i:longint;
+ begin
+  t:=-1;
+	for i:=0 to CountTris-1 do begin
+   Assert(Tris[i].ID>=0);
+   Assert(Tris[i].ID=i);
+   Assert(not TriDead(Tris[i]));
+   if (t<0) or (Tris[t].Rise<Tris[i].Rise) then begin
+	  t:=i;
+   end;
+  end;
+  if Tris[t].Rise>Epsilon then begin
+   result:=t;
+  end else begin
+   result:=-1;
+  end;
+ end;
+ function MaxDir(const Vertices:TConvexHullVectors;const CountVertices:longint;const Direction:TConvexHullVector):longint;
+ var i:longint;
+     Best,Current:double;
+ begin
+  result:=-1;
+  Best:=-3.4e+28;
+  for i:=0 to CountVertices-1 do begin
+   Current:=ConvexHullVectorDot(Direction,Vertices[i]);
+   if (i=0) or (Best<Current) then begin
+    result:=i;
+    Best:=Current;
+   end;
+  end;
+ end;
+ function FindSimplex(const Vertices:TConvexHullVectors;const CountVertices:longint):TInt4;
+ const v000:TConvexHullVector=(x:0.0;y:0.0;z:0.0);
+       v100:TConvexHullVector=(x:1.0;y:0.0;z:0.0);
+       v010:TConvexHullVector=(x:0.0;y:1.0;z:0.0);
+ var p0,p1,p2,p3,TempIndex:longint;
+     Basis:array[0..2] of TConvexHullVector;
+ begin
+  Basis[0].x:=0.01;
+  Basis[0].y:=0.02;
+  Basis[0].z:=1.0;
+  p0:=MaxDir(Vertices,CountVertices,Basis[0]);
+  p1:=MaxDir(Vertices,CountVertices,ConvexHullVectorNeg(Basis[0]));
+  Basis[0]:=ConvexHullVectorSub(Vertices[p0],Vertices[p1]);
+	if (p0=p1) or ConvexHullVectorCompare(Basis[0],v000) then begin
+   result[0]:=-1;
+   result[1]:=-1;
+   result[2]:=-1;
+   result[3]:=-1;
+   exit;
+  end;
+  Basis[1]:=ConvexHullVectorCross(v100,Basis[0]);
+  Basis[2]:=ConvexHullVectorCross(v010,Basis[0]);
+  if ConvexHullVectorLengthSquared(Basis[1])>ConvexHullVectorLengthSquared(Basis[2]) then begin
+   Basis[1]:=ConvexHullVectorNormalize(Basis[1]);
+  end else begin
+   Basis[1]:=ConvexHullVectorNormalize(Basis[2]);
+  end;
+  p2:=MaxDir(Vertices,CountVertices,Basis[1]);
+  if (p2=p0) or (p2=p1) then begin
+   p2:=MaxDir(Vertices,CountVertices,ConvexHullVectorNeg(Basis[1]));
+   if (p2=p0) or (p2=p1) then begin
+    result[0]:=-1;
+    result[1]:=-1;
+    result[2]:=-1;
+    result[3]:=-1;
+    exit;
+   end;
+  end;
+  Basis[1]:=ConvexHullVectorSub(Vertices[p2],Vertices[p0]);
+	Basis[2]:=ConvexHullVectorCross(Basis[1],Basis[0]);
+  p3:=MaxDir(Vertices,CountVertices,Basis[2]);
+  if (p3=p0) or (p3=p1) or (p3=p2) then begin
+   p3:=MaxDir(Vertices,CountVertices,ConvexHullVectorNeg(Basis[2]));
+   if (p3=p0) or (p3=p1) or (p3=p2) then begin
+    result[0]:=-1;
+    result[1]:=-1;
+    result[2]:=-1;
+    result[3]:=-1;
+    exit;
+   end;
+  end;
+  Assert(not ((p0=p1) or (p0=p2) or (p0=p3) or (p1=p2) or (p1=p3) or (p2=p3)));
+	if ConvexHullVectorDot(ConvexHullVectorSub(Vertices[p3],Vertices[p0]),
+                         ConvexHullVectorCross(ConvexHullVectorSub(Vertices[p1],Vertices[p0]),
+                                               ConvexHullVectorSub(Vertices[p2],Vertices[p0])))<0.0 then begin
+   TempIndex:=p2;
+   p2:=p3;
+   p3:=TempIndex;
+  end;
+  result[0]:=p0;
+  result[1]:=p1;
+  result[2]:=p2;
+  result[3]:=p3;
+ end;
+{$warnings off}
+ function CalcHull(const Vertices:TConvexHullVectors;var CountVertices:longint;VerticesLimit:longint):TInt3s;
+ var bmin,bmax,Center,n,TempVertex:TConvexHullVector;
+     isextreme:array of boolean;
+     CountTris,i,j,k,te,v,NewStart,nb:longint;
+     Epsilon:double;
+     ti,t,nt:TInt3;
+     p:TInt4;
+     Tris:TTris;
+     tt:PTri;
+     TempTri:TTri;
+     Map,Used:array of longint;
+  procedure TrisPushBack(const NewTri:TTri);
+  begin
+   if (CountTris+1)>=length(Tris) then begin
+    SetLength(Tris,(CountTris+1)*2);
+   end;
+   Tris[CountTris]:=NewTri;
+   inc(CountTris);
+  end;
+  procedure Extrude(const t0,v:longint);
+  var t,n:TInt3;
+      b:longint;
+  begin
+   t:=Tris[t0].v;
+	 b:=CountTris;
+   n:=Tris[t0].n;
+   TrisPushBack(Tri(v,t[1],t[2],b+0,n[0],b+1,b+2));
+	 TriNEIB(Tris[n[0]],t[1],t[2])^:=b+0;
+   TrisPushBack(Tri(v,t[2],t[0],b+1,n[1],b+2,b+0));
+	 TriNEIB(Tris[n[1]],t[2],t[0])^:=b+1;
+   TrisPushBack(Tri(v,t[0],t[1],b+2,n[2],b+0,b+1));
+	 TriNEIB(Tris[n[2]],t[0],t[1])^:=b+2;
+	 Tris[t0].n[0]:=-1;
+	 Tris[t0].n[1]:=-1;
+	 Tris[t0].n[2]:=-1;
+   CheckIt(Tris,CountTris,Tris[b+0]);
+   CheckIt(Tris,CountTris,Tris[b+1]);
+   CheckIt(Tris,CountTris,Tris[b+2]);
+	 if HasVertex(Tris[n[0]].v,v) then begin
+    B2BFix(Tris,CountTris,b+0,n[0]);
+   end;
+	 if HasVertex(Tris[n[1]].v,v) then begin
+    B2BFix(Tris,CountTris,b+1,n[1]);
+   end;
+   if HasVertex(Tris[n[2]].v,v) then begin
+    B2BFix(Tris,CountTris,b+2,n[2]);
+   end;
+  end;
+ begin
+  result:=nil;
+  isextreme:=nil;
+  Tris:=nil;
+  CountTris:=0;
+  Map:=nil;
+  Used:=nil;
+  if CountVertices<4 then begin
+   exit;
+  end;
+  try
+   if VerticesLimit<1 then begin
+    VerticesLimit:=1000000000;
+   end;
+   try
+    SetLength(isextreme,CountVertices);
+    bmin:=Vertices[0];
+    bmax:=Vertices[0];
+    for j:=0 to CountVertices-1 do begin
+     isextreme[j]:=false;
+     bmin.x:=Min(bmin.x,Vertices[j].x);
+     bmin.y:=Min(bmin.y,Vertices[j].y);
+     bmin.z:=Min(bmin.z,Vertices[j].z);
+     bmax.x:=Max(bmax.x,Vertices[j].x);
+     bmax.y:=Max(bmax.y,Vertices[j].y);
+     bmax.z:=Max(bmax.z,Vertices[j].z);
+    end;
+    Epsilon:=ConvexHullVectorLength(ConvexHullVectorSub(bmax,bmin))*0.001;
+    p:=FindSimplex(Vertices,CountVertices);
+    if p[0]<0 then begin
+     SetLength(isextreme,0);
+     result:=nil;
+     exit;
+    end;
+    Center.x:=(Vertices[p[0]].x+Vertices[p[1]].x+Vertices[p[2]].x+Vertices[p[3]].x)*0.25;
+    Center.y:=(Vertices[p[0]].y+Vertices[p[1]].y+Vertices[p[2]].y+Vertices[p[3]].y)*0.25;
+    Center.z:=(Vertices[p[0]].z+Vertices[p[1]].z+Vertices[p[2]].z+Vertices[p[3]].z)*0.25;
+    TrisPushBack(Tri(p[2],p[3],p[1],CountTris,2,3,1));
+    TrisPushBack(Tri(p[3],p[2],p[0],CountTris,3,2,0));
+    TrisPushBack(Tri(p[0],p[1],p[3],CountTris,0,1,3));
+    TrisPushBack(Tri(p[1],p[0],p[2],CountTris,1,0,2));
+    isextreme[p[0]]:=true;
+    isextreme[p[1]]:=true;
+    isextreme[p[2]]:=true;
+    isextreme[p[3]]:=true;
+    CheckIt(Tris,CountTris,Tris[0]);
+    CheckIt(Tris,CountTris,Tris[1]);
+    CheckIt(Tris,CountTris,Tris[2]);
+    CheckIt(Tris,CountTris,Tris[3]);
+    for k:=0 to CountTris-1 do begin
+     tt:=@Tris[k];
+     Assert(tt^.ID>=0);
+     Assert(tt^.vmax<0);
+     n:=TriNormal(Vertices[tt^.v[0]],Vertices[tt^.v[1]],Vertices[tt^.v[2]]);
+     tt^.vmax:=Maxdir(Vertices,CountVertices,n);
+     tt^.Rise:=ConvexHullVectorDot(n,ConvexHullVectorSub(Vertices[tt^.vmax],Vertices[tt^.v[0]]));
+    end;
+    dec(VerticesLimit,4);
+    while VerticesLimit>0 do begin
+     te:=Extrudable(Tris,CountTris,Epsilon);
+     if te<0 then begin
+      break;
+     end;
+     ti:=Tris[te].v;
+     v:=Tris[te].vmax;
+     Assert(not isextreme[v]);  // wtf we've already done this vertex
+     isextreme[v]:=true;
+    {if(v=p0) or (v=p1) or (v=p2) or (v=p3) then begin
+      continue; // done these already
+     end;{}
+     j:=CountTris;
+     NewStart:=j;
+     while j>0 do begin
+      dec(j);
+      if TriDead(Tris[j]) then begin
+       continue;
+      end;
+      t:=tris[j].v;
+      if Above(Vertices,t,Vertices[v],0.01*Epsilon) then begin
+       Extrude(j,v);
+      end;
+     end;
+     // now check for those degenerate cases where we have a flipped triangle or a really skinny triangle
+     j:=CountTris;
+     while j>0 do begin
+      dec(j);
+      if TriDead(Tris[j]) then begin
+       continue;
+      end;
+      if not HasVertex(Tris[j].v,v) then begin
+       break;
+      end;
+      nt:=Tris[j].v;
+      if Above(Vertices,nt,Center,0.01*Epsilon) or
+         (ConvexHullVectorLength(ConvexHullVectorCross(ConvexHullVectorSub(Vertices[nt[1]],Vertices[nt[0]]),
+                                                       ConvexHullVectorSub(Vertices[nt[2]],Vertices[nt[1]])))<(Epsilon*Epsilon*0.1)) then begin
+       nb:=Tris[j].n[0];
+       Assert(nb>=0);
+       Assert(not TriDead(Tris[nb]));
+       Assert(not HasVertex(Tris[nb].v,v));
+       Assert(Tris[nb].ID<j);
+       Extrude(nb,v);
+       j:=CountTris;
+      end;
+     end;
+     j:=CountTris;
+     while j>0 do begin
+      dec(j);
+      if TriDead(Tris[j]) then begin
+       continue;
+      end;
+      tt:=@Tris[j];
+      if tt^.vmax>=0 then begin
+       break;
+      end;
+      n:=TriNormal(Vertices[tt^.v[0]],Vertices[tt^.v[1]],Vertices[tt^.v[2]]);
+      tt^.vmax:=MaxDir(Vertices,CountVertices,n);
+      if isextreme[tt^.vmax] then begin
+       tt^.vmax:=-1; // already done that vertex - algorithm needs to be able to terminate.
+      end else begin
+       tt^.Rise:=ConvexHullVectorDot(n,ConvexHullVectorSub(Vertices[tt^.vmax],Vertices[tt^.v[0]]));
+      end;
+     end;
+     // compress, remove non-tris
+     j:=CountTris;
+     while j>0 do begin
+      dec(j);
+      if not TriDead(Tris[j]) then begin
+       continue;
+      end;
+      SwapN(Tris,CountTris,j,CountTris-1);
+      dec(CountTris);
+     end;
+     dec(VerticesLimit);
+    end;
+    SetLength(result,CountTris);
+    for i:=0 to CountTris-1 do begin
+     Assert(not TriDead(Tris[i]));
+     result[i]:=Tris[i].v;
+    end;
+    SetLength(Tris,0);
+{}  SetLength(Used,CountVertices);
+    SetLength(Map,CountVertices);
+    for i:=0 to CountVertices-1 do begin
+     Used[i]:=0;
+     Map[i]:=0;
+    end;
+    for i:=0 to CountTris-1 do begin
+     for j:=0 to 2 do begin
+      inc(Used[result[i,j]]);
+     end;
+    end;
+    j:=0;
+    for i:=0 to CountVertices-1 do begin
+     if Used[i]>0 then begin
+      TempVertex:=Vertices[j];
+      Vertices[j]:=Vertices[i];
+      Vertices[i]:=TempVertex;
+      Map[i]:=j;
+      inc(j);
+     end else begin
+      Map[i]:=-1;
+     end;
+    end;
+    CountVertices:=j;
+    for i:=0 to CountTris-1 do begin
+     for j:=0 to 2 do begin
+      result[i,j]:=Map[result[i,j]];
+     end;
+    end;{}
+   finally
+    SetLength(isextreme,0);
+    SetLength(Tris,0);
+    SetLength(Map,0);
+    SetLength(Used,0);
+   end;
+  except
+   result:=nil;
+   raise;
+  end;
+ end;
+{$warnings on}
+ procedure SearchMinMax;
+ var Index:longint;
+     Point:PConvexHullVector;
+ begin
+  MinPoint:=Points[0];
+  MaxPoint:=Points[0];
+  for Index:=1 to CountPoints-1 do begin
+   Point:=@Points[Index];
+   if MinPoint.x>Point^.x then begin
+    MinPoint.x:=Point^.x;
+   end;
+   if MinPoint.y>Point^.y then begin
+    MinPoint.y:=Point^.y;
+   end;
+   if MinPoint.z>Point^.z then begin
+    MinPoint.z:=Point^.z;
+   end;
+   if MaxPoint.x<Point^.x then begin
+    MaxPoint.x:=Point^.x;
+   end;
+   if MaxPoint.y<Point^.y then begin
+    MaxPoint.y:=Point^.y;
+   end;
+   if MaxPoint.z<Point^.z then begin
+    MaxPoint.z:=Point^.z;
+   end;
+  end;
  end;
  procedure RemoveDuplicatePoints;
  const HashBits=8;
@@ -12241,7 +13887,7 @@ var Triangles:TTriangles;
        HashMask=HashSize-1;
  var PointIndex,OtherPointIndex,CountNewPoints,HashItemIndex:longint;
      Hash:longword;
-     NewPoints:TConvexHullPoints;
+     NewPoints:TConvexHullVectors;
      PointNextIndices:array of longint;
      HashTable:array of longint;
  begin
@@ -12269,7 +13915,7 @@ var Triangles:TTriangles;
 
     HashItemIndex:=HashTable[Hash];
     while HashItemIndex>=0 do begin
-     if VectorCompare(Points[PointIndex],NewPoints[HashItemIndex]) then begin
+     if ConvexHullVectorCompare(Points[PointIndex],NewPoints[HashItemIndex]) then begin
       break;
      end;
      HashItemIndex:=PointNextIndices[HashItemIndex];
@@ -12301,9 +13947,41 @@ var Triangles:TTriangles;
    SetLength(HashTable,0);
   end;
  end;
+ procedure RemoveTooNearPoints;
+ var PointIndex,NewPointIndex,CountNewPoints:longint;
+     NewPoints:TConvexHullVectors;
+     Skip:boolean;
+ begin
+  NewPoints:=nil;
+  try
+   SetLength(NewPoints,length(Points));
+   CountNewPoints:=0;
+   for PointIndex:=0 to length(Points)-1 do begin
+    Skip:=false;
+    for NewPointIndex:=0 to CountNewPoints-1 do begin
+     if ConvexHullVectorLengthSquared(ConvexHullVectorSub(Points[PointIndex],NewPoints[NewPointIndex]))<=(2.0*Tolerance) then begin
+      Skip:=true;
+      break;
+     end;
+    end;
+    if not Skip then begin
+     NewPoints[CountNewPoints]:=Points[PointIndex];
+     inc(CountNewPoints);
+    end;
+   end;
+   if length(Points)<>CountNewPoints then begin
+    SetLength(Points,CountNewPoints);
+    for PointIndex:=0 to CountNewPoints-1 do begin
+     Points[PointIndex]:=NewPoints[PointIndex];
+    end;
+   end;
+  finally
+   SetLength(NewPoints,0);
+  end;
+ end;
  procedure SortPoints;
  var Count,Index:longint;
-     NewPoints:TConvexHullPoints;
+     NewPoints:TConvexHullVectors;
      IndirectPoints:array of PConvexHullVector;
  begin
   Count:=length(Points);
@@ -12328,480 +14006,1840 @@ var Triangles:TTriangles;
    end;
   end;
  end;
- procedure RefillOnlyWithOutsideVisiblePoints;
- const HashBits=8;
-       HashSize=1 shl HashBits;
-       HashMask=HashSize-1;
- var TriangleIndex,TrianglePointIndex,PointIndex,OtherPointIndex,CountNewPoints,HashItemIndex:longint;
-     Hash:longword;
-     NewPoints:TConvexHullPoints;
-     PointNextIndices:array of longint;
-     HashTable:array of longint;
- begin
-  NewPoints:=nil;
-  PointNextIndices:=nil;
-  HashTable:=nil;
-  try
-
-   SetLength(PointNextIndices,length(Points));
-   for PointIndex:=0 to length(PointNextIndices)-1 do begin
-    PointNextIndices[PointIndex]:=-1;
-   end;
-
-   SetLength(HashTable,HashSize);
-   for PointIndex:=0 to length(HashTable)-1 do begin
-    HashTable[PointIndex]:=-1;
-   end;
-
-   SetLength(NewPoints,length(Points));
-   CountNewPoints:=0;
-
-   for TriangleIndex:=0 to CountTriangles-1 do begin
-
-    if not Triangles[TriangleIndex].Deleted then begin
-
-     for TrianglePointIndex:=0 to 2 do begin
-
-      PointIndex:=Triangles[TriangleIndex].Vertices[TrianglePointIndex];
-
-      Hash:=((round(Points[PointIndex].x)*73856093) xor (round(Points[PointIndex].y)*19349663) xor (round(Points[PointIndex].z)*83492791)) and HashMask;
-
-      HashItemIndex:=HashTable[Hash];
-      while HashItemIndex>=0 do begin
-       if VectorCompare(Points[PointIndex],NewPoints[HashItemIndex]) then begin
-        break;
-       end;
-       HashItemIndex:=PointNextIndices[HashItemIndex];
-      end;
-
-      if HashItemIndex<0 then begin
-       OtherPointIndex:=CountNewPoints;
-       inc(CountNewPoints);
-       if CountNewPoints>length(NewPoints) then begin
-        SetLength(NewPoints,CountNewPoints*2);
-       end;
-       NewPoints[OtherPointIndex]:=Points[PointIndex];
-       PointNextIndices[OtherPointIndex]:=HashTable[Hash];
-       HashTable[Hash]:=OtherPointIndex;
-      end else begin
-       OtherPointIndex:=HashItemIndex;
-      end;
-
-      Triangles[TriangleIndex].Vertices[TrianglePointIndex]:=OtherPointIndex;
-
-     end;
-
-    end;
-
-   end;
-
-   if length(Points)<>CountNewPoints then begin
-    SetLength(Points,CountNewPoints);
-   end;
-   for PointIndex:=0 to CountNewPoints-1 do begin
-    Points[PointIndex]:=NewPoints[PointIndex];
-   end;
-
-  finally
-   SetLength(NewPoints,0);
-   SetLength(PointNextIndices,0);
-   SetLength(HashTable,0);
-  end;
- end;
- procedure AddTriangle(const v0,v1,v2:longint);
- var Index:longint;
-     Triangle:PTriangle;
- begin
-  if CountDeletedTriangles>0 then begin
-   dec(CountDeletedTriangles);
-   Index:=DeletedTriangles[CountDeletedTriangles];
-  end else begin
-   Index:=CountTriangles;
-   inc(CountTriangles);
-   if CountTriangles>=length(Triangles) then begin
-    SetLength(Triangles,CountTriangles*2);
-   end;
-  end;
-  Triangle:=@Triangles[Index];
-  Triangle^.Vertices[0]:=v0;
-  Triangle^.Vertices[1]:=v1;
-  Triangle^.Vertices[2]:=v2;
-  Triangle^.PlaneNormal:=VectorNorm(VectorCross(VectorSub(Points[v1],Points[v0]),VectorSub(Points[v2],Points[v0])));
-  Triangle^.PlaneOffset:=-((Triangle^.PlaneNormal.x*Points[v0].x)+(Triangle^.PlaneNormal.y*Points[v0].y)+(Triangle^.PlaneNormal.z*Points[v0].z));
-  Triangle^.Deleted:=false;
- end;
- function GetFirstTetrahedron:boolean;
- var PointIndex:longint;
-     BestArea,Area,BestVolume,Volume:double;
-     TempVertices:array[0..3] of longint;
- begin
-  result:=false;
-
-  TempVertices[0]:=0;
-  TempVertices[3]:=0;
-  for PointIndex:=0 to CountPoints-1 do begin
-   if (Points[PointIndex].x<Points[TempVertices[0]].x) or
-      (SameValue(Points[PointIndex].x,Points[TempVertices[0]].x) and
-       ((Points[PointIndex].y<Points[TempVertices[0]].y) or
-        (SameValue(Points[PointIndex].y,Points[TempVertices[0]].y) and
-         (Points[PointIndex].z<Points[TempVertices[0]].z)))) then begin
-    TempVertices[0]:=PointIndex;
-   end;
-   if (Points[PointIndex].x>Points[TempVertices[0]].x) or
-      (SameValue(Points[PointIndex].x,Points[TempVertices[0]].x) and
-       ((Points[PointIndex].y>Points[TempVertices[0]].y) or
-        (SameValue(Points[PointIndex].y,Points[TempVertices[0]].y) and
-         (Points[PointIndex].z>Points[TempVertices[0]].z)))) then begin
-    TempVertices[3]:=PointIndex;
-   end;
-  end;
-  if TempVertices[0]=TempVertices[3] then begin
-   exit;
-  end;
-
-  TempVertices[1]:=0;
-  BestArea:=abs(CalculateArea(Points[TempVertices[0]],Points[TempVertices[3]],Points[TempVertices[1]]));
-  for PointIndex:=1 to CountPoints-1 do begin
-   Area:=abs(CalculateArea(Points[TempVertices[0]],Points[TempVertices[3]],Points[PointIndex]));
-   if BestArea<Area then begin
-    BestArea:=Area;
-    TempVertices[1]:=PointIndex;
-   end;
-  end;
-  if (TempVertices[0]=TempVertices[1]) or (TempVertices[3]=TempVertices[1]) then begin
-   exit;
-  end;
-
-  TempVertices[2]:=0;
-  BestVolume:=CalculateVolume(Points[TempVertices[0]],Points[TempVertices[1]],Points[TempVertices[3]],Points[0]);
-  for PointIndex:=1 to CountPoints-1 do begin
-   Volume:=abs(CalculateVolume(Points[TempVertices[0]],Points[TempVertices[1]],Points[TempVertices[3]],Points[PointIndex]));
-   if BestVolume<Volume then begin
-    BestVolume:=Volume;
-    TempVertices[2]:=PointIndex;
-   end;
-  end;
-  if (TempVertices[0]=TempVertices[2]) or (TempVertices[1]=TempVertices[2]) or (TempVertices[3]=TempVertices[2]) then begin
-   exit;
-  end;
-
-  for PointIndex:=0 to 3 do begin
-   if CalculateVolume(Points[TempVertices[PointIndex and 3]],Points[TempVertices[(PointIndex+1) and 3]],Points[TempVertices[(PointIndex+2) and 3]],Points[TempVertices[(PointIndex+3) and 3]])>0 then begin
-    AddTriangle(TempVertices[(PointIndex+1) and 3],TempVertices[PointIndex and 3],TempVertices[(PointIndex+2) and 3]);
-   end else begin
-    AddTriangle(TempVertices[PointIndex and 3],TempVertices[(PointIndex+1) and 3],TempVertices[(PointIndex+2) and 3]);
-   end;
-
-   ProcessedPointBitmap[TempVertices[PointIndex] shr 5]:=ProcessedPointBitmap[TempVertices[PointIndex] shr 5] or (longword(1) shl (TempVertices[PointIndex] and 31));
-
-  end;
-
-  result:=true;
- end;
- procedure PushEdge(v0,v1:longint);
- var EdgeIndex,ScanEdgeIndex:longint;
-     Edge:PEdge;
- begin
-  EdgeIndex:=-1;
-  for ScanEdgeIndex:=0 to CountEdges-1 do begin
-   Edge:=@Edges[ScanEdgeIndex];
-   if Edge^.Deleted then begin
-    if EdgeIndex<0 then begin
-     EdgeIndex:=ScanEdgeIndex;
-    end;
-   end else if ((Edge^.Vertices[0]=v0) and (Edge^.Vertices[1]=v1)) or
-               ((Edge^.Vertices[0]=v1) and (Edge^.Vertices[1]=v0)) then begin
-    Edge^.Deleted:=true;
-    exit;
-   end;
-  end;
-  if EdgeIndex<0 then begin
-   EdgeIndex:=CountEdges;
-   inc(CountEdges);
-   if CountEdges>=length(Edges) then begin
-    SetLength(Edges,CountEdges*2);
-   end;
-  end;
-  Edge:=@Edges[EdgeIndex];
-  Edge^.Vertices[0]:=v0;
-  Edge^.Vertices[1]:=v1;
-  Edge^.Deleted:=false;
- end;
- procedure DeleteTriangle(TriangleIndex:longint);
- var DeletedTriangleIndex:longint;
- begin
-  DeletedTriangleIndex:=CountDeletedTriangles;
-  inc(CountDeletedTriangles);
-  if CountDeletedTriangles>length(DeletedTriangles) then begin
-   SetLength(DeletedTriangles,CountDeletedTriangles*2);
-  end;
-  DeletedTriangles[DeletedTriangleIndex]:=TriangleIndex;
-  Triangles[TriangleIndex].Deleted:=true;
- end;
- procedure AddPoint(PointIndex:longint);
- const EdgeVertices:array[0..2,0..2] of longint=((0,1,2),(1,2,0),(2,0,1));
- var TriangleIndex,EdgeIndex:longint;
-     Triangle:PTriangle;
-     Edge:PEdge;
- begin
-  if (ProcessedPointBitmap[PointIndex shr 5] and (longword(1) shl (PointIndex and 31)))=0 then begin
-   ProcessedPointBitmap[PointIndex shr 5]:=ProcessedPointBitmap[PointIndex shr 5] or (longword(1) shl (PointIndex and 31));
-   CountEdges:=0;
-   for TriangleIndex:=0 to CountTriangles-1 do begin
-    Triangle:=@Triangles[TriangleIndex];
-    if (not Triangle^.Deleted) and ((VectorDot(Triangle^.PlaneNormal,Points[PointIndex])+Triangle^.PlaneOffset)>Tolerance) then begin
-     for EdgeIndex:=0 to 2 do begin
-      if CalculateVolume(Points[Triangle^.Vertices[EdgeVertices[EdgeIndex,0]]],Points[Triangle^.Vertices[EdgeVertices[EdgeIndex,1]]],Points[PointIndex],Points[Triangle^.Vertices[EdgeVertices[EdgeIndex,2]]])>0.0 then begin
-       // Flipped triangle, correct the vertex order
-       PushEdge(Triangle^.Vertices[EdgeVertices[EdgeIndex,1]],Triangle^.Vertices[EdgeVertices[EdgeIndex,0]]);
-      end else begin
-       // Non-flipped triangle, so we don't need to correct the vertex order here
-       PushEdge(Triangle^.Vertices[EdgeVertices[EdgeIndex,0]],Triangle^.Vertices[EdgeVertices[EdgeIndex,1]]);
-      end;
-     end;
-     DeleteTriangle(TriangleIndex);
-    end;
-   end;
-   while CountEdges>0 do begin
-    dec(CountEdges);
-    Edge:=@Edges[CountEdges];
-    if not Edge^.Deleted then begin
-     AddTriangle(Edge^.Vertices[0],Edge^.Vertices[1],PointIndex);
-    end;
-   end;
-  end;
- end;
- function GetFarthestOutsideHullUnprocessedPointIndex:longint;
- var PointIndex,TriangleIndex:longint;
-     BestOverallDistance,BestPointDistance,Distance:double;
-     Triangle:PTriangle;
-     Valid:boolean;
- begin
-  result:=-1;
-  BestOverallDistance:=0.0;
-  for PointIndex:=0 to CountPoints-1 do begin
-   if (ProcessedPointBitmap[PointIndex shr 5] and (longword(1) shl (PointIndex and 31)))=0 then begin
-    BestPointDistance:=0.0;
-    Valid:=false;
-    for TriangleIndex:=0 to CountTriangles-1 do begin
-     Triangle:=@Triangles[TriangleIndex];
-     if not Triangle^.Deleted then begin
-      Distance:=VectorDot(Triangle^.PlaneNormal,Points[PointIndex]);
-      if (Distance>Tolerance) and ((BestPointDistance<Distance) or not Valid) then begin
-       BestPointDistance:=Distance;
-       Valid:=true;
-      end;
-     end;
-    end;
-    if Valid and (BestOverallDistance<BestPointDistance) then begin
-     BestOverallDistance:=BestPointDistance;
-     result:=PointIndex;
-    end;
-   end;
-  end;
- end;
- procedure Build;
- type PStackItem=^TStackItem;
-      TStackItem=record
-       Left,Right:longint;
-      end;
-      TStack=array[0..31] of TStackItem;
- var StackPointer,Left,Right,Split,PointIndex,PointsToDo:longint;
-     StackItem:PStackItem;
-     BestArea,Area:double;
-     Stack:TStack;
- begin
-  if GetFirstTetrahedron then begin
-   PointsToDo:=MaximumOutputPoints-4;
-  end else begin
-   AddTriangle(0,1,2);
-   AddTriangle(0,2,1);
-   for PointIndex:=0 to 2 do begin
-    ProcessedPointBitmap[PointIndex shr 5]:=ProcessedPointBitmap[PointIndex shr 5] or (longword(1) shl (PointIndex and 31));
-   end;
-   PointsToDo:=MaximumOutputPoints-3;
-  end;
-  if (MaximumOutputPoints<=0) or (MaximumOutputPoints>=CountPoints) then begin
-   StackPointer:=0;
-   StackItem:=@Stack[StackPointer];
-   inc(StackPointer);
-   StackItem^.Left:=0;
-   StackItem^.Right:=CountPoints-1;
-   while StackPointer>0 do begin
-    dec(StackPointer);
-    StackItem:=@Stack[StackPointer];
-    Left:=StackItem^.Left;
-    Right:=StackItem^.Right;
-    if Left<=Right then begin
-     if ((Right-Left)<=4) or (StackPointer>=29) then begin
-      for PointIndex:=Left to Right do begin
-       AddPoint(PointIndex);
-      end;
-     end else begin
-      Split:=Left+((Right-Left) shr 1);
-      BestArea:=abs(CalculateArea(Points[Left],Points[Right],Points[Split]));
-      for PointIndex:=Left+1 to Right-1 do begin
-       Area:=abs(CalculateArea(Points[Left],Points[Right],Points[PointIndex]));
-       if BestArea<Area then begin
-        BestArea:=Area;
-        Split:=PointIndex;
-       end;
-      end;
-      AddPoint(Left);
-      AddPoint(Split);
-      AddPoint(Right);
-      if (Split+1)<=(Right-1) then begin
-       StackItem:=@Stack[StackPointer];
-       inc(StackPointer);
-       StackItem^.Left:=Split+1;
-       StackItem^.Right:=Right-1;
-      end;
-      if (Left+1)<=(Split-1) then begin
-       StackItem:=@Stack[StackPointer];
-       inc(StackPointer);
-       StackItem^.Left:=Left+1;
-       StackItem^.Right:=Split-1;
-      end;
-     end;
-    end;
-   end;
-  end else begin
-   while PointsToDo>0 do begin
-    dec(PointsToDo);
-    PointIndex:=GetFarthestOutsideHullUnprocessedPointIndex;
-    if PointIndex<0 then begin
-     break;
-    end else begin
-     AddPoint(PointIndex);
-    end;
-   end;
-  end;
- end;
- procedure SearchMinMax;
- var Index:longint;
-     Point:PConvexHullVector;
- begin
-  MinPoint:=Points[0];
-  MaxPoint:=Points[0];
-  for Index:=1 to CountPoints-1 do begin
-   Point:=@Points[Index];
-   if MinPoint.x>Point^.x then begin
-    MinPoint.x:=Point^.x;
-   end;
-   if MinPoint.y>Point^.y then begin
-    MinPoint.y:=Point^.y;
-   end;
-   if MinPoint.z>Point^.z then begin
-    MinPoint.z:=Point^.z;
-   end;
-   if MaxPoint.x<Point^.x then begin
-    MaxPoint.x:=Point^.x;
-   end;
-   if MaxPoint.y<Point^.y then begin
-    MaxPoint.y:=Point^.y;
-   end;
-   if MaxPoint.z<Point^.z then begin
-    MaxPoint.z:=Point^.z;
-   end;
-  end;
- end;
-var Index,TriangleIndex,TriangleVertexIndex,Count:longint;
-    Triangle:PTriangle;
-    OutTriangle:PConvexHullTriangle;
+var Tris:TInt3s;
+    i:longint;
 begin
  result:=false;
-
- Triangles:=nil;
- CountTriangles:=0;
-
- Edges:=nil;
- CountEdges:=0;
-
- DeletedTriangles:=nil;
- CountDeletedTriangles:=0;
-
- ProcessedPointBitmap:=nil;
-
+ Tris:=nil;
  try
-
-  SetLength(Triangles,64);
-  SetLength(Edges,64);
-  SetLength(DeletedTriangles,64);
-
-  RemoveDuplicatePoints;
-
-  SortPoints;
-
   CountPoints:=length(Points);
-
-  if CountPoints=3 then begin
-
-   AddTriangle(0,1,2);
-   AddTriangle(0,2,1);
-
-   result:=true;
-
-  end else if (CountPoints=4) and (abs(CalculateVolume(Points[0],Points[1],Points[2],Points[3]))<1e-10) then begin
-
-   AddTriangle(0,1,2);
-   AddTriangle(2,3,0);
-   AddTriangle(2,1,0);
-   AddTriangle(0,3,2);
-
-   result:=true;
-
-  end else if CountPoints>=4 then begin
-
-   SetLength(ProcessedPointBitmap,(CountPoints+31) shr 5);
-   for Index:=0 to length(ProcessedPointBitmap)-1 do begin
-    ProcessedPointBitmap[Index]:=0;
+  SearchMinMax;
+  if UserDefinedTolerance>0.0 then begin
+   Tolerance:=UserDefinedTolerance;
+  end else begin
+   Tolerance:=Max(DOUBLE_PREC,(3.0*DOUBLE_PREC)*(Max(abs(MaxPoint.x),abs(MaxPoint.x))+Max(abs(MaxPoint.y),abs(MaxPoint.y))+Max(abs(MaxPoint.z),abs(MaxPoint.z))));
+  end;
+  RemoveDuplicatePoints;
+  RemoveTooNearPoints;
+  SortPoints;
+  CountPoints:=length(Points);
+  Tris:=CalcHull(Points,CountPoints,MaximumOutputPoints);
+  if (length(Tris)>0) and (CountPoints>0) then begin
+   SetLength(Points,CountPoints);
+   SetLength(OutTriangles,length(Tris));
+   for i:=0 to length(Tris)-1 do begin
+    OutTriangles[i,0]:=Tris[i,0];
+    OutTriangles[i,1]:=Tris[i,1];
+    OutTriangles[i,2]:=Tris[i,2];
    end;
-
-   SearchMinMax;
-
-   Tolerance:=(3.0*DOUBLE_PREC)*(abs(MaxPoint.x-MinPoint.x)+abs(MaxPoint.y-MinPoint.y)+abs(MaxPoint.z-MinPoint.z));
-
-   Build;
-
-   SetLength(Edges,0);
-   SetLength(DeletedTriangles,0);
-
-   RefillOnlyWithOutsideVisiblePoints;
-
    result:=true;
   end;
+ finally
+  SetLength(Tris,0);
+ end;
+end;
 
-  if result then begin
-   Count:=0;
-   for TriangleIndex:=0 to CountTriangles-1 do begin
-    Triangle:=@Triangles[TriangleIndex];
-    if not Triangle^.Deleted then begin
-     inc(Count);
+function KraftQuickHullIsSameValue(const a,b:double):boolean;
+const FuzzFactor=1000;
+      DoubleResolution=1e-15*FuzzFactor;
+var EpsilonTolerance:double;
+begin
+ EpsilonTolerance:=abs(a);
+ if EpsilonTolerance>abs(b) then begin
+  EpsilonTolerance:=abs(b);
+ end;
+ EpsilonTolerance:=EpsilonTolerance*DoubleResolution;
+ if EpsilonTolerance<DoubleResolution then begin
+  EpsilonTolerance:=DoubleResolution;
+ end;
+ if a>b then begin
+  result:=(a-b)<=EpsilonTolerance;
+ end else begin
+  result:=(b-a)<=EpsilonTolerance;
+ end;
+end;
+
+function KraftQuickHullIntLog2(x:longword):longword; {$ifdef cpu386}assembler; register;
+asm
+ test eax,eax
+ jz @Done
+ bsr eax,eax
+ @Done:
+end;
+{$else}
+begin
+ x:=x or (x shr 1);
+ x:=x or (x shr 2);
+ x:=x or (x shr 4);
+ x:=x or (x shr 8);
+ x:=x or (x shr 16);
+ x:=x shr 1;
+ x:=x-((x shr 1) and $55555555);
+ x:=((x shr 2) and $33333333)+(x and $33333333);
+ x:=((x shr 4)+x) and $0f0f0f0f;
+ x:=x+(x shr 8);
+ x:=x+(x shr 16);
+ result:=x and $3f;
+end;
+{$endif}
+
+constructor TKraftQuickHullIntegerList.Create;
+begin
+ inherited Create;
+ CountItems:=0;
+ Allocated:=0;
+ List:=nil;
+ Clear;
+end;
+
+destructor TKraftQuickHullIntegerList.Destroy;
+begin
+ Clear;
+ inherited Destroy;
+end;
+
+procedure TKraftQuickHullIntegerList.Clear;
+begin
+ CountItems:=0;
+ Allocated:=0;
+ IsSorted:=false;
+ ReallocMem(List,0);
+end;
+
+procedure TKraftQuickHullIntegerList.SetCapacity(NewCapacity:longint);
+begin
+ if NewCapacity>=0 then begin
+  ReallocMem(List,NewCapacity*sizeof(longint));
+  Allocated:=NewCapacity;
+ end;
+end;
+
+procedure TKraftQuickHullIntegerList.SetCount(NewCount:longint);
+begin
+ if NewCount>=0 then begin
+  if NewCount<CountItems then begin
+   CountItems:=NewCount;
+  end else if NewCount>CountItems then begin
+   if NewCount>Allocated then begin
+    SetCapacity((CountItems+4096) and not 4095);
+   end;
+   if CountItems<NewCount then begin
+    FillChar(List^[CountItems],(NewCount-CountItems)*sizeof(longint),#0);
+   end;
+   CountItems:=NewCount;
+  end;
+ end;
+end;
+
+function TKraftQuickHullIntegerList.Add(Item:longint):longint;
+begin
+ if CountItems>=Allocated then begin
+  Allocated:=(CountItems+4096) and not 4095;
+  ReallocMem(List,Allocated*sizeof(longint));
+ end;
+ List^[CountItems]:=Item;
+ result:=CountItems;
+ inc(CountItems);
+ IsSorted:=false;
+end;
+
+procedure TKraftQuickHullIntegerList.AddSorted(Item:longint);
+var i:longint;
+begin
+ if IsSorted then begin
+  if CountItems=0 then begin
+   Add(Item);
+  end else begin
+   i:=0;
+   while (i<CountItems) and (Item>=List^[i]) do begin
+    inc(i);
+   end;
+   Insert(i,Item);
+  end;
+  IsSorted:=true;
+ end else begin
+  Add(Item);
+  Sort;
+ end;
+end;
+
+procedure TKraftQuickHullIntegerList.Insert(Index:longint;Item:longint);
+var i:longint;
+begin
+ if (Index>=0) and (Index<CountItems) then begin
+  SetCount(CountItems+1);
+  for i:=CountItems-1 downto Index do begin
+   List^[i+1]:=List^[i];
+  end;
+  List^[Index]:=Item;
+ end else if Index=CountItems then begin
+  Add(Item);
+ end else if Index>CountItems then begin
+  SetCount(Index);
+  Add(Item);
+ end;
+ IsSorted:=false;
+end;
+
+procedure TKraftQuickHullIntegerList.Delete(Index:longint);
+var i,j,k:longint;
+begin
+ if (Index>=0) and (Index<CountItems) then begin
+  k:=CountItems-1;
+  j:=Index;
+  for i:=j to k-1 do begin
+   List^[i]:=List^[i+1];
+  end;
+  SetCount(k);
+ end;
+end;
+
+function TKraftQuickHullIntegerList.Remove(Item:longint):longint;
+var i,j,k:longint;
+begin
+ result:=-1;
+ k:=CountItems;
+ j:=-1;
+ for i:=0 to k-1 do begin
+  if List^[i]=Item then begin
+   j:=i;
+   break;
+  end;
+ end;
+ if j>=0 then begin
+  dec(k);
+  for i:=j to k-1 do begin
+   List^[i]:=List^[i+1];
+  end;
+  SetCount(k);
+  result:=j;
+ end;
+end;
+
+function TKraftQuickHullIntegerList.Find(Item:longint):longint;
+var i,l,r:longint;
+begin
+ result:=-1;
+ if IsSorted then begin
+  l:=0;
+  r:=CountItems-1;
+  while l<=r do begin
+   i:=(l+r) shr 1;
+   if List^[i]=Item then begin
+    result:=i;
+    break;
+   end else begin
+    if List^[i]<Item then begin
+     l:=i+1;
+    end else begin
+     r:=i-1;
     end;
    end;
-   SetLength(OutTriangles,Count);
-   Count:=0;
-   for TriangleIndex:=0 to CountTriangles-1 do begin
-    Triangle:=@Triangles[TriangleIndex];
-    if not Triangle^.Deleted then begin
-     OutTriangle:=@OutTriangles[Count];
-     inc(Count);
-     for TriangleVertexIndex:=0 to 2 do begin
-      OutTriangle[TriangleVertexIndex]:=Triangle^.Vertices[TriangleVertexIndex];
-     end;
+  end;
+ end else begin
+  for i:=0 to CountItems-1 do begin
+   if List^[i]=Item then begin
+    result:=i;
+    break;
+   end;
+  end;
+ end;
+end;
+
+function TKraftQuickHullIntegerList.IndexOf(Item:longint):longint;
+begin
+ result:=Find(Item);
+end;
+
+procedure TKraftQuickHullIntegerList.Exchange(Index1,Index2:longint);
+var TempInteger:longint;
+begin
+ if (Index1>=0) and (Index1<CountItems) and (Index2>=0) and (Index2<CountItems) then begin
+  TempInteger:=List^[Index1];
+  List^[Index1]:=List^[Index2];
+  List^[Index2]:=TempInteger;
+  IsSorted:=false;
+ end;
+end;
+
+function TKraftQuickHullIntegerList.GetItem(Index:longint):longint;
+begin
+ if (Index>=0) and (Index<CountItems) then begin
+  result:=List^[Index];
+ end else begin
+  result:=0;
+ end;
+end;
+
+procedure TKraftQuickHullIntegerList.SetItem(Index:longint;Value:longint);
+begin
+ if (Index>=0) and (Index<CountItems) then begin
+  List^[Index]:=Value;
+  IsSorted:=false;
+ end;
+end;
+
+function TKraftQuickHullIntegerList.GetItemPointer(Index:longint):pointer;
+begin
+ if (Index>=0) and (Index<CountItems) then begin
+  result:=@List^[Index];
+ end else begin
+  result:=nil;
+ end;
+end;
+
+procedure TKraftQuickHullIntegerList.Sort;
+ procedure IntroSort(Left,Right,Depth:longint);
+  procedure SiftDown(Current,MaxIndex:longint);
+  var SiftLeft,SiftRight,Largest:longint;
+      v:longint;
+  begin
+   SiftLeft:=Left+(2*(Current-Left))+1;
+   SiftRight:=Left+(2*(Current-Left))+2;
+   Largest:=Current;
+   if (SiftLeft<=MaxIndex) and (List^[SiftLeft]>List^[Largest]) then begin
+    Largest:=SiftLeft;
+   end;
+   if (SiftRight<=MaxIndex) and (List^[SiftRight]>List^[Largest]) then begin
+    Largest:=SiftRight;
+   end;
+   if Largest<>Current then begin
+    v:=List^[Current];
+    List^[Current]:=List^[Largest];
+    List^[Largest]:=v;
+    SiftDown(Largest,MaxIndex);
+   end;
+  end;
+  procedure InsertionSort;
+  var i,j:longint;
+      t:longint;
+  begin
+   i:=Left+1;
+   while i<=Right do begin
+    t:=List^[i];
+    j:=i-1;
+    while (j>=Left) and (t<List^[j]) do begin
+     List^[j+1]:=List^[j];
+     dec(j);
     end;
+    List^[j+1]:=t;
+    inc(i);
+   end;
+  end;
+  procedure HeapSort;
+  var i:longint;
+      v:longint;
+  begin
+   i:=((Left+Right+1) div 2)-1;
+   while i>=Left do begin
+    SiftDown(i,Right);
+    dec(i);
+   end;
+   i:=Right;
+   while i>=Left+1 do begin
+    v:=List^[i];
+    List^[i]:=List^[Left];
+    List^[Left]:=v;
+    SiftDown(Left,i-1);
+    dec(i);
+   end;
+  end;
+  procedure QuickSortWidthMedianOfThreeOptimization;
+  var Middle,i,j:longint;
+      Pivot,v:longint;
+  begin
+   Middle:=(Left+Right) div 2;
+   if (Right-Left)>3 then begin
+    if List^[Left]>List^[Middle] then begin
+     v:=List^[Left];
+     List^[Left]:=List^[Middle];
+     List^[Middle]:=v;
+    end;
+    if List^[Left]>List^[Right] then begin
+     v:=List^[Left];
+     List^[Left]:=List^[Right];
+     List^[Right]:=v;
+    end;
+    if List^[Middle]>List^[Right] then begin
+     v:=List^[Middle];
+     List^[Middle]:=List^[Right];
+     List^[Right]:=v;
+    end;
+   end;
+   Pivot:=List^[Middle];
+   i:=Left;
+   j:=Right;
+   while true do begin
+    while (i<j) and (List^[i]<Pivot) do begin
+     inc(i);
+    end;
+    while (j>i) and (List^[j]>Pivot) do begin
+     dec(j);
+    end;
+    if i>j then begin
+     break;
+    end;
+    v:=List^[i];
+    List^[i]:=List^[j];
+    List^[j]:=v;
+    inc(i);
+    dec(j);
+   end;
+   IntroSort(Left,j,Depth-1);
+   IntroSort(i,Right,Depth-1);
+  end;
+ begin
+  if Left<Right then begin
+   if (Right-Left)<16 then begin
+    InsertionSort;
+   end else if Depth=0 then begin
+    HeapSort;
+   end else begin
+    QuickSortWidthMedianOfThreeOptimization;
+   end;
+  end;
+ end;
+ procedure QuickSort(L,R:longint);
+ var Pivot,vL,vR:longint;
+     v:longint;
+ begin
+  if (R-L)<=1 then begin
+   if (L<R) and (List[R]<List[L]) then begin
+    v:=List^[L];
+    List^[L]:=List^[R];
+    List^[R]:=v;
    end;
   end else begin
-   SetLength(OutTriangles,0);
+   vL:=L;
+   vR:=R;
+   Pivot:=L+Random(R-L);
+   while vL<vR do begin
+    while (vL<Pivot) and (List^[vL]<=List^[Pivot]) do begin
+     inc(vL);
+    end;
+    while (vR>Pivot) and (List^[vR]>List^[Pivot]) do begin
+     dec(vR);
+    end;
+    v:=List^[vL];
+    List^[vL]:=List^[vR];
+    List^[vR]:=v;
+    if Pivot=vL then begin
+     Pivot:=vR;
+    end else if Pivot=vR then begin
+     Pivot:=vL;
+    end;
+   end;
+   if (Pivot-1)>=L then begin
+    QuickSort(L,Pivot-1);
+   end;
+   if (Pivot+1)<=R then begin
+    QuickSort(Pivot+1,R);
+   end;
   end;
+ end;
+ procedure QuickSortEx(Left,Right:longint);
+ var Pivot,i,j:longint;
+     v:longint;
+ begin
+  i:=Left;
+  j:=Right;
+  Pivot:=List^[(i+j) div 2];
+  while i<=j do begin
+   while List^[i]<Pivot do begin
+    inc(i);
+   end;
+   while List^[j]>Pivot do begin
+    dec(j);
+   end;
+   if i<=j then begin
+    v:=List^[i];
+    List^[i]:=List^[i];
+    List^[j]:=v;
+    inc(i);
+    dec(j);
+   end;
+  end;
+  if Left<j then begin
+   QuickSortEx(Left,j);
+  end;
+  if i<Right then begin
+   QuickSortEx(i,Right);
+  end;
+ end;
+ procedure BeRoSort;
+ var i:longint;
+     v:longint;
+ begin
+  i:=0;
+  while i<(CountItems-1) do begin
+   if List^[i]>List^[i+1] then begin
+    v:=List^[i];
+    List^[i]:=List^[i+1];
+    List^[i+1]:=v;
+    if i>0 then begin
+     dec(i);
+    end else begin
+     inc(i);
+    end;
+   end else begin
+    inc(i);
+   end;
+  end;
+ end;
+begin
+ if CountItems>0 then begin
+  IntroSort(0,CountItems-1,KraftQuickHullIntLog2(CountItems)*2);
+  IsSorted:=true;
+ end;
+end;
 
- finally
+function TKraftQuickHullVector3D.Init(const ax:double=0.0;const ay:double=0.0;const az:double=0.0):TKraftQuickHullVector3D;
+begin
+ x:=ax;
+ y:=ay;
+ z:=az;
+ result:=self;
+end;
 
-  SetLength(ProcessedPointBitmap,0);
-  SetLength(Triangles,0);
-  SetLength(Edges,0);
-  SetLength(DeletedTriangles,0);
+procedure TKraftQuickHullVector3D.SetValue(i:longint;const v:double);
+begin
+ case i of
+  0:begin
+   x:=v;
+  end;
+  1:begin
+   y:=v;
+  end;
+  2:begin
+   z:=v;
+  end;
+ end;
+end;
 
+function TKraftQuickHullVector3D.GetValue(i:longint):double;
+begin
+ case i of
+  0:begin
+   result:=x;
+  end;
+  1:begin
+   result:=y;
+  end;
+  2:begin
+   result:=z;
+  end;
+  else begin
+   result:=0;
+  end;
+ end;
+end;
+
+procedure TKraftQuickHullVector3D.Add(const v0,v1:TKraftQuickHullVector3D);
+begin
+ x:=v0.x+v1.x;
+ y:=v0.y+v1.y;
+ z:=v0.z+v1.z;
+end;
+
+procedure TKraftQuickHullVector3D.Add(const v:TKraftQuickHullVector3D);
+begin
+ x:=x+v.x;
+ y:=y+v.y;
+ z:=z+v.z;
+end;
+
+procedure TKraftQuickHullVector3D.Sub(const v0,v1:TKraftQuickHullVector3D);
+begin
+ x:=v0.x-v1.x;
+ y:=v0.y-v1.y;
+ z:=v0.z-v1.z;
+end;
+
+procedure TKraftQuickHullVector3D.Sub(const v:TKraftQuickHullVector3D);
+begin
+ x:=x-v.x;
+ y:=y-v.y;
+ z:=z-v.z;
+end;
+
+procedure TKraftQuickHullVector3D.Scale(const v:TKraftQuickHullVector3D;const s:double);
+begin
+ x:=v.x*s;
+ y:=v.y*s;
+ z:=v.z*s;
+end;
+
+procedure TKraftQuickHullVector3D.Scale(const s:double);
+begin
+ x:=x*s;
+ y:=y*s;
+ z:=z*s;
+end;
+
+function TKraftQuickHullVector3D.Length:double;
+begin
+ result:=sqrt(sqr(x)+sqr(y)+sqr(z));
+end;
+
+function TKraftQuickHullVector3D.LengthSquared:double;
+begin
+ result:=sqr(x)+sqr(y)+sqr(z);
+end;
+
+function TKraftQuickHullVector3D.Distance(const v:TKraftQuickHullVector3D):double;
+begin
+ result:=sqrt(sqr(v.x-x)+sqr(v.y-y)+sqr(v.z-z));
+end;
+
+function TKraftQuickHullVector3D.DistanceSquared(const v:TKraftQuickHullVector3D):double;
+begin
+ result:=sqr(v.x-x)+sqr(v.y-y)+sqr(v.z-z);
+end;
+
+procedure TKraftQuickHullVector3D.Normalize;
+var l:double;
+begin
+ l:=sqr(x)+sqr(y)+sqr(z);
+ if abs(l)>1e-16 then begin
+  l:=sqrt(l);
+  x:=x/l;
+  y:=y/l;
+  z:=z/l;
+ end;
+end;
+
+function TKraftQuickHullVector3D.Dot(const v:TKraftQuickHullVector3D):double;
+begin
+ result:=(x*v.x)+(y*v.y)+(z*v.z);
+end;
+
+procedure TKraftQuickHullVector3D.CrossProduct(const v0,v1:TKraftQuickHullVector3D);
+var tx,ty,tz:double;
+begin
+ tx:=(v0.y*v1.z)-(v0.z*v1.y);
+ ty:=(v0.z*v1.x)-(v0.x*v1.z);
+ tz:=(v0.x*v1.y)-(v0.y*v1.x);
+ x:=tx;
+ y:=ty;
+ z:=tz;
+end;
+
+procedure TKraftQuickHullVector3D.SetRandom(Lower,Upper:double);
+var Range:double;
+begin
+ Range:=Upper-Lower;
+ x:=Lower+(random*Range);
+ y:=Lower+(random*Range);
+ z:=Lower+(random*Range);
+end;
+
+function TKraftQuickHullVector3D.Equals(const v:TKraftQuickHullVector3D):boolean;
+begin
+ result:=SameValue(v.x,x) and SameValue(v.y,y) and SameValue(v.z,z);
+end;
+
+procedure TKraftQuickHullVertexList.Clear;
+begin
+ Head:=nil;
+ Tail:=nil;
+end;
+
+procedure TKraftQuickHullVertexList.Add(vtx:TKraftQuickHullVertex);
+begin
+ if assigned(Head) then begin
+  Tail.Next:=vtx;
+ end else begin
+  Head:=vtx;
+ end;
+ vtx.Previous:=Tail;
+ vtx.Next:=nil;
+ Tail:=vtx;
+end;
+
+procedure TKraftQuickHullVertexList.AddAll(vtx:TKraftQuickHullVertex);
+begin
+ if assigned(Head) then begin
+  Tail.Next:=vtx;
+ end else begin
+  Head:=vtx;
+ end;
+ vtx.Previous:=Tail;
+ while assigned(vtx.Next) do begin
+  vtx:=vtx.Next;
+ end;
+ Tail:=vtx;
+end;
+
+procedure TKraftQuickHullVertexList.Delete(vtx:TKraftQuickHullVertex);
+begin
+ if assigned(vtx.Previous) then begin
+  vtx.Previous.Next:=vtx.Next;
+ end else if Head=vtx then begin
+  Head:=vtx.Next;
+ end;
+ if assigned(vtx.Next) then begin
+  vtx.Next.Previous:=vtx.Previous;
+ end else if Tail=vtx then begin
+  Tail:=vtx.Previous;
+ end;
+end;
+
+procedure TKraftQuickHullVertexList.Delete(vtx1,vtx2:TKraftQuickHullVertex);
+begin
+ if assigned(vtx1.Previous) then begin
+  vtx1.Previous.Next:=vtx2.Next;
+ end else if Head=vtx1 then begin
+  Head:=vtx2.Next;
+ end;
+ if assigned(vtx2.Next) then begin
+  vtx2.Next.Previous:=vtx1.Previous;
+ end else if Tail=vtx2 then begin
+  Tail:=vtx1.Previous;
+ end;
+end;
+
+procedure TKraftQuickHullVertexList.InsertBefore(vtx,Next:TKraftQuickHullVertex);
+begin
+ vtx.Previous:=Next.Previous;
+ if assigned(Next.Previous) then begin
+  Next.Previous.Next:=vtx;
+ end else begin
+  Head:=vtx;
+ enD;
+ vtx.Next:=Next;
+ Next.Previous:=vtx;
+end;
+
+function TKraftQuickHullVertexList.First:TKraftQuickHullVertex;
+begin
+ result:=Head;
+end;
+
+function TKraftQuickHullVertexList.IsEmpty:boolean;
+begin
+ result:=not assigned(Head);
+end;
+
+procedure TKraftQuickHullFaceList.Clear;
+begin
+ Head:=nil;
+ Tail:=nil;
+end;
+
+procedure TKraftQuickHullFaceList.Add(vtx:TKraftQuickHullFace);
+begin
+ if assigned(Head) then begin
+  Tail.Next:=vtx;
+ end else begin
+  Head:=vtx;
+ end;
+ vtx.Next:=nil;
+ Tail:=vtx;
+end;
+
+function TKraftQuickHullFaceList.First:TKraftQuickHullFace;
+begin
+ result:=Head;
+end;
+
+function TKraftQuickHullFaceList.IsEmpty:boolean;
+begin
+ result:=not assigned(Head);
+end;
+
+constructor TKraftQuickHullVertex.Create(const AInstance:TKraftQuickHull);
+begin
+ inherited Create;
+ Instance:=AInstance;
+ Instance.GarbageCollectedClassInstances.Add(self);
+end;
+
+destructor TKraftQuickHullVertex.Destroy;
+begin
+ Instance.GarbageCollectedClassInstances.Remove(self);
+ inherited Destroy;
+end;
+
+constructor TKraftQuickHullFace.Create(const AInstance:TKraftQuickHull);
+begin
+ inherited Create;
+ Instance:=AInstance;
+ Instance.GarbageCollectedClassInstances.Add(self);
+ he0:=nil;
+ Normal.Init;
+ Area:=0;
+ Centroid.Init;
+ PlaneOffset:=0;
+ Index:=0;
+ CountVertices:=0;
+ Mark:=KRAFT_QUICKHULL_FACE_MARK_VISIBLE;
+ Outside:=nil;
+end;
+
+constructor TKraftQuickHullFace.CreatePolygon(const AInstance:TKraftQuickHull;const AVertices:array of TKraftQuickHullVertex;const AIndices:array of longint);
+var i:longint;
+    hePrev,he:TKraftQuickHullHalfEdge;
+begin
+ Create(AInstance);
+ hePrev:=nil;
+ for i:=0 to length(AIndices)-1 do begin
+  he:=TKraftQuickHullHalfEdge.Create(Instance,AVertices[AIndices[i]],self);
+  if assigned(hePrev) then begin
+   he.Previous:=hePrev;
+   hePrev.Next:=he;
+  end else begin
+   he0:=he;
+  end;
+  hePrev:=he;
+ end;
+ he0.Previous:=hePrev;
+ hePrev.Next:=he0;
+ ComputeNormalAndCentroid;
+end;
+
+constructor TKraftQuickHullFace.CreateTriangle(const AInstance:TKraftQuickHull;const v0,v1,v2:TKraftQuickHullVertex;const AMinArea:double=0.0);
+var he1,he2:TKraftQuickHullHalfEdge;
+begin
+ Create(AInstance);
+ he0:=TKraftQuickHullHalfEdge.Create(Instance,v0,self);
+ he1:=TKraftQuickHullHalfEdge.Create(Instance,v1,self);
+ he2:=TKraftQuickHullHalfEdge.Create(Instance,v2,self);
+ he0.Previous:=he2;
+ he0.Next:=he1;
+ he1.Previous:=he0;
+ he1.Next:=he2;
+ he2.Previous:=he1;
+ he2.Next:=he0;
+ ComputeNormalAndCentroid(AMinArea);
+end;
+
+destructor TKraftQuickHullFace.Destroy;
+begin
+ Instance.GarbageCollectedClassInstances.Remove(self);
+ inherited Destroy;
+end;
+
+procedure TKraftQuickHullFace.ComputeCentroid(var ACentroid:TKraftQuickHullVector3D);
+var he:TKraftQuickHullHalfEdge;
+begin
+ ACentroid.x:=0.0;
+ ACentroid.y:=0.0;
+ ACentroid.z:=0.0;
+ he:=he0;
+ repeat
+  ACentroid.Add(he.Head.Point);
+  he:=he.Next;
+ until he=he0;
+ ACentroid.Scale(1.0/CountVertices);
+end;
+
+procedure TKraftQuickHullFace.ComputeNormal(var ANormal:TKraftQuickHullVector3D);
+var he1,he2:TKraftQuickHullHalfEdge;
+    p0,p2:TKraftQuickHullVector3D;
+    d2x,d2y,d2z,d1x,d1y,d1z:double;
+begin
+ he1:=he0.Next;
+ he2:=he1.Next;
+ p0:=he0.Head.Point;
+ p2:=he1.Head.Point;
+ d2x:=p2.x-p0.x;
+ d2y:=p2.y-p0.y;
+ d2z:=p2.z-p0.z;
+ ANormal.x:=0.0;
+ ANormal.y:=0.0;
+ ANormal.z:=0.0;
+ CountVertices:=2;
+ while he2<>he0 do begin
+  d1x:=d2x;
+  d1y:=d2y;
+  d1z:=d2z;
+  p2:=he2.Head.Point;
+  d2x:=p2.x-p0.x;
+  d2y:=p2.y-p0.y;
+  d2z:=p2.z-p0.z;
+  ANormal.x:=ANormal.x+((d1y*d2z)-(d1z*d2y));
+  ANormal.y:=ANormal.y+((d1z*d2x)-(d1x*d2z));
+  ANormal.z:=ANormal.z+((d1x*d2y)-(d1y*d2x));
+//he1:=he2;
+  he2:=he2.Next;
+  inc(CountVertices);
+ end;
+ Area:=ANormal.Length;
+ ANormal.x:=ANormal.x/Area;
+ ANormal.y:=ANormal.y/Area;
+ ANormal.z:=ANormal.z/Area;
+end;
+
+procedure TKraftQuickHullFace.ComputeNormal(var ANormal:TKraftQuickHullVector3D;const AMinArea:double);
+var hedgeMax,hedge:TKraftQuickHullHalfEdge;
+    LenSquaredMax,LenSquared,ux,uy,uz,Dot,lenMax:double;
+    p1,p2:TKraftQuickHullVector3D;
+begin
+ ComputeNormal(ANormal);
+ if Area<AMinArea then begin
+  hedgeMax:=nil;
+  LenSquaredMax:=0;
+  hedge:=he0;
+  repeat
+   LenSquared:=hedge.LengthSquared;
+   if LenSquared>LenSquaredMax then begin
+    hedgeMax:=hedge;
+    LenSquaredMax:=LenSquared;
+   end;
+   hedge:=hedge.next;
+  until hedge=he0;
+  p2:=HedgeMax.Head.Point;
+  p1:=HedgeMax.Tail.Point;
+  lenMax:=sqrt(LenSquaredMax);
+  ux:=(p2.x-p1.x)/lenMax;
+  uy:=(p2.y-p1.y)/lenMax;
+  uz:=(p2.z-p1.z)/lenMax;
+  Dot:=(ANormal.x*ux)+(ANormal.y*uy)+(ANormal.z*uz);
+  ANormal.x:=ANormal.x-(Dot*ux);
+  ANormal.y:=ANormal.y-(Dot*uy);
+  ANormal.z:=ANormal.z-(Dot*uz);
+  ANormal.Normalize();
+ end;
+end;
+
+procedure TKraftQuickHullFace.ComputeNormalAndCentroid;
+var he:TKraftQuickHullHalfEdge;
+    CountFoundVertices:longint;
+begin
+ ComputeNormal(Normal);
+ ComputeCentroid(Centroid);
+ PlaneOffset:=Normal.Dot(Centroid);
+ CountFoundVertices:=0;
+ he:=he0;
+ repeat
+  inc(CountFoundVertices);
+  he:=he.Next;
+ until he=he0;
+ Assert(CountFoundVertices=CountVertices,'Wrong count of vertices');
+end;
+
+procedure TKraftQuickHullFace.ComputeNormalAndCentroid(const AMinArea:double);
+begin
+ ComputeNormal(Normal,AMinArea);
+ ComputeCentroid(Centroid);
+ PlaneOffset:=Normal.Dot(Centroid);
+end;
+
+function TKraftQuickHullFace.GetEdge(i:longint):TKraftQuickHullHalfEdge;
+begin
+ result:=he0;
+ while i>0 do begin
+  result:=result.Next;
+  dec(i);
+ end;
+ while i<0 do begin
+  result:=result.Previous;
+  inc(i);
+ end;
+end;
+
+function TKraftQuickHullFace.GetFirstEdge:TKraftQuickHullHalfEdge;
+begin
+ result:=he0;
+end;
+
+function TKraftQuickHullFace.FindEdge(const vt,vh:TKraftQuickHullVertex):TKraftQuickHullHalfEdge;
+begin
+ result:=he0;
+ repeat
+  if (result.Head=vh) and (result.Tail=vt) then begin
+   exit;
+  end;
+  result:=result.Next;
+ until result=he0;
+ result:=nil;
+end;
+
+function TKraftQuickHullFace.DistanceToPlane(const p:TKraftQuickHullVector3D):double;
+begin
+ result:=((Normal.x*p.x)+(Normal.y*p.y)+(Normal.z*p.z))-PlaneOffset;
+end;
+
+function TKraftQuickHullFace.ConnectHalfEdges(const hedgePrev,hedge:TKraftQuickHullHalfEdge):TKraftQuickHullFace;
+var oppFace:TKraftQuickHullFace;
+    hedgeOpp:TKraftQuickHullHalfEdge;
+begin
+ result:=nil;
+ if hedgePrev.OppositeFace=hedge.OppositeFace then begin
+  // then there is a redundant edge that we can get rid off
+  oppFace:=hedge.OppositeFace;
+  if hedgePrev=he0 then begin
+   he0:=hedge;
+  end;
+  if oppFace.CountVertices=3 then begin
+   // then we can get rid of the opposite Face altogether
+   hedgeOpp:=hedge.Opposite.Previous.Opposite;
+   oppFace.Mark:=KRAFT_QUICKHULL_FACE_MARK_NON_DELETED;
+   result:=oppFace;
+  end else begin
+   hedgeOpp:=hedge.Opposite.Next;
+   if oppFace.he0=hedgeOpp.Previous then begin
+    oppFace.he0:=hedgeOpp;
+   end;
+   hedgeOpp.Previous:=hedgeOpp.Previous.Previous;
+   hedgeOpp.Previous.Next:=hedgeOpp;
+  end;
+  hedge.Previous:=hedgePrev.Previous;
+  hedge.Previous.Next:=hedge;
+  hedge.Opposite:=hedgeOpp;
+  hedgeOpp.Opposite:=hedge;
+  oppFace.ComputeNormalAndCentroid; // oppFace was modified, so need to recompute
+ end else begin
+  hedgePrev.Next:=hedge;
+  hedge.Previous:=hedgePrev;
+ end;
+end;
+
+procedure TKraftQuickHullFace.CheckConsistency;
+var hedge,hedgeOpp:TKraftQuickHullHalfEdge;
+    oppFace:TKraftQuickHullFace;
+    MaxD,d:double;
+    CountFoundVertices:longint;
+begin
+ Assert(CountVertices>2,'Degenerated Face');
+ MaxD:=0.0;
+ CountFoundVertices:=0;
+ hedge:=he0;
+ repeat
+  hedgeOpp:=hedge.Opposite;
+  Assert(assigned(hedgeOpp),'Unreflected half edge');
+  Assert(hedgeOpp.Opposite<>hedgeOpp,'Opposite half edge has wrong opposite half edge');
+  Assert((hedgeOpp.Head=hedge.Tail) and (hedge.Head=hedgeOpp.tail),'Wrong reflected half edge');
+  oppFace:=hedgeOpp.Face;
+  Assert(assigned(oppFace),'Opposite half edge has no Face');
+  Assert(oppFace.Mark<>KRAFT_QUICKHULL_FACE_MARK_NON_DELETED,'Opposite half edge Face isn''t on hull');
+  d:=abs(DistanceToPlane(Hedge.Head.Point));
+  if d>MaxD then begin
+   MaxD:=d;
+  end;
+  inc(CountFoundVertices);
+  hedge:=hedge.Next;
+ until hedge=he0;
+ Assert(CountFoundVertices=CountVertices,'Wrong count of vertices');
+end;
+
+function TKraftQuickHullFace.MergeAdjacentFace(const hedgeAdj:TKraftQuickHullHalfEdge;const Discarded:TList):longint;
+var oppFace,DiscardedFace:TKraftQuickHullFace;
+    hedgeOpp,hedgeAdjPrev,hedgeAdjNext,hedgeOppPrev,hedgeOppNext,hedge:TKraftQuickHullHalfEdge;
+begin
+ oppFace:=hedgeAdj.OppositeFace;
+ result:=0;
+
+ Discarded.Clear;
+ 
+ Discarded.Add(oppFace);
+ inc(result);
+ oppFace.Mark:=KRAFT_QUICKHULL_FACE_MARK_NON_DELETED;
+
+ hedgeOpp:=hedgeAdj.Opposite;
+
+ hedgeAdjPrev:=hedgeAdj.Previous;
+ hedgeAdjNext:=hedgeAdj.Next;
+ hedgeOppPrev:=hedgeOpp.Previous;
+ hedgeOppNext:=hedgeOpp.Next;
+
+ while hedgeAdjPrev.OppositeFace=oppFace do begin
+  hedgeAdjPrev:=hedgeAdjPrev.Previous;
+  hedgeOppNext:=hedgeOppNext.Next;
+ end;
+
+ while hedgeAdjNext.OppositeFace=oppFace do begin
+  hedgeOppPrev:=hedgeOppPrev.Previous;
+  hedgeAdjNext:=hedgeAdjNext.Next;
+ end;
+
+ hedge:=hedgeOppNext;       
+ while hedge<>hedgeOppPrev.Next do begin
+  hedge.Face:=self;
+  hedge:=hedge.Next;
+ end;
+
+ if hedgeAdj=he0 then begin
+  he0:=hedgeAdjNext;
+ end;
+
+ // handle the half edges at the head
+ DiscardedFace:=ConnectHalfEdges(hedgeOppPrev,hedgeAdjNext);
+ if assigned(DiscardedFace) then begin
+  Discarded.Add(DiscardedFace);
+  inc(result);
+ end;
+
+ // handle the half edges at the tail
+ DiscardedFace:=ConnectHalfEdges(hedgeAdjPrev,hedgeOppNext);
+ if assigned(DiscardedFace) then begin
+  Discarded.Add(DiscardedFace);
+  inc(result);
+ end;
+
+ ComputeNormalAndCentroid;
+ CheckConsistency;
+
+end;
+
+function TKraftQuickHullFace.AreaSquared(const hedge0,hedge1:TKraftQuickHullHalfEdge):double;
+var p0,p1,p2:TKraftQuickHullVector3D;
+    dx1,dy1,dz1,dx2,dy2,dz2,x,y,z:double;
+begin
+ p0:=hedge0.Tail.Point;
+ p1:=hedge0.Head.Point;
+ p2:=hedge1.Head.Point;
+ dx1:=p1.x-p0.x;
+ dy1:=p1.y-p0.y;
+ dz1:=p1.z-p0.z;
+ dx2:=p2.x-p0.x;
+ dy2:=p2.y-p0.y;
+ dz2:=p2.z-p0.z;
+ x:=(dy1*dz2)-(dz1*dy2);
+ y:=(dz1*dx2)-(dx1*dz2);
+ z:=(dx1*dy2)-(dy1*dx2);
+ result:=sqr(x)+sqr(y)+sqr(z);
+end;
+
+procedure TKraftQuickHullFace.Triangulate(var NewFaces:TKraftQuickHullFaceList;const MinArea:double);
+var hedge,oppPrev:TKraftQuickHullHalfEdge;
+    face0,Face:TKraftQuickHullFace;
+    v0:TKraftQuickHullVertex;
+begin
+ if CountVertices>3 then begin
+  v0:=he0.Head;
+  hedge:=he0.Next;
+  oppPrev:=hedge.Opposite;
+  face0:=nil;
+  hedge:=hedge.next;
+  while hedge<>he0.Previous do begin
+   Face:=TKraftQuickHullFace.CreateTriangle(Instance,v0,hedge.Previous.Head,hedge.Head,MinArea);
+   Face.he0.Next.SetOpposite(oppPrev);
+   Face.he0.Previous.SetOpposite(hedge.opposite);
+   oppPrev:=Face.he0;
+   NewFaces.Add(Face);
+   if not assigned(face0) then begin
+    face0:=Face;
+   end;
+   hedge:=hedge.next;
+  end;
+  hedge:=TKraftQuickHullHalfEdge.Create(Instance,he0.Previous.Previous.Head,self);
+  hedge.SetOpposite(oppPrev);
+  hedge.Previous:=he0;
+  hedge.Previous.Next:=hedge;
+  hedge.Next:=he0.Previous;
+  hedge.Next.Previous:=hedge;
+  ComputeNormalAndCentroid(MinArea);
+  CheckConsistency;
+  Face:=face0;
+  while assigned(Face) do begin
+   Face.CheckConsistency;
+   Face:=Face.Next;
+  end;
+ end;
+end;
+
+constructor TKraftQuickHullHalfEdge.Create(const AInstance:TKraftQuickHull;const v:TKraftQuickHullVertex=nil;const f:TKraftQuickHullFace=nil);
+begin
+ inherited Create;
+ Instance:=AInstance;
+ Instance.GarbageCollectedClassInstances.Add(self);
+ Vertex:=v;
+ Face:=f;
+ Next:=nil;
+ Previous:=nil;
+ Opposite:=nil;
+end;
+
+destructor TKraftQuickHullHalfEdge.Destroy;
+begin
+ Instance.GarbageCollectedClassInstances.Remove(self);
+ inherited Destroy;
+end;
+
+procedure TKraftQuickHullHalfEdge.SetOpposite(const Edge:TKraftQuickHullHalfEdge);
+begin
+ Opposite:=Edge;
+ Edge.Opposite:=self;
+end;
+
+function TKraftQuickHullHalfEdge.Head:TKraftQuickHullVertex;
+begin
+ result:=Vertex;
+end;
+
+function TKraftQuickHullHalfEdge.Tail:TKraftQuickHullVertex;
+begin
+ if assigned(Previous) then begin
+  result:=Previous.Vertex;
+ end else begin
+  result:=nil;
+ end;
+end;
+
+function TKraftQuickHullHalfEdge.OppositeFace:TKraftQuickHullFace;
+begin
+ if assigned(Opposite) then begin
+  result:=Opposite.Face;
+ end else begin
+  result:=nil;
+ end;
+end;
+
+function TKraftQuickHullHalfEdge.Length:double;
+begin
+ if assigned(Previous) then begin
+  result:=Vertex.Point.Distance(Previous.Vertex.Point);
+ end else begin
+  result:=-1.0;
+ end;
+end;
+
+function TKraftQuickHullHalfEdge.LengthSquared:double;
+begin
+ if assigned(Previous) then begin
+  result:=Vertex.Point.DistanceSquared(Previous.Vertex.Point);
+ end else begin
+  result:=-1.0;
+ end;
+end;
+
+constructor TKraftQuickHull.Create;
+begin
+ inherited Create;
+ GarbageCollectedClassInstances:=TList.Create;
+ FindIndex:=-1;
+ PointBuffer:=TList.Create;
+ VertexPointIndices:=TKraftQuickHullIntegerList.Create;
+ DiscardedFaces:=TList.Create;
+ FillChar(MinVertices,SizeOf(TKraftQuickHullThreeVertices),#0);
+ FillChar(MaxVertices,SizeOf(TKraftQuickHullThreeVertices),#0);
+ FillChar(VertexHashTable,SizeOf(TKraftQuickHullVertexHashTable),#0);
+ Faces:=TList.Create;
+ Horizon:=TList.Create;
+ NewFaces.Clear;
+ Unclaimed.Clear;
+ Claimed.Clear;
+ CountVertices:=0;
+ CountFaces:=0;
+ CountPoints:=0;
+ ExplicitTolerance:=KRAFT_QUICKHULL_AUTOMATIC_TOLERANCE;
+ Tolerance:=0.0;
+end;
+
+destructor TKraftQuickHull.Destroy;
+begin
+ PointBuffer.Free;
+ VertexPointIndices.Free;
+ DiscardedFaces.Free;
+ Faces.Free;
+ Horizon.Free;
+ while GarbageCollectedClassInstances.Count>0 do begin
+  TObject(GarbageCollectedClassInstances[GarbageCollectedClassInstances.Count-1]).Free;
+ end;
+ GarbageCollectedClassInstances.Free;
+ inherited Destroy;
+end;
+
+procedure TKraftQuickHull.Reset;
+begin
+ PointBuffer.Clear;
+ VertexPointIndices.Clear;
+ Faces.Clear;
+ Claimed.Clear;
+ CountFaces:=0;
+ CountPoints:=0;
+end;
+
+procedure TKraftQuickHull.AddPoint(const x,y,z:double);
+var Vertex:TKraftQuickHullVertex;
+    Index,HashBucket:longint;
+begin
+ HashBucket:=((round(x)*73856093) xor (round(y)*19349663) xor (round(z)*83492791)) and KRAFT_QUICKHULL_HASHMASK;
+ Vertex:=VertexHashTable[HashBucket];
+ while assigned(Vertex) do begin
+  if KraftQuickHullIsSameValue(Vertex.Point.x,x) and
+     KraftQuickHullIsSameValue(Vertex.Point.y,y) and
+     KraftQuickHullIsSameValue(Vertex.Point.z,z) then begin
+   exit;
+  end;
+  Vertex:=Vertex.HashNext;
+ end;
+ Vertex:=TKraftQuickHullVertex.Create(self);
+ Vertex.Point.x:=x;
+ Vertex.Point.y:=y;
+ Vertex.Point.z:=z;
+ Vertex.HashNext:=VertexHashTable[HashBucket];
+ VertexHashTable[HashBucket]:=Vertex;
+ Index:=PointBuffer.Add(Vertex);
+ Vertex.Index:=Index;
+ VertexPointIndices.Add(Index);
+ inc(CountPoints);
+end;
+
+procedure TKraftQuickHull.AddPointToFace(const AVertex:TKraftQuickHullVertex;const AFace:TKraftQuickHullFace);
+begin
+ AVertex.Face:=AFace;
+ if assigned(AFace.Outside) then begin
+  Claimed.InsertBefore(AVertex,AFace.Outside);
+ end else begin
+  Claimed.Add(AVertex);
+ end;
+ AFace.Outside:=AVertex;
+end;
+
+procedure TKraftQuickHull.RemovePointFromFace(const AVertex:TKraftQuickHullVertex;const AFace:TKraftQuickHullFace);
+begin
+ if AVertex=AFace.Outside then begin
+  if assigned(AVertex.Next) and (AVertex.Next.Face=AFAce) then begin
+   AFace.Outside:=AVertex.Next;
+  end else begin
+   AFace.Outside:=nil;
+  end;
+ end;
+ Claimed.Delete(AVertex);
+end;
+
+function TKraftQuickHull.RemoveAllPointsFromFace(const AFace:TKraftQuickHullFace):TKraftQuickHullVertex;
+var EndVertex:TKraftQuickHullVertex;
+begin
+ if assigned(AFace.Outside) then begin
+  EndVertex:=AFace.Outside;
+  while assigned(EndVertex.Next) and (EndVertex.Next.Face=AFace) do begin
+   EndVertex:=EndVertex.Next;
+  end;
+  Claimed.Delete(AFace.Outside,EndVertex);
+  EndVertex.Next:=nil;
+  result:=AFace.Outside;
+ end else begin
+  result:=nil;
+ end;
+end;
+
+function TKraftQuickHull.FindHalfEdge(const Tail,Head:TKraftQuickHullVertex):TKraftQuickHullHalfEdge;
+var i:longint;
+    Face:TKraftQuickHullFace;
+begin
+ result:=nil;
+ for i:=0 to Faces.Count-1 do begin
+  Face:=Faces[i];
+  result:=Face.FindEdge(Tail,Head);
+  if assigned(result) then begin
+   exit;
+  end;
+ end;
+end;
+
+procedure TKraftQuickHull.Triangulate;
+const DOUBLE_PREC=2.2204460492503131e-16;
+var i:longint;
+    Face:TKraftQuickHullFace;
+    MinArea:double;
+begin
+ MinArea:=1000.0*CharLength*DOUBLE_PREC;
+ NewFaces.Clear;
+ for i:=0 to Faces.Count-1 do begin
+  Face:=Faces[i];
+  if Face.Mark=KRAFT_QUICKHULL_FACE_MARK_VISIBLE then begin
+   Face.Triangulate(NewFaces,MinArea);
+  end;
+ end;
+ Face:=NewFaces.First;
+ while assigned(Face) do begin
+  Faces.Add(Face);
+  Face:=Face.Next;
+ end;
+ ReindexFacesAndVertices;
+end;
+
+procedure TKraftQuickHull.ComputeMinAndMax;
+const DOUBLE_PREC=2.2204460492503131e-16;
+var i:longint;
+    MinVector,MaxVector,Point:TKraftQuickHullVector3D;
+    Vertex:TKraftQuickHullVertex;
+begin
+ for i:=0 to 2 do begin
+  MinVertices[i]:=PointBuffer[0];
+  MaxVertices[i]:=PointBuffer[0];
+ end;
+ Vertex:=PointBuffer[0];
+ MinVector:=Vertex.Point;
+ MaxVector:=Vertex.Point;
+ for i:=1 to CountPoints-1 do begin
+  Vertex:=PointBuffer[i];
+  Point:=Vertex.Point;
+  if MinVector.x>Point.x then begin
+   MinVector.x:=Point.x;
+   MinVertices[0]:=Vertex;
+  end;
+  if MaxVector.x<Point.x then begin
+   MaxVector.x:=Point.x;
+   MaxVertices[0]:=Vertex;
+  end;
+  if MinVector.y>Point.y then begin
+   MinVector.y:=Point.y;
+   MinVertices[1]:=Vertex;
+  end;
+  if MaxVector.y<Point.y then begin
+   MaxVector.y:=Point.y;
+   MaxVertices[1]:=Vertex;
+  end;
+  if MinVector.z>Point.z then begin
+   MinVector.z:=Point.z;
+   MinVertices[2]:=Vertex;
+  end;
+  if MaxVector.z<Point.z then begin
+   MaxVector.z:=Point.z;
+   MaxVertices[2]:=Vertex;
+  end;
+ end;                                                                  
+ CharLength:=Max(Max(MaxVector.x-MinVector.x,MaxVector.y-MinVector.y),MaxVector.z-MinVector.z);
+ if ExplicitTolerance<0.0 then begin
+  Tolerance:=(3.0*DOUBLE_PREC)*(Max(abs(MaxVector.x),abs(MinVector.x))+Max(abs(MaxVector.y),abs(MinVector.y))+Max(abs(MaxVector.z),abs(MinVector.z)));
+ end else begin
+  Tolerance:=ExplicitTolerance;
+ end;
+end;
+                    
+procedure TKraftQuickHull.CreateInitialSimplex;
+const ModuloThree:array[0..5] of longint=(0,1,2,0,1,2);
+var MaxIndex,Index,OtherIndex:longint;
+    MaxValue,Diff,MaxSquared,LenSquared,MaxDistance,d0,Distance:double;
+    v:TKraftQuickHullVertex;
+    MaxFace:TKraftQuickHullFace;
+    Vertices:array[0..3] of TKraftQuickHullVertex;
+    Triangles:array[0..3] of TKraftQuickHullFace;
+    u01,Diff02,Normal,CrossProduct:TKraftQuickHullVector3D;
+begin
+
+ MaxValue:=0.0;
+ MaxIndex:=0;
+ for Index:=0 to 2 do begin
+  Diff:=MaxVertices[Index].Point.GetValue(Index)-MinVertices[Index].Point.GetValue(Index);
+  if MaxValue<Diff then begin
+   MaxValue:=Diff;
+   MaxIndex:=Index;
+  end;
+ end;
+
+ if MaxValue<=Tolerance then begin
+  raise EKraftQuickHull.Create('Input points appear to be coincident');
+ end;
+
+ // set first two vertices to be those with the greatest one dimensional separation
+ Vertices[0]:=MaxVertices[MaxIndex];
+ Vertices[1]:=MinVertices[MaxIndex];
+
+ // set third vertex to be the vertex farthest from the line between v0 and v1
+ u01.Sub(Vertices[1].Point,Vertices[0].Point);
+ u01.Normalize;
+   
+ MaxSquared:=0.0;
+ for Index:=0 to CountPoints-1 do begin
+  Diff02.Sub(TKraftQuickHullVertex(PointBuffer[Index]).Point,Vertices[0].Point);
+  CrossProduct.CrossProduct(u01,Diff02);
+  LenSquared:=CrossProduct.LengthSquared;
+  if (MaxSquared<LenSquared) and (PointBuffer[Index]<>Vertices[0]) and (PointBuffer[Index]<>Vertices[1]) then begin
+   MaxSquared:=LenSquared;
+   Vertices[2]:=PointBuffer[Index];
+   Normal:=CrossProduct;
+  end;
+ end;
+ if sqrt(MaxSquared)<=(100.0*Tolerance) then begin
+  raise EKraftQuickHull.Create('Input points appear to be colinear');
+ end;
+ Normal.Normalize();
+
+ MaxDistance:=0;
+ d0:=Vertices[2].Point.Dot(Normal);
+ for Index:=0 to CountPoints-1 do begin
+  Distance:=abs(TKraftQuickHullVertex(PointBuffer[Index]).Point.Dot(Normal)-d0);
+  if (MaxDistance<Distance) and (PointBuffer[Index]<>Vertices[0]) and (PointBuffer[Index]<>Vertices[1]) and (PointBuffer[Index]<>Vertices[2]) then begin
+   MaxDistance:=Distance;
+   Vertices[3]:=PointBuffer[Index];
+  end;
+ end;
+ if sqrt(MaxDistance)<=(100.0*Tolerance) then begin
+  raise EKraftQuickHull.Create('Input points appear to be coplanar');
+ end;
+
+ if (Vertices[3].Point.Dot(Normal)-d0)<0.0 then begin
+  Triangles[0]:=TKraftQuickHullFace.CreateTriangle(self,Vertices[0],Vertices[1],Vertices[2]);
+  Triangles[1]:=TKraftQuickHullFace.CreateTriangle(self,Vertices[3],Vertices[1],Vertices[0]);
+  Triangles[2]:=TKraftQuickHullFace.CreateTriangle(self,Vertices[3],Vertices[2],Vertices[1]);
+  Triangles[3]:=TKraftQuickHullFace.CreateTriangle(self,Vertices[3],Vertices[0],Vertices[2]);
+  for Index:=0 to 2 do begin
+   OtherIndex:=ModuloThree[Index+1];
+   Triangles[Index+1].he0.Next.SetOpposite(Triangles[OtherIndex+1].he0);
+   Triangles[Index+1].he0.Next.Next.SetOpposite(Triangles[0].GetEdge(OtherIndex));
+  end;
+ end else begin
+  Triangles[0]:=TKraftQuickHullFace.CreateTriangle(self,Vertices[0],Vertices[2],Vertices[1]);
+  Triangles[1]:=TKraftQuickHullFace.CreateTriangle(self,Vertices[3],Vertices[0],Vertices[1]);
+  Triangles[2]:=TKraftQuickHullFace.CreateTriangle(self,Vertices[3],Vertices[1],Vertices[2]);
+  Triangles[3]:=TKraftQuickHullFace.CreateTriangle(self,Vertices[3],Vertices[2],Vertices[0]);
+  for Index:=0 to 2 do begin
+   OtherIndex:=ModuloThree[Index+1];
+   Triangles[Index+1].he0.SetOpposite(Triangles[OtherIndex+1].he0.Next);
+   Triangles[Index+1].he0.Next.Next.SetOpposite(Triangles[0].GetEdge(ModuloThree[3-Index]));
+  end;
+ end;
+
+ for Index:=0 to 3 do begin
+  Faces.Add(Triangles[Index]);
+ end;
+
+ for Index:=0 to CountPoints-1 do begin
+  v:=PointBuffer[Index];
+  if (v<>Vertices[0]) and (v<>Vertices[1]) and (v<>Vertices[2]) and (v<>Vertices[3]) then begin
+   MaxDistance:=Tolerance;
+   MaxFace:=nil;
+   for OtherIndex:=0 to 3 do begin
+    Distance:=Triangles[OtherIndex].DistanceToPlane(v.Point);
+    if MaxDistance<Distance then begin
+     MaxDistance:=Distance;
+     MaxFace:=Triangles[OtherIndex];
+    end;
+   end;
+   if assigned(MaxFace) then begin
+    AddPointToFace(v,MaxFace);
+   end;
+  end;
+ end;
+
+end;
+
+function TKraftQuickHull.NextPointToAdd:TKraftQuickHullVertex;
+var EyeFace:TKraftQuickHullFace;
+    Vertex:TKraftQuickHullVertex;
+    MaxDistance,Distance:double;
+begin
+ result:=nil;
+ if not Claimed.IsEmpty then begin
+  EyeFace:=Claimed.First.Face;
+  MaxDistance:=0.0;
+  Vertex:=EyeFace.Outside;
+  while assigned(Vertex) and (Vertex.Face=EyeFace) do begin
+   Distance:=EyeFace.DistanceToPlane(Vertex.Point);
+   if MaxDistance<Distance then begin
+    MaxDistance:=Distance;
+    result:=Vertex;
+   end;
+   Vertex:=Vertex.Next;
+  end;
+ end;
+end;
+
+procedure TKraftQuickHull.DeleteFacePoints(Face,AbsorbingFace:TKraftQuickHullFace);
+var FaceVertices,NextVertex,Vertex:TKraftQuickHullVertex;
+begin
+ FaceVertices:=RemoveAllPointsFromFace(Face);
+ if assigned(FaceVertices) then begin
+  if assigned(AbsorbingFace) then begin
+   NextVertex:=FaceVertices;
+   Vertex:=NextVertex;
+   while assigned(Vertex) do begin
+    NextVertex:=Vertex.Next;
+    if AbsorbingFace.DistanceToPlane(Vertex.Point)>Tolerance then begin
+     AddPointToFace(Vertex,AbsorbingFace);
+    end else begin
+     Unclaimed.Add(Vertex);
+    end;
+    Vertex:=NextVertex;
+   end;
+  end else begin
+   Unclaimed.AddAll(FaceVertices);
+  end;
+ end;
+end;
+
+procedure TKraftQuickHull.CalculateHorizon(const EyePoint:TKraftQuickHullVector3D;Edge0:TKraftQuickHullHalfEdge;const Face:TKraftQuickHullFace;const Horizon:TList);
+var Edge:TKraftQuickHullHalfEdge;
+    oppFace:TKraftQuickHullFace;
+begin
+ //OldFaces.Add(Face);
+ DeleteFacePoints(Face,nil);
+ Face.Mark:=KRAFT_QUICKHULL_FACE_MARK_NON_DELETED;
+ if assigned(Edge0) then begin
+  Edge:=Edge0.Next;
+ end else begin
+  Edge0:=Face.he0;
+  Edge:=Edge0;
+ end;
+ Assert(assigned(Edge.Previous),'Edge.Previous is nil');
+ Assert(Edge.Previous.Next=Edge,'Edge.Previous.Next mismatches Edge');
+ repeat
+  oppFace:=Edge.OppositeFace;
+  if oppFace.Mark=KRAFT_QUICKHULL_FACE_MARK_VISIBLE then begin
+   if oppFace.DistanceToPlane(EyePoint)>Tolerance then begin
+    CalculateHorizon(EyePoint,Edge.Opposite,oppFace,Horizon);
+   end else begin
+    Horizon.Add(Edge);
+   end;
+  end;
+  Edge:=Edge.Next;
+ until Edge=Edge0;
+end;
+
+function TKraftQuickHull.AddAdjoiningFace(const EyeVertex:TKraftQuickHullVertex;const he:TKraftQuickHullHalfEdge):TKraftQuickHullHalfEdge;
+var Face:TKraftQuickHullFace;
+begin
+ Face:=TKraftQuickHullFace.CreateTriangle(self,EyeVertex,he.Tail,he.Head);
+ Faces.Add(Face);
+ Face.he0.Previous.SetOpposite(he.Opposite);
+ result:=Face.he0;
+end;                            
+
+procedure TKraftQuickHull.AddNewFaces(const NewFaces:TKraftQuickHullFaceList;const EyeVertex:TKraftQuickHullVertex;const Horizon:TList);
+var Index:longint;
+    hedgeSidePrev,hedgeSideBegin,horizonHe,hedgeSide:TKraftQuickHullHalfEdge;
+begin
+ NewFaces.clear;
+ hedgeSidePrev:=nil;
+ hedgeSideBegin:=nil;
+ for Index:=0 to Horizon.Count-1 do begin
+  horizonHe:=Horizon[Index];
+  hedgeSide:=AddAdjoiningFace(EyeVertex,horizonHe);
+  if assigned(hedgeSidePrev) then begin
+   hedgeSide.Next.SetOpposite(hedgeSidePrev);
+  end else begin
+   hedgeSideBegin:=hedgeSide;
+  end;
+  NewFaces.Add(hedgeSide.Face);
+  hedgeSidePrev:=hedgeSide;
+ end;
+ hedgeSideBegin.Next.setOpposite(hedgeSidePrev);
+end;
+
+function TKraftQuickHull.OppFaceDistance(he:TKraftQuickHullHalfEdge):double;
+begin
+ result:=he.Face.DistanceToPlane(he.Opposite.Face.Centroid);
+end;
+
+function TKraftQuickHull.DoAdjacentMerge(const Face:TKraftQuickHullFace;const MergeType:longint):boolean;
+var Index,CountDiscarded:longint;
+    hedge:TKraftQuickHullHalfEdge;
+    oppFace:TKraftQuickHullFace;
+    Convex,Merge:boolean;
+begin
+ hedge:=Face.he0;
+ Convex:=true;
+ repeat
+  oppFace:=hedge.OppositeFace;
+  Merge:=false;          
+  if MergeType=KRAFT_QUICKHULL_MERGE_TYPE_NONCONVEX then begin
+   // merge faces if they are definitively non-convex
+   if (OppFaceDistance(hedge)>(-Tolerance)) or (OppFaceDistance(hedge.Opposite)>(-Tolerance)) then begin
+    Merge:=true;
+   end;
+  end else{if MergeType=KRAFT_QUICKHULL_MERGE_TYPE_NONCONVEX_WRT_LARGER_FACE then}begin
+   // merge faces if they are parallel or non-convex wrt to the larger face; otherwise, just mark the face non-convex for the second pass.
+   if Face.Area>oppFace.Area then begin
+    if OppFaceDistance(hedge)>(-Tolerance) then begin
+     Merge:=true;
+    end else if OppFaceDistance(hedge.Opposite)>(-Tolerance) then begin
+     Convex:=false;
+    end;
+   end else begin
+    if OppFaceDistance(hedge.Opposite)>(-Tolerance) then begin
+     Merge:=true;
+    end else if OppFaceDistance(hedge)>(-Tolerance) then begin
+     Convex:=false;
+    end;
+   end;
+  end;
+  if Merge then begin
+   CountDiscarded:=Face.MergeAdjacentFace(hedge,DiscardedFaces);
+   for Index:=0 to CountDiscarded-1 do begin
+    DeleteFacePoints(DiscardedFaces[Index],Face);
+   end;
+   result:=true;
+   exit;
+  end;
+  hedge:=hedge.Next;
+ until hedge=Face.he0;
+ if not Convex then begin
+  Face.Mark:=KRAFT_QUICKHULL_FACE_MARK_NON_CONVEX;
+ end;
+ result:=false;
+end;
+
+procedure TKraftQuickHull.ResolveUnclaimedPoints(NewFaces:TKraftQuickHullFaceList);
+var NextVertex,Vertex:TKraftQuickHullVertex;
+    MaxFace,NewFace:TKraftQuickHullFace;
+    MaxDistance,Distance:double;
+begin
+ NextVertex:=Unclaimed.First;
+ Vertex:=NextVertex;
+ while assigned(Vertex) do begin
+  NextVertex:=Vertex.Next;
+  MaxDistance:=Tolerance;
+  MaxFace:=nil;
+  NewFace:=NewFaces.First;
+  while assigned(NewFace) do begin
+   if NewFace.Mark=KRAFT_QUICKHULL_FACE_MARK_VISIBLE then begin
+    Distance:=NewFace.DistanceToPlane(Vertex.Point);
+    if MaxDistance<Distance then begin
+     MaxDistance:=Distance;
+     MaxFace:=NewFace;
+    end;
+    if MaxDistance>(1000.0*Tolerance) then begin
+     break;
+    end;
+   end;
+   NewFace:=NewFace.Next;
+  end;
+  if assigned(MaxFace) then begin
+   AddPointToFace(Vertex,MaxFace);
+  end;
+  Vertex:=NextVertex;
+ end;
+end;
+
+procedure TKraftQuickHull.AddPointToHull(const EyeVertex:TKraftQuickHullVertex);
+var Face:TKraftQuickHullFace;
+begin
+ Horizon.Clear;
+ Unclaimed.Clear;
+
+ RemovePointFromFace(EyeVertex,EyeVertex.Face);
+ CalculateHorizon(EyeVertex.Point,nil,EyeVertex.Face,Horizon);
+ NewFaces.Clear;
+ AddNewFaces(NewFaces,EyeVertex,Horizon);
+
+ // first merge pass ... merge faces which are non-convex as determined by the larger face
+ Face:=NewFaces.First;
+ while assigned(Face) do begin
+  if Face.Mark=KRAFT_QUICKHULL_FACE_MARK_VISIBLE then begin
+   while DoAdjacentMerge(Face,KRAFT_QUICKHULL_MERGE_TYPE_NONCONVEX_WRT_LARGER_FACE) do begin
+   end;
+  end;
+  Face:=Face.Next;
+ end;
+
+ // second merge pass ... merge faces which are non-convex wrt either face
+ Face:=NewFaces.First;
+ while assigned(Face) do begin
+  if Face.Mark=KRAFT_QUICKHULL_FACE_MARK_NON_CONVEX then begin
+   Face.Mark:=KRAFT_QUICKHULL_FACE_MARK_VISIBLE;
+   while DoAdjacentMerge(Face,KRAFT_QUICKHULL_MERGE_TYPE_NONCONVEX) do begin
+   end;
+  end;
+  Face:=Face.Next;
+ end;
+
+ ResolveUnclaimedPoints(NewFaces);
+
+end;
+
+procedure TKraftQuickHull.MarkFaceVertices(const Face:TKraftQuickHullFace;const Mark:longint);
+var he0,he:TKraftQuickHullHalfEdge;
+begin
+ he0:=Face.GetFirstEdge;
+ he:=he0;
+ repeat
+  he.Head.Index:=Mark;
+  he:=he.Next;
+ until he=he0;
+end;
+
+procedure TKraftQuickHull.ReindexFacesAndVertices;
+var Index:longint;
+    Face:TKraftQuickHullFace;
+    Vertex:TKraftQuickHullVertex;
+begin
+ for Index:=0 to CountPoints-1 do begin
+  TKraftQuickHullVertex(PointBuffer[Index]).Index:=-1;
+ end;
+
+ // remove inactive faces and mark active vertices
+ CountFaces:=0;
+ Index:=0;
+ while Index<Faces.Count do begin
+  Face:=Faces[Index];
+  if Face.Mark<>KRAFT_QUICKHULL_FACE_MARK_VISIBLE then begin
+   Faces.Delete(Index);
+  end else begin
+   MarkFaceVertices(Face,0);
+   inc(CountFaces);
+   inc(Index);
+  end;
+ end;
+
+ // reindex vertices
+ CountVertices:=0;
+ for Index:=0 to CountPoints-1 do begin
+  Vertex:=PointBuffer[Index];
+  if Vertex.Index=0 then begin
+   VertexPointIndices[CountVertices]:=Index;
+   Vertex.Index:=CountVertices;
+   inc(CountVertices);
+  end;
+ end;
+
+end;
+
+procedure TKraftQuickHull.BuildHull;
+var EyeVertex:TKraftQuickHullVertex;
+//  Count:longint;
+begin
+ ComputeMinAndMax;
+ CreateInitialSimplex;
+//Count:=0;
+ EyeVertex:=NextPointToAdd;
+ while assigned(EyeVertex) do begin
+  AddPointToHull(EyeVertex);
+  EyeVertex:=NextPointToAdd;
+//inc(Count);
+//writeln(Count);
+ end;
+ ReindexFacesAndVertices;
+end;
+
+procedure TKraftQuickHull.GetFaceIndices(out OutputFace:TKraftQuickHullOutputFace;const Face:TKraftQuickHullFace;const Flags:longint);
+var CCW,IndexedFromOne,PointRelative:boolean;
+    hedge:TKraftQuickHullHalfEdge;
+    Count,Index:longint;
+begin
+ SetLength(OutputFace,Face.CountVertices);
+ CCW:=(Flags and KRAFT_QUICKHULL_FACE_FLAG_CLOCKWISE)=0;
+ IndexedFromOne:=(Flags and KRAFT_QUICKHULL_FACE_FLAG_INDEXED_FROM_ONE)<>0;
+ PointRelative:=(Flags and KRAFT_QUICKHULL_FACE_FLAG_POINT_RELATIVE)<>0;
+ hedge:=Face.he0;
+ Count:=0;
+ repeat
+  Index:=hedge.Head.Index;
+  if PointRelative then begin
+   Index:=VertexPointIndices[Index];
+  end;
+  if IndexedFromOne then begin
+   inc(Index);
+  end;
+  OutputFace[Count]:=Index;
+  inc(Count);
+  if CCW then begin
+   hedge:=hedge.Next;
+  end else begin
+   hedge:=hedge.Previous;
+  end;
+ until hedge=Face.he0;
+end;
+
+procedure TKraftQuickHull.GetVertices(out OutputVertices:TKraftQuickHullVector3DArray);
+var Index:longint;
+begin
+ SetLength(OutputVertices,CountVertices);
+ for Index:=0 to CountVertices-1 do begin
+  OutputVertices[Index]:=TKraftQuickHullVertex(PointBuffer[VertexPointIndices[Index]]).Point;
+ end;
+end;
+
+procedure TKraftQuickHull.GetFaces(out OutputFaces:TKraftQuickHullOutputFaces);
+var Index:longint;
+begin
+ SetLength(OutputFaces,CountFaces);
+ for Index:=0 to CountFaces-1 do begin
+  GetFaceIndices(OutputFaces[Index],Faces[Index],0);
  end;
 end;
 
@@ -12809,7 +15847,7 @@ constructor TKraftConvexHull.Create(const APhysics:TKraft);
 begin
 
  inherited Create;
-                     
+
  Physics:=APhysics;
 
  Vertices:=nil;
@@ -12923,7 +15961,7 @@ begin
  end;
 end;
 
-procedure TKraftConvexHull.Build(const AMaximumCountConvexHullPoints:longint=-1);
+procedure TKraftConvexHull.Build(const AMaximumCountConvexHullPoints:longint=-1;const ADegeneratedConvexHullIsError:boolean=true;const AUserDefinedTolerance:double=-1.0);
 const HashBits=8;
       HashSize=1 shl HashBits;
       HashMask=HashSize-1;
@@ -12943,13 +15981,14 @@ type PTempFaceEdgeHashItem=^TTempFaceEdgeHashItem;
       Face:longint;
       Twin:longint;
       Vertices:array[0..1] of longint;
-     end;    
-var CountTriangles,PointIndex,TriangleIndex,TriangleVertexIndex,VertexIndex,OtherVertexIndex,OtherTriangleIndex,
+     end;
+var PointIndex,TriangleIndex,TriangleVertexIndex,VertexIndex,OtherVertexIndex,OtherTriangleIndex,
     OtherTriangleVertexIndex,SearchIndex,CountTempFaceEdges,FaceIndex,EdgeVertexOffset,TempFaceEdgeIndex,
-    OtherTempFaceEdgeIndex,CountTempFaceEdgeHashItems,TempFaceEdgeHashItemIndex,v0,v1,v2:longint;
+    OtherTempFaceEdgeIndex,CountTempFaceEdgeHashItems,TempFaceEdgeHashItemIndex,v0,v1,v2,
+    FoundSharedVertex,FaceVertexIndex,OtherFaceVertexIndex:longint;
     TempFaceEdgeHash:longword;
     TempFaceEdgeHashItem:PTempFaceEdgeHashItem;
-    TempPoints:TConvexHullPoints;
+    TempPoints:TConvexHullVectors;
     TempTriangles:TConvexHullTriangles;
     Vertex:PKraftConvexHullVertex;
     Face:PKraftConvexHullFace;
@@ -12962,6 +16001,11 @@ var CountTriangles,PointIndex,TriangleIndex,TriangleVertexIndex,VertexIndex,Othe
     Found:boolean;
     TempFaceEdgeHashItems:array of TTempFaceEdgeHashItem;
     TempFaceEdgeHashTable:array of longint;
+    TempInputPolygons,TempOutputPolygons:TConvexHullPolygons;
+    TempPolygon:PConvexHullPolygon;
+    QuickHullInstance:TKraftQuickHull;
+    QuickHullVertex:TKraftQuickHullVertex;
+    QuickHullFaces:TKraftQuickHullOutputFaces;
 begin
  Faces:=nil;
  CountFaces:=0;
@@ -12973,6 +16017,8 @@ begin
  TempFaceEdges:=nil;
  TempFaceEdgeHashItems:=nil;
  TempFaceEdgeHashTable:=nil;
+ TempInputPolygons.Items:=nil;
+ TempOutputPolygons.Items:=nil;
  try
 
   SetLength(TempPoints,CountVertices);
@@ -12982,7 +16028,53 @@ begin
    TempPoints[PointIndex].z:=Vertices[PointIndex].Position.z;
   end;
 
-  GenerateConvexHull(TempPoints,TempTriangles,AMaximumCountConvexHullPoints);
+  if AMaximumCountConvexHullPoints>2 then begin
+   GenerateConvexHull(TempPoints,TempTriangles,AMaximumCountConvexHullPoints,AUserDefinedTolerance);
+   SetLength(TempTriangles,0);
+  end;
+
+  QuickHullInstance:=TKraftQuickHull.Create;
+  try
+   if AUserDefinedTolerance>0.0 then begin
+    QuickHullInstance.ExplicitTolerance:=AUserDefinedTolerance;
+   end;
+   QuickHullInstance.Reset;
+   for PointIndex:=0 to length(TempPoints)-1 do begin
+    QuickHullInstance.AddPoint(TempPoints[PointIndex].x,TempPoints[PointIndex].y,TempPoints[PointIndex].z);
+   end;
+   QuickHullInstance.BuildHull;
+   SetLength(TempPoints,QuickHullInstance.CountVertices);
+   for PointIndex:=0 to QuickHullInstance.CountVertices-1 do begin
+    QuickHullVertex:=TKraftQuickHullVertex(QuickHullInstance.PointBuffer[QuickHullInstance.VertexPointIndices[PointIndex]]);
+    TempPoints[PointIndex].x:=QuickHullVertex.Point.x;
+    TempPoints[PointIndex].y:=QuickHullVertex.Point.y;
+    TempPoints[PointIndex].z:=QuickHullVertex.Point.z;
+   end;
+   QuickHullFaces:=nil;
+   try
+    QuickHullInstance.GetFaces(QuickHullFaces);
+    SetLength(TempOutputPolygons.Items,length(QuickHullFaces));
+    TempOutputPolygons.Count:=length(QuickHullFaces);
+    for FaceIndex:=0 to TempOutputPolygons.Count-1 do begin
+     TempPolygon:=@TempOutputPolygons.Items[FaceIndex];
+     TempPolygon^.Count:=length(QuickHullFaces[FaceIndex]);
+     SetLength(TempPolygon^.Indices,TempPolygon^.Count);
+     for VertexIndex:=0 to TempPolygon^.Count-1 do begin
+      TempPolygon^.Indices[VertexIndex]:=QuickHullFaces[FaceIndex,VertexIndex];
+     end;
+    end;
+   finally
+    SetLength(QuickHullFaces,0);
+   end;
+  finally
+   QuickHullInstance.Free;
+  end;
+
+  for FaceIndex:=0 to TempOutputPolygons.Count-1 do begin
+   ConvexHullComputePolygonNewellPlane(TempPoints,TempOutputPolygons.Items[FaceIndex]);
+  end;
+
+  SetLength(TempInputPolygons.Items,0);
 
   CountVertices:=length(TempPoints);
   SetLength(Vertices,CountVertices);
@@ -12992,163 +16084,41 @@ begin
    Vertices[PointIndex].Position.z:=TempPoints[PointIndex].z;
   end;
 
-  CountTriangles:=length(TempTriangles);
-
-  // Compute vertex adjacency
-  for VertexIndex:=0 to CountVertices-1 do begin
-   Vertices[VertexIndex].CountAdjacencies:=0;
-  end;
-  for TriangleIndex:=0 to CountTriangles-1 do begin
-   for TriangleVertexIndex:=0 to 2 do begin
-    VertexIndex:=TempTriangles[TriangleIndex,TriangleVertexIndex];
-    Vertex:=@Vertices[VertexIndex];
-    for OtherTriangleVertexIndex:=1 to 2 do begin
-     OtherVertexIndex:=TempTriangles[TriangleIndex,ModuloThree[TriangleVertexIndex+OtherTriangleVertexIndex]];
-     if Vertex^.CountAdjacencies<length(Vertex^.Adjacencies) then begin
-      Found:=false;
-      for SearchIndex:=0 to Vertex^.CountAdjacencies-1 do begin
-       if Vertex^.Adjacencies[SearchIndex]=OtherVertexIndex then begin
-        Found:=true;
-        break;
-       end;
-      end;
-      if not Found then begin
-       Vertex^.Adjacencies[Vertex^.CountAdjacencies]:=OtherVertexIndex;
-       inc(Vertex^.CountAdjacencies);
-      end;
-     end else begin
-      break;
-     end;
-    end;
-   end;
-  end;
-
-  // Construct unique face poylgons from coplanar triangles
-  SetLength(Faces,CountTriangles);
-  CountFaces:=0;
+  // Copy face poylgons 
+  SetLength(Faces,TempOutputPolygons.Count);
+  CountFaces:=TempOutputPolygons.Count;
   CountTempFaceEdges:=0;
   EdgeVertexOffset:=0;
-  SetLength(Processed,CountTriangles);
-  for TriangleIndex:=0 to length(Processed)-1 do begin
-   Processed[TriangleIndex]:=false;
-  end;
-  for TriangleIndex:=0 to CountTriangles-1 do begin
-   if not Processed[TriangleIndex] then begin
-    Processed[TriangleIndex]:=true;
-    FaceIndex:=CountFaces;
-    Face:=@Faces[FaceIndex];
-    inc(CountFaces);
-    SetLength(Face^.Vertices,3);
-    Face^.Plane.Normal:=Vector3NormEx(Vector3Cross(Vector3Sub(Vertices[TempTriangles[TriangleIndex,1]].Position,Vertices[TempTriangles[TriangleIndex,0]].Position),Vector3Sub(Vertices[TempTriangles[TriangleIndex,2]].Position,Vertices[TempTriangles[TriangleIndex,0]].Position)));
-    Face^.Plane.Distance:=-Vector3Dot(Face^.Plane.Normal,Vertices[TempTriangles[TriangleIndex,0]].Position);
-    NewPlaneNormal:=Face^.Plane.Normal;
-    pa:=Face^.Plane;
-    Face^.EdgeVertexOffset:=EdgeVertexOffset;
-    Face^.CountVertices:=3;
-    Face^.Vertices[0]:=TempTriangles[TriangleIndex,0];
-    Face^.Vertices[1]:=TempTriangles[TriangleIndex,1];
-    Face^.Vertices[2]:=TempTriangles[TriangleIndex,2];
-    for OtherTriangleIndex:=TriangleIndex+1 to CountTriangles-1 do begin
-     if not Processed[OtherTriangleIndex] then begin
-      pb.Normal:=Vector3NormEx(Vector3Cross(Vector3Sub(Vertices[TempTriangles[OtherTriangleIndex,1]].Position,Vertices[TempTriangles[OtherTriangleIndex,0]].Position),Vector3Sub(Vertices[TempTriangles[OtherTriangleIndex,2]].Position,Vertices[TempTriangles[OtherTriangleIndex,0]].Position)));
-      pb.Distance:=-Vector3Dot(Face^.Plane.Normal,Vertices[TempTriangles[OtherTriangleIndex,0]].Position);
-      if (sqr(pb.Normal.x-pa.Normal.x)+sqr(pb.Normal.y-pa.Normal.y)+sqr(pb.Normal.z-pa.Normal.z)+sqr(pb.Distance-pa.Distance))<EPSILON then begin
-       NewPlaneNormal:=Vector3Add(NewPlaneNormal,pb.Normal);
-       Processed[OtherTriangleIndex]:=true;
-       for OtherTriangleVertexIndex:=0 to 2 do begin
-        Found:=false;
-        for VertexIndex:=0 to Face^.CountVertices-1 do begin
-         if Face^.Vertices[VertexIndex]=TempTriangles[OtherTriangleIndex,OtherTriangleVertexIndex] then begin
-          Found:=true;
-          break;
-         end;
-        end;
-        if not Found then begin
-         v1:=-1;
-         for VertexIndex:=Face^.CountVertices-1 downto 0 do begin
-          v0:=VertexIndex;
-          v2:=VertexIndex+1;
-          if v2>=Face^.CountVertices then begin
-           dec(v2,Face^.CountVertices);
-          end;
-          if Vector3Dot(Vector3NormEx(Vector3Cross(Vector3Sub(Vertices[TempTriangles[OtherTriangleIndex,OtherTriangleVertexIndex]].Position,
-                                                              Vertices[Face^.Vertices[v0]].Position),
-                                                   Vector3Sub(Vertices[Face^.Vertices[v2]].Position,
-                                                              Vertices[Face^.Vertices[v0]].Position))),Face^.Plane.Normal)>0.0 then begin
-           v1:=v2;
-           break;
-          end;
-         end;
-         VertexIndex:=Face^.CountVertices;
-         inc(Face^.CountVertices);
-         if Face^.CountVertices>length(Face^.Vertices) then begin
-          SetLength(Face^.Vertices,Face^.CountVertices*2);
-         end;
-         if v1>=0 then begin
-          if v1<(Face^.CountVertices-1) then begin
-           for VertexIndex:=Face^.CountVertices-1 downto v1+1 do begin
-            Face^.Vertices[VertexIndex]:=Face^.Vertices[VertexIndex-1];
-           end;
-          end;
-          Face^.Vertices[v1]:=TempTriangles[OtherTriangleIndex,OtherTriangleVertexIndex];
-         end else begin
-          Face^.Vertices[VertexIndex]:=TempTriangles[OtherTriangleIndex,OtherTriangleVertexIndex];
-         end;
-        end;
-       end;
-      end;
-     end;
+  for FaceIndex:=0 to TempOutputPolygons.Count-1 do begin
+   Face:=@Faces[FaceIndex];
+   TempPolygon:=@TempOutputPolygons.Items[FaceIndex];
+   Face^.Plane.Normal.x:=TempPolygon^.Plane.Normal.x;
+   Face^.Plane.Normal.y:=TempPolygon^.Plane.Normal.y;
+   Face^.Plane.Normal.z:=TempPolygon^.Plane.Normal.z;
+   Face^.Plane.Distance:=TempPolygon^.Plane.Distance;
+   Face^.CountVertices:=TempPolygon^.Count;
+   SetLength(Face^.Vertices,Face^.CountVertices);
+   for VertexIndex:=0 to Face^.CountVertices-1 do begin
+    Face^.Vertices[VertexIndex]:=TempPolygon^.Indices[VertexIndex];
+   end;
+   Face^.EdgeVertexOffset:=EdgeVertexOffset;
+   inc(EdgeVertexOffset,Face^.CountVertices);
+   for VertexIndex:=0 to Face^.CountVertices-1 do begin
+    OtherVertexIndex:=VertexIndex+1;
+    if OtherVertexIndex>=Face^.CountVertices then begin
+     dec(OtherVertexIndex,Face^.CountVertices);
     end;
-    inc(EdgeVertexOffset,Face^.CountVertices);
-    if length(Face^.Vertices)<>Face^.CountVertices then begin
-     SetLength(Face^.Vertices,Face^.CountVertices);
+    TempFaceEdgeIndex:=CountTempFaceEdges;
+    inc(CountTempFaceEdges);
+    if CountTempFaceEdges>length(TempFaceEdges) then begin
+     SetLength(TempFaceEdges,CountTempFaceEdges*2);
     end;
-    if Face^.CountVertices>3 then begin
-     VertexIndex:=0;
-     while VertexIndex<Face^.CountVertices do begin
-      v0:=VertexIndex-1;
-      if v0<0 then begin
-       inc(v0,Face^.CountVertices);
-      end;
-      v1:=VertexIndex;
-      v2:=VertexIndex+1;
-      if v2>=Face^.CountVertices then begin
-       dec(v2,Face^.CountVertices);
-      end;
-      if Vector3Dot(Vector3NormEx(Vector3Cross(Vector3Sub(Vertices[Face^.Vertices[v1]].Position,Vertices[Face^.Vertices[v0]].Position),Vector3Sub(Vertices[Face^.Vertices[v2]].Position,Vertices[Face^.Vertices[v0]].Position))),Face^.Plane.Normal)<0.0 then begin
-       v0:=Face^.Vertices[v1];
-       Face^.Vertices[v1]:=Face^.Vertices[v2];
-       Face^.Vertices[v2]:=v0;
-       if VertexIndex>0 then begin
-        dec(VertexIndex);
-       end else begin
-        inc(VertexIndex);
-       end;
-      end else begin
-       inc(VertexIndex);
-      end;
-     end;
-    end;
-    Face^.Plane.Normal:=Vector3NormEx(NewPlaneNormal);
-    Face^.Plane.Distance:=-Vector3Dot(Face^.Plane.Normal,Vertices[Face^.Vertices[0]].Position);
-    for VertexIndex:=0 to Face^.CountVertices-1 do begin
-     OtherVertexIndex:=VertexIndex+1;
-     if OtherVertexIndex>=Face^.CountVertices then begin
-      dec(OtherVertexIndex,Face^.CountVertices);
-     end;
-     TempFaceEdgeIndex:=CountTempFaceEdges;
-     inc(CountTempFaceEdges);
-     if CountTempFaceEdges>length(TempFaceEdges) then begin
-      SetLength(TempFaceEdges,CountTempFaceEdges*2);
-     end;
-     TempFaceEdge:=@TempFaceEdges[TempFaceEdgeIndex];
-     TempFaceEdge^.Face:=FaceIndex;
-     TempFaceEdge^.Vertices[0]:=Face^.Vertices[VertexIndex];
-     TempFaceEdge^.Vertices[1]:=Face^.Vertices[OtherVertexIndex];
-    end;
+    TempFaceEdge:=@TempFaceEdges[TempFaceEdgeIndex];
+    TempFaceEdge^.Face:=FaceIndex;
+    TempFaceEdge^.Vertices[0]:=Face^.Vertices[VertexIndex];
+    TempFaceEdge^.Vertices[1]:=Face^.Vertices[OtherVertexIndex];
    end;
   end;
-  SetLength(Faces,CountFaces);
   SetLength(TempFaceEdges,CountTempFaceEdges);
 
   // Find unique edges
@@ -13203,14 +16173,18 @@ begin
       Edge^.Faces[0]:=TempFaceEdgeHashItem^.Face;
       Edge^.Faces[1]:=TempFaceEdge^.Face;
      end else begin
-      raise EKraftDegeneratedConvexHull.Create('Degenerated convex hull');
+      if ADegeneratedConvexHullIsError then begin
+       raise EKraftDegeneratedConvexHull.Create('Degenerated convex hull');
+      end;
      end;
     end;
    end;
    for TempFaceEdgeHashItemIndex:=0 to CountTempFaceEdgeHashItems-1 do begin
     TempFaceEdgeHashItem:=@TempFaceEdgeHashItems[TempFaceEdgeHashItemIndex];
     if TempFaceEdgeHashItem^.Edge<0 then begin
-     raise EKraftDegeneratedConvexHull.Create('Degenerated convex hull');
+     if ADegeneratedConvexHullIsError then begin
+      raise EKraftDegeneratedConvexHull.Create('Degenerated convex hull');
+     end;
     end;
    end;
    SetLength(Edges,CountEdges);
@@ -13219,12 +16193,42 @@ begin
    SetLength(TempFaceEdgeHashTable,0);
   end;
 
+  // Compute vertex adjacency for hill-climbing
+  for VertexIndex:=0 to CountVertices-1 do begin
+   Vertices[VertexIndex].CountAdjacencies:=0;
+  end;
+  for FaceIndex:=0 to CountFaces-1 do begin
+   for FaceVertexIndex:=0 to Faces[FaceIndex].CountVertices-1 do begin
+    VertexIndex:=Faces[FaceIndex].Vertices[FaceVertexIndex];
+    Vertex:=@Vertices[VertexIndex];
+    for OtherFaceVertexIndex:=1 to Faces[FaceIndex].CountVertices-2 do begin
+     OtherVertexIndex:=Faces[FaceIndex].Vertices[(FaceVertexIndex+OtherFaceVertexIndex) mod Faces[FaceIndex].CountVertices];
+     Found:=false;
+     for SearchIndex:=0 to Vertex^.CountAdjacencies-1 do begin
+      if Vertex^.Adjacencies[SearchIndex]=OtherVertexIndex then begin
+       Found:=true;
+       break;
+      end;
+     end;
+     if not Found then begin
+      if (Vertex^.CountAdjacencies+1)>length(Vertex^.Adjacencies) then begin
+       SetLength(Vertex^.Adjacencies,(Vertex^.CountAdjacencies+1)*2);
+      end;
+      Vertex^.Adjacencies[Vertex^.CountAdjacencies]:=OtherVertexIndex;
+      inc(Vertex^.CountAdjacencies);
+     end;
+    end;
+   end;
+  end;
+
  finally
   SetLength(TempPoints,0);
   SetLength(TempTriangles,0);
   SetLength(TempFaceEdges,0);
+  SetLength(TempInputPolygons.Items,0);
+  SetLength(TempOutputPolygons.Items,0);
  end;
-end;
+end; 
 
 procedure TKraftConvexHull.Update;
 var FaceIndex,VertexIndex:longint;
@@ -13718,6 +16722,9 @@ begin
  Vertices:=nil;
  CountVertices:=0;
 
+ Normals:=nil;
+ CountNormals:=0;
+
  Triangles:=nil;
  CountTriangles:=0;
 
@@ -13740,6 +16747,8 @@ destructor TKraftMesh.Destroy;
 begin
 
  SetLength(Vertices,0);
+
+ SetLength(Normals,0);
 
  SetLength(Triangles,0);
 
@@ -13772,7 +16781,17 @@ begin
  Vertices[result]:=AVertex;
 end;
 
-function TKraftMesh.AddTriangle(const AVertexIndex0,AVertexIndex1,AVertexIndex2:longint):longint;
+function TKraftMesh.AddNormal(const ANormal:TKraftVector3):longint;
+begin
+ result:=CountNormals;
+ inc(CountNormals);
+ if CountNormals>length(Normals) then begin
+  SetLength(Normals,CountNormals*2);
+ end;
+ Normals[result]:=ANormal;
+end;
+
+function TKraftMesh.AddTriangle(const AVertexIndex0,AVertexIndex1,AVertexIndex2:longint;const ANormalIndex0:longint=-1;const ANormalIndex1:longint=-1;ANormalIndex2:longint=-1):longint;
 var Triangle:PKraftMeshTriangle;
 begin
  result:=CountTriangles;
@@ -13784,16 +16803,22 @@ begin
  Triangle^.Vertices[0]:=AVertexIndex0;
  Triangle^.Vertices[1]:=AVertexIndex1;
  Triangle^.Vertices[2]:=AVertexIndex2;
+ Triangle^.Normals[0]:=ANormalIndex0;
+ Triangle^.Normals[1]:=ANormalIndex1;
+ Triangle^.Normals[2]:=ANormalIndex2;
  Triangle^.Plane.Normal:=Vector3NormEx(Vector3Cross(Vector3Sub(Vertices[Triangle^.Vertices[1]],Vertices[Triangle^.Vertices[0]]),Vector3Sub(Vertices[Triangle^.Vertices[2]],Vertices[Triangle^.Vertices[0]])));
  Triangle^.Plane.Distance:=-Vector3Dot(Triangle^.Plane.Normal,Vertices[Triangle^.Vertices[0]]);
  Triangle^.Next:=-1;
 end;
 
-procedure TKraftMesh.Load(const AVertices:PKraftVector3;const ACountVertices:longint;const AIndices:pointer;const ACountIndices:longint);
+procedure TKraftMesh.Load(const AVertices:PKraftVector3;const ACountVertices:longint;const ANormals:PKraftVector3;const ACountNormals:longint;const AVertexIndices,ANormalIndices:pointer;const ACountIndices:longint);
 var i:longint;
     Triangle:PKraftMeshTriangle;
-    p:plongint;
+    v,n:plongint;
+    HasNormals:boolean;
 begin
+
+ HasNormals:=assigned(ANormals) and (ACountNormals>0) and assigned(ANormalIndices);
 
  Vertices:=nil;
  CountVertices:=ACountVertices;
@@ -13802,18 +16827,42 @@ begin
   Vertices[i]:=PKraftVector3s(AVertices)^[i];
  end;
 
+ Normals:=nil;
+ if HasNormals then begin
+  CountNormals:=ACountNormals;
+  SetLength(Normals,CountNormals);
+  for i:=0 to CountNormals-1 do begin
+   Normals[i]:=PKraftVector3s(ANormals)^[i];
+  end;
+ end else begin
+  CountNormals:=0;
+ end;
+
  Triangles:=nil;
  CountTriangles:=ACountIndices div 3;
  SetLength(Triangles,CountTriangles);
- p:=AIndices;
+ v:=AVertexIndices;
+ n:=ANormalIndices;
  for i:=0 to CountTriangles-1 do begin
   Triangle:=@Triangles[i];
-  Triangle^.Vertices[0]:=p^;
-  inc(p);
-  Triangle^.Vertices[1]:=p^;
-  inc(p);
-  Triangle^.Vertices[2]:=p^;
-  inc(p);
+  Triangle^.Vertices[0]:=v^;
+  inc(v);
+  Triangle^.Vertices[1]:=v^;
+  inc(v);
+  Triangle^.Vertices[2]:=v^;
+  inc(v);
+  if HasNormals then begin
+   Triangle^.Normals[0]:=n^;
+   inc(n);
+   Triangle^.Normals[1]:=n^;
+   inc(n);
+   Triangle^.Normals[2]:=n^;
+   inc(n);
+  end else begin
+   Triangle^.Normals[0]:=-1;
+   Triangle^.Normals[1]:=-1;
+   Triangle^.Normals[2]:=-1;
+  end;
   Triangle^.Plane.Normal:=Vector3NormEx(Vector3Cross(Vector3Sub(Vertices[Triangle^.Vertices[1]],Vertices[Triangle^.Vertices[0]]),Vector3Sub(Vertices[Triangle^.Vertices[2]],Vertices[Triangle^.Vertices[0]])));
   Triangle^.Plane.Distance:=-Vector3Dot(Triangle^.Plane.Normal,Vertices[Triangle^.Vertices[0]]);
   Triangle^.Next:=-1;
@@ -13870,6 +16919,9 @@ var SrcPos:longint;
     Triangle^.Vertices[0]:=ReadLongWord;
     Triangle^.Vertices[1]:=ReadLongWord;
     Triangle^.Vertices[2]:=ReadLongWord;
+    Triangle^.Normals[0]:=-1;
+    Triangle^.Normals[1]:=-1;
+    Triangle^.Normals[2]:=-1;
    end;
    SetLength(Vertices,CountVertices);
    for Counter:=0 to CountVertices-1 do begin
@@ -14251,6 +17303,43 @@ begin
  end;
 end;
 
+procedure TKraftMesh.CalculateNormals;
+var TriangleIndex,NormalIndex,Counter:longint;
+    NormalCounts:array of longint;
+    Triangle:PKraftMeshTriangle;
+begin
+ NormalCounts:=nil;
+ try
+  if CountTriangles>0 then begin
+   CountNormals:=CountVertices;
+   SetLength(NormalCounts,CountNormals);
+   SetLength(Normals,CountNormals);
+   for NormalIndex:=0 to CountNormals-1 do begin
+    NormalCounts[NormalIndex]:=0;
+    Normals[NormalIndex]:=Vector3Origin;
+   end;
+   for TriangleIndex:=0 to CountTriangles-1 do begin
+    Triangle:=@Triangles[TriangleIndex];
+    Triangle^.Normals[0]:=Triangle^.Vertices[0];
+    Triangle^.Normals[1]:=Triangle^.Vertices[1];
+    Triangle^.Normals[2]:=Triangle^.Vertices[2];
+    Triangle^.Plane.Normal:=Vector3NormEx(Vector3Cross(Vector3Sub(Vertices[Triangle^.Vertices[1]],Vertices[Triangle^.Vertices[0]]),Vector3Sub(Vertices[Triangle^.Vertices[2]],Vertices[Triangle^.Vertices[0]])));
+    Triangle^.Plane.Distance:=-Vector3Dot(Triangle^.Plane.Normal,Vertices[Triangle^.Vertices[0]]);
+    for Counter:=0 to 2 do begin
+     NormalIndex:=Triangle^.Normals[Counter];
+     inc(NormalCounts[NormalIndex]);
+     Vector3DirectAdd(Normals[NormalIndex],Triangle^.Plane.Normal);
+    end;
+   end;
+   for NormalIndex:=0 to CountNormals-1 do begin
+    Vector3Normalize(Normals[NormalIndex]);
+   end;
+  end;
+ finally
+  SetLength(NormalCounts,0);
+ end;
+end;
+
 procedure TKraftMesh.Finish;
 type PAABBTreeNode=^TAABBTreeNode;
      TAABBTreeNode=record
@@ -14279,6 +17368,13 @@ begin
  end;
  if length(Triangles)<>CountTriangles then begin
   SetLength(Triangles,CountTriangles);
+ end;
+ for Index:=0 to CountTriangles-1 do begin
+  Triangle:=@Triangles[Index];
+  if (Triangle^.Normals[0]<0) or (Triangle^.Normals[1]<0) or (Triangle^.Normals[2]<0) then begin
+   CalculateNormals;
+   break;
+  end;
  end;
  if CountSkipListNodes=0 then begin
   if CountTriangles>0 then begin
@@ -14753,9 +17849,15 @@ begin
 
  FeatureRadius:=0.0;
 
+ ContinuousMinimumRadiusScaleFactor:=0.0;
+
 {$ifdef DebugDraw}
  DrawDisplayList:=0;
 {$endif}
+
+ OnContactBegin:=nil;
+ OnContactEnd:=nil;
+ OnContactStay:=nil;
 
 end;
 
@@ -15707,6 +18809,7 @@ begin
   DrawDisplayList:=glGenLists(1);
   glNewList(DrawDisplayList,GL_COMPILE);
 
+{$ifdef UseConvexHullTriangleDebugDraw}
   glBegin(GL_TRIANGLES);
   for i:=0 to ConvexHull.CountFaces-1 do begin
    Face:=@ConvexHull.Faces[i];
@@ -15727,6 +18830,17 @@ begin
 {$endif}
   end;
   glEnd;
+{$else}
+  for i:=0 to ConvexHull.CountFaces-1 do begin
+   Face:=@ConvexHull.Faces[i];
+   glBegin(GL_POLYGON);
+   glNormal3fv(@Face^.Plane.Normal);
+   for j:=0 to Face^.CountVertices-1 do begin
+    glVertex3fv(@ConvexHull.Vertices[Face^.Vertices[j]].Position);
+   end;
+   glEnd;
+  end;
+{$endif}
 
   glEndList;
  end;
@@ -16236,14 +19350,17 @@ begin
  SetLength(ShapeConvexHull.Vertices,ShapeConvexHull.CountVertices);
  ShapeConvexHull.Vertices[0].Position:=AVertex0;
  ShapeConvexHull.Vertices[0].CountAdjacencies:=2;
+ SetLength(ShapeConvexHull.Vertices[0].Adjacencies,2);
  ShapeConvexHull.Vertices[0].Adjacencies[0]:=1;
  ShapeConvexHull.Vertices[0].Adjacencies[1]:=2;
  ShapeConvexHull.Vertices[1].Position:=AVertex1;
  ShapeConvexHull.Vertices[1].CountAdjacencies:=2;
+ SetLength(ShapeConvexHull.Vertices[1].Adjacencies,2);
  ShapeConvexHull.Vertices[1].Adjacencies[0]:=2;
  ShapeConvexHull.Vertices[1].Adjacencies[1]:=0;
  ShapeConvexHull.Vertices[2].Position:=AVertex2;
  ShapeConvexHull.Vertices[2].CountAdjacencies:=2;
+ SetLength(ShapeConvexHull.Vertices[2].Adjacencies,2);
  ShapeConvexHull.Vertices[2].Adjacencies[0]:=0;
  ShapeConvexHull.Vertices[2].Adjacencies[1]:=1;
 
@@ -16576,19 +19693,28 @@ begin
  if Vector3LengthSquared(Direction)>EPSILON then begin
   Nearest:=3.4e+38;
   First:=true;
-  SkipListNodeIndex:=0;
+  SkipListNodeIndex:=0;  
   while SkipListNodeIndex<Mesh.CountSkipListNodes do begin
    SkipListNode:=@Mesh.SkipListNodes[SkipListNodeIndex];
-   if AABBRayIntersection(SkipListNode^.AABB,Origin,Direction,Time) then begin
+   if AABBRayIntersect(SkipListNode^.AABB,Origin,Direction) then begin
     TriangleIndex:=SkipListNode^.TriangleIndex;
     while TriangleIndex>=0 do begin
      Triangle:=@Mesh.Triangles[TriangleIndex];
-     if RayIntersectTriangle(Origin,Direction,Mesh.Vertices[Triangle^.Vertices[0]],Mesh.Vertices[Triangle^.Vertices[1]],Mesh.Vertices[Triangle^.Vertices[2]],Time,u,v) then begin
+     if RayIntersectTriangle(Origin,
+                             Direction,
+                             Mesh.Vertices[Triangle^.Vertices[0]],
+                             Mesh.Vertices[Triangle^.Vertices[1]],
+                             Mesh.Vertices[Triangle^.Vertices[2]],
+                             Time,
+                             u,
+                             v) then begin
       p:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time));
       if ((Time>=0.0) and (Time<=RayCastData.MaxTime)) and (First or (Time<Nearest)) then begin
        First:=false;
        Nearest:=Time;
-       Normal:=Vector3NormEx(Vector3Cross(Vector3Sub(Mesh.Vertices[Triangle^.Vertices[1]],Mesh.Vertices[Triangle^.Vertices[0]]),Vector3Sub(Mesh.Vertices[Triangle^.Vertices[2]],Mesh.Vertices[Triangle^.Vertices[0]])));
+       Normal:=Vector3Norm(Vector3Add(Vector3ScalarMul(Mesh.Normals[Triangle^.Normals[0]],1.0-(u+v)),
+                           Vector3Add(Vector3ScalarMul(Mesh.Normals[Triangle^.Normals[1]],u),
+                                      Vector3ScalarMul(Mesh.Normals[Triangle^.Normals[2]],v))));
        RayCastData.TimeOfImpact:=Time;
        RayCastData.Point:=p;
        RayCastData.Normal:=Normal;
@@ -16632,28 +19758,24 @@ begin
   for i:=0 to Mesh.CountTriangles-1 do begin
    Triangle:=@Mesh.Triangles[i];
 {$ifdef UseDouble}
-   glNormal3dv(@Triangle^.Plane.Normal);
+   glNormal3dv(@Mesh.Normals[Triangle^.Normals[0]]);
    glVertex3dv(@Mesh.Vertices[Triangle^.Vertices[0]]);
+   glNormal3dv(@Mesh.Normals[Triangle^.Normals[1]]);
    glVertex3dv(@Mesh.Vertices[Triangle^.Vertices[1]]);
+   glNormal3dv(@Mesh.Normals[Triangle^.Normals[2]]);
    glVertex3dv(@Mesh.Vertices[Triangle^.Vertices[2]]);
-  {glNormal3f(-Triangle^.Plane.Normal.x,-Triangle^.Plane.Normal.y,-Triangle^.Plane.Normal.z);
-   glVertex3dv(@Mesh.Vertices[Triangle^.Vertices[0]]);
-   glVertex3dv(@Mesh.Vertices[Triangle^.Vertices[2]]);
-   glVertex3dv(@Mesh.Vertices[Triangle^.Vertices[1]]);{}
 {$else}
-   glNormal3fv(@Triangle^.Plane.Normal);
+   glNormal3fv(@Mesh.Normals[Triangle^.Normals[0]]);
    glVertex3fv(@Mesh.Vertices[Triangle^.Vertices[0]]);
+   glNormal3fv(@Mesh.Normals[Triangle^.Normals[1]]);
    glVertex3fv(@Mesh.Vertices[Triangle^.Vertices[1]]);
+   glNormal3fv(@Mesh.Normals[Triangle^.Normals[2]]);
    glVertex3fv(@Mesh.Vertices[Triangle^.Vertices[2]]);
-  {glNormal3f(-Triangle^.Plane.Normal.x,-Triangle^.Plane.Normal.y,-Triangle^.Plane.Normal.z);
-   glVertex3fv(@Mesh.Vertices[Triangle^.Vertices[0]]);
-   glVertex3fv(@Mesh.Vertices[Triangle^.Vertices[2]]);
-   glVertex3fv(@Mesh.Vertices[Triangle^.Vertices[1]]);{}
 {$endif}
 
   end;
   glEnd;
-  
+
   glEndList;
  end;
 
@@ -17848,7 +20970,7 @@ var OldManifoldCountContacts:longint;
   end;
   procedure ClipFaceContactPoints(const ReferenceHull:TKraftShapeConvexHull;const ReferenceFaceIndex:longint;const IncidentHull:TKraftShapeConvexHull;const IncidentFaceIndex:longint;const Flip:boolean);
   var Contact:PKraftContact;
-      ReferenceVertexIndex,OtherReferenceVertexIndex,IncidentVertexIndex,ClipVertexIndex:longint;
+      ReferenceVertexIndex,OtherReferenceVertexIndex,IncidentVertexIndex,CliVertexIndex:longint;
       ReferenceFace,IncidentFace:PKraftConvexHullFace;
       ClipVertex,FirstClipVertex,EndClipVertex:PKraftVector3;
       StartDistance,EndDistance,Distance:TKraftScalar;
@@ -17878,8 +21000,8 @@ var OldManifoldCountContacts:longint;
      ContactManager.DebugConvexHullVertexLists[ContactManager.CountDebugConvexHullVertexLists].Color.b:=0.5;
      ContactManager.DebugConvexHullVertexLists[ContactManager.CountDebugConvexHullVertexLists].Color.a:=1.0;
      ContactManager.DebugConvexHullVertexLists[ContactManager.CountDebugConvexHullVertexLists].Clear;
-     for ClipVertexIndex:=0 to ClipVertices[0].Count-1 do begin
-      ContactManager.DebugConvexHullVertexLists[ContactManager.CountDebugConvexHullVertexLists].Add(ClipVertices[0].Vertices[ClipVertexIndex]);
+     for CliVertexIndex:=0 to ClipVertices[0].Count-1 do begin
+      ContactManager.DebugConvexHullVertexLists[ContactManager.CountDebugConvexHullVertexLists].Add(ClipVertices[0].Vertices[CliVertexIndex]);
      end;
      inc(ContactManager.CountDebugConvexHullVertexLists);
     end;
@@ -17909,8 +21031,8 @@ var OldManifoldCountContacts:longint;
      FirstClipVertex:=@ClipVertices[0].Vertices[ClipVertices[0].Count-1];
      EndClipVertex:=@ClipVertices[0].Vertices[0];
      StartDistance:=PlaneVectorDistance(ReferenceEdgePlane,FirstClipVertex^);
-     for ClipVertexIndex:=0 to ClipVertices[0].Count-1 do begin
-      EndClipVertex:=@ClipVertices[0].Vertices[ClipVertexIndex];
+     for CliVertexIndex:=0 to ClipVertices[0].Count-1 do begin
+      EndClipVertex:=@ClipVertices[0].Vertices[CliVertexIndex];
       EndDistance:=PlaneVectorDistance(ReferenceEdgePlane,EndClipVertex^);
       if StartDistance<0.0 then begin
        if EndDistance<0.0 then begin
@@ -17944,15 +21066,15 @@ var OldManifoldCountContacts:longint;
      ContactManager.DebugConvexHullVertexLists[ContactManager.CountDebugConvexHullVertexLists].Color.b:=1.0;
      ContactManager.DebugConvexHullVertexLists[ContactManager.CountDebugConvexHullVertexLists].Color.a:=1.0;
      ContactManager.DebugConvexHullVertexLists[ContactManager.CountDebugConvexHullVertexLists].Clear;
-     for ClipVertexIndex:=0 to ClipVertices[0].Count-1 do begin
-      ContactManager.DebugConvexHullVertexLists[ContactManager.CountDebugConvexHullVertexLists].Add(ClipVertices[0].Vertices[ClipVertexIndex]);
+     for CliVertexIndex:=0 to ClipVertices[0].Count-1 do begin
+      ContactManager.DebugConvexHullVertexLists[ContactManager.CountDebugConvexHullVertexLists].Add(ClipVertices[0].Vertices[CliVertexIndex]);
      end;
      inc(ContactManager.CountDebugConvexHullVertexLists);
     end;
 {$endif}
 
-   for ClipVertexIndex:=0 to ClipVertices[0].Count-1 do begin
-    ClipVertex:=@ClipVertices[0].Vertices[ClipVertexIndex];
+   for CliVertexIndex:=0 to ClipVertices[0].Count-1 do begin
+    ClipVertex:=@ClipVertices[0].Vertices[CliVertexIndex];
     Distance:=PlaneVectorDistance(ReferenceWorldPlane,ClipVertex^);
     if Distance<0.0 then begin
      if ContactManager.CountTemporaryContacts[ThreadIndex]<MAX_TEMPORARY_CONTACTS then begin
@@ -17966,7 +21088,7 @@ var OldManifoldCountContacts:longint;
        Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(ClipVertex^,Shapes[1].WorldTransform);
       end;
       Contact^.Penetration:=Distance;
-      Contact^.FeaturePair.Key:=$ffffffff;// ClipVertexIndex; // $ffffffff => nearest current-frame=>last-frame contact point search for warm starting
+      Contact^.FeaturePair.Key:=$ffffffff;// CliVertexIndex; // $ffffffff => nearest current-frame=>last-frame contact point search for warm starting
      end else begin
       break;
      end;
@@ -18592,6 +21714,7 @@ begin
 
  OnContactBegin:=nil;
  OnContactEnd:=nil;
+ OnContactStay:=nil;
 
  OnCanCollide:=nil;
 
@@ -19074,8 +22197,27 @@ begin
 
   if kcfFiltered in ContactPair^.Flags then begin
    if (not RigidBodyA.CanCollideWith(RigidBodyB)) or (assigned(OnCanCollide) and not OnCanCollide(ShapeA,ShapeB)) then begin
-    if assigned(OnContactEnd) and ((ContactPair^.Flags*[kcfColliding,kcfWasColliding])<>[]) then begin
-     OnContactEnd(ContactPair);
+    if (ContactPair^.Flags*[kcfColliding,kcfWasColliding])<>[] then begin
+     if (ContactPair^.Flags*[kcfColliding,kcfWasColliding])=[kcfColliding] then begin
+      if assigned(OnContactBegin) then begin
+       OnContactBegin(ContactPair);
+      end;
+      if assigned(ContactPair^.Shapes[0]) and assigned(ContactPair^.Shapes[0].OnContactBegin) then begin
+       ContactPair^.Shapes[0].OnContactBegin(ContactPair,ContactPair^.Shapes[1]);
+      end;
+      if assigned(ContactPair^.Shapes[1]) and assigned(ContactPair^.Shapes[1].OnContactBegin) then begin
+       ContactPair^.Shapes[1].OnContactBegin(ContactPair,ContactPair^.Shapes[0]);
+      end;
+     end;
+     if assigned(OnContactEnd) then begin
+      OnContactEnd(ContactPair);
+     end;
+     if assigned(ContactPair^.Shapes[0]) and assigned(ContactPair^.Shapes[0].OnContactEnd) then begin
+      ContactPair^.Shapes[0].OnContactEnd(ContactPair,ContactPair^.Shapes[1]);
+     end;
+     if assigned(ContactPair^.Shapes[1]) and assigned(ContactPair^.Shapes[1].OnContactEnd) then begin
+      ContactPair^.Shapes[1].OnContactEnd(ContactPair,ContactPair^.Shapes[0]);
+     end;
     end;
     NextContactPair:=ContactPair^.Next;
     RemoveContact(ContactPair);
@@ -19092,8 +22234,27 @@ begin
   end;
 
   if not AABBIntersect(ShapeA.WorldAABB,ShapeB.WorldAABB) then begin
-   if assigned(OnContactEnd) and ((ContactPair^.Flags*[kcfColliding,kcfWasColliding])<>[]) then begin
-    OnContactEnd(ContactPair);
+   if (ContactPair^.Flags*[kcfColliding,kcfWasColliding])<>[] then begin
+    if (ContactPair^.Flags*[kcfColliding,kcfWasColliding])=[kcfColliding] then begin
+     if assigned(OnContactBegin) then begin
+      OnContactBegin(ContactPair);
+     end;
+     if assigned(ContactPair^.Shapes[0]) and assigned(ContactPair^.Shapes[0].OnContactBegin) then begin
+      ContactPair^.Shapes[0].OnContactBegin(ContactPair,ContactPair^.Shapes[1]);
+     end;
+     if assigned(ContactPair^.Shapes[1]) and assigned(ContactPair^.Shapes[1].OnContactBegin) then begin
+      ContactPair^.Shapes[1].OnContactBegin(ContactPair,ContactPair^.Shapes[0]);
+     end;
+    end;
+    if assigned(OnContactEnd) then begin
+     OnContactEnd(ContactPair);
+    end;
+    if assigned(ContactPair^.Shapes[0]) and assigned(ContactPair^.Shapes[0].OnContactEnd) then begin
+     ContactPair^.Shapes[0].OnContactEnd(ContactPair,ContactPair^.Shapes[1]);
+    end;
+    if assigned(ContactPair^.Shapes[1]) and assigned(ContactPair^.Shapes[1].OnContactEnd) then begin
+     ContactPair^.Shapes[1].OnContactEnd(ContactPair,ContactPair^.Shapes[0]);
+    end;
    end;
    NextContactPair:=ContactPair^.Next;
    RemoveContact(ContactPair);
@@ -19104,9 +22265,28 @@ begin
   if assigned(ContactPair^.MeshContactPair) and (ContactPair^.ElementIndex>=0) then begin
    if not AABBIntersect(TKraftShapeMesh(ContactPair^.MeshContactPair.ShapeMesh).Mesh.Triangles[ContactPair^.ElementIndex].AABB,
                                                 ContactPair^.MeshContactPair.ConvexAABBInMeshLocalSpace) then begin
-    if assigned(OnContactEnd) and ((ContactPair^.Flags*[kcfColliding,kcfWasColliding])<>[]) then begin
-     OnContactEnd(ContactPair);
-    end;             
+    if (ContactPair^.Flags*[kcfColliding,kcfWasColliding])<>[] then begin
+     if (ContactPair^.Flags*[kcfColliding,kcfWasColliding])=[kcfColliding] then begin
+      if assigned(OnContactBegin) then begin
+       OnContactBegin(ContactPair);
+      end;
+      if assigned(ContactPair^.Shapes[0]) and assigned(ContactPair^.Shapes[0].OnContactBegin) then begin
+       ContactPair^.Shapes[0].OnContactBegin(ContactPair,ContactPair^.MeshContactPair.ShapeMesh);
+      end;
+      if assigned(ContactPair^.MeshContactPair.ShapeMesh) and assigned(ContactPair^.MeshContactPair.ShapeMesh.OnContactBegin) then begin
+       ContactPair^.Shapes[1].OnContactBegin(ContactPair,ContactPair^.Shapes[0]);
+      end;
+     end;
+     if assigned(OnContactEnd) then begin
+      OnContactEnd(ContactPair);
+     end;
+     if assigned(ContactPair^.Shapes[0]) and assigned(ContactPair^.Shapes[0].OnContactEnd) then begin
+      ContactPair^.Shapes[0].OnContactEnd(ContactPair,ContactPair^.MeshContactPair.ShapeMesh);
+     end;
+     if assigned(ContactPair^.MeshContactPair.ShapeMesh) and assigned(ContactPair^.MeshContactPair.ShapeMesh.OnContactEnd) then begin
+      ContactPair^.MeshContactPair.ShapeMesh.OnContactEnd(ContactPair,ContactPair^.Shapes[0]);
+     end;
+    end;
     NextContactPair:=ContactPair^.Next;
     RemoveContact(ContactPair);
     ContactPair:=NextContactPair;
@@ -19144,9 +22324,31 @@ begin
    if assigned(OnContactBegin) then begin
     OnContactBegin(ContactPair);
    end;
+   if assigned(ContactPair^.Shapes[0]) and assigned(ContactPair^.Shapes[0].OnContactBegin) then begin
+    ContactPair^.Shapes[0].OnContactBegin(ContactPair,ContactPair^.Shapes[1]);
+   end;
+   if assigned(ContactPair^.Shapes[1]) and assigned(ContactPair^.Shapes[1].OnContactBegin) then begin
+    ContactPair^.Shapes[1].OnContactBegin(ContactPair,ContactPair^.Shapes[0]);
+   end;
   end else if Flags=[kcfWasColliding] then begin
    if assigned(OnContactEnd) then begin
     OnContactEnd(ContactPair);
+   end;
+   if assigned(ContactPair^.Shapes[0]) and assigned(ContactPair^.Shapes[0].OnContactEnd) then begin
+    ContactPair^.Shapes[0].OnContactEnd(ContactPair,ContactPair^.Shapes[1]);
+   end;
+   if assigned(ContactPair^.Shapes[1]) and assigned(ContactPair^.Shapes[1].OnContactEnd) then begin
+    ContactPair^.Shapes[1].OnContactEnd(ContactPair,ContactPair^.Shapes[0]);
+   end;
+  end else if Flags=[kcfColliding,kcfWasColliding] then begin
+   if assigned(OnContactStay) then begin
+    OnContactStay(ContactPair);
+   end;
+   if assigned(ContactPair^.Shapes[0]) and assigned(ContactPair^.Shapes[0].OnContactStay) then begin
+    ContactPair^.Shapes[0].OnContactStay(ContactPair,ContactPair^.Shapes[1]);
+   end;
+   if assigned(ContactPair^.Shapes[1]) and assigned(ContactPair^.Shapes[1].OnContactStay) then begin
+    ContactPair^.Shapes[1].OnContactStay(ContactPair,ContactPair^.Shapes[0]);
    end;
   end;
  end;
@@ -19811,8 +23013,8 @@ begin
  ContactPairEdgeFirst:=nil;
  ContactPairEdgeLast:=nil;
 
- OnPreFixedStep:=nil;
- OnPostFixedStep:=nil;
+ OnPreStep:=nil;
+ OnPostStep:=nil;
 
 end;
 
@@ -20060,8 +23262,8 @@ end;
 
 procedure TKraftRigidBody.SynchronizeTransform;
 begin
- WorldTransform:=QuaternionToMatrix4x4(Sweep.q0);
- PKraftVector3(pointer(@WorldTransform[3,0]))^.xyz:=Vector3Sub(Sweep.c0,Vector3TermMatrixMulBasis(Sweep.LocalCenter,WorldTransform)).xyz;
+ WorldTransform:=QuaternionToMatrix4x4(Sweep.q);
+ PKraftVector3(pointer(@WorldTransform[3,0]))^.xyz:=Vector3Sub(Sweep.c,Vector3TermMatrixMulBasis(Sweep.LocalCenter,WorldTransform)).xyz;
 end;
 
 procedure TKraftRigidBody.SynchronizeTransformIncludingShapes;
@@ -20159,11 +23361,6 @@ procedure TKraftRigidBody.Finish;
     Shape:=Shape.ShapeNext;
    end;
 
-   if ForcedMass>EPSILON then begin
-    Matrix3x3ScalarMul(BodyInertiaTensor,ForcedMass/Mass);
-    Mass:=ForcedMass;
-   end;
-
    if Mass>EPSILON then begin
 
     InverseMass:=1.0/Mass;
@@ -20218,6 +23415,12 @@ procedure TKraftRigidBody.Finish;
 
      Matrix3x3Inverse(BodyInertiaTensor,BodyInverseInertiaTensor);
 
+    end;
+
+    if ForcedMass>EPSILON then begin
+     Matrix3x3ScalarMul(BodyInertiaTensor,ForcedMass/Mass);
+     Mass:=ForcedMass;
+     InverseMass:=1.0/Mass;
     end;
 
    end else begin
@@ -20445,6 +23648,18 @@ begin
  AngularVelocity:=Vector3Add(AngularVelocity,Vector3TermMatrixMul(Vector3Cross(RelativePosition,Impulse),WorldInverseInertiaTensor));
 end;
 
+procedure TKraftRigidBody.SetForceAtPosition(const AForce,APosition:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+begin
+ SetWorldForce(AForce,AForceMode);
+ SetWorldTorque(Vector3TermMatrixMul(Vector3Cross(Vector3Sub(aPosition,Sweep.c),AForce),WorldInverseInertiaTensor),AForceMode);
+end;
+
+procedure TKraftRigidBody.AddForceAtPosition(const AForce,APosition:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+begin
+ AddWorldForce(AForce,AForceMode);
+ AddWorldTorque(Vector3TermMatrixMul(Vector3Cross(Vector3Sub(APosition,Sweep.c),AForce),WorldInverseInertiaTensor),AForceMode);
+end;
+
 procedure TKraftRigidBody.SetWorldForce(const AForce:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
 begin
  Force:=Vector3Origin;
@@ -20512,7 +23727,7 @@ begin
 end;
 
 procedure TKraftRigidBody.SetBodyTorque(const ATorque:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
-begin                                
+begin
  SetWorldTorque(Vector3TermMatrixMulBasis(ATorque,WorldTransform),AForceMode);
 end;
 
@@ -20521,13 +23736,13 @@ begin
  AddWorldTorque(Vector3TermMatrixMulBasis(ATorque,WorldTransform),AForceMode);
 end;
 
-procedure TKraftRigidBody.SetAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+procedure TKraftRigidBody.SetWorldAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
 begin
  AngularVelocity:=Vector3Origin;
- AddAngularVelocity(AAngularVelocity,AForceMode);
+ AddWorldAngularVelocity(AAngularVelocity,AForceMode);
 end;
 
-procedure TKraftRigidBody.AddAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+procedure TKraftRigidBody.AddWorldAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
 begin
  case AForceMode of
   kfmForce:begin
@@ -20549,24 +23764,44 @@ begin
  end;
 end;
 
-procedure TKraftRigidBody.SetAngularMomentumEx(const NewAngularMomentum:TKraftVector3);
+procedure TKraftRigidBody.SetBodyAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
 begin
- AngularVelocity:=Vector3TermMatrixMul(NewAngularMomentum,WorldInverseInertiaTensor);
+ SetWorldAngularVelocity(Vector3TermMatrixMulBasis(AAngularVelocity,WorldTransform),AForceMode);
 end;
 
-procedure TKraftRigidBody.SetAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+procedure TKraftRigidBody.AddBodyAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
 begin
- SetAngularVelocity(Vector3TermMatrixMul(AAngularMomentum,WorldInverseInertiaTensor),AForceMode);
+ AddWorldAngularVelocity(Vector3TermMatrixMulBasis(AAngularVelocity,WorldTransform),AForceMode);
 end;
 
-procedure TKraftRigidBody.AddAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+procedure TKraftRigidBody.SetWorldAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
 begin
- AddAngularVelocity(Vector3TermMatrixMul(AAngularMomentum,WorldInverseInertiaTensor),AForceMode);
+ SetWorldAngularVelocity(Vector3TermMatrixMul(AAngularMomentum,WorldInverseInertiaTensor),AForceMode);
+end;
+
+procedure TKraftRigidBody.AddWorldAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+begin
+ AddWorldAngularVelocity(Vector3TermMatrixMul(AAngularMomentum,WorldInverseInertiaTensor),AForceMode);
+end;
+
+procedure TKraftRigidBody.SetBodyAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+begin
+ SetBodyAngularVelocity(Vector3TermMatrixMul(AAngularMomentum,BodyInverseInertiaTensor),AForceMode);
+end;
+
+procedure TKraftRigidBody.AddBodyAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+begin
+ AddBodyAngularVelocity(Vector3TermMatrixMul(AAngularMomentum,BodyInverseInertiaTensor),AForceMode);
 end;
 
 function TKraftRigidBody.GetAngularMomentum:TKraftVector3;
 begin
  result:=Vector3TermMatrixMul(AngularVelocity,WorldInertiaTensor);
+end;
+
+procedure TKraftRigidBody.SetAngularMomentum(const NewAngularMomentum:TKraftVector3);
+begin
+ AngularVelocity:=Vector3TermMatrixMul(NewAngularMomentum,WorldInverseInertiaTensor);
 end;
 
 constructor TKraftConstraint.Create(const APhysics:TKraft);
@@ -21021,6 +24256,334 @@ end;
 procedure TKraftConstraintJointGrab.SetMaximalForce(AMaximalForce:TKraftScalar);
 begin
  MaximalForce:=AMaximalForce;
+end;
+
+constructor TKraftConstraintJointWorldPlaneDistance.Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody;const ALocalAnchorPoint:TKraftVector3;const AWorldPlane:TKraftPlane;const ADoubleSidedWorldPlane:boolean=true;const AWorldDistance:single=1.0;const ALimitBehavior:TKraftConstraintLimitBehavior=kclbLimitDistance;const AFrequencyHz:TKraftScalar=0.0;const ADampingRatio:TKraftScalar=0.0;const ACollideConnected:boolean=false);
+begin
+
+ LocalAnchor:=ALocalAnchorPoint;
+
+ WorldPlane:=AWorldPlane;
+
+ WorldPoint:=Vector3ScalarMul(AWorldPlane.Normal,-AWorldPlane.Distance);
+
+ DoubleSidedWorldPlane:=ADoubleSidedWorldPlane;
+ 
+ WorldDistance:=AWorldDistance;
+
+// AnchorDistanceLength:=AWorldDistance;//Vector3Dist(WorldPoint,Vector3TermMatrixMul(ALocalAnchorPoint,ARigidBody.WorldTransform));
+
+ LimitBehavior:=ALimitBehavior;
+
+ FrequencyHz:=AFrequencyHz;
+ DampingRatio:=ADampingRatio;
+ AccumulatedImpulse:=0.0;
+ Gamma:=0.0;
+ Bias:=0.0;
+
+ if ACollideConnected then begin
+  Include(Flags,kcfCollideConnected);
+ end else begin
+  Exclude(Flags,kcfCollideConnected);
+ end;
+
+ RigidBodies[0]:=ARigidBody;
+ RigidBodies[1]:=nil;
+
+ inherited Create(APhysics);
+
+end;
+
+destructor TKraftConstraintJointWorldPlaneDistance.Destroy;
+begin
+ inherited Destroy;
+end;
+
+procedure TKraftConstraintJointWorldPlaneDistance.InitializeConstraintsAndWarmStart(const Island:TKraftIsland;const TimeStep:TKraftTimeStep);
+var cA,vA,wA:PKraftVector3;
+    qA:PKraftQuaternion;
+    crAu,P,AbsolutePosition:TKraftVector3;
+    l,TotalInverseMass,C,Omega,k,h,d:TKraftScalar;
+begin
+
+ IslandIndex:=RigidBodies[0].IslandIndices[Island.IslandIndex];
+
+ LocalCenter:=RigidBodies[0].Sweep.LocalCenter;
+
+ InverseMass:=RigidBodies[0].InverseMass;
+
+ WorldInverseInertiaTensor:=RigidBodies[0].WorldInverseInertiaTensor;
+
+ SolverVelocity:=@Island.Solver.Velocities[IslandIndex];
+
+ SolverPosition:=@Island.Solver.Positions[IslandIndex];
+
+ cA:=@SolverPosition^.Position;
+ qA:=@SolverPosition^.Orientation;
+ vA:=@SolverVelocity^.LinearVelocity;
+ wA:=@SolverVelocity^.AngularVelocity;
+
+ RelativePosition:=Vector3TermQuaternionRotate(Vector3Sub(LocalAnchor,LocalCenter),qA^);
+ AbsolutePosition:=Vector3Add(cA^,RelativePosition);
+
+ WorldPoint:=Vector3Add(AbsolutePosition,Vector3ScalarMul(WorldPlane.Normal,-PlaneVectorDistance(WorldPlane,AbsolutePosition)));
+                         
+ if DoubleSidedWorldPlane then begin
+
+  mU:=Vector3Sub(WorldPoint,AbsolutePosition);
+
+  // Handle singularity
+  l:=Vector3Length(mU);
+  if l>Physics.LinearSlop then begin
+   Vector3Scale(mU,1.0/l);
+  end else begin
+   mU:=Vector3Origin;
+  end;
+
+ end else begin
+
+  l:=PlaneVectorDistance(WorldPlane,AbsolutePosition);
+
+  if abs(l)>Physics.LinearSlop then begin
+   mU:=Vector3Neg(WorldPlane.Normal);
+  end else begin
+   mU:=Vector3Origin;
+  end;
+
+ end;
+
+ SoftConstraint:=FrequencyHz>EPSILON;
+
+ if SoftConstraint then begin
+
+  // No limit state skipping for soft contraints
+  Skip:=false;
+
+ end else begin
+
+  // Limit state skipping for non-soft contraints
+  case LimitBehavior of
+   kclbLimitMinimumDistance:begin
+    Skip:=l>(WorldDistance+Physics.LinearSlop);
+   end;
+   kclbLimitMaximumDistance:begin
+    Skip:=l<(WorldDistance-Physics.LinearSlop);
+   end;
+   else begin
+    Skip:=false;
+   end;
+  end;
+
+ end;
+
+ if not Skip then begin
+
+  crAu:=Vector3Cross(RelativePosition,mU);
+
+  TotalInverseMass:=RigidBodies[0].InverseMass+
+                    Vector3Dot(Vector3TermMatrixMul(crAu,WorldInverseInertiaTensor),crAu);
+
+  // Compute the effective mass matrix
+  if TotalInverseMass<>0.0 then begin
+   Mass:=1.0/TotalInverseMass;
+  end else begin
+   Mass:=0.0;
+  end;
+
+  if SoftConstraint then begin
+
+   C:=l-WorldDistance;
+
+   // Frequency
+   Omega:=pi2*FrequencyHz;
+
+   // Damping coefficient
+   d:=2.0*Mass*DampingRatio*Omega;
+
+   // Spring stiffness
+   k:=Mass*sqr(Omega);
+
+   // Magic formulas
+   h:=TimeStep.DeltaTime;
+   Gamma:=h*(d+(h*k));
+   if Gamma<>0.0 then begin
+    Gamma:=1.0/Gamma;
+   end else begin
+    Gamma:=0.0;
+   end;
+   Bias:=C*h*k*Gamma;
+
+   TotalInverseMass:=TotalInverseMass+Gamma;
+
+   if TotalInverseMass<>0.0 then begin
+    Mass:=1.0/TotalInverseMass;
+   end else begin
+    Mass:=0.0;
+   end;
+
+  end else begin
+
+   Gamma:=0.0;
+   Bias:=0.0;
+
+  end;
+
+ end;
+
+ if Physics.WarmStarting and not Skip then begin
+
+  AccumulatedImpulse:=AccumulatedImpulse*TimeStep.DeltaTimeRatio;
+
+  P:=Vector3ScalarMul(mU,AccumulatedImpulse);
+
+  Vector3DirectSub(vA^,Vector3ScalarMul(P,InverseMass));
+  Vector3DirectSub(wA^,Vector3TermMatrixMul(Vector3Cross(RelativePosition,P),WorldInverseInertiaTensor));
+
+ end else begin
+
+  AccumulatedImpulse:=0.0;
+
+ end;
+
+
+end;
+
+procedure TKraftConstraintJointWorldPlaneDistance.SolveVelocityConstraint(const Island:TKraftIsland;const TimeStep:TKraftTimeStep);
+var vA,wA:PKraftVector3;
+    vpA,P:TKraftVector3;
+    Cdot,Impulse,OldImpulse:TKraftScalar;
+begin
+
+ if not Skip then begin
+
+  vA:=@SolverVelocity^.LinearVelocity;
+  wA:=@SolverVelocity^.AngularVelocity;
+
+  // Cdot = dot(u, v + cross(w, r))
+  vpA:=Vector3Add(vA^,Vector3Cross(wA^,RelativePosition));
+  Cdot:=Vector3Dot(mU,Vector3Neg(vpA));
+
+  Impulse:=-(Mass*((Cdot+Bias)+(Gamma*AccumulatedImpulse)));
+
+  if SoftConstraint then begin
+   case LimitBehavior of
+    kclbLimitMinimumDistance:begin
+     OldImpulse:=AccumulatedImpulse;
+     AccumulatedImpulse:=Max(0.0,AccumulatedImpulse+Impulse);
+     Impulse:=AccumulatedImpulse-OldImpulse;
+    end;
+    kclbLimitMaximumDistance:begin
+     OldImpulse:=AccumulatedImpulse;
+     AccumulatedImpulse:=Min(0.0,AccumulatedImpulse+Impulse);
+     Impulse:=AccumulatedImpulse-OldImpulse;
+    end;
+    else begin
+     AccumulatedImpulse:=AccumulatedImpulse+Impulse;
+    end;
+   end;
+  end else begin
+   AccumulatedImpulse:=AccumulatedImpulse+Impulse;
+  end;
+  
+  P:=Vector3ScalarMul(mU,Impulse);
+
+  Vector3DirectSub(vA^,Vector3ScalarMul(P,InverseMass));
+  Vector3DirectSub(wA^,Vector3TermMatrixMul(Vector3Cross(RelativePosition,P),WorldInverseInertiaTensor));
+
+ end;
+
+end;
+
+function TKraftConstraintJointWorldPlaneDistance.SolvePositionConstraint(const Island:TKraftIsland;const TimeStep:TKraftTimeStep):boolean;
+var cA:PKraftVector3;
+    qA:PKraftQuaternion;
+    rA,AbsolutePosition,u,P:TKraftVector3;
+    l,C,Impulse:TKraftScalar;
+begin
+ if SoftConstraint or Skip then begin
+
+  // There is no position correction for soft distance constraints or invalid limit states
+  result:=true;
+
+ end else begin
+
+  cA:=@SolverPosition^.Position;
+  qA:=@SolverPosition^.Orientation;
+
+  rA:=Vector3TermQuaternionRotate(Vector3Sub(LocalAnchor,LocalCenter),qA^);
+
+  AbsolutePosition:=Vector3Add(cA^,RelativePosition);
+
+  if DoubleSidedWorldPlane then begin
+
+   WorldPoint:=Vector3Add(AbsolutePosition,Vector3ScalarMul(WorldPlane.Normal,-PlaneVectorDistance(WorldPlane,AbsolutePosition)));
+
+   u:=Vector3Sub(WorldPoint,AbsolutePosition);
+
+   l:=Vector3LengthNormalize(u);
+
+   C:=Min(Max(l-WorldDistance,-Physics.MaximalLinearCorrection),Physics.MaximalLinearCorrection);
+
+   Impulse:=-(Mass*C);
+
+   P:=Vector3ScalarMul(u,Impulse);
+
+  end else begin
+
+   C:=Min(Max(WorldDistance-PlaneVectorDistance(WorldPlane,AbsolutePosition),-Physics.MaximalLinearCorrection),Physics.MaximalLinearCorrection);
+
+   Impulse:=-(Mass*C);
+
+   P:=Vector3ScalarMul(WorldPlane.Normal,Impulse);
+
+  end;
+
+  Vector3DirectSub(cA^,Vector3ScalarMul(P,InverseMass));
+  QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3Cross(rA,Vector3Neg(P)),WorldInverseInertiaTensor),1.0);
+
+  result:=abs(C)<Physics.LinearSlop;
+
+ end;
+end;
+
+function TKraftConstraintJointWorldPlaneDistance.GetAnchor:TKraftVector3;
+begin
+ result:=Vector3TermMatrixMul(LocalAnchor,RigidBodies[0].WorldTransform);
+end;
+                                         
+function TKraftConstraintJointWorldPlaneDistance.GetReactionForce(const InverseDeltaTime:TKraftScalar):TKraftVector3;
+begin
+ result:=Vector3ScalarMul(mU,AccumulatedImpulse*InverseDeltaTime);
+end;
+
+function TKraftConstraintJointWorldPlaneDistance.GetReactionTorque(const InverseDeltaTime:TKraftScalar):TKraftVector3;
+begin
+ result:=Vector3Origin;
+end;
+
+function TKraftConstraintJointWorldPlaneDistance.GetWorldPoint:TKraftVector3;
+begin
+ result:=WorldPoint;
+end;
+
+function TKraftConstraintJointWorldPlaneDistance.GetWorldPlane:TKraftPlane;
+begin
+ result:=WorldPlane;
+end;
+
+procedure TKraftConstraintJointWorldPlaneDistance.SetWorldPlane(const AWorldPlane:TKraftPlane);
+begin
+ WorldPlane:=AWorldPlane;
+end;
+
+function TKraftConstraintJointWorldPlaneDistance.GetWorldDistance:TKraftScalar;
+begin
+ result:=WorldDistance;
+end;
+
+procedure TKraftConstraintJointWorldPlaneDistance.SetWorldDistance(const AWorldDistance:TKraftScalar);
+begin
+ WorldDistance:=AWorldDistance;
 end;
 
 constructor TKraftConstraintJointDistance.Create(const APhysics:TKraft;const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const ALocalAnchorPointA,ALocalAnchorPointB:TKraftVector3;const AFrequencyHz:TKraftScalar=0.0;const ADampingRatio:TKraftScalar=0.0;const ACollideConnected:boolean=false);
@@ -22346,10 +25909,10 @@ begin
 
  // Extract cos(theta/2) and |sin(theta/2)|
  CosHalfAngle:=RelativeRotation.w;
- SinHalfAngleAbs:=Vector3Length(RelativeRotation.Vector);
+ SinHalfAngleAbs:=Vector3Length(PKraftVector3(pointer(@RelativeRotation))^);
 
  // Compute the dot product of the relative rotation axis and the hinge axis
- DotProduct:=Vector3Dot(RelativeRotation.Vector,PKraftVector3(pointer(@A1))^);
+ DotProduct:=Vector3Dot(PKraftVector3(pointer(@RelativeRotation))^,PKraftVector3(pointer(@A1))^);
 
  // If the relative rotation axis and the hinge axis are pointing the same direction
  if DotProduct>=0.0 then begin
@@ -23818,8 +27381,6 @@ begin
      Lambda:=NewImpulse-TangentImpulse[TangentIndex];
      ContactPoint^.TangentImpulse[TangentIndex]:=NewImpulse;
 
-//   writeln(Lambda:1:8,' l ');
-
      P:=Vector3ScalarMul(t[TangentIndex],Lambda);
 
      Vector3DirectSub(vA,Vector3ScalarMul(P,mA));
@@ -23839,8 +27400,6 @@ begin
    NewImpulse:=Max(0.0,NormalImpulse+Lambda);
    Lambda:=NewImpulse-NormalImpulse;
    ContactPoint^.NormalImpulse:=NewImpulse;
-
-//  writeln(Lambda:1:8,' n');
 
    P:=Vector3ScalarMul(Normal,Lambda);
 
@@ -24242,6 +27801,10 @@ begin
    // Integrate angular velocity
    RigidBody.AngularVelocity:=Vector3Add(RigidBody.AngularVelocity,Vector3ScalarMul(Vector3TermMatrixMul(RigidBody.Torque,RigidBody.WorldInverseInertiaTensor),TimeStep.DeltaTime));
 
+   if assigned(RigidBody.OnDamping) then begin
+    RigidBody.OnDamping(RigidBody,TimeStep);
+   end;
+
    // From Box2D
    // Apply damping.
    // ODE: dv/dt + c * v = 0
@@ -24489,15 +28052,28 @@ begin
   end;
  end;
 
+ // Leap of faith to new safe state.
+ for i:=0 to CountRigidBodies-1 do begin
+  RigidBody:=RigidBodies[i];
+  if RigidBody.RigidBodyType=krbtDynamic then begin
+   SolverPosition:=@Solver.Positions[i];
+   RigidBody.Sweep.c0:=SolverPosition^.Position;
+   RigidBody.Sweep.q0:=SolverPosition^.Orientation;
+  end;
+ end;
+
  Solver.InitializeConstraints;
 
- Solver.WarmStart;
+ // No warm starting is needed for TOI events because warm
+ // starting impulses were applied in the discrete solver.
 
  for Iteration:=0 to Physics.VelocityIterations-1 do begin
   Solver.SolveVelocityConstraints;
  end;
- Solver.StoreImpulses;
 
+ // Don't store the TOI contact forces for warm starting
+ // because they can be quite large.
+                       
  for i:=0 to CountRigidBodies-1 do begin
 
   RigidBody:=RigidBodies[i];
@@ -24861,9 +28437,9 @@ begin
 
  WarmStarting:=true;
  
-//ContinuousMode:=kcmNone;
+ ContinuousMode:=kcmNone;
 //ContinuousMode:=kcmMotionClamping;
- ContinuousMode:=kcmTimeOfImpactSubSteps;
+//ContinuousMode:=kcmTimeOfImpactSubSteps;
 
  ContinuousAgainstDynamics:=false;
 
@@ -25217,7 +28793,7 @@ function TKraft.GetConservativeAdvancementTimeOfImpact(const ShapeA:TKraftShape;
 const Radius=1e-3;
 var Tries:longint;
     BoundingRadiusA,BoundingRadiusB,MaximumAngularProjectedVelocity,RelativeLinearVelocityLength,Lambda,LastLambda,
-    ProjectedLinearVelocity,DistanceLambda,Distance:TKraftScalar;
+    ProjectedLinearVelocity,DistanceLambda,Distance,ContinuousMinimumRadiusScaleFactor:TKraftScalar;
     MeshShape:TKraftShapeMesh;
     MeshTriangle:PKraftMeshTriangle;
     ShapeTriangle:TKraftShapeTriangle;
@@ -25263,7 +28839,10 @@ begin
   exit;
  end;
 
- if RelativeLinearVelocityLength<Max(EPSILON,Min(Shapes[0].ShapeSphere.Radius,Shapes[1].ShapeSphere.Radius)*0.25) then begin
+ ContinuousMinimumRadiusScaleFactor:=Max(ShapeA.ContinuousMinimumRadiusScaleFactor,ShapeB.ContinuousMinimumRadiusScaleFactor);
+
+ if (ContinuousMinimumRadiusScaleFactor>EPSILON) and
+    (RelativeLinearVelocityLength<Max(EPSILON,Min(Shapes[0].ShapeSphere.Radius,Shapes[1].ShapeSphere.Radius)*ContinuousMinimumRadiusScaleFactor)) then begin
   exit;
  end;
 
@@ -25347,7 +28926,8 @@ const sfmNONE=0;
       sfmEDGES=6;
 var Iteration,TryIteration,RootIteration,SeparationFunctionMode:longint;
     Unprocessed,Overlapping:boolean;
-    t0,t1,s0,s1,a0,a1,t,s,tS,tT0,tT1,TotalRadius,Target,Tolerance,Distance,CurrentDistance,L:TKraftScalar;
+    t0,t1,s0,s1,a0,a1,t,s,tS,tT0,tT1,TotalRadius,Target,Tolerance,Distance,CurrentDistance,L,
+    ContinuousMinimumRadiusScaleFactor:TKraftScalar;
     ShapeTriangle:TKraftShapeTriangle;
     MeshShape:TKraftShapeMesh;
     MeshTriangle:PKraftMeshTriangle;
@@ -25418,7 +28998,9 @@ begin
   Shapes[1]:=ShapeB;
  end;
 
- if Vector3Length(Vector3Sub(Vector3Sub(SweepB.c0,SweepB.c),Vector3Sub(SweepA.c0,SweepA.c)))<Max(EPSILON,Min(Shapes[0].ShapeSphere.Radius,Shapes[1].ShapeSphere.Radius)*0.125) then begin
+ ContinuousMinimumRadiusScaleFactor:=Max(ShapeA.ContinuousMinimumRadiusScaleFactor,ShapeB.ContinuousMinimumRadiusScaleFactor);
+ if (ContinuousMinimumRadiusScaleFactor>EPSILON) and
+    (Vector3Length(Vector3Sub(Vector3Sub(SweepB.c0,SweepB.c),Vector3Sub(SweepA.c0,SweepA.c)))<Max(EPSILON,Min(Shapes[0].ShapeSphere.Radius,Shapes[1].ShapeSphere.Radius)*ContinuousMinimumRadiusScaleFactor)) then begin
   exit;
  end;
 
@@ -25753,7 +29335,7 @@ begin
    end;
   end;
 
-  // Successively resolve the deepest point to compute the time of impact, loop is bounded by the number of vertices to be resolved.
+  // Successively resolve the deepest point to compute the time of impact, loop is bounded by the number of Vertices to be resolved.
   t1:=1.0;
   for TryIteration:=1 to 64 do begin
 
@@ -25873,10 +29455,111 @@ begin
 
 end;
 
+procedure TKraft.SolveContinuousMotionClamping(const TimeStep:TKraftTimeStep);
+var RigidBody:TKraftRigidBody;
+    ContactPair:PKraftContactPair;
+    Beta:TKraftScalar;
+    NeedUpdate:boolean;
+    ContactPairEdge:PKraftContactPairEdge;
+    RigidBodies:array[0..1] of TKraftRigidBody;
+    Sweeps:array[0..1] of TKraftSweep;
+begin
+
+ NeedUpdate:=false;
+
+ RigidBody:=RigidBodyFirst;
+ while assigned(RigidBody) do begin
+  RigidBody.Sweep.Alpha0:=0.0;
+  RigidBody.TimeOfImpact:=1.0;
+  RigidBody.Island:=nil;
+  RigidBody.Flags:=RigidBody.Flags-[krbfIslandVisited,krbfIslandStatic];
+  RigidBody:=RigidBody.RigidBodyNext;
+ end;
+
+ ContactPair:=ContactManager.ContactPairFirst;
+ while assigned(ContactPair) do begin
+  ContactPair^.Island:=nil;
+  ContactPair^.Flags:=ContactPair^.Flags-[kcfInIsland,kcfTimeOfImpact];
+  ContactPair^.TimeOfImpactCount:=0;
+  ContactPair^.TimeOfImpact:=1.0;
+  ContactPair:=ContactPair.Next;
+ end;
+
+ RigidBody:=RigidBodyFirst;
+ while assigned(RigidBody) do begin
+  if RigidBody.RigidBodyType=krbtDynamic then begin
+   ContactPairEdge:=RigidBody.ContactPairEdgeFirst;
+   while assigned(ContactPairEdge) do begin
+    ContactPair:=ContactPairEdge^.ContactPair;
+    if (not (kcfInIsland in ContactPair^.Flags)) and
+       (((RigidBody.Flags*[krbfAwake,krbfActive])=[krbfAwake,krbfActive]) or
+        ((ContactPairEdge^.OtherRigidBody.Flags*[krbfAwake,krbfActive])=[krbfAwake,krbfActive])) and
+       (not (((ksfSensor in ContactPair^.Shapes[0].Flags) or
+              (ksfSensor in ContactPair^.Shapes[1].Flags)) or
+             ((krbfSensor in RigidBody.Flags) or
+              (krbfSensor in ContactPairEdge^.OtherRigidBody.Flags)))) and
+       (not (((RigidBody.RigidBodyType=krbtDynamic) and (ContactPairEdge^.OtherRigidBody.RigidBodyType=krbtDynamic)) and not
+             (ContactManager.Physics.ContinuousAgainstDynamics and
+              ((krbfContinuousAgainstDynamics in RigidBody.Flags) or
+               (krbfContinuousAgainstDynamics in ContactPairEdge^.OtherRigidBody.Flags)
+              )
+             )
+            )
+       ) then begin
+     ContactPair^.Flags:=ContactPair^.Flags+[kcfInIsland];
+     if not (kcfColliding in ContactPair^.Flags) then begin
+      RigidBodies[0]:=ContactPair^.Shapes[0].RigidBody;
+      RigidBodies[1]:=ContactPair^.Shapes[1].RigidBody;
+      if assigned(RigidBodies[0]) and assigned(RigidBodies[1]) then begin
+       Sweeps[0]:=SweepTermNormalize(RigidBodies[0].Sweep);
+       Sweeps[1]:=SweepTermNormalize(RigidBodies[1].Sweep);
+       if GetTimeOfImpact(ContactPair^.Shapes[0],
+                          Sweeps[0],
+                          ContactPair^.Shapes[1],
+                          ContactPair^.ElementIndex,
+                          Sweeps[1],
+                          TimeStep,
+                          0,
+                          Beta) then begin
+        // Check for that the object will not get stucking, when it is alreading colliding at beginning
+        if Beta>0.0 then begin
+         RigidBodies[0].TimeOfImpact:=Min(RigidBodies[0].TimeOfImpact,Beta);
+         RigidBodies[1].TimeOfImpact:=Min(RigidBodies[1].TimeOfImpact,Beta);
+        end;
+       end;
+      end;
+     end;
+    end;
+    ContactPairEdge:=ContactPairEdge^.Next;
+   end;
+  end;
+  RigidBody:=RigidBody.RigidBodyNext;
+ end;
+
+ RigidBody:=RigidBodyFirst;
+ while assigned(RigidBody) do begin
+  if (RigidBody.RigidBodyType=krbtDynamic) and ({(RigidBody.TimeOfImpact>0.0) and} (RigidBody.TimeOfImpact<1.0)) then begin
+// writeln(RigidBody.TimeOfImpact:1:8);
+   RigidBody.Advance(RigidBody.TimeOfImpact);
+   RigidBody.SynchronizeProxies;
+   NeedUpdate:=true;
+  end;
+  RigidBody:=RigidBody.RigidBodyNext;
+ end;
+
+ if NeedUpdate then begin
+  ContactManager.CountMeshTriangleContactQueueItems:=0;
+  ContactManager.DoBroadPhase;
+  ContactManager.DoMidPhase;
+  ContactManager.DoNarrowPhase;
+ end;
+
+end;
+
 procedure TKraft.SolveContinuousTimeOfImpactSubSteps(const TimeStep:TKraftTimeStep);
 const FLAG_VISITED=1 shl 0;
       FLAG_STATIC=1 shl 1;
-var TryIndex,Index,SubIndex,LastCount,Count,IndexA,IndexB{},c{}:longint;
+var TryIndex,Index,SubIndex,LastCount,Count,IndexA,IndexB{,c{}:longint;
     NeedUpdate:boolean;
     RigidBody,CurrentRigidBody,OtherRigidBody:TKraftRigidBody;
     ContactPair,MinimumContactPair:PKraftContactPair;
@@ -25914,7 +29597,7 @@ begin
   MinimumContactPair:=nil;
   MinimumAlpha:=1.0;
 
-  c:=0;
+//c:=0;
 
   ContactPair:=ContactManager.ContactPairFirst;
   while assigned(ContactPair) do begin
@@ -26003,7 +29686,7 @@ begin
     MinimumContactPair:=ContactPair;
    end;
 
-   inc(c);
+// inc(c);
    ContactPair:=ContactPair^.Next;
 
   end;
@@ -26013,9 +29696,9 @@ begin
    break;
   end;
 
-  if c>=0 then begin
-   //writeln(TryIndex:4,' ',c:4,' ',MinimumAlpha:1:8);
-  end;
+{ if c>=0 then begin
+   writeln(TryIndex:4,' ',c:4,' ',MinimumAlpha:1:8);
+  end;{}
 
   RigidBodies[0]:=MinimumContactPair^.Shapes[0].RigidBody;
   RigidBodies[1]:=MinimumContactPair^.Shapes[1].RigidBody;
@@ -26157,107 +29840,6 @@ begin
 
 end;
 
-procedure TKraft.SolveContinuousMotionClamping(const TimeStep:TKraftTimeStep);
-var RigidBody:TKraftRigidBody;
-    ContactPair:PKraftContactPair;
-    Beta:TKraftScalar;
-    NeedUpdate:boolean;
-    ContactPairEdge:PKraftContactPairEdge;
-    RigidBodies:array[0..1] of TKraftRigidBody;
-    Sweeps:array[0..1] of TKraftSweep;
-begin
-
- NeedUpdate:=false;
-
- RigidBody:=RigidBodyFirst;
- while assigned(RigidBody) do begin
-  RigidBody.Sweep.Alpha0:=0.0;
-  RigidBody.TimeOfImpact:=1.0;
-  RigidBody.Island:=nil;
-  RigidBody.Flags:=RigidBody.Flags-[krbfIslandVisited,krbfIslandStatic];
-  RigidBody:=RigidBody.RigidBodyNext;
- end;
-
- ContactPair:=ContactManager.ContactPairFirst;
- while assigned(ContactPair) do begin
-  ContactPair^.Island:=nil;
-  ContactPair^.Flags:=ContactPair^.Flags-[kcfInIsland,kcfTimeOfImpact];
-  ContactPair^.TimeOfImpactCount:=0;
-  ContactPair^.TimeOfImpact:=1.0;
-  ContactPair:=ContactPair.Next;
- end;
-
- RigidBody:=RigidBodyFirst;
- while assigned(RigidBody) do begin
-  if RigidBody.RigidBodyType=krbtDynamic then begin
-   ContactPairEdge:=RigidBody.ContactPairEdgeFirst;
-   while assigned(ContactPairEdge) do begin
-    ContactPair:=ContactPairEdge^.ContactPair;
-    if (not (kcfInIsland in ContactPair^.Flags)) and
-       (((RigidBody.Flags*[krbfAwake,krbfActive])=[krbfAwake,krbfActive]) or
-        ((ContactPairEdge^.OtherRigidBody.Flags*[krbfAwake,krbfActive])=[krbfAwake,krbfActive])) and
-       (not (((ksfSensor in ContactPair^.Shapes[0].Flags) or
-              (ksfSensor in ContactPair^.Shapes[1].Flags)) or
-             ((krbfSensor in RigidBody.Flags) or
-              (krbfSensor in ContactPairEdge^.OtherRigidBody.Flags)))) and
-       (not (((RigidBody.RigidBodyType=krbtDynamic) and (ContactPairEdge^.OtherRigidBody.RigidBodyType=krbtDynamic)) and not
-             (ContactManager.Physics.ContinuousAgainstDynamics and
-              ((krbfContinuousAgainstDynamics in RigidBody.Flags) or
-               (krbfContinuousAgainstDynamics in ContactPairEdge^.OtherRigidBody.Flags)
-              )
-             )
-            )
-       ) then begin
-     ContactPair^.Flags:=ContactPair^.Flags+[kcfInIsland];
-     if not (kcfColliding in ContactPair^.Flags) then begin
-      RigidBodies[0]:=ContactPair^.Shapes[0].RigidBody;
-      RigidBodies[1]:=ContactPair^.Shapes[1].RigidBody;
-      if assigned(RigidBodies[0]) and assigned(RigidBodies[1]) then begin
-       Sweeps[0]:=SweepTermNormalize(RigidBodies[0].Sweep);
-       Sweeps[1]:=SweepTermNormalize(RigidBodies[1].Sweep);
-       if GetTimeOfImpact(ContactPair^.Shapes[0],
-                          Sweeps[0],
-                          ContactPair^.Shapes[1],
-                          ContactPair^.ElementIndex,
-                          Sweeps[1],
-                          TimeStep,
-                          0,
-                          Beta) then begin
-        // Check for that the object will not get stucking, when it is alreading colliding at beginning
-        if Beta>0.0 then begin
-         RigidBodies[0].TimeOfImpact:=Min(RigidBodies[0].TimeOfImpact,Beta);
-         RigidBodies[1].TimeOfImpact:=Min(RigidBodies[1].TimeOfImpact,Beta);
-        end;
-       end;
-      end;
-     end;
-    end;
-    ContactPairEdge:=ContactPairEdge^.Next;
-   end;
-  end;
-  RigidBody:=RigidBody.RigidBodyNext;
- end;
-
- RigidBody:=RigidBodyFirst;
- while assigned(RigidBody) do begin
-  if (RigidBody.RigidBodyType=krbtDynamic) and ({(RigidBody.TimeOfImpact>0.0) and} (RigidBody.TimeOfImpact<1.0)) then begin
-// writeln(RigidBody.TimeOfImpact);
-   RigidBody.Advance(RigidBody.TimeOfImpact);
-   RigidBody.SynchronizeProxies;
-   NeedUpdate:=true;
-  end;
-  RigidBody:=RigidBody.RigidBodyNext;
- end;
-
- if NeedUpdate then begin
-  ContactManager.CountMeshTriangleContactQueueItems:=0;
-  ContactManager.DoBroadPhase;
-  ContactManager.DoMidPhase;
-  ContactManager.DoNarrowPhase;
- end;
-
-end;
-
 procedure TKraft.StoreWorldTransforms;
 var RigidBody:TKraftRigidBody;
 begin
@@ -26328,8 +29910,8 @@ begin
 
  RigidBody:=RigidBodyFirst;
  while assigned(RigidBody) do begin
-  if assigned(RigidBody.OnPreFixedStep) then begin
-   RigidBody.OnPreFixedStep(RigidBody,TimeStep);
+  if assigned(RigidBody.OnPreStep) then begin
+   RigidBody.OnPreStep(RigidBody,TimeStep);
   end;
   RigidBody:=RigidBody.RigidBodyNext;
  end;
@@ -26377,8 +29959,8 @@ begin
    RigidBody.Force:=Vector3Origin;
    RigidBody.Torque:=Vector3Origin;
   end;
-  if assigned(RigidBody.OnPostFixedStep) then begin
-   RigidBody.OnPostFixedStep(RigidBody,TimeStep);
+  if assigned(RigidBody.OnPostStep) then begin
+   RigidBody.OnPostStep(RigidBody,TimeStep);
   end;
   RigidBody:=RigidBody.RigidBodyNext;
  end;
