@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2015-10-08-06-51-0000                       *
+ *                        Version 2015-10-08-09-01-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -12447,6 +12447,7 @@ end;
 type PConvexHullVector=^TConvexHullVector;
      TConvexHullVector=record
       x,y,z:double;
+      HashNext:longint;
      end;
 
      TConvexHullVectors=array of TConvexHullVector;
@@ -12590,7 +12591,7 @@ function ConvexHullVectorDot(const v1,v2:TConvexHullVector):double;
 begin
  result:=(v1.x*v2.x)+(v1.y*v2.y)+(v1.z*v2.z);
 end;
-
+             
 function ConvexHullVectorNormalize(const v:TConvexHullVector):TConvexHullVector;
 var l:double;
 begin
@@ -12602,7 +12603,7 @@ begin
   result.z:=v.z/l;
  end else begin
   result.x:=0.0;
-  result.y:=0.0;
+  result.y:=1.0;
   result.z:=0.0;
  end;
 end;
@@ -12683,6 +12684,11 @@ begin
    Centroid.y:=Centroid.y+Current^.y;
    Centroid.z:=Centroid.z+Current^.z;
    Last:=Current;
+  end;
+  if ConvexHullIsSameValue(Normal.x,0.0) and ConvexHullIsSameValue(Normal.y,0.0) and ConvexHullIsSameValue(Normal.z,0.0) then begin
+   Normal.x:=0.0;
+   Normal.y:=1.0;
+   Normal.z:=0.0;
   end;
   Plane:=@Polygon.Plane;
   Plane^.Normal:=ConvexHullVectorNormalize(Normal);
@@ -15873,6 +15879,113 @@ begin
  end;
 end;
 
+type PConvexHullGrahamScanVector=^TConvexHullGrahamScanVector;
+     TConvexHullGrahamScanVector=record
+      OriginalIndex:longint;
+      Angle:double;
+      LengthToAnchor:double;
+      Vector:TConvexHullVector;
+     end;
+
+     TConvexHullGrahamScanVectors=array of TConvexHullGrahamScanVector;
+
+function CompareConvexHullGrahamScanVector(const a,b:pointer):longint;
+var va,vb:PConvexHullGrahamScanVector;
+begin
+ va:=a;
+ vb:=b;
+ if va^.Angle<vb^.Angle then begin
+  result:=-1;
+ end else if va^.Angle>vb^.Angle then begin
+  result:=1;
+ end else if va^.LengthToAnchor<vb^.LengthToAnchor then begin
+  result:=-1;
+ end else if va^.LengthToAnchor<vb^.LengthToAnchor then begin
+  result:=1;
+ end else if va^.OriginalIndex<vb^.OriginalIndex then begin
+  result:=-1;
+ end else if va^.OriginalIndex>vb^.OriginalIndex then begin
+  result:=1;
+ end else begin
+  result:=0;
+ end;
+end;
+
+procedure ConvexHullGrahamScan2D(var OriginalPoints:TConvexHullGrahamScanVectors;var Hull:TConvexHullGrahamScanVectors;const NormalAxis:TConvexHullVector);
+var CountOriginalPoints,Index,Count:longint;
+    ProjectionLeft,ProjectionRight:double;
+    Axis0,Axis1,xVector,Relative:TConvexHullVector;
+    TempPoint:TConvexHullGrahamScanVector;
+    IsConvex:boolean;
+    a,b:PConvexHullGrahamScanVector;
+    PointerToOriginalPoints:array of PConvexHullGrahamScanVector;
+begin
+ PointerToOriginalPoints:=nil;
+ try
+  CountOriginalPoints:=length(OriginalPoints);
+  if CountOriginalPoints<2 then begin
+   Hull:=copy(OriginalPoints);
+  end else begin
+   ConvexHullGetPlaneSpace(NormalAxis,Axis0,Axis1);
+   for Index:=1 to CountOriginalPoints-1 do begin
+    ProjectionLeft:=ConvexHullVectorDot(OriginalPoints[Index].Vector,Axis0);
+    ProjectionRight:=ConvexHullVectorDot(OriginalPoints[0].Vector,Axis0);
+    if ProjectionLeft<ProjectionRight then begin
+     TempPoint:=OriginalPoints[0];
+     OriginalPoints[0]:=OriginalPoints[Index];
+     OriginalPoints[Index]:=TempPoint;
+    end;
+   end;
+   OriginalPoints[0].Angle:=-1.0e30;
+   for Index:=1 to CountOriginalPoints-1 do begin
+    xVector:=Axis0;
+    Relative:=ConvexHullVectorSub(OriginalPoints[Index].Vector,OriginalPoints[0].Vector);
+    OriginalPoints[Index].Angle:=ConvexHullVectorDot(ConvexHullVectorCross(xVector,Relative),NormalAxis)/ConvexHullVectorLength(Relative);
+   end;
+   for Index:=0 to CountOriginalPoints-1 do begin
+    OriginalPoints[Index].LengthToAnchor:=ConvexHullVectorLengthSquared(ConvexHullVectorSub(OriginalPoints[Index].Vector,OriginalPoints[0].Vector));
+   end;
+   SetLength(PointerToOriginalPoints,CountOriginalPoints);
+   for Index:=0 to CountOriginalPoints-1 do begin
+    PointerToOriginalPoints[Index]:=@OriginalPoints[Index];
+   end;
+   IndirectIntroSort(@PointerToOriginalPoints[1],0,CountOriginalPoints-2,CompareConvexHullGrahamScanVector);
+   Hull:=nil;
+   SetLength(Hull,4);
+   Count:=0;
+   Index:=0;
+   while Index<2 do begin
+    Hull[Count]:=PointerToOriginalPoints[Index]^;
+    inc(Count);
+    inc(Index);
+   end;
+   while Index<CountOriginalPoints do begin
+    IsConvex:=false;
+    while (Count>1) and not IsConvex do begin
+     a:=@Hull[Count-2];
+     b:=@Hull[Count-1];
+     IsConvex:=ConvexHullVectorDot(ConvexHullVectorCross(ConvexHullVectorSub(a^.Vector,b^.Vector),
+                                                         ConvexHullVectorSub(a^.Vector,PointerToOriginalPoints[Index]^.Vector)),
+                                   NormalAxis)>0.0;
+     if IsConvex then begin
+      if (Count+1)>length(Hull) then begin
+       SetLength(Hull,(Count+1)*2);
+      end;
+      Hull[Count]:=PointerToOriginalPoints[Index]^;
+      inc(Count);
+     end else begin
+      dec(Count);
+     end;
+    end;
+    inc(Index);
+   end;
+   SetLength(Hull,Count);
+  end;
+ finally
+  SetLength(PointerToOriginalPoints,0);
+ end;
+end;
+
 constructor TKraftConvexHull.Create(const APhysics:TKraft);
 begin
 
@@ -15996,6 +16109,7 @@ const HashBits=8;
       HashSize=1 shl HashBits;
       HashMask=HashSize-1;
       ModuloThree:array[0..5] of longint=(0,1,2,0,1,2);
+      DOUBLE_PREC:double=2.2204460492503131e-16;
 type PTempFaceEdgeHashItem=^TTempFaceEdgeHashItem;
      TTempFaceEdgeHashItem=record
       Next:longint;
@@ -16012,13 +16126,14 @@ type PTempFaceEdgeHashItem=^TTempFaceEdgeHashItem;
       Twin:longint;
       Vertices:array[0..1] of longint;
      end;
-var PointIndex,TriangleIndex,TriangleVertexIndex,VertexIndex,OtherVertexIndex,OtherTriangleIndex,
+var PointIndex,TriangleIndex,TriangleVertexIndex,VertexIndex,OtherVertexIndex,OtherTriangleIndex,Index,
     OtherTriangleVertexIndex,SearchIndex,CountTempFaceEdges,FaceIndex,EdgeVertexOffset,TempFaceEdgeIndex,
     OtherTempFaceEdgeIndex,CountTempFaceEdgeHashItems,TempFaceEdgeHashItemIndex,v0,v1,v2,
-    FoundSharedVertex,FaceVertexIndex,OtherFaceVertexIndex:longint;
+    FoundSharedVertex,FaceVertexIndex,OtherFaceVertexIndex,CountPoints,HashBucket:longint;
     TempFaceEdgeHash:longword;
     TempFaceEdgeHashItem:PTempFaceEdgeHashItem;
     TempPoints:TConvexHullVectors;
+    TempPointHashTable:array of longint;
     TempTriangles:TConvexHullTriangles;
     Vertex:PKraftConvexHullVertex;
     Face:PKraftConvexHullFace;
@@ -16036,6 +16151,12 @@ var PointIndex,TriangleIndex,TriangleVertexIndex,VertexIndex,OtherVertexIndex,Ot
     QuickHullInstance:TKraftQuickHull;
     QuickHullVertex:TKraftQuickHullVertex;
     QuickHullFaces:TKraftQuickHullOutputFaces;
+    MinBounds,MaxBounds,a,b,c,Centroid,Normal:TConvexHullVector;
+    Tolerance,CharLength,NearTolerance:double;
+    Last,Current:PConvexHullVector;
+    Plane:TConvexHullPlane;
+    InputIsCoplanar:boolean;
+    TemporaryGrahamScanVectors,HullGrahamScanVectors:TConvexHullGrahamScanVectors;
 begin
  Faces:=nil;
  CountFaces:=0;
@@ -16051,53 +16172,267 @@ begin
  TempOutputPolygons.Items:=nil;
  try
 
-  SetLength(TempPoints,CountVertices);
-  for PointIndex:=0 to CountVertices-1 do begin
-   TempPoints[PointIndex].x:=Vertices[PointIndex].Position.x;
-   TempPoints[PointIndex].y:=Vertices[PointIndex].Position.y;
-   TempPoints[PointIndex].z:=Vertices[PointIndex].Position.z;
+  if CountVertices<1 then begin
+   raise EKraftDegeneratedConvexHull.Create('Degenerated convex hull');
   end;
 
-  if AMaximumCountConvexHullPoints>2 then begin
-   GenerateConvexHull(TempPoints,TempTriangles,AMaximumCountConvexHullPoints,AUserDefinedTolerance);
-   SetLength(TempTriangles,0);
+  Vertex:=@Vertices[0];
+  MinBounds.x:=Vertex^.Position.x;
+  MinBounds.y:=Vertex^.Position.y;
+  MinBounds.z:=Vertex^.Position.z;
+  MaxBounds.x:=Vertex^.Position.x;
+  MaxBounds.y:=Vertex^.Position.y;
+  MaxBounds.z:=Vertex^.Position.z;
+  for Index:=0 to CountVertices-1 do begin
+   Vertex:=@Vertices[Index];
+   if MinBounds.x>Vertex^.Position.x then begin
+    MinBounds.x:=Vertex^.Position.x;
+   end;
+   if MinBounds.y>Vertex^.Position.y then begin
+    MinBounds.y:=Vertex^.Position.y;
+   end;
+   if MinBounds.z>Vertex^.Position.z then begin
+    MinBounds.z:=Vertex^.Position.z;
+   end;
+   if MaxBounds.x<Vertex^.Position.x then begin
+    MaxBounds.x:=Vertex^.Position.x;
+   end;
+   if MaxBounds.y<Vertex^.Position.y then begin
+    MaxBounds.y:=Vertex^.Position.y;
+   end;
+   if MaxBounds.z<Vertex^.Position.z then begin
+    MaxBounds.z:=Vertex^.Position.z;
+   end;
   end;
 
-  QuickHullInstance:=TKraftQuickHull.Create;
+  if AUserDefinedTolerance>0.0 then begin
+   Tolerance:=AUserDefinedTolerance;
+  end else begin
+   Tolerance:=Max(DOUBLE_PREC,(3.0*DOUBLE_PREC)*(Max(abs(MaxBounds.x),abs(MaxBounds.x))+Max(abs(MaxBounds.y),abs(MaxBounds.y))+Max(abs(MaxBounds.z),abs(MaxBounds.z))));
+  end;
+
+  CharLength:=Max(Max(MaxBounds.x-MaxBounds.x,MaxBounds.y-MaxBounds.y),MaxBounds.z-MaxBounds.z);
+
+  NearTolerance:=Max(DOUBLE_PREC,(3.0*DOUBLE_PREC)*CharLength);
+
+  // Remove duplicate and too near points
+  TempPointHashTable:=nil;
   try
-   if AUserDefinedTolerance>0.0 then begin
-    QuickHullInstance.ExplicitTolerance:=AUserDefinedTolerance;
-   end;
-   QuickHullInstance.Reset;
-   for PointIndex:=0 to length(TempPoints)-1 do begin
-    QuickHullInstance.AddPoint(TempPoints[PointIndex].x,TempPoints[PointIndex].y,TempPoints[PointIndex].z);
-   end;
-   QuickHullInstance.BuildHull;
-   SetLength(TempPoints,QuickHullInstance.CountVertices);
-   for PointIndex:=0 to QuickHullInstance.CountVertices-1 do begin
-    QuickHullVertex:=TKraftQuickHullVertex(QuickHullInstance.PointBuffer[QuickHullInstance.VertexPointIndices[PointIndex]]);
-    TempPoints[PointIndex].x:=QuickHullVertex.Point.x;
-    TempPoints[PointIndex].y:=QuickHullVertex.Point.y;
-    TempPoints[PointIndex].z:=QuickHullVertex.Point.z;
-   end;
-   QuickHullFaces:=nil;
+   SetLength(TempPoints,CountVertices);
+   CountPoints:=0;
    try
-    QuickHullInstance.GetFaces(QuickHullFaces);
-    SetLength(TempOutputPolygons.Items,length(QuickHullFaces));
-    TempOutputPolygons.Count:=length(QuickHullFaces);
-    for FaceIndex:=0 to TempOutputPolygons.Count-1 do begin
-     TempPolygon:=@TempOutputPolygons.Items[FaceIndex];
-     TempPolygon^.Count:=length(QuickHullFaces[FaceIndex]);
-     SetLength(TempPolygon^.Indices,TempPolygon^.Count);
-     for VertexIndex:=0 to TempPolygon^.Count-1 do begin
-      TempPolygon^.Indices[VertexIndex]:=QuickHullFaces[FaceIndex,VertexIndex];
+    SetLength(TempPointHashTable,HashSize);
+    for Index:=0 to HashSize-1 do begin
+     TempPointHashTable[Index]:=-1;
+    end;
+    for PointIndex:=0 to CountVertices-1 do begin
+     Vertex:=@Vertices[PointIndex];
+     HashBucket:=((round(Vertex^.Position.x)*73856093) xor (round(Vertex^.Position.y)*19349663) xor (round(Vertex^.Position.z)*83492791)) and HashMask;
+     Index:=TempPointHashTable[HashBucket];
+     while Index>=0 do begin
+      if (ConvexHullIsSameValue(TempPoints[Index].x,Vertex^.Position.x) and
+          ConvexHullIsSameValue(TempPoints[Index].y,Vertex^.Position.y) and
+          ConvexHullIsSameValue(TempPoints[Index].z,Vertex^.Position.z)) or
+         (sqrt(sqr(TempPoints[Index].x-Vertex^.Position.x)+
+               sqr(TempPoints[Index].y-Vertex^.Position.y)+
+               sqr(TempPoints[Index].z-Vertex^.Position.z))<NearTolerance) then begin
+       break;
+      end;
+      Index:=TempPoints[Index].HashNext;
+     end;
+     if Index<0 then begin
+      Index:=CountPoints;
+      inc(CountPoints);
+      TempPoints[Index].x:=Vertex^.Position.x;
+      TempPoints[Index].y:=Vertex^.Position.y;
+      TempPoints[Index].z:=Vertex^.Position.z;
+      TempPoints[Index].HashNext:=TempPointHashTable[HashBucket];
+      TempPointHashTable[HashBucket]:=Index;
      end;
     end;
    finally
-    SetLength(QuickHullFaces,0);
+    SetLength(TempPoints,CountPoints);
    end;
   finally
-   QuickHullInstance.Free;
+   SetLength(TempPointHashTable,0);
+  end;
+
+  if CountPoints<3 then begin
+
+   raise EKraftDegeneratedConvexHull.Create('Degenerated convex hull');
+
+  end else if CountPoints=3 then begin
+
+   TempOutputPolygons.Count:=2;
+   SetLength(TempOutputPolygons.Items,TempOutputPolygons.Count);
+
+   TempOutputPolygons.Items[0].Count:=3;
+   SetLength(TempOutputPolygons.Items[0].Indices,TempOutputPolygons.Items[0].Count);
+   TempOutputPolygons.Items[0].Indices[0]:=0;
+   TempOutputPolygons.Items[0].Indices[1]:=1;
+   TempOutputPolygons.Items[0].Indices[2]:=2;
+
+   TempOutputPolygons.Items[1].Count:=3;
+   SetLength(TempOutputPolygons.Items[1].Indices,TempOutputPolygons.Items[1].Count);
+   TempOutputPolygons.Items[1].Indices[0]:=0;
+   TempOutputPolygons.Items[1].Indices[1]:=2;
+   TempOutputPolygons.Items[1].Indices[2]:=1;
+
+  end else begin
+
+   a:=ConvexHullVectorSub(TempPoints[0],TempPoints[3]);
+   b:=ConvexHullVectorSub(TempPoints[1],TempPoints[3]);
+   c:=ConvexHullVectorSub(TempPoints[2],TempPoints[3]);
+
+   if (CountPoints=4) and (((a.x*((b.z*c.y)-(b.y*c.z)))+(a.y*((b.x*c.z)-(b.z*c.x)))+(a.z*((b.y*c.x)-(b.x*c.y))))<Tolerance) then begin
+
+    TempOutputPolygons.Count:=2;
+    SetLength(TempOutputPolygons.Items,TempOutputPolygons.Count);
+
+    TempOutputPolygons.Items[0].Count:=4;
+    SetLength(TempOutputPolygons.Items[0].Indices,TempOutputPolygons.Items[0].Count);
+    TempOutputPolygons.Items[0].Indices[0]:=0;
+    TempOutputPolygons.Items[0].Indices[1]:=1;
+    TempOutputPolygons.Items[0].Indices[2]:=2;
+    TempOutputPolygons.Items[0].Indices[3]:=3;
+
+    TempOutputPolygons.Items[1].Count:=4;
+    SetLength(TempOutputPolygons.Items[1].Indices,TempOutputPolygons.Items[1].Count);
+    TempOutputPolygons.Items[1].Indices[0]:=3;
+    TempOutputPolygons.Items[1].Indices[1]:=2;
+    TempOutputPolygons.Items[1].Indices[2]:=1;
+    TempOutputPolygons.Items[1].Indices[3]:=0;
+
+   end else begin
+
+    // Compute newell plane for coplanarity check
+    Centroid.x:=0.0;
+    Centroid.y:=0.0;
+    Centroid.z:=0.0;
+    Normal.x:=0.0;
+    Normal.y:=0.0;
+    Normal.z:=0.0;
+    Last:=@TempPoints[CountPoints-1];
+    for VertexIndex:=0 to CountPoints-1 do begin
+     Current:=@TempPoints[VertexIndex];
+     Normal.x:=Normal.x+((Last^.y-Current^.y)*(Last^.z+Current^.z));
+     Normal.y:=Normal.y+((Last^.z-Current^.z)*(Last^.x+Current^.x));
+     Normal.z:=Normal.z+((Last^.x-Current^.x)*(Last^.y+Current^.y));
+     Centroid.x:=Centroid.x+Current^.x;
+     Centroid.y:=Centroid.y+Current^.y;
+     Centroid.z:=Centroid.z+Current^.z;
+     Last:=Current;
+    end;
+    if ConvexHullIsSameValue(Normal.x,0.0) and ConvexHullIsSameValue(Normal.y,0.0) and ConvexHullIsSameValue(Normal.z,0.0) then begin
+     Normal.x:=0.0;
+     Normal.y:=1.0;
+     Normal.z:=0.0;
+    end;
+    Plane.Normal:=ConvexHullVectorNormalize(Normal);
+    Plane.Distance:=-ConvexHullVectorDot(Plane.Normal,ConvexHullVectorDivide(Centroid,CountPoints));
+
+    // Now check for coplanarity
+    InputIsCoplanar:=true;
+    for Index:=0 to CountPoints-1 do begin
+     Current:=@TempPoints[Index];
+     if ((Plane.Normal.x*Current^.x)+(Plane.Normal.y*Current^.y)+(Plane.Normal.z*Current^.z)+Plane.Distance)>Tolerance then begin
+      InputIsCoplanar:=false;
+      break;
+     end;
+    end;
+
+    if InputIsCoplanar then begin
+
+     TemporaryGrahamScanVectors:=nil;
+     HullGrahamScanVectors:=nil;
+     try
+
+      SetLength(TemporaryGrahamScanVectors,CountPoints);
+      for Index:=0 to CountPoints-1 do begin
+       TemporaryGrahamScanVectors[Index].OriginalIndex:=Index;
+       TemporaryGrahamScanVectors[Index].Vector:=TempPoints[Index];
+      end;
+
+      ConvexHullGrahamScan2D(TemporaryGrahamScanVectors,HullGrahamScanVectors,Plane.Normal);
+
+      if length(HullGrahamScanVectors)<3 then begin
+       raise EKraftDegeneratedConvexHull.Create('Degenerated convex hull');
+      end;
+
+      CountPoints:=length(HullGrahamScanVectors);
+      SetLength(TempPoints,CountPoints);
+      for Index:=0 to CountPoints-1 do begin
+       TempPoints[Index]:=HullGrahamScanVectors[Index].Vector;
+      end;
+
+      TempOutputPolygons.Count:=2;
+      SetLength(TempOutputPolygons.Items,TempOutputPolygons.Count);
+
+      TempOutputPolygons.Items[0].Count:=CountPoints;
+      SetLength(TempOutputPolygons.Items[0].Indices,TempOutputPolygons.Items[0].Count);
+      for Index:=0 to CountPoints-1 do begin
+       TempOutputPolygons.Items[0].Indices[Index]:=Index;
+      end;
+
+      TempOutputPolygons.Items[1].Count:=CountPoints;
+      SetLength(TempOutputPolygons.Items[1].Indices,TempOutputPolygons.Items[1].Count);
+      for Index:=0 to CountPoints-1 do begin
+       TempOutputPolygons.Items[1].Indices[Index]:=CountPoints-(Index+1);
+      end;
+
+     finally
+      SetLength(TemporaryGrahamScanVectors,0);
+      SetLength(HullGrahamScanVectors,0);
+     end;
+
+    end else begin
+
+     if AMaximumCountConvexHullPoints>2 then begin
+      GenerateConvexHull(TempPoints,TempTriangles,AMaximumCountConvexHullPoints,AUserDefinedTolerance);
+      SetLength(TempTriangles,0);
+     end;
+
+     QuickHullInstance:=TKraftQuickHull.Create;
+     try
+      if AUserDefinedTolerance>0.0 then begin
+       QuickHullInstance.ExplicitTolerance:=AUserDefinedTolerance;
+      end;
+      QuickHullInstance.Reset;
+      for PointIndex:=0 to length(TempPoints)-1 do begin
+       QuickHullInstance.AddPoint(TempPoints[PointIndex].x,TempPoints[PointIndex].y,TempPoints[PointIndex].z);
+      end;
+      QuickHullInstance.BuildHull;
+      SetLength(TempPoints,QuickHullInstance.CountVertices);
+      for PointIndex:=0 to QuickHullInstance.CountVertices-1 do begin
+       QuickHullVertex:=TKraftQuickHullVertex(QuickHullInstance.PointBuffer[QuickHullInstance.VertexPointIndices[PointIndex]]);
+       TempPoints[PointIndex].x:=QuickHullVertex.Point.x;
+       TempPoints[PointIndex].y:=QuickHullVertex.Point.y;
+       TempPoints[PointIndex].z:=QuickHullVertex.Point.z;
+      end;
+      QuickHullFaces:=nil;
+      try
+       QuickHullInstance.GetFaces(QuickHullFaces);
+       SetLength(TempOutputPolygons.Items,length(QuickHullFaces));
+       TempOutputPolygons.Count:=length(QuickHullFaces);
+       for FaceIndex:=0 to TempOutputPolygons.Count-1 do begin
+        TempPolygon:=@TempOutputPolygons.Items[FaceIndex];
+        TempPolygon^.Count:=length(QuickHullFaces[FaceIndex]);
+        SetLength(TempPolygon^.Indices,TempPolygon^.Count);
+        for VertexIndex:=0 to TempPolygon^.Count-1 do begin
+         TempPolygon^.Indices[VertexIndex]:=QuickHullFaces[FaceIndex,VertexIndex];
+        end;
+       end;
+      finally
+       SetLength(QuickHullFaces,0);
+      end;
+     finally
+      QuickHullInstance.Free;
+     end;
+
+    end;
+
+   end;
+
   end;
 
   for FaceIndex:=0 to TempOutputPolygons.Count-1 do begin
@@ -16114,7 +16449,7 @@ begin
    Vertices[PointIndex].Position.z:=TempPoints[PointIndex].z;
   end;
 
-  // Copy face poylgons 
+  // Copy face poylgons
   SetLength(Faces,TempOutputPolygons.Count);
   CountFaces:=TempOutputPolygons.Count;
   CountTempFaceEdges:=0;
