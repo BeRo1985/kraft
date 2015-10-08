@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2015-10-08-09-01-0000                       *
+ *                        Version 2015-10-08-20-03-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -794,7 +794,7 @@ type PKraftForceMode=^TKraftForceMode;
        procedure AddPointToHull(const EyeVertex:TKraftQuickHullVertex);
        procedure MarkFaceVertices(const Face:TKraftQuickHullFace;const Mark:longint);
        procedure ReindexFacesAndVertices;
-       procedure BuildHull;
+       procedure Build(const MaximumVertices:longint=-1);
        procedure GetFaceIndices(out OutputFace:TKraftQuickHullOutputFace;const Face:TKraftQuickHullFace;const Flags:longint);
        procedure GetVertices(out OutputVertices:TKraftQuickHullVector3DArray);
        procedure GetFaces(out OutputFaces:TKraftQuickHullOutputFaces);
@@ -876,7 +876,7 @@ type PKraftForceMode=^TKraftForceMode;
        procedure Transform(const WithMatrix:TKraftMatrix3x3); overload;
        procedure Transform(const WithMatrix:TKraftMatrix4x4); overload;
 
-       procedure Build(const AMaximumCountConvexHullPoints:longint=-1;const ADegeneratedConvexHullIsError:boolean=true;const AUserDefinedTolerance:double=-1.0);
+       procedure Build(const AMaximumCountConvexHullPoints:longint=-1;const AUserDefinedTolerance:double=-1.0);
 
        procedure Update;
 
@@ -1311,12 +1311,12 @@ type PKraftForceMode=^TKraftForceMode;
 
      PKraftContactManifoldType=^TKraftContactManifoldType;
      TKraftContactManifoldType=(kcmtUnknown,
-                                        kcmtImplicit,
-                                        kcmtFaceA,
-                                        kcmtFaceB,
-                                        kcmtEdges,
-                                        kcmtImplicitEdge,
-                                        kcmtImplicitNormal);
+                                kcmtImplicit,
+                                kcmtFaceA,
+                                kcmtFaceB,
+                                kcmtEdges,
+                                kcmtImplicitEdge,
+                                kcmtImplicitNormal);
 
      PKraftContactManifold=^TKraftContactManifold;
      TKraftContactManifold=record
@@ -12702,676 +12702,7 @@ begin
  end;
 end;
 
-const BSP_COPLANAR=0;
-      BSP_FRONT=1;
-      BSP_BACK=2;
-      BSP_SPANNING=3;
-
-type PConvexHullBSPVertex=^TConvexHullBSPVertex;
-     TConvexHullBSPVertex=object
-      public
-       Position:TConvexHullVector;
-     end;
-
-     PConvexHullBSPPolygonVertices=^TConvexHullBSPPolygonVertices;
-     TConvexHullBSPPolygonVertices=object
-      public
-       Vertices:array of TConvexHullBSPVertex;
-       CountVertices:longint;
-       procedure Initialize;
-       procedure Deinitialize;
-       function Clone:TConvexHullBSPPolygonVertices;
-       procedure Add(const Vertex:TConvexHullBSPVertex);
-     end;
-
-     PConvexHullBSPPolygon=^TConvexHullBSPPolygon;
-     TConvexHullBSPPolygon=object
-      public
-       Vertices:TConvexHullBSPPolygonVertices;
-       Plane:TConvexHullPlane;
-       procedure Initialize;
-       procedure Deinitialize;
-       procedure CalculateProperties;
-       procedure Flip;
-       function Clone:TConvexHullBSPPolygon;
-       function ClassifyVertex(const Vertex:TConvexHullVector):longint;
-       function ClassifySide(const Polygon:TConvexHullBSPPolygon):longint;
-     end;
-
-     TConvexHullBSPPolygons=array of TConvexHullBSPPolygon;
-
-     PConvexHullBSPPolygonList=^TConvexHullBSPPolygonList;
-     TConvexHullBSPPolygonList=object
-      public
-       Polygons:TConvexHullBSPPolygons;
-       CountPolygons:longint;
-       procedure Initialize;
-       procedure Deinitialize;
-       function Clone:TConvexHullBSPPolygonList;
-       procedure Add(const Polygon:TConvexHullBSPPolygon);
-     end;
-
-     TConvexHullBSPNode=class
-      public
-       PolygonList:TConvexHullBSPPolygonList;
-       Divider:TConvexHullBSPPolygon;
-       HasDivider:boolean;
-       FrontNode:TConvexHullBSPNode;
-       BackNode:TConvexHullBSPNode;
-       constructor Create(const InputPolygonList:TConvexHullBSPPolygonList);
-       destructor Destroy; override;
-       function IsConvex:boolean;
-       procedure Build(const InputPolygonList:TConvexHullBSPPolygonList);
-       procedure AllPolygons(var OutputPolygonList:TConvexHullBSPPolygonList);
-       function Clone:TConvexHullBSPNode;
-       function Invert:TConvexHullBSPNode;
-       procedure ClipPolygons(const InputPolygonList:TConvexHullBSPPolygonList;var OutputPolygonList:TConvexHullBSPPolygonList);
-       procedure ClipTo(Node:TConvexHullBSPNode);
-     end;
-
-     TConvexHullBSPTree=class
-      public
-       Root:TConvexHullBSPNode;
-       constructor Create(const InputPolygonList:TConvexHullBSPPolygonList); overload;
-       constructor Create(const Node:TConvexHullBSPNode); overload;
-       destructor Destroy; override;
-       function Subtract(OtherTree:TConvexHullBSPTree):TConvexHullBSPNode;
-       function Union(OtherTree:TConvexHullBSPTree):TConvexHullBSPNode;
-       function Intersection(OtherTree:TConvexHullBSPTree):TConvexHullBSPNode;
-       function Difference(OtherTree:TConvexHullBSPTree):TConvexHullBSPNode;
-       function Invert:TConvexHullBSPNode;
-       procedure GetTrianglePolygons(out OutputPolygonList:TConvexHullBSPPolygonList);
-       procedure GetPolygons(out OutputPolygonList:TConvexHullBSPPolygonList);
-     end;
-
-procedure TConvexHullBSPPolygonVertices.Initialize;
-begin
- Vertices:=nil;
- CountVertices:=0;
-end;
-
-procedure TConvexHullBSPPolygonVertices.Deinitialize;
-begin
- SetLength(Vertices,0);
- CountVertices:=0;
-end;
-
-function TConvexHullBSPPolygonVertices.Clone:TConvexHullBSPPolygonVertices;
-begin
- result.Initialize;
- result.Vertices:=copy(Vertices);
- result.CountVertices:=CountVertices;
-end;
-
-procedure TConvexHullBSPPolygonVertices.Add(const Vertex:TConvexHullBSPVertex);
-begin
- if (CountVertices+1)>length(Vertices) then begin
-  SetLength(Vertices,(CountVertices+1)*2);
- end;
- Vertices[CountVertices]:=Vertex;
- inc(CountVertices);
-end;
-
-procedure TConvexHullBSPPolygon.Initialize;
-begin
- Vertices.Initialize;
-end;
-
-procedure TConvexHullBSPPolygon.Deinitialize;
-begin
- Vertices.Deinitialize;
-end;
-
-procedure TConvexHullBSPPolygonList.Initialize;
-begin
- Polygons:=nil;
- CountPolygons:=0;
-end;
-
-procedure TConvexHullBSPPolygon.CalculateProperties;
-begin
- Plane.Normal:=ConvexHullVectorNormalize(ConvexHullVectorCross(ConvexHullVectorSub(Vertices.Vertices[2].Position,Vertices.Vertices[0].Position),ConvexHullVectorSub(Vertices.Vertices[1].Position,Vertices.Vertices[0].Position)));
- Plane.Distance:=-ConvexHullVectorDot(Plane.Normal,Vertices.Vertices[0].Position);
-end;
-
-procedure TConvexHullBSPPolygon.Flip;
-var i:longint;
-    Vertex:TConvexHullBSPVertex;
-begin
- for i:=0 to (Vertices.CountVertices shr 1)-1 do begin
-  Vertex:=Vertices.Vertices[i];
-  Vertices.Vertices[i]:=Vertices.Vertices[Vertices.CountVertices-(i+1)];
-  Vertices.Vertices[Vertices.CountVertices-(i+1)]:=Vertex;
- end;
- Plane.Normal:=ConvexHullVectorNeg(Plane.Normal);
- Plane.Distance:=-Plane.Distance;
-end;
-
-function TConvexHullBSPPolygon.Clone:TConvexHullBSPPolygon;
-begin
- result.Initialize;
- result.Vertices:=Vertices.Clone;
- result.Plane:=Plane;
-end;
-
-
-function TConvexHullBSPPolygon.ClassifyVertex(const Vertex:TConvexHullVector):longint;
-var SideValue:double;
-begin
- SideValue:=ConvexHullVectorDot(Plane.Normal,Vertex)+Plane.Distance;
- if SideValue<(-EPSILON) then begin
-  result:=BSP_BACK;
- end else if SideValue>EPSILON then begin
-  result:=BSP_FRONT;
- end else begin
-  result:=BSP_COPLANAR;
- end;
-end;
-
-function TConvexHullBSPPolygon.ClassifySide(const Polygon:TConvexHullBSPPolygon):longint;
-var i,Positive,Negative:longint;
-begin
- Positive:=0;
- Negative:=0;
- for i:=0 to Polygon.Vertices.CountVertices-1 do begin
-  case ClassifyVertex(Polygon.Vertices.Vertices[i].Position) of
-   BSP_BACK:begin
-    inc(Negative);
-   end;
-   BSP_FRONT:begin
-    inc(Positive);
-   end;
-  end;
- end;
- if (Positive>0) and (Negative=0) then begin
-  result:=BSP_FRONT;
- end else if (Positive=0) and (Negative>0) then begin
-  result:=BSP_BACK;
- end else if (Positive=0) and (Negative=0) then begin
-  result:=BSP_COPLANAR;
- end else begin
-  result:=BSP_SPANNING;
- end;
-end;
-
-procedure TConvexHullBSPPolygonSplit(const This,Polygon:TConvexHullBSPPolygon;var CoplanarFrontList,CoplanarBackList,FrontList,BackList:TConvexHullBSPPolygonList);
-var i,j,ci,cj:longint;
-    t:single;
-    fv,bv:TConvexHullBSPPolygonVertices;
-    vi,vj:PConvexHullBSPVertex;
-    v:TConvexHullBSPVertex;
-    p:TConvexHullBSPPolygon;
-begin
- case This.ClassifySide(Polygon) of
-  BSP_COPLANAR:begin
-   if ConvexHullVectorDot(This.Plane.Normal,Polygon.Plane.Normal)>0.0 then begin
-    CoplanarFrontList.Add(Polygon);
-   end else begin
-    CoplanarBackList.Add(Polygon);
-   end;
-  end;
-  BSP_FRONT:begin
-   FrontList.Add(Polygon);
-  end;
-  BSP_BACK:begin
-   BackList.Add(Polygon);
-  end;
-  else {SPANNING:}begin
-   fv.Initialize;
-   bv.Initialize;
-   try
-    for i:=0 to Polygon.Vertices.CountVertices-1 do begin
-     j:=i+1;
-     if j>=Polygon.Vertices.CountVertices then begin
-      j:=0;
-     end;
-     vi:=@Polygon.Vertices.Vertices[i];
-     vj:=@Polygon.Vertices.Vertices[j];
-     ci:=This.ClassifyVertex(vi^.Position);
-     cj:=This.ClassifyVertex(vj^.Position);
-     if ci<>BSP_BACK then begin
-      fv.Add(vi^);
-     end;
-     if ci<>BSP_FRONT then begin
-      bv.Add(vi^);
-     end;
-     if (ci or cj)=BSP_SPANNING then begin
-      t:=(ConvexHullVectorDot(This.Plane.Normal,vi^.Position)+This.Plane.Distance)/ConvexHullVectorDot(This.Plane.Normal,ConvexHullVectorSub(vj^.Position,vi^.Position));
-      v.Position:=ConvexHullVectorLerp(vi^.Position,vj^.Position,t);
-      fv.Add(v);
-      bv.Add(v);
-     end;
-    end;
-    if fv.CountVertices>=3 then begin
-     p.Vertices:=fv.Clone;
-     p.CalculateProperties;
-     FrontList.Add(p);
-    end;
-    if bv.CountVertices>=3 then begin
-     p.Vertices:=bv.Clone;
-     p.CalculateProperties;
-     BackList.Add(p);
-    end;
-   finally
-    fv.Deinitialize;
-    bv.Deinitialize;
-   end;
-  end;
- end;
-end;
-
-procedure TConvexHullBSPPolygonList.Deinitialize;
-var i:longint;
-begin
- for i:=0 to CountPolygons-1 do begin
-  Polygons[i].Deinitialize;
- end;
- SetLength(Polygons,0);
- CountPolygons:=0;
-end;
-
-function TConvexHullBSPPolygonList.Clone:TConvexHullBSPPolygonList;
-var i:longint;
-begin
- result.Initialize;
- for i:=0 to CountPolygons-1 do begin
-  result.Add(Polygons[i].Clone);
- end;
-end;
-
-procedure TConvexHullBSPPolygonList.Add(const Polygon:TConvexHullBSPPolygon);
-begin
- if (CountPolygons+1)>length(Polygons) then begin
-  SetLength(Polygons,(CountPolygons+1)*2);
- end;
- Polygons[CountPolygons]:=Polygon;
- inc(CountPolygons);
-end;
-
-constructor TConvexHullBSPNode.Create(const InputPolygonList:TConvexHullBSPPolygonList);
-var i:longint;
-    FrontList,BackList:TConvexHullBSPPolygonList;
-begin
- inherited Create;
- PolygonList.Initialize;
- FillChar(Divider,SizeOf(TConvexHullBSPPolygon),AnsiChar(#0));
- HasDivider:=false;
- FrontNode:=nil;
- BackNode:=nil;
- FrontList.Initialize;
- BackList.Initialize;
- try
-  if InputPolygonList.CountPolygons>0 then begin
-   Divider:=InputPolygonList.Polygons[0].Clone;
-   HasDivider:=true;
-   for i:=0 to InputPolygonList.CountPolygons-1 do begin
-    TConvexHullBSPPolygonSplit(Divider,InputPolygonList.Polygons[i],PolygonList,PolygonList,FrontList,BackList);
-   end;
-   if FrontList.CountPolygons>0 then begin
-    FrontNode:=TConvexHullBSPNode.Create(FrontList);
-   end;
-   if BackList.CountPolygons>0 then begin
-    BackNode:=TConvexHullBSPNode.Create(BackList);
-   end;
-  end;
- finally
-  FrontList.Deinitialize;
-  BackList.Deinitialize;
- end;
-end;
-
-destructor TConvexHullBSPNode.Destroy;
-begin
- PolygonList.Deinitialize;
- Divider.Deinitialize;
- FreeAndNil(FrontNode);
- FreeAndNil(BackNode);
- inherited Destroy;
-end;
-
-function TConvexHullBSPNode.IsConvex:boolean;
-var i,j:longint;
-begin
- result:=true;
- for i:=0 to PolygonList.CountPolygons-1 do begin
-  for j:=0 to PolygonList.CountPolygons-1 do begin
-   if (i<>j) and (PolygonList.Polygons[i].ClassifySide(PolygonList.Polygons[j])<>BSP_BACK) then begin
-    result:=false;
-    exit;
-   end;
-  end;
- end;
-end;
-
-procedure TConvexHullBSPNode.Build(const InputPolygonList:TConvexHullBSPPolygonList);
-var i:longint;
-    FrontList,BackList:TConvexHullBSPPolygonList;
-begin
- FrontList.Initialize;
- BackList.Initialize;
- try
-  if InputPolygonList.CountPolygons>0 then begin
-   if not HasDivider then begin
-    Divider:=InputPolygonList.Polygons[0].Clone;
-   end;
-   for i:=0 to InputPolygonList.CountPolygons-1 do begin
-    TConvexHullBSPPolygonSplit(Divider,InputPolygonList.Polygons[i],PolygonList,PolygonList,FrontList,BackList);
-   end;
-   if FrontList.CountPolygons>0 then begin
-    if assigned(FrontNode) then begin
-     FrontNode.Build(FrontList);
-    end else begin
-     FrontNode:=TConvexHullBSPNode.Create(FrontList);
-    end;
-   end;
-   if BackList.CountPolygons>0 then begin
-    if assigned(BackNode) then begin
-     BackNode.Build(BackList);
-    end else begin
-     BackNode:=TConvexHullBSPNode.Create(BackList);
-    end;
-   end;
-  end;
- finally
-  FrontList.Deinitialize;
-  BackList.Deinitialize;
- end;
-end;
-
-procedure TConvexHullBSPNode.AllPolygons(var OutputPolygonList:TConvexHullBSPPolygonList);
-var i:longint;
-begin
- for i:=0 to PolygonList.CountPolygons-1 do begin
-  OutputPolygonList.Add(PolygonList.Polygons[i].Clone);
- end;
- if assigned(FrontNode) then begin
-  FrontNode.AllPolygons(OutputPolygonList);
- end;
- if assigned(BackNode) then begin
-  BackNode.AllPolygons(OutputPolygonList);
- end;
-end;
-
-function TConvexHullBSPNode.Clone:TConvexHullBSPNode;
-var EmptyList:TConvexHullBSPPolygonList;
-begin
- EmptyList.Initialize;
- try
-  result:=TConvexHullBSPNode.Create(EmptyList);
-  result.PolygonList:=PolygonList.Clone;
-  result.Divider:=Divider.Clone;
-  result.HasDivider:=HasDivider;
-  if assigned(FrontNode) then begin
-   result.FrontNode:=FrontNode.Clone;
-  end else begin
-   result.FrontNode:=nil;
-  end;
-  if assigned(BackNode) then begin
-   result.BackNode:=BackNode.Clone;
-  end else begin
-   result.BackNode:=nil;
-  end;
- finally
-  EmptyList.Deinitialize;
- end;
-end;
-
-function TConvexHullBSPNode.Invert:TConvexHullBSPNode;
-var i:longint;
-    Temp:TConvexHullBSPNode;
-begin
- for i:=0 to PolygonList.CountPolygons-1 do begin
-  PolygonList.Polygons[i].Flip;
- end;
- Divider.Flip;
- if assigned(FrontNode) then begin
-  FrontNode.Invert;
- end;
- if assigned(BackNode) then begin
-  BackNode.Invert;
- end;
- Temp:=FrontNode;
- FrontNode:=BackNode;
- BackNode:=Temp;
- result:=self;
-end;
-
-procedure TConvexHullBSPNode.ClipPolygons(const InputPolygonList:TConvexHullBSPPolygonList;var OutputPolygonList:TConvexHullBSPPolygonList);
-var i:longint;
-    FrontList,BackList,TempList:TConvexHullBSPPolygonList;
-begin
- FrontList.Initialize;
- BackList.Initialize;
- TempList.Initialize;
- try
-  if HasDivider then begin
-   for i:=0 to InputPolygonList.CountPolygons-1 do begin
-    TConvexHullBSPPolygonSplit(Divider,InputPolygonList.Polygons[i],PolygonList,PolygonList,FrontList,BackList);
-   end;
-   if assigned(FrontNode) then begin
-    TempList:=FrontList.Clone;
-    FrontList.Deinitialize;
-    FrontNode.ClipPolygons(TempList,FrontList);
-   end;
-   if assigned(BackNode) then begin
-    TempList:=BackList.Clone;
-    BackList.Deinitialize;
-    BackNode.ClipPolygons(TempList,BackList);
-   end else begin
-    BackList.Deinitialize;
-   end;
-   for i:=0 to FrontList.CountPolygons-1 do begin
-    OutputPolygonList.Add(FrontList.Polygons[i]);
-   end;
-   for i:=0 to BackList.CountPolygons-1 do begin
-    OutputPolygonList.Add(BackList.Polygons[i]);
-   end;
-  end else begin
-   for i:=0 to InputPolygonList.CountPolygons-1 do begin
-    OutputPolygonList.Add(InputPolygonList.Polygons[i]);
-   end;
-  end;
- finally
-  FrontList.Deinitialize;
-  BackList.Deinitialize;
-  TempList.Deinitialize;
- end;
-end;
-
-procedure TConvexHullBSPNode.ClipTo(Node:TConvexHullBSPNode);
-var TempList:TConvexHullBSPPolygonList;
-begin
- TempList.Initialize;
- try
-  TempList:=PolygonList.Clone;
-  PolygonList.Deinitialize;
-  Node.ClipPolygons(TempList,PolygonList);
- finally
-  TempList.Deinitialize;
- end;
- if assigned(FrontNode) then begin
-  FrontNode.ClipTo(Node);
- end;
- if assigned(BackNode) then begin
-  BackNode.ClipTo(Node);
- end;
-end;
-
-constructor TConvexHullBSPTree.Create(const InputPolygonList:TConvexHullBSPPolygonList);
-begin
- inherited Create;
- Root:=TConvexHullBSPNode.Create(InputPolygonList);
-end;
-
-constructor TConvexHullBSPTree.Create(const Node:TConvexHullBSPNode);
-begin
- inherited Create;
- Root:=Node;
-end;
-
-destructor TConvexHullBSPTree.Destroy;
-begin
- FreeAndNil(Root);
- inherited Destroy;
-end;
-
-function TConvexHullBSPTree.Subtract(OtherTree:TConvexHullBSPTree):TConvexHullBSPNode;
-var a,b:TConvexHullBSPNode;
-    TempList:TConvexHullBSPPolygonList;
-begin
- b:=nil;
- TempList.Initialize;
- try
-  a:=Root.Clone;
-  b:=OtherTree.Root.Clone;
-  a.Invert;
-  a.ClipTo(b);
-  b.ClipTo(a);
-  b.Invert;
-  b.ClipTo(a);
-  b.Invert;
-  b.AllPolygons(TempList);
-  a.Build(TempList);
-  a.Invert;
-  result:=a;
- finally
-  TempList.Deinitialize;
-  b.Free;
- end;
-end;
-
-function TConvexHullBSPTree.Union(OtherTree:TConvexHullBSPTree):TConvexHullBSPNode;
-var a,b:TConvexHullBSPNode;
-    TempList:TConvexHullBSPPolygonList;
-begin
- b:=nil;
- TempList.Initialize;
- try
-  a:=Root.Clone;
-  b:=OtherTree.Root.Clone;
-  a.ClipTo(b);
-  b.ClipTo(a);
-  b.Invert;
-  b.ClipTo(a);
-  b.Invert;
-  b.AllPolygons(TempList);
-  a.Build(TempList);
-  result:=a;
- finally
-  TempList.Deinitialize;
-  b.Free;
- end;
-end;
-
-function TConvexHullBSPTree.Intersection(OtherTree:TConvexHullBSPTree):TConvexHullBSPNode;
-var a,b:TConvexHullBSPNode;
-    TempList:TConvexHullBSPPolygonList;
-begin
- b:=nil;
- TempList.Initialize;
- try
-  a:=Root.Clone;
-  b:=OtherTree.Root.Clone;
-  a.Invert;
-  b.ClipTo(a);
-  b.Invert;
-  a.ClipTo(a);
-  b.ClipTo(a);
-  b.AllPolygons(TempList);
-  a.Build(TempList);
-  a.Invert;
-  result:=a;
- finally
-  TempList.Deinitialize;
-  b.Free;
- end;
-end;
-
-function TConvexHullBSPTree.Difference(OtherTree:TConvexHullBSPTree):TConvexHullBSPNode;
-var a,b:TConvexHullBSPNode;
-    TempList:TConvexHullBSPPolygonList;
-begin
- a:=nil;
- b:=nil;
- TempList.Initialize;
- try
-  a:=Root.Clone;
-  b:=OtherTree.Root.Clone;
-
-  a.ClipTo(b);
-  b.ClipTo(a);
-  b.Invert;
-  b.ClipTo(a);
-  b.Invert;
-  b.AllPolygons(TempList);
-  a.Build(TempList);
-
-  b.Free;
-  
-  b:=OtherTree.Root.Clone;
-  b.ClipTo(a);
-  a.ClipTo(b);
-  a.Invert;
-  a.ClipTo(b);
-  a.Invert;
-  a.AllPolygons(TempList);
-  b.Build(TempList);
-
-  result:=b.Clone;
- finally
-  TempList.Deinitialize;
-  a.Free;
-  b.Free;
- end;
-end;
-
-function TConvexHullBSPTree.Invert:TConvexHullBSPNode;
-begin
- result:=Root.Clone.Invert;
-end;
-
-procedure TConvexHullBSPTree.GetTrianglePolygons(out OutputPolygonList:TConvexHullBSPPolygonList);
-var i,j:longint;
-    TempList:TConvexHullBSPPolygonList;
-    Polygon:TConvexHullBSPPolygon;
-begin
- TempList.Initialize;
- Polygon.Initialize;
- try
-  Root.AllPolygons(TempList);
-  SetLength(Polygon.Vertices.Vertices,3);
-  Polygon.Vertices.CountVertices:=3;
-  for i:=0 to TempList.CountPolygons-1 do begin
-   for j:=2 to TempList.Polygons[i].Vertices.CountVertices-1 do begin
-    Polygon.Vertices.Vertices[0]:=TempList.Polygons[i].Vertices.Vertices[0];
-    Polygon.Vertices.Vertices[1]:=TempList.Polygons[i].Vertices.Vertices[j-1];
-    Polygon.Vertices.Vertices[2]:=TempList.Polygons[i].Vertices.Vertices[j];
-    Polygon.CalculateProperties;
-    OutputPolygonList.Add(Polygon.Clone);
-   end;
-  end;
- finally
-  Polygon.Deinitialize;
-  TempList.Deinitialize;
- end;
-end;
-
-procedure TConvexHullBSPTree.GetPolygons(out OutputPolygonList:TConvexHullBSPPolygonList);
-var i:longint;                                          
-    TempList:TConvexHullBSPPolygonList;
-begin
- TempList.Initialize;
- try
-  Root.AllPolygons(TempList);
-  for i:=0 to TempList.CountPolygons-1 do begin
-   OutputPolygonList.Add(TempList.Polygons[i].Clone);
-  end;
- finally
-  TempList.Deinitialize;
- end;
-end;
-
-function GenerateConvexHull(var Points:TConvexHullVectors;var OutTriangles:TConvexHullTriangles;const MaximumOutputPoints:longint=-1;const UserDefinedTolerance:double=-1.0):boolean;
+function StanHullProcess(var Points:TConvexHullVectors;var OutTriangles:TConvexHullTriangles;const MaximumOutputPoints:longint=-1;const UserDefinedTolerance:double=-1.0):boolean;
 const ModuloThree:array[0..5] of longint=(0,1,2,0,1,2);
       DOUBLE_PREC:double=2.2204460492503131e-16;
       EPSILON=1e-10;
@@ -15815,19 +15146,20 @@ begin
 
 end;
 
-procedure TKraftQuickHull.BuildHull;
+procedure TKraftQuickHull.Build(const MaximumVertices:longint=-1);
 var EyeVertex:TKraftQuickHullVertex;
-//  Count:longint;
+    RemainToDoVertices:longint;
 begin
  ComputeMinAndMax;
  CreateInitialSimplex;
-//Count:=0;
  EyeVertex:=NextPointToAdd;
- while assigned(EyeVertex) do begin
+ RemainToDoVertices:=MaximumVertices;
+ while assigned(EyeVertex) and (RemainToDoVertices<>0) do begin
   AddPointToHull(EyeVertex);
   EyeVertex:=NextPointToAdd;
-//inc(Count);
-//writeln(Count);
+  if RemainToDoVertices>0 then begin
+   dec(RemainToDoVertices);
+  end;
  end;
  ReindexFacesAndVertices;
 end;
@@ -16104,7 +15436,7 @@ begin
  end;
 end;
 
-procedure TKraftConvexHull.Build(const AMaximumCountConvexHullPoints:longint=-1;const ADegeneratedConvexHullIsError:boolean=true;const AUserDefinedTolerance:double=-1.0);
+procedure TKraftConvexHull.Build(const AMaximumCountConvexHullPoints:longint=-1;const AUserDefinedTolerance:double=-1.0);
 const HashBits=8;
       HashSize=1 shl HashBits;
       HashMask=HashSize-1;
@@ -16129,7 +15461,7 @@ type PTempFaceEdgeHashItem=^TTempFaceEdgeHashItem;
 var PointIndex,TriangleIndex,TriangleVertexIndex,VertexIndex,OtherVertexIndex,OtherTriangleIndex,Index,
     OtherTriangleVertexIndex,SearchIndex,CountTempFaceEdges,FaceIndex,EdgeVertexOffset,TempFaceEdgeIndex,
     OtherTempFaceEdgeIndex,CountTempFaceEdgeHashItems,TempFaceEdgeHashItemIndex,v0,v1,v2,
-    FoundSharedVertex,FaceVertexIndex,OtherFaceVertexIndex,CountPoints,HashBucket:longint;
+    FoundSharedVertex,FaceVertexIndex,OtherFaceVertexIndex,CountPoints,HashBucket,CountTriangles:longint;
     TempFaceEdgeHash:longword;
     TempFaceEdgeHashItem:PTempFaceEdgeHashItem;
     TempPoints:TConvexHullVectors;
@@ -16157,6 +15489,7 @@ var PointIndex,TriangleIndex,TriangleVertexIndex,VertexIndex,OtherVertexIndex,Ot
     Plane:TConvexHullPlane;
     InputIsCoplanar:boolean;
     TemporaryGrahamScanVectors,HullGrahamScanVectors:TConvexHullGrahamScanVectors;
+    Triangle:PConvexHullTriangle;
 begin
  Faces:=nil;
  CountFaces:=0;
@@ -16387,9 +15720,15 @@ begin
 
     end else begin
 
-     if AMaximumCountConvexHullPoints>2 then begin
-      GenerateConvexHull(TempPoints,TempTriangles,AMaximumCountConvexHullPoints,AUserDefinedTolerance);
+     if AMaximumCountConvexHullPoints>0 then begin
+
+      // Here we're using triangular-output-based stan hull as maximum vertex count prefilter for the
+      // non-triangular-output-based quick hull implementation
+      StanHullProcess(TempPoints,TempTriangles,AMaximumCountConvexHullPoints,AUserDefinedTolerance);
+
+      // Throw the temporary output triangles of the stan hull algorithm away, because we do need only the filtered remain points
       SetLength(TempTriangles,0);
+
      end;
 
      QuickHullInstance:=TKraftQuickHull.Create;
@@ -16401,7 +15740,7 @@ begin
       for PointIndex:=0 to length(TempPoints)-1 do begin
        QuickHullInstance.AddPoint(TempPoints[PointIndex].x,TempPoints[PointIndex].y,TempPoints[PointIndex].z);
       end;
-      QuickHullInstance.BuildHull;
+      QuickHullInstance.Build(AMaximumCountConvexHullPoints);
       SetLength(TempPoints,QuickHullInstance.CountVertices);
       for PointIndex:=0 to QuickHullInstance.CountVertices-1 do begin
        QuickHullVertex:=TKraftQuickHullVertex(QuickHullInstance.PointBuffer[QuickHullInstance.VertexPointIndices[PointIndex]]);
@@ -16538,18 +15877,14 @@ begin
       Edge^.Faces[0]:=TempFaceEdgeHashItem^.Face;
       Edge^.Faces[1]:=TempFaceEdge^.Face;
      end else begin
-      if ADegeneratedConvexHullIsError then begin
-       raise EKraftDegeneratedConvexHull.Create('Degenerated convex hull');
-      end;
+      raise EKraftDegeneratedConvexHull.Create('Degenerated convex hull');
      end;
     end;
    end;
    for TempFaceEdgeHashItemIndex:=0 to CountTempFaceEdgeHashItems-1 do begin
     TempFaceEdgeHashItem:=@TempFaceEdgeHashItems[TempFaceEdgeHashItemIndex];
     if TempFaceEdgeHashItem^.Edge<0 then begin
-     if ADegeneratedConvexHullIsError then begin
-      raise EKraftDegeneratedConvexHull.Create('Degenerated convex hull');
-     end;
+     raise EKraftDegeneratedConvexHull.Create('Degenerated convex hull');
     end;
    end;
    SetLength(Edges,CountEdges);
@@ -16558,32 +15893,63 @@ begin
    SetLength(TempFaceEdgeHashTable,0);
   end;
 
-  // Compute vertex adjacency for hill-climbing
-  for VertexIndex:=0 to CountVertices-1 do begin
-   Vertices[VertexIndex].CountAdjacencies:=0;
-  end;
-  for FaceIndex:=0 to CountFaces-1 do begin
-   for FaceVertexIndex:=0 to Faces[FaceIndex].CountVertices-1 do begin
-    VertexIndex:=Faces[FaceIndex].Vertices[FaceVertexIndex];
-    Vertex:=@Vertices[VertexIndex];
-    for OtherFaceVertexIndex:=1 to Faces[FaceIndex].CountVertices-2 do begin
-     OtherVertexIndex:=Faces[FaceIndex].Vertices[(FaceVertexIndex+OtherFaceVertexIndex) mod Faces[FaceIndex].CountVertices];
-     Found:=false;
-     for SearchIndex:=0 to Vertex^.CountAdjacencies-1 do begin
-      if Vertex^.Adjacencies[SearchIndex]=OtherVertexIndex then begin
-       Found:=true;
-       break;
-      end;
+  TempTriangles:=nil;
+  try
+
+   // Triangulate convex polygon faces into temporary triangles for the hill-climbing vertex adjacency computation
+   CountTriangles:=0;
+   for FaceIndex:=0 to CountFaces-1 do begin
+    Face:=@Faces[FaceIndex];
+    if Face^.CountVertices>2 then begin
+     inc(CountTriangles,Face^.CountVertices-2);
+    end;
+   end;
+   SetLength(TempTriangles,CountTriangles);
+   CountTriangles:=0;
+   for FaceIndex:=0 to CountFaces-1 do begin
+    Face:=@Faces[FaceIndex];
+    for FaceVertexIndex:=2 to Face^.CountVertices-1 do begin
+     if (CountTriangles+1)>length(TempTriangles) then begin
+      SetLength(TempTriangles,(CountTriangles+1)*2);
      end;
-     if not Found then begin
-      if (Vertex^.CountAdjacencies+1)>length(Vertex^.Adjacencies) then begin
-       SetLength(Vertex^.Adjacencies,(Vertex^.CountAdjacencies+1)*2);
+     Triangle:=@TempTriangles[CountTriangles];
+     inc(CountTriangles);
+     Triangle^[0]:=Face^.Vertices[0];
+     Triangle^[1]:=Face^.Vertices[FaceVertexIndex-1];
+     Triangle^[2]:=Face^.Vertices[FaceVertexIndex];
+    end;
+   end;
+
+   // Compute vertex adjacency for hill-climbing
+   for VertexIndex:=0 to CountVertices-1 do begin
+    Vertices[VertexIndex].CountAdjacencies:=0;
+   end;
+   for TriangleIndex:=0 to CountTriangles-1 do begin
+    for TriangleVertexIndex:=0 to 2 do begin
+     VertexIndex:=TempTriangles[TriangleIndex,TriangleVertexIndex];
+     Vertex:=@Vertices[VertexIndex];
+     for OtherTriangleVertexIndex:=1 to 2 do begin
+      OtherVertexIndex:=TempTriangles[TriangleIndex,ModuloThree[TriangleVertexIndex+OtherTriangleVertexIndex]];
+      Found:=false;
+      for SearchIndex:=0 to Vertex^.CountAdjacencies-1 do begin
+       if Vertex^.Adjacencies[SearchIndex]=OtherVertexIndex then begin
+        Found:=true;
+        break;
+       end;
       end;
-      Vertex^.Adjacencies[Vertex^.CountAdjacencies]:=OtherVertexIndex;
-      inc(Vertex^.CountAdjacencies);
+      if not Found then begin
+       if (Vertex^.CountAdjacencies+1)>length(Vertex^.Adjacencies) then begin
+        SetLength(Vertex^.Adjacencies,(Vertex^.CountAdjacencies+1)*2);
+       end;
+       Vertex^.Adjacencies[Vertex^.CountAdjacencies]:=OtherVertexIndex;
+       inc(Vertex^.CountAdjacencies);
+      end;
      end;
     end;
    end;
+
+  finally
+   SetLength(TempTriangles,0);
   end;
 
  finally
@@ -16593,7 +15959,7 @@ begin
   SetLength(TempInputPolygons.Items,0);
   SetLength(TempOutputPolygons.Items,0);
  end;
-end; 
+end;
 
 procedure TKraftConvexHull.Update;
 var FaceIndex,VertexIndex:longint;
@@ -19495,6 +18861,10 @@ constructor TKraftShapePlane.Create(const APhysics:TKraft;const ARigidBody:TKraf
 var HullPlaneVertices:array[0..7] of TKraftVector3;
     b,p,q:TKraftVector3;
 begin
+ StaticAABBTreeProxy:=-1;
+ SleepingAABBTreeProxy:=-1;
+ DynamicAABBTreeProxy:=-1;
+ KinematicAABBTreeProxy:=-1;
  Plane:=APlane;
  GetPlaneSpace(Plane.Normal,p,q);
  PlaneCenter:=Vector3ScalarMul(Plane.Normal,Plane.Distance-(PlaneSize*0.5));
