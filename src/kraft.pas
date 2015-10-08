@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2015-10-07-08-02-0000                       *
+ *                        Version 2015-10-08-06-51-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -231,10 +231,17 @@ type PKraftForceMode=^TKraftForceMode;
      TKraftContinuousMode=(kcmNone,                     // No continuous collision detection and response
                            kcmMotionClamping,           // Continuous collision detection and response with motion clamping
                            kcmTimeOfImpactSubSteps);    // Continuous collision detection and response with time of impact sub stepping
+                                                        // (needs kpcmNonLinearGaussSeidel at ContactPositionCorrectionMode, otherwise it
+                                                        // fallbacks to kcmMotionClamping, when kpcmBaumgarte is used at
+                                                        // ContactPositionCorrectionMode)
 
      PKraftTimeOfImpactAlgorithm=^TKraftTimeOfImpactAlgorithm;
      TKraftTimeOfImpactAlgorithm=(ktoiaConservativeAdvancement,       // Time of impact detection with conservative advancement
                                   ktoiaBilateralAdvancement);         // Time of impact detection with bilateral advancement
+
+     PKraftPositionCorrectionMode=^TKraftPositionCorrectionMode;
+     TKraftPositionCorrectionMode=(kpcmBaumgarte,                     // Faster but it can be inacurate in some situations
+                                   kpcmNonLinearGaussSeidel);         // Slower but it's more precise (default)
 
      PKraftContactFlag=^TKraftContactFlag;
      TKraftContactFlag=(kcfEnabled,       // To disable contacts by users and for internal usage for processing continuous collection detection
@@ -260,7 +267,9 @@ type PKraftForceMode=^TKraftForceMode;
      TKraftConstraintFlags=set of TKraftConstraintFlag;
 
      PKraftConstraintLimitBehavior=^TKraftConstraintLimitBehavior;
-     TKraftConstraintLimitBehavior=(kclbLimitDistance,kclbLimitMaximumDistance,kclbLimitMinimumDistance);
+     TKraftConstraintLimitBehavior=(kclbLimitDistance,
+                                    kclbLimitMaximumDistance,
+                                    kclbLimitMinimumDistance);
 
      PKraftShapeType=^TKraftShapeType;
      TKraftShapeType=(kstUnknown=0,
@@ -1943,6 +1952,7 @@ type PKraftForceMode=^TKraftForceMode;
        mU:TKraftVector3;
        CurrentLength:TKraftScalar;
        Mass:TKraftScalar;
+       Bias:TKraftScalar;
       public
        LimitState:TKraftConstraintLimitState;
        constructor Create(const APhysics:TKraft;const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const ALocalAnchorPointA,ALocalAnchorPointB:TKraftVector3;const AMaximalLength:TKraftScalar=1.0;const ACollideConnected:boolean=false); reintroduce;
@@ -1974,6 +1984,7 @@ type PKraftForceMode=^TKraftForceMode;
        Constant:TKraftScalar;
        Mass:TKraftScalar;
        Ratio:TKraftScalar;
+       Bias:TKraftScalar;
       public
        constructor Create(const APhysics:TKraft;const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const AWorldGroundAnchorA,AWorldGroundAnchorB,AWorldAnchorPointA,AWorldAnchorPointB:TKraftVector3;const ARatio:TKraftScalar=1.0;const ACollideConnected:boolean=false); reintroduce;
        destructor Destroy; override;
@@ -2000,6 +2011,7 @@ type PKraftForceMode=^TKraftForceMode;
        LocalCenters:array[0..1] of TKraftVector3;
        LocalAnchors:array[0..1] of TKraftVector3;
        AccumulatedImpulse:TKraftVector3;
+       BiasVector:TKraftVector3;
        InverseMassMatrix:TKraftMatrix3x3;
       public
        constructor Create(const APhysics:TKraft;const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const AWorldAnchorPoint:TKraftVector3;const ACollideConnected:boolean=false); reintroduce; overload;
@@ -2027,6 +2039,8 @@ type PKraftForceMode=^TKraftForceMode;
        LocalAnchors:array[0..1] of TKraftVector3;
        AccumulatedImpulseTranslation:TKraftVector3;
        AccumulatedImpulseRotation:TKraftVector3;
+       BiasTranslation:TKraftVector3;
+       BiasRotation:TKraftVector3;
        InverseMassMatrixTranslation:TKraftMatrix3x3;
        InverseMassMatrixRotation:TKraftMatrix3x3;
        InverseInitialOrientationDifference:TKraftQuaternion;
@@ -2062,6 +2076,8 @@ type PKraftForceMode=^TKraftForceMode;
        B2CrossA1:TKraftVector3;
        C2CrossA1:TKraftVector3;
        A1:TKraftVector3;
+       BiasTranslation:TKraftVector3;
+       BiasRotation:TKraftVector2;
        InverseMassMatrixTranslation:TKraftMatrix3x3;
        InverseMassMatrixRotation:TKraftMatrix2x2;
        InverseMassMatrixLimitMotor:TKraftScalar;
@@ -2070,6 +2086,8 @@ type PKraftForceMode=^TKraftForceMode;
        MotorState:longbool;
        LowerLimit:TKraftScalar;
        UpperLimit:TKraftScalar;
+       BiasLowerLimit:TKraftScalar;
+       BiasUpperLimit:TKraftScalar;
        IsLowerLimitViolated:longbool;
        IsUpperLimitViolated:longbool;
        MotorSpeed:TKraftScalar;
@@ -2137,6 +2155,8 @@ type PKraftForceMode=^TKraftForceMode;
        R1PlusUCrossN1:TKraftVector3;
        R1PlusUCrossN2:TKraftVector3;
        R1PlusUCrossSliderAxis:TKraftVector3;
+       BiasTranslation:TKraftVector2;
+       BiasRotation:TKraftVector3;
        InverseMassMatrixTranslationConstraint:TKraftMatrix2x2;
        InverseMassMatrixRotationConstraint:TKraftMatrix3x3;
        InverseMassMatrixLimit:TKraftScalar;
@@ -2146,6 +2166,8 @@ type PKraftForceMode=^TKraftForceMode;
        MotorState:longbool;
        LowerLimit:TKraftScalar;
        UpperLimit:TKraftScalar;
+       BiasLowerLimit:TKraftScalar;
+       BiasUpperLimit:TKraftScalar;
        IsLowerLimitViolated:longbool;
        IsUpperLimitViolated:longbool;
        MotorSpeed:TKraftScalar;
@@ -2255,11 +2277,13 @@ type PKraftForceMode=^TKraftForceMode;
 
        EnableFriction:longbool;
 
+       PositionCorrectionMode:TKraftPositionCorrectionMode;
+
        constructor Create(const APhysics:TKraft;const AIsland:TKraftIsland);
        destructor Destroy; override;
 
        procedure Store;
-       
+
        procedure Initialize(const TimeStep:TKraftTimeStep);
 
        procedure InitializeConstraints;
@@ -2444,7 +2468,9 @@ type PKraftForceMode=^TKraftForceMode;
 
        SleepTimeThreshold:TKraftScalar;
 
-       Baumgarte:TKraftScalar;
+       ContactBaumgarte:TKraftScalar;
+
+       ConstraintBaumgarte:TKraftScalar;
 
        TimeOfImpactBaumgarte:TKraftScalar;
 
@@ -2467,6 +2493,10 @@ type PKraftForceMode=^TKraftForceMode;
        TimeOfImpactAlgorithm:TKraftTimeOfImpactAlgorithm;
 
        MaximalSubSteps:longint;
+
+       ContactPositionCorrectionMode:TKraftPositionCorrectionMode;
+
+       ConstraintPositionCorrectionMode:TKraftPositionCorrectionMode;
 
        VelocityIterations:longint;
 
@@ -24302,8 +24332,8 @@ end;
 procedure TKraftConstraintJointWorldPlaneDistance.InitializeConstraintsAndWarmStart(const Island:TKraftIsland;const TimeStep:TKraftTimeStep);
 var cA,vA,wA:PKraftVector3;
     qA:PKraftQuaternion;
-    crAu,P,AbsolutePosition:TKraftVector3;
-    l,TotalInverseMass,C,Omega,k,h,d:TKraftScalar;
+    crAu,P,AbsolutePosition,u:TKraftVector3;
+    l,TotalInverseMass,C,Omega,k,h,d,BiasFactor:TKraftScalar;
 begin
 
  IslandIndex:=RigidBodies[0].IslandIndices[Island.IslandIndex];
@@ -24428,6 +24458,20 @@ begin
 
   end;
 
+  if Physics.ConstraintPositionCorrectionMode=kpcmBaumgarte then begin
+   AbsolutePosition:=Vector3Add(cA^,RelativePosition);
+   if DoubleSidedWorldPlane then begin
+    WorldPoint:=Vector3Add(AbsolutePosition,Vector3ScalarMul(WorldPlane.Normal,-PlaneVectorDistance(WorldPlane,AbsolutePosition)));
+    u:=Vector3Sub(WorldPoint,AbsolutePosition);
+    l:=Vector3LengthNormalize(u);
+    C:=Min(Max(l-WorldDistance,-Physics.MaximalLinearCorrection),Physics.MaximalLinearCorrection);
+   end else begin
+    C:=Min(Max(WorldDistance-PlaneVectorDistance(WorldPlane,AbsolutePosition),-Physics.MaximalLinearCorrection),Physics.MaximalLinearCorrection);
+   end;
+   BiasFactor:=Physics.ConstraintBaumgarte/TimeStep.DeltaTime;
+   Bias:=Bias+(C*BiasFactor);
+  end;
+
  end;
 
  if Physics.WarmStarting and not Skip then begin
@@ -24500,7 +24544,8 @@ var cA:PKraftVector3;
     rA,AbsolutePosition,u,P:TKraftVector3;
     l,C,Impulse:TKraftScalar;
 begin
- if SoftConstraint or Skip then begin
+
+ if (Physics.ConstraintPositionCorrectionMode<>kpcmNonLinearGaussSeidel) or SoftConstraint or Skip then begin
 
   // There is no position correction for soft distance constraints or invalid limit states
   result:=true;
@@ -24620,8 +24665,8 @@ end;
 procedure TKraftConstraintJointDistance.InitializeConstraintsAndWarmStart(const Island:TKraftIsland;const TimeStep:TKraftTimeStep);
 var cA,vA,wA,cB,vB,wB:PKraftVector3;
     qA,qB:PKraftQuaternion;
-    crAu,crBu,P:TKraftVector3;
-    l,InverseMass,C,Omega,k,h,d:TKraftScalar;
+    crAu,crBu,P,u:TKraftVector3;
+    l,InverseMass,C,Omega,k,h,d,BiasFactor:TKraftScalar;
 begin
 
  IslandIndices[0]:=RigidBodies[0].IslandIndices[Island.IslandIndex];
@@ -24717,6 +24762,14 @@ begin
 
  end;
 
+ if Physics.ConstraintPositionCorrectionMode=kpcmBaumgarte then begin
+  u:=Vector3Sub(Vector3Add(cB^,RelativePositions[1]),Vector3Add(cA^,RelativePositions[0]));
+  l:=Vector3LengthNormalize(u);
+  C:=Min(Max(l-AnchorDistanceLength,-Physics.MaximalLinearCorrection),Physics.MaximalLinearCorrection);
+  BiasFactor:=Physics.ConstraintBaumgarte/TimeStep.DeltaTime;
+  Bias:=Bias+(C*BiasFactor);
+ end;
+
  if Physics.WarmStarting then begin
 
   AccumulatedImpulse:=AccumulatedImpulse*TimeStep.DeltaTimeRatio;
@@ -24773,7 +24826,8 @@ var cA,cB:PKraftVector3;
     rA,rB,u,P:TKraftVector3;
     l,C,Impulse:TKraftScalar;
 begin
- if FrequencyHz>EPSILON then begin
+
+ if (Physics.ConstraintPositionCorrectionMode<>kpcmNonLinearGaussSeidel) or (FrequencyHz>EPSILON) then begin
 
   // There is no position correction for soft distance constraints
   result:=true;
@@ -24806,6 +24860,7 @@ begin
   result:=abs(C)<Physics.LinearSlop;
 
  end;
+
 end;
 
 function TKraftConstraintJointDistance.GetAnchorA:TKraftVector3;
@@ -24861,8 +24916,8 @@ end;
 procedure TKraftConstraintJointRope.InitializeConstraintsAndWarmStart(const Island:TKraftIsland;const TimeStep:TKraftTimeStep);
 var cA,vA,wA,cB,vB,wB:PKraftVector3;
     qA,qB:PKraftQuaternion;
-    crAu,crBu,P:TKraftVector3;
-    InverseMass,C:TKraftScalar;
+    crAu,crBu,P,u:TKraftVector3;
+    l,InverseMass,C,BiasFactor:TKraftScalar;
 begin
 
  IslandIndices[0]:=RigidBodies[0].IslandIndices[Island.IslandIndex];
@@ -24951,6 +25006,23 @@ begin
   AccumulatedImpulse:=0.0;
   
  end;
+ 
+ if Physics.ConstraintPositionCorrectionMode=kpcmNonLinearGaussSeidel then begin
+
+  Bias:=0.0;
+
+ end else begin
+
+  BiasFactor:=Physics.ConstraintBaumgarte/TimeStep.DeltaTime;
+
+  u:=Vector3Sub(Vector3Add(cB^,RelativePositions[1]),Vector3Add(cA^,RelativePositions[0]));
+
+  l:=Vector3LengthNormalize(u);
+  C:=Min(Max(l-MaximalLength,0.0),Physics.MaximalLinearCorrection);
+
+  Bias:=C*BiasFactor;
+
+ end;
 
 end;
 
@@ -24977,7 +25049,7 @@ begin
   Cdot:=Cdot+(C*TimeStep.InverseDeltaTime);
  end;
 
- Impulse:=-(Mass*Cdot);
+ Impulse:=-(Mass*(Cdot+Bias));
  OldImpulse:=AccumulatedImpulse;
  AccumulatedImpulse:=Min(0.0,AccumulatedImpulse+Impulse);
  Impulse:=AccumulatedImpulse-OldImpulse;
@@ -24999,30 +25071,38 @@ var cA,cB:PKraftVector3;
     Len,C,Impulse:TKraftScalar;
 begin
 
- cA:=@SolverPositions[0]^.Position;
- qA:=@SolverPositions[0]^.Orientation;
+ if Physics.ConstraintPositionCorrectionMode=kpcmNonLinearGaussSeidel then begin
 
- cB:=@SolverPositions[1]^.Position;
- qB:=@SolverPositions[1]^.Orientation;
+  cA:=@SolverPositions[0]^.Position;
+  qA:=@SolverPositions[0]^.Orientation;
 
- rA:=Vector3TermQuaternionRotate(Vector3Sub(LocalAnchors[0],LocalCenters[0]),qA^);
- rB:=Vector3TermQuaternionRotate(Vector3Sub(LocalAnchors[1],LocalCenters[1]),qB^);
- u:=Vector3Sub(Vector3Add(cB^,rB),Vector3Add(cA^,rA));
+  cB:=@SolverPositions[1]^.Position;
+  qB:=@SolverPositions[1]^.Orientation;
 
- Len:=Vector3LengthNormalize(u);
- C:=Min(Max(Len-MaximalLength,0.0),Physics.MaximalLinearCorrection);
+  rA:=Vector3TermQuaternionRotate(Vector3Sub(LocalAnchors[0],LocalCenters[0]),qA^);
+  rB:=Vector3TermQuaternionRotate(Vector3Sub(LocalAnchors[1],LocalCenters[1]),qB^);
+  u:=Vector3Sub(Vector3Add(cB^,rB),Vector3Add(cA^,rA));
 
- Impulse:=-(Mass*C);
+  Len:=Vector3LengthNormalize(u);
+  C:=Min(Max(Len-MaximalLength,0.0),Physics.MaximalLinearCorrection);
 
- P:=Vector3ScalarMul(u,Impulse);
+  Impulse:=-(Mass*C);
 
- Vector3DirectSub(cA^,Vector3ScalarMul(P,InverseMasses[0]));
- QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3Cross(rA,Vector3Neg(P)),WorldInverseInertiaTensors[0]),1.0);
+  P:=Vector3ScalarMul(u,Impulse);
 
- Vector3DirectAdd(cB^,Vector3ScalarMul(P,InverseMasses[1]));
- QuaternionDirectSpin(qB^,Vector3TermMatrixMul(Vector3Cross(rB,P),WorldInverseInertiaTensors[1]),1.0);
+  Vector3DirectSub(cA^,Vector3ScalarMul(P,InverseMasses[0]));
+  QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3Cross(rA,Vector3Neg(P)),WorldInverseInertiaTensors[0]),1.0);
 
- result:=(Len-MaximalLength)<Physics.LinearSlop;
+  Vector3DirectAdd(cB^,Vector3ScalarMul(P,InverseMasses[1]));
+  QuaternionDirectSpin(qB^,Vector3TermMatrixMul(Vector3Cross(rB,P),WorldInverseInertiaTensors[1]),1.0);
+
+  result:=(Len-MaximalLength)<Physics.LinearSlop;
+
+ end else begin
+
+  result:=true;
+
+ end;
 
 end;
 
@@ -25086,7 +25166,7 @@ procedure TKraftConstraintJointPulley.InitializeConstraintsAndWarmStart(const Is
 var cA,vA,wA,cB,vB,wB:PKraftVector3;
     qA,qB:PKraftQuaternion;
     ruA,ruB,PA,PB:TKraftVector3;
-    LengthA,LengthB,mA,mB,InverseMass:TKraftScalar;
+    LengthA,LengthB,mA,mB,InverseMass,BiasFactor,C:TKraftScalar;
 begin
 
  IslandIndices[0]:=RigidBodies[0].IslandIndices[Island.IslandIndex];
@@ -25153,6 +25233,20 @@ begin
   Mass:=0.0;
  end;
 
+ if Physics.ConstraintPositionCorrectionMode=kpcmNonLinearGaussSeidel then begin
+
+  Bias:=0.0;
+
+ end else begin
+
+  BiasFactor:=Physics.ConstraintBaumgarte/TimeStep.DeltaTime;
+
+  C:=Constant-(LengthA+(LengthB*Ratio));
+
+  Bias:=C*BiasFactor;
+
+ end;
+
  if Physics.WarmStarting then begin
 
   AccumulatedImpulse:=AccumulatedImpulse*TimeStep.DeltaTimeRatio;
@@ -25190,7 +25284,7 @@ begin
  vpB:=Vector3Add(vB^,Vector3Cross(wB^,RelativePositions[1]));
 
  Cdot:=(-(Vector3Dot(mU[0],vpA)))-(Vector3Dot(mU[1],vpB)*Ratio);
- Impulse:=-(Mass*Cdot);
+ Impulse:=-(Mass*(Cdot+Bias));
  AccumulatedImpulse:=AccumulatedImpulse+Impulse;
 
  PA:=Vector3ScalarMul(mU[0],-Impulse);
@@ -25211,66 +25305,73 @@ var cA,cB:PKraftVector3;
     LengthA,LengthB,mA,mB,InverseMass,Mass,C,LinearError,Impulse:TKraftScalar;
 begin
 
- cA:=@SolverPositions[0]^.Position;
- qA:=@SolverPositions[0]^.Orientation;
+ if Physics.ConstraintPositionCorrectionMode=kpcmNonLinearGaussSeidel then begin
 
- cB:=@SolverPositions[1]^.Position;
- qB:=@SolverPositions[1]^.Orientation;
+  cA:=@SolverPositions[0]^.Position;
+  qA:=@SolverPositions[0]^.Orientation;
 
- rA:=Vector3TermQuaternionRotate(Vector3Sub(LocalAnchors[0],LocalCenters[0]),qA^);
- rB:=Vector3TermQuaternionRotate(Vector3Sub(LocalAnchors[1],LocalCenters[1]),qB^);
+  cB:=@SolverPositions[1]^.Position;
+  qB:=@SolverPositions[1]^.Orientation;
 
- // Get the pulley axes
- uA:=Vector3Add(cA^,rA);
- uB:=Vector3Add(cB^,rB);
+  rA:=Vector3TermQuaternionRotate(Vector3Sub(LocalAnchors[0],LocalCenters[0]),qA^);
+  rB:=Vector3TermQuaternionRotate(Vector3Sub(LocalAnchors[1],LocalCenters[1]),qB^);
 
- LengthA:=Vector3Length(uA);
- LengthB:=Vector3Length(uB);
+  // Get the pulley axes
+  uA:=Vector3Add(cA^,rA);
+  uB:=Vector3Add(cB^,rB);
 
- if LengthA>(10.0*Physics.LinearSlop) then begin
-  Vector3Scale(uA,1.0/LengthA);
+  LengthA:=Vector3Length(uA);
+  LengthB:=Vector3Length(uB);
+
+  if LengthA>(10.0*Physics.LinearSlop) then begin
+   Vector3Scale(uA,1.0/LengthA);
+  end else begin
+   uA:=Vector3Origin;
+  end;
+
+  if LengthB>(10.0*Physics.LinearSlop) then begin
+   Vector3Scale(uB,1.0/LengthB);
+  end else begin
+   uB:=Vector3Origin;
+  end;
+
+  ruA:=Vector3Cross(RelativePositions[0],mU[0]);
+  ruB:=Vector3Cross(RelativePositions[1],mU[1]);
+
+  mA:=RigidBodies[0].InverseMass+Vector3Dot(Vector3TermMatrixMul(ruA,WorldInverseInertiaTensors[0]),ruA);
+  mB:=RigidBodies[1].InverseMass+Vector3Dot(Vector3TermMatrixMul(ruB,WorldInverseInertiaTensors[1]),ruB);
+
+  InverseMass:=mA+(mB*sqr(Ratio));
+
+  // Compute the effective mass matrix
+  if InverseMass<>0.0 then begin
+   Mass:=1.0/InverseMass;
+  end else begin
+   Mass:=0.0;
+  end;
+
+  C:=Constant-(LengthA+(LengthB*Ratio));
+
+  LinearError:=abs(c);
+
+  Impulse:=-(Mass*C);
+
+  PA:=Vector3ScalarMul(uA,-Impulse);
+  PB:=Vector3ScalarMul(uB,-(Impulse*Ratio));
+
+  Vector3DirectAdd(cA^,Vector3ScalarMul(PA,InverseMasses[0]));
+  QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3Cross(rA,PA),WorldInverseInertiaTensors[0]),1.0);
+
+  Vector3DirectAdd(cB^,Vector3ScalarMul(PB,InverseMasses[1]));
+  QuaternionDirectSpin(qB^,Vector3TermMatrixMul(Vector3Cross(rB,PB),WorldInverseInertiaTensors[1]),1.0);
+
+  result:=LinearError<Physics.LinearSlop;
+
  end else begin
-  uA:=Vector3Origin;
+
+  result:=true;
+
  end;
-
- if LengthB>(10.0*Physics.LinearSlop) then begin
-  Vector3Scale(uB,1.0/LengthB);
- end else begin
-  uB:=Vector3Origin;
- end;
-
- ruA:=Vector3Cross(RelativePositions[0],mU[0]);
- ruB:=Vector3Cross(RelativePositions[1],mU[1]);
-
- mA:=RigidBodies[0].InverseMass+Vector3Dot(Vector3TermMatrixMul(ruA,WorldInverseInertiaTensors[0]),ruA);
- mB:=RigidBodies[1].InverseMass+Vector3Dot(Vector3TermMatrixMul(ruB,WorldInverseInertiaTensors[1]),ruB);
-
- InverseMass:=mA+(mB*sqr(Ratio));
-
- // Compute the effective mass matrix
- if InverseMass<>0.0 then begin
-  Mass:=1.0/InverseMass;
- end else begin
-  Mass:=0.0;
- end;
-
- C:=Constant-(LengthA+(LengthB*Ratio));
-
- LinearError:=abs(c);
-
- Impulse:=-(Mass*C);
-
- PA:=Vector3ScalarMul(uA,-Impulse);
- PB:=Vector3ScalarMul(uB,-(Impulse*Ratio));
-
- Vector3DirectAdd(cA^,Vector3ScalarMul(PA,InverseMasses[0]));
- QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3Cross(rA,PA),WorldInverseInertiaTensors[0]),1.0);
-
- Vector3DirectAdd(cB^,Vector3ScalarMul(PB,InverseMasses[1]));
- QuaternionDirectSpin(qB^,Vector3TermMatrixMul(Vector3Cross(rB,PB),WorldInverseInertiaTensors[1]),1.0);
-
- result:=LinearError<Physics.LinearSlop;
-
 end;
 
 function TKraftConstraintJointPulley.GetAnchorA:TKraftVector3;
@@ -25354,7 +25455,7 @@ end;
 procedure TKraftConstraintJointBallSocket.InitializeConstraintsAndWarmStart(const Island:TKraftIsland;const TimeStep:TKraftTimeStep);
 var cA,vA,wA,cB,vB,wB:PKraftVector3;
     qA,qB:PKraftQuaternion;
-    InverseMassOfBodies:TKraftScalar;
+    InverseMassOfBodies,BiasFactor:TKraftScalar;
     SkewSymmetricMatrices:array[0..1] of TKraftMatrix3x3;
     MassMatrix:TKraftMatrix3x3;
 begin
@@ -25421,6 +25522,13 @@ begin
   InverseMassMatrix:=Matrix3x3Null;
  end;
 
+ if Physics.ConstraintPositionCorrectionMode=kpcmNonLinearGaussSeidel then begin
+  BiasVector:=Vector3Origin;
+ end else begin
+  BiasFactor:=Physics.ConstraintBaumgarte/TimeStep.DeltaTime;
+  BiasVector:=Vector3ScalarMul(Vector3Sub(Vector3Add(cB^,RelativePositions[1]),Vector3Add(cA^,RelativePositions[0])),BiasFactor);
+ end;
+
  if Physics.WarmStarting then begin
 
   AccumulatedImpulse:=Vector3ScalarMul(AccumulatedImpulse,TimeStep.DeltaTimeRatio);
@@ -25457,7 +25565,7 @@ begin
  vpB:=Vector3Add(vB^,Vector3Cross(wB^,RelativePositions[1]));
  Jv:=Vector3Sub(vpB,vpA);
 
- Impulse:=Vector3TermMatrixMul(Vector3Neg(Jv),InverseMassMatrix);
+ Impulse:=Vector3TermMatrixMul(Vector3Sub(Vector3Neg(Jv),BiasVector),InverseMassMatrix);
 
  AccumulatedImpulse:=Vector3Add(AccumulatedImpulse,Impulse);
 
@@ -25480,60 +25588,67 @@ var cA,cB:PKraftVector3;
     MassMatrix:TKraftMatrix3x3;
 begin
 
- cA:=@SolverPositions[0]^.Position;
- qA:=@SolverPositions[0]^.Orientation;
+ if Physics.ConstraintPositionCorrectionMode=kpcmNonLinearGaussSeidel then begin
 
- cB:=@SolverPositions[1]^.Position;
- qB:=@SolverPositions[1]^.Orientation;
+  cA:=@SolverPositions[0]^.Position;
+  qA:=@SolverPositions[0]^.Orientation;
 
- rA:=Vector3TermQuaternionRotate(Vector3Sub(LocalAnchors[0],LocalCenters[0]),qA^);
- rB:=Vector3TermQuaternionRotate(Vector3Sub(LocalAnchors[1],LocalCenters[1]),qB^);
+  cB:=@SolverPositions[1]^.Position;
+  qB:=@SolverPositions[1]^.Orientation;
 
- SkewSymmetricMatrices[0]:=GetSkewSymmetricMatrixPlus(rA);
- SkewSymmetricMatrices[1]:=GetSkewSymmetricMatrixPlus(rB);
+  rA:=Vector3TermQuaternionRotate(Vector3Sub(LocalAnchors[0],LocalCenters[0]),qA^);
+  rB:=Vector3TermQuaternionRotate(Vector3Sub(LocalAnchors[1],LocalCenters[1]),qB^);
 
- InverseMassOfBodies:=RigidBodies[0].InverseMass+RigidBodies[1].InverseMass;
+  SkewSymmetricMatrices[0]:=GetSkewSymmetricMatrixPlus(rA);
+  SkewSymmetricMatrices[1]:=GetSkewSymmetricMatrixPlus(rB);
 
- if (RigidBodies[0].RigidBodyType=krbtDynamic) or (RigidBodies[1].RigidBodyType=krbtDynamic) then begin
-  MassMatrix[0,0]:=InverseMassOfBodies;
-  MassMatrix[0,1]:=0.0;
-  MassMatrix[0,2]:=0.0;
+  InverseMassOfBodies:=RigidBodies[0].InverseMass+RigidBodies[1].InverseMass;
+
+  if (RigidBodies[0].RigidBodyType=krbtDynamic) or (RigidBodies[1].RigidBodyType=krbtDynamic) then begin
+   MassMatrix[0,0]:=InverseMassOfBodies;
+   MassMatrix[0,1]:=0.0;
+   MassMatrix[0,2]:=0.0;
 {$ifdef SIMD}
-  MassMatrix[0,3]:=0.0;
+   MassMatrix[0,3]:=0.0;
 {$endif}
-  MassMatrix[1,0]:=0.0;
-  MassMatrix[1,1]:=InverseMassOfBodies;
-  MassMatrix[1,2]:=0.0;
+   MassMatrix[1,0]:=0.0;
+   MassMatrix[1,1]:=InverseMassOfBodies;
+   MassMatrix[1,2]:=0.0;
 {$ifdef SIMD}
-  MassMatrix[1,3]:=0.0;
+   MassMatrix[1,3]:=0.0;
 {$endif}
-  MassMatrix[2,0]:=0.0;
-  MassMatrix[2,1]:=0.0;
-  MassMatrix[2,2]:=InverseMassOfBodies;
+   MassMatrix[2,0]:=0.0;
+   MassMatrix[2,1]:=0.0;
+   MassMatrix[2,2]:=InverseMassOfBodies;
 {$ifdef SIMD}
-  MassMatrix[2,3]:=0.0;
+   MassMatrix[2,3]:=0.0;
 {$endif}
-  Matrix3x3Add(MassMatrix,Matrix3x3TermMulTranspose(Matrix3x3TermMul(SkewSymmetricMatrices[0],WorldInverseInertiaTensors[0]),SkewSymmetricMatrices[0]));
-  Matrix3x3Add(MassMatrix,Matrix3x3TermMulTranspose(Matrix3x3TermMul(SkewSymmetricMatrices[1],WorldInverseInertiaTensors[1]),SkewSymmetricMatrices[1]));
-  InverseMassMatrix:=Matrix3x3TermInverse(MassMatrix);
+   Matrix3x3Add(MassMatrix,Matrix3x3TermMulTranspose(Matrix3x3TermMul(SkewSymmetricMatrices[0],WorldInverseInertiaTensors[0]),SkewSymmetricMatrices[0]));
+   Matrix3x3Add(MassMatrix,Matrix3x3TermMulTranspose(Matrix3x3TermMul(SkewSymmetricMatrices[1],WorldInverseInertiaTensors[1]),SkewSymmetricMatrices[1]));
+   InverseMassMatrix:=Matrix3x3TermInverse(MassMatrix);
+  end else begin
+   InverseMassMatrix:=Matrix3x3Null;
+  end;
+
+  TranslationError:=Vector3Sub(Vector3Add(cB^,rB),Vector3Add(cA^,rA));
+
+  Impulse:=Vector3TermMatrixMul(Vector3Neg(TranslationError),InverseMassMatrix);
+
+ // writeln('BallPos ',Vector3Length(AccumulatedImpulse):1:8,' ',TranslationError.x:1:8,' ',TranslationError.y:1:8,' ',TranslationError.z:1:8);
+
+  Vector3DirectSub(cA^,Vector3ScalarMul(Impulse,InverseMasses[0]));
+  QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3Cross(rA,Vector3Neg(Impulse)),WorldInverseInertiaTensors[0]),1.0);
+
+  Vector3DirectAdd(cB^,Vector3ScalarMul(Impulse,InverseMasses[1]));
+  QuaternionDirectSpin(qB^,Vector3TermMatrixMul(Vector3Cross(rB,Impulse),WorldInverseInertiaTensors[1]),1.0);
+
+  result:=Vector3Length(TranslationError)<Physics.LinearSlop;
+
  end else begin
-  InverseMassMatrix:=Matrix3x3Null;
+
+  result:=true;
+
  end;
-
- TranslationError:=Vector3Sub(Vector3Add(cB^,rB),Vector3Add(cA^,rA));
-
- Impulse:=Vector3TermMatrixMul(Vector3Neg(TranslationError),InverseMassMatrix);
-
-// writeln('BallPos ',Vector3Length(AccumulatedImpulse):1:8,' ',TranslationError.x:1:8,' ',TranslationError.y:1:8,' ',TranslationError.z:1:8);
-
- Vector3DirectSub(cA^,Vector3ScalarMul(Impulse,InverseMasses[0]));
- QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3Cross(rA,Vector3Neg(Impulse)),WorldInverseInertiaTensors[0]),1.0);
-
- Vector3DirectAdd(cB^,Vector3ScalarMul(Impulse,InverseMasses[1]));
- QuaternionDirectSpin(qB^,Vector3TermMatrixMul(Vector3Cross(rB,Impulse),WorldInverseInertiaTensors[1]),1.0);
-
- result:=Vector3Length(TranslationError)<Physics.LinearSlop;
-
 end;
 
 function TKraftConstraintJointBallSocket.GetAnchorA:TKraftVector3;
@@ -25588,9 +25703,10 @@ end;
 procedure TKraftConstraintJointFixed.InitializeConstraintsAndWarmStart(const Island:TKraftIsland;const TimeStep:TKraftTimeStep);
 var cA,vA,wA,cB,vB,wB:PKraftVector3;
     qA,qB:PKraftQuaternion;
-    InverseMassOfBodies:TKraftScalar;
+    InverseMassOfBodies,BiasFactor:TKraftScalar;
     SkewSymmetricMatrices:array[0..1] of TKraftMatrix3x3;
     MassMatrix:TKraftMatrix3x3;
+    CurrentOrientationDifference,qError:TKraftQuaternion;
 begin
 
  IslandIndices[0]:=RigidBodies[0].IslandIndices[Island.IslandIndex];
@@ -25657,6 +25773,23 @@ begin
   InverseMassMatrixRotation:=Matrix3x3Null;
  end;
 
+ if Physics.ConstraintPositionCorrectionMode=kpcmNonLinearGaussSeidel then begin
+
+  BiasTranslation:=Vector3Origin;
+  BiasRotation:=Vector3Origin;
+
+ end else begin
+
+  BiasFactor:=Physics.ConstraintBaumgarte/TimeStep.DeltaTime;
+
+  BiasTranslation:=Vector3ScalarMul(Vector3Sub(Vector3Add(cB^,RelativePositions[1]),Vector3Add(cA^,RelativePositions[0])),BiasFactor);
+
+  CurrentOrientationDifference:=QuaternionTermNormalize(QuaternionMul(qB^,QuaternionInverse(qA^)));
+  qError:=QuaternionMul(CurrentOrientationDifference,InverseInitialOrientationDifference);
+  BiasRotation:=Vector3ScalarMul(Vector3(qError.x,qError.y,qError.z),BiasFactor*2.0);
+
+ end;
+
  if Physics.WarmStarting then begin
 
   AccumulatedImpulseTranslation:=Vector3ScalarMul(AccumulatedImpulseTranslation,TimeStep.DeltaTimeRatio);
@@ -25694,7 +25827,7 @@ begin
  Jv:=Vector3Sub(Vector3Add(vB^,Vector3Cross(wB^,RelativePositions[1])),
                     Vector3Add(vA^,Vector3Cross(wA^,RelativePositions[0])));
 
- Impulse:=Vector3TermMatrixMul(Vector3Neg(Jv),InverseMassMatrixTranslation);
+ Impulse:=Vector3TermMatrixMul(Vector3Sub(Vector3Neg(Jv),BiasTranslation),InverseMassMatrixTranslation);
 
  AccumulatedImpulseTranslation:=Vector3Add(AccumulatedImpulseTranslation,Impulse);
 
@@ -25708,7 +25841,7 @@ begin
 
  Jv:=Vector3Sub(wB^,wA^);
 
- Impulse:=Vector3TermMatrixMul(Vector3Neg(Jv),InverseMassMatrixRotation);
+ Impulse:=Vector3TermMatrixMul(Vector3Sub(Vector3Neg(Jv),BiasRotation),InverseMassMatrixRotation);
 
  AccumulatedImpulseRotation:=Vector3Add(AccumulatedImpulseRotation,Impulse);
 
@@ -25728,81 +25861,89 @@ var cA,cB:PKraftVector3;
     CurrentOrientationDifference,qError:TKraftQuaternion;
 begin
 
- cA:=@SolverPositions[0]^.Position;
- qA:=@SolverPositions[0]^.Orientation;
+ if Physics.ConstraintPositionCorrectionMode=kpcmNonLinearGaussSeidel then begin
 
- cB:=@SolverPositions[1]^.Position;
- qB:=@SolverPositions[1]^.Orientation;
+  cA:=@SolverPositions[0]^.Position;
+  qA:=@SolverPositions[0]^.Orientation;
 
- rA:=Vector3TermQuaternionRotate(Vector3Sub(LocalAnchors[0],LocalCenters[0]),qA^);
- rB:=Vector3TermQuaternionRotate(Vector3Sub(LocalAnchors[1],LocalCenters[1]),qB^);
+  cB:=@SolverPositions[1]^.Position;
+  qB:=@SolverPositions[1]^.Orientation;
 
- SkewSymmetricMatrices[0]:=GetSkewSymmetricMatrixPlus(rA);
- SkewSymmetricMatrices[1]:=GetSkewSymmetricMatrixPlus(rB);
+  rA:=Vector3TermQuaternionRotate(Vector3Sub(LocalAnchors[0],LocalCenters[0]),qA^);
+  rB:=Vector3TermQuaternionRotate(Vector3Sub(LocalAnchors[1],LocalCenters[1]),qB^);
 
- InverseMassOfBodies:=RigidBodies[0].InverseMass+RigidBodies[1].InverseMass;
+  SkewSymmetricMatrices[0]:=GetSkewSymmetricMatrixPlus(rA);
+  SkewSymmetricMatrices[1]:=GetSkewSymmetricMatrixPlus(rB);
 
- if (RigidBodies[0].RigidBodyType=krbtDynamic) or (RigidBodies[1].RigidBodyType=krbtDynamic) then begin
-  MassMatrix[0,0]:=InverseMassOfBodies;
-  MassMatrix[0,1]:=0.0;                              
-  MassMatrix[0,2]:=0.0;
+  InverseMassOfBodies:=RigidBodies[0].InverseMass+RigidBodies[1].InverseMass;
+
+  if (RigidBodies[0].RigidBodyType=krbtDynamic) or (RigidBodies[1].RigidBodyType=krbtDynamic) then begin
+   MassMatrix[0,0]:=InverseMassOfBodies;
+   MassMatrix[0,1]:=0.0;
+   MassMatrix[0,2]:=0.0;
 {$ifdef SIMD}
-  MassMatrix[0,3]:=0.0;
+   MassMatrix[0,3]:=0.0;
 {$endif}
-  MassMatrix[1,0]:=0.0;
-  MassMatrix[1,1]:=InverseMassOfBodies;
-  MassMatrix[1,2]:=0.0;
+   MassMatrix[1,0]:=0.0;
+   MassMatrix[1,1]:=InverseMassOfBodies;
+   MassMatrix[1,2]:=0.0;
 {$ifdef SIMD}
-  MassMatrix[1,3]:=0.0;
+   MassMatrix[1,3]:=0.0;
 {$endif}
-  MassMatrix[2,0]:=0.0;
-  MassMatrix[2,1]:=0.0;
-  MassMatrix[2,2]:=InverseMassOfBodies;
+   MassMatrix[2,0]:=0.0;
+   MassMatrix[2,1]:=0.0;
+   MassMatrix[2,2]:=InverseMassOfBodies;
 {$ifdef SIMD}
-  MassMatrix[2,3]:=0.0;
+   MassMatrix[2,3]:=0.0;
 {$endif}
-  Matrix3x3Add(MassMatrix,Matrix3x3TermMulTranspose(Matrix3x3TermMul(SkewSymmetricMatrices[0],WorldInverseInertiaTensors[0]),SkewSymmetricMatrices[0]));
-  Matrix3x3Add(MassMatrix,Matrix3x3TermMulTranspose(Matrix3x3TermMul(SkewSymmetricMatrices[1],WorldInverseInertiaTensors[1]),SkewSymmetricMatrices[1]));
-  InverseMassMatrixTranslation:=Matrix3x3TermInverse(MassMatrix);
+   Matrix3x3Add(MassMatrix,Matrix3x3TermMulTranspose(Matrix3x3TermMul(SkewSymmetricMatrices[0],WorldInverseInertiaTensors[0]),SkewSymmetricMatrices[0]));
+   Matrix3x3Add(MassMatrix,Matrix3x3TermMulTranspose(Matrix3x3TermMul(SkewSymmetricMatrices[1],WorldInverseInertiaTensors[1]),SkewSymmetricMatrices[1]));
+   InverseMassMatrixTranslation:=Matrix3x3TermInverse(MassMatrix);
+  end else begin
+   InverseMassMatrixTranslation:=Matrix3x3Null;
+  end;
+
+  (**** Translation ****)
+
+  TranslationError:=Vector3Sub(Vector3Add(cB^,rB),Vector3Add(cA^,rA));
+
+  result:=Vector3Length(TranslationError)<Physics.LinearSlop;
+
+  Impulse:=Vector3TermMatrixMul(Vector3Neg(TranslationError),InverseMassMatrixTranslation);
+
+  Vector3DirectSub(cA^,Vector3ScalarMul(Impulse,InverseMasses[0]));
+  QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3Cross(rA,Vector3Neg(Impulse)),WorldInverseInertiaTensors[0]),1.0);
+
+  Vector3DirectAdd(cB^,Vector3ScalarMul(Impulse,InverseMasses[1]));
+  QuaternionDirectSpin(qB^,Vector3TermMatrixMul(Vector3Cross(rB,Impulse),WorldInverseInertiaTensors[1]),1.0);
+
+  (**** Rotation ****)
+
+  if (RigidBodies[0].RigidBodyType=krbtDynamic) or (RigidBodies[1].RigidBodyType=krbtDynamic) then begin
+   InverseMassMatrixRotation:=Matrix3x3TermInverse(Matrix3x3TermAdd(WorldInverseInertiaTensors[0],WorldInverseInertiaTensors[1]));
+  end else begin
+   InverseMassMatrixRotation:=Matrix3x3Null;
+  end;
+
+  CurrentOrientationDifference:=QuaternionTermNormalize(QuaternionMul(qB^,QuaternionInverse(qA^)));
+  qError:=QuaternionMul(CurrentOrientationDifference,InverseInitialOrientationDifference);
+  RotationError.x:=qError.x*2.0;
+  RotationError.y:=qError.y*2.0;
+  RotationError.z:=qError.z*2.0;
+
+  result:=result and (Vector3Length(RotationError)<Physics.AngularSlop);
+
+  Impulse:=Vector3TermMatrixMul(Vector3Neg(RotationError),InverseMassMatrixRotation);
+
+  QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3Neg(Impulse),WorldInverseInertiaTensors[0]),1.0);
+
+  QuaternionDirectSpin(qB^,Vector3TermMatrixMul(Impulse,WorldInverseInertiaTensors[1]),1.0);
+
  end else begin
-  InverseMassMatrixTranslation:=Matrix3x3Null;
+
+  result:=true;
+
  end;
-
- (**** Translation ****)
-
- TranslationError:=Vector3Sub(Vector3Add(cB^,rB),Vector3Add(cA^,rA));
-
- result:=Vector3Length(TranslationError)<Physics.LinearSlop;
-
- Impulse:=Vector3TermMatrixMul(Vector3Neg(TranslationError),InverseMassMatrixTranslation);
-
- Vector3DirectSub(cA^,Vector3ScalarMul(Impulse,InverseMasses[0]));
- QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3Cross(rA,Vector3Neg(Impulse)),WorldInverseInertiaTensors[0]),1.0);
-
- Vector3DirectAdd(cB^,Vector3ScalarMul(Impulse,InverseMasses[1]));
- QuaternionDirectSpin(qB^,Vector3TermMatrixMul(Vector3Cross(rB,Impulse),WorldInverseInertiaTensors[1]),1.0);
-
- (**** Rotation ****)
-
- if (RigidBodies[0].RigidBodyType=krbtDynamic) or (RigidBodies[1].RigidBodyType=krbtDynamic) then begin
-  InverseMassMatrixRotation:=Matrix3x3TermInverse(Matrix3x3TermAdd(WorldInverseInertiaTensors[0],WorldInverseInertiaTensors[1]));
- end else begin
-  InverseMassMatrixRotation:=Matrix3x3Null;
- end;
-
- CurrentOrientationDifference:=QuaternionTermNormalize(QuaternionMul(qB^,QuaternionInverse(qA^)));
- qError:=QuaternionMul(CurrentOrientationDifference,InverseInitialOrientationDifference);
- RotationError.x:=qError.x*2.0;
- RotationError.y:=qError.y*2.0;
- RotationError.z:=qError.z*2.0;
-
- result:=result and (Vector3Length(RotationError)<Physics.AngularSlop);
-
- Impulse:=Vector3TermMatrixMul(Vector3Neg(RotationError),InverseMassMatrixRotation);
-
- QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3Neg(Impulse),WorldInverseInertiaTensors[0]),1.0);
-
- QuaternionDirectSpin(qB^,Vector3TermMatrixMul(Impulse,WorldInverseInertiaTensors[1]),1.0);
 
 end;
 
@@ -25827,16 +25968,16 @@ begin
 end;
 
 constructor TKraftConstraintJointHinge.Create(const APhysics:TKraft;
-                                                      const ARigidBodyA,ARigidBodyB:TKraftRigidBody;
-                                                      const AWorldAnchorPoint:TKraftVector3;
-                                                      const AWorldRotationAxis:TKraftVector3;
-                                                      const ALimitEnabled:boolean=false;
-                                                      const AMotorEnabled:boolean=false;
-                                                      const AMinimumAngleLimit:TKraftScalar=-1.0;
-                                                      const AMaximumAngleLimit:TKraftScalar=1.0;
-                                                      const AMotorSpeed:TKraftScalar=0.0;
-                                                      const AMaximalMotorTorque:TKraftScalar=0.0;
-                                                      const ACollideConnected:boolean=false);
+                                              const ARigidBodyA,ARigidBodyB:TKraftRigidBody;
+                                              const AWorldAnchorPoint:TKraftVector3;
+                                              const AWorldRotationAxis:TKraftVector3;
+                                              const ALimitEnabled:boolean=false;
+                                              const AMotorEnabled:boolean=false;
+                                              const AMinimumAngleLimit:TKraftScalar=-1.0;
+                                              const AMaximumAngleLimit:TKraftScalar=1.0;
+                                              const AMotorSpeed:TKraftScalar=0.0;
+                                              const AMaximalMotorTorque:TKraftScalar=0.0;
+                                              const ACollideConnected:boolean=false);
 begin
 
  LimitState:=ALimitEnabled;
@@ -25866,6 +26007,9 @@ begin
  AccumulatedImpulseMotor:=0.0;
  AccumulatedImpulseTranslation:=Vector3Origin;
  AccumulatedImpulseRotation:=Vector2Origin;
+
+ BiasLowerLimit:=0.0;
+ BiasUpperLimit:=0.0;
 
  InverseInitialOrientationDifference:=QuaternionInverse(QuaternionTermNormalize(QuaternionMul(ARigidBodyB.Sweep.q0,QuaternionInverse(ARigidBodyA.Sweep.q0))));
 
@@ -25942,7 +26086,7 @@ end;
 procedure TKraftConstraintJointHinge.InitializeConstraintsAndWarmStart(const Island:TKraftIsland;const TimeStep:TKraftTimeStep);
 var cA,vA,wA,cB,vB,wB:PKraftVector3;
     qA,qB:PKraftQuaternion;
-    HingeAngle,LowerLimitError,UpperLimitError,InverseMassOfBodies:TKraftScalar;
+    HingeAngle,LowerLimitError,UpperLimitError,InverseMassOfBodies,BiasFactor:TKraftScalar;
     SkewSymmetricMatrices:array[0..1] of TKraftMatrix3x3;
     MassMatrix:TKraftMatrix3x3;
     RotationKMatrix:TKraftMatrix2x2;
@@ -26048,6 +26192,16 @@ begin
   InverseMassMatrixRotation:=Matrix2x2Null;
  end;
 
+ if Physics.ConstraintPositionCorrectionMode=kpcmNonLinearGaussSeidel then begin
+  BiasFactor:=0.0;
+  BiasTranslation:=Vector3Origin;
+  BiasRotation:=Vector2Origin;
+ end else begin
+  BiasFactor:=Physics.ConstraintBaumgarte/TimeStep.DeltaTime;
+  BiasTranslation:=Vector3ScalarMul(Vector3Sub(Vector3Add(cB^,RelativePositions[1]),Vector3Add(cA^,RelativePositions[0])),BiasFactor);
+  BiasRotation:=Vector2ScalarMul(Vector2(Vector3Dot(a1,b2),Vector3Dot(a1,c2)),BiasFactor);
+ end;
+
  if MotorState or (LimitState and (IsLowerLimitViolated or IsUpperLimitViolated)) then begin
   // Compute the inverse of the mass matrix K=JM^-1J^t for the limits and motor (1x1 matrix)
   InverseMassMatrixLimitMotor:=Vector3Dot(a1,Vector3TermMatrixMul(a1,WorldInverseInertiaTensors[0]))+
@@ -26056,6 +26210,13 @@ begin
    InverseMassMatrixLimitMotor:=1.0/InverseMassMatrixLimitMotor;
   end else begin
    InverseMassMatrixLimitMotor:=0.0;
+  end;
+  if Physics.ConstraintPositionCorrectionMode=kpcmNonLinearGaussSeidel then begin
+   BiasLowerLimit:=0.0;
+   BiasUpperLimit:=0.0;
+  end else begin
+   BiasLowerLimit:=LowerLimitError*BiasFactor;
+   BiasUpperLimit:=UpperLimitError*BiasFactor;
   end;
  end;
 
@@ -26113,7 +26274,7 @@ begin
  vpB:=Vector3Add(vB^,Vector3Cross(wB^,RelativePositions[1]));
  Jv:=Vector3Sub(vpB,vpA);
 
- Impulse:=Vector3TermMatrixMul(Vector3Neg(Jv),InverseMassMatrixTranslation);
+ Impulse:=Vector3TermMatrixMul(Vector3Sub(Vector3Neg(Jv),BiasTranslation),InverseMassMatrixTranslation);
 
  AccumulatedImpulseTranslation:=Vector3Add(AccumulatedImpulseTranslation,Impulse);
 
@@ -26124,9 +26285,9 @@ begin
  Vector3DirectAdd(wB^,Vector3TermMatrixMul(Vector3Cross(RelativePositions[1],Impulse),WorldInverseInertiaTensors[1]));
 
  (**** Rotation ****)
-
- JvRotation.x:=Vector3Dot(B2CrossA1,wB^)-Vector3Dot(B2CrossA1,wA^);
- JvRotation.y:=Vector3Dot(C2CrossA1,wB^)-Vector3Dot(C2CrossA1,wA^);
+       
+ JvRotation.x:=(Vector3Dot(B2CrossA1,wB^)-Vector3Dot(B2CrossA1,wA^))+BiasRotation.x;
+ JvRotation.y:=(Vector3Dot(C2CrossA1,wB^)-Vector3Dot(C2CrossA1,wA^))+BiasRotation.y;
 
  RotationImpulse.x:=-((JvRotation.x*InverseMassMatrixRotation[0,0])+(JvRotation.y*InverseMassMatrixRotation[0,1]));
  RotationImpulse.y:=-((JvRotation.x*InverseMassMatrixRotation[1,0])+(JvRotation.y*InverseMassMatrixRotation[1,1]));
@@ -26135,7 +26296,7 @@ begin
  AccumulatedImpulseRotation.y:=AccumulatedImpulseRotation.y+RotationImpulse.y;
 
  Impulse:=Vector3Add(Vector3ScalarMul(B2CrossA1,RotationImpulse.x),
-                         Vector3ScalarMul(C2CrossA1,RotationImpulse.y));
+                     Vector3ScalarMul(C2CrossA1,RotationImpulse.y));
 
  Vector3DirectSub(wA^,Vector3TermMatrixMul(Impulse,WorldInverseInertiaTensors[0]));
 
@@ -26146,7 +26307,7 @@ begin
  if LimitState then begin
   if IsLowerLimitViolated then begin
    JvLowerLimit:=Vector3Dot(Vector3Sub(wB^,wA^),a1);
-   ImpulseLower:=InverseMassMatrixLimitMotor*(-JvLowerLimit);
+   ImpulseLower:=InverseMassMatrixLimitMotor*(-(JvLowerLimit+BiasLowerLimit));
    LambdaTemp:=AccumulatedImpulseLowerLimit;
    AccumulatedImpulseLowerLimit:=Max(0.0,AccumulatedImpulseLowerLimit+ImpulseLower);
    ImpulseLower:=AccumulatedImpulseLowerLimit-LambdaTemp;
@@ -26156,7 +26317,7 @@ begin
   end;
   if IsUpperLimitViolated then begin
    JvUpperLimit:=-Vector3Dot(Vector3Sub(wB^,wA^),a1);
-   ImpulseUpper:=InverseMassMatrixLimitMotor*(-JvUpperLimit);
+   ImpulseUpper:=InverseMassMatrixLimitMotor*(-(JvUpperLimit++BiasUpperLimit));
    LambdaTemp:=AccumulatedImpulseUpperLimit;
    AccumulatedImpulseUpperLimit:=Max(0.0,AccumulatedImpulseUpperLimit+ImpulseUpper);
    ImpulseUpper:=-(AccumulatedImpulseUpperLimit-LambdaTemp);
@@ -26193,123 +26354,131 @@ var cA,cB:PKraftVector3;
     RotationKMatrix:TKraftMatrix2x2;
 begin
 
- cA:=@SolverPositions[0]^.Position;
- qA:=@SolverPositions[0]^.Orientation;
+ if Physics.ConstraintPositionCorrectionMode=kpcmNonLinearGaussSeidel then begin
 
- cB:=@SolverPositions[1]^.Position;
- qB:=@SolverPositions[1]^.Orientation;
+  cA:=@SolverPositions[0]^.Position;
+  qA:=@SolverPositions[0]^.Orientation;
 
- rA:=Vector3TermQuaternionRotate(Vector3Sub(LocalAnchors[0],LocalCenters[0]),qA^);
- rB:=Vector3TermQuaternionRotate(Vector3Sub(LocalAnchors[1],LocalCenters[1]),qB^);
+  cB:=@SolverPositions[1]^.Position;
+  qB:=@SolverPositions[1]^.Orientation;
 
- HingeAngle:=ComputeCurrentHingeAngle(qA^,qB^);
+  rA:=Vector3TermQuaternionRotate(Vector3Sub(LocalAnchors[0],LocalCenters[0]),qA^);
+  rB:=Vector3TermQuaternionRotate(Vector3Sub(LocalAnchors[1],LocalCenters[1]),qB^);
 
- LowerLimitError:=HingeAngle-LowerLimit;
- UpperLimitError:=UpperLimit-HingeAngle;
- IsLowerLimitViolated:=LowerLimitError<=0.0;
- IsUpperLimitViolated:=UpperLimitError<=0.0;
+  HingeAngle:=ComputeCurrentHingeAngle(qA^,qB^);
 
- a1:=Vector3NormEx(Vector3TermQuaternionRotate(LocalAxes[0],qA^));
- a2:=Vector3NormEx(Vector3TermQuaternionRotate(LocalAxes[1],qB^));
- b2:=Vector3GetOneUnitOrthogonalVector(a2);
- c2:=Vector3Cross(a2,b2);
- B2CrossA1:=Vector3Cross(b2,a1);
- C2CrossA1:=Vector3Cross(c2,a1);
+  LowerLimitError:=HingeAngle-LowerLimit;
+  UpperLimitError:=UpperLimit-HingeAngle;
+  IsLowerLimitViolated:=LowerLimitError<=0.0;
+  IsUpperLimitViolated:=UpperLimitError<=0.0;
 
- SkewSymmetricMatrices[0]:=GetSkewSymmetricMatrixPlus(rA);
- SkewSymmetricMatrices[1]:=GetSkewSymmetricMatrixPlus(rB);
+  a1:=Vector3NormEx(Vector3TermQuaternionRotate(LocalAxes[0],qA^));
+  a2:=Vector3NormEx(Vector3TermQuaternionRotate(LocalAxes[1],qB^));
+  b2:=Vector3GetOneUnitOrthogonalVector(a2);
+  c2:=Vector3Cross(a2,b2);
+  B2CrossA1:=Vector3Cross(b2,a1);
+  C2CrossA1:=Vector3Cross(c2,a1);
 
- (**** Translation ****)
+  SkewSymmetricMatrices[0]:=GetSkewSymmetricMatrixPlus(rA);
+  SkewSymmetricMatrices[1]:=GetSkewSymmetricMatrixPlus(rB);
 
- InverseMassOfBodies:=RigidBodies[0].InverseMass+RigidBodies[1].InverseMass;
+  (**** Translation ****)
 
- if (RigidBodies[0].RigidBodyType=krbtDynamic) or (RigidBodies[1].RigidBodyType=krbtDynamic) then begin
-  MassMatrix[0,0]:=InverseMassOfBodies;
-  MassMatrix[0,1]:=0.0;
-  MassMatrix[0,2]:=0.0;
-{$ifdef SIMD}
-  MassMatrix[0,3]:=0.0;
-{$endif}
-  MassMatrix[1,0]:=0.0;
-  MassMatrix[1,1]:=InverseMassOfBodies;
-  MassMatrix[1,2]:=0.0;
-{$ifdef SIMD}
-  MassMatrix[1,3]:=0.0;
-{$endif}
-  MassMatrix[2,0]:=0.0;
-  MassMatrix[2,1]:=0.0;
-  MassMatrix[2,2]:=InverseMassOfBodies;
-{$ifdef SIMD}
-  MassMatrix[2,3]:=0.0;
-{$endif}
-  Matrix3x3Add(MassMatrix,Matrix3x3TermMulTranspose(Matrix3x3TermMul(SkewSymmetricMatrices[0],WorldInverseInertiaTensors[0]),SkewSymmetricMatrices[0]));
-  Matrix3x3Add(MassMatrix,Matrix3x3TermMulTranspose(Matrix3x3TermMul(SkewSymmetricMatrices[1],WorldInverseInertiaTensors[1]),SkewSymmetricMatrices[1]));
-  InverseMassMatrixTranslation:=Matrix3x3TermInverse(MassMatrix);
- end else begin
-  InverseMassMatrixTranslation:=Matrix3x3Null;
- end;
+  InverseMassOfBodies:=RigidBodies[0].InverseMass+RigidBodies[1].InverseMass;
 
- TranslationError:=Vector3Sub(Vector3Add(cB^,rB),Vector3Add(cA^,rA));
+  if (RigidBodies[0].RigidBodyType=krbtDynamic) or (RigidBodies[1].RigidBodyType=krbtDynamic) then begin
+   MassMatrix[0,0]:=InverseMassOfBodies;
+   MassMatrix[0,1]:=0.0;
+   MassMatrix[0,2]:=0.0;
+ {$ifdef SIMD}
+   MassMatrix[0,3]:=0.0;
+ {$endif}
+   MassMatrix[1,0]:=0.0;
+   MassMatrix[1,1]:=InverseMassOfBodies;
+   MassMatrix[1,2]:=0.0;
+ {$ifdef SIMD}
+   MassMatrix[1,3]:=0.0;
+ {$endif}
+   MassMatrix[2,0]:=0.0;
+   MassMatrix[2,1]:=0.0;
+   MassMatrix[2,2]:=InverseMassOfBodies;
+ {$ifdef SIMD}
+   MassMatrix[2,3]:=0.0;
+ {$endif}
+   Matrix3x3Add(MassMatrix,Matrix3x3TermMulTranspose(Matrix3x3TermMul(SkewSymmetricMatrices[0],WorldInverseInertiaTensors[0]),SkewSymmetricMatrices[0]));
+   Matrix3x3Add(MassMatrix,Matrix3x3TermMulTranspose(Matrix3x3TermMul(SkewSymmetricMatrices[1],WorldInverseInertiaTensors[1]),SkewSymmetricMatrices[1]));
+   InverseMassMatrixTranslation:=Matrix3x3TermInverse(MassMatrix);
+  end else begin
+   InverseMassMatrixTranslation:=Matrix3x3Null;
+  end;
 
- result:=Vector3Length(TranslationError)<Physics.LinearSlop;
+  TranslationError:=Vector3Sub(Vector3Add(cB^,rB),Vector3Add(cA^,rA));
 
- Impulse:=Vector3TermMatrixMul(Vector3Neg(TranslationError),InverseMassMatrixTranslation);
+  result:=Vector3Length(TranslationError)<Physics.LinearSlop;
 
- Vector3DirectSub(cA^,Vector3ScalarMul(Impulse,InverseMasses[0]));
- QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3Cross(rA,Vector3Neg(Impulse)),WorldInverseInertiaTensors[0]),1.0);
+  Impulse:=Vector3TermMatrixMul(Vector3Neg(TranslationError),InverseMassMatrixTranslation);
 
- Vector3DirectAdd(cB^,Vector3ScalarMul(Impulse,InverseMasses[1]));
- QuaternionDirectSpin(qB^,Vector3TermMatrixMul(Vector3Cross(rB,Impulse),WorldInverseInertiaTensors[1]),1.0);
+  Vector3DirectSub(cA^,Vector3ScalarMul(Impulse,InverseMasses[0]));
+  QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3Cross(rA,Vector3Neg(Impulse)),WorldInverseInertiaTensors[0]),1.0);
 
- (**** Rotation ****)
+  Vector3DirectAdd(cB^,Vector3ScalarMul(Impulse,InverseMasses[1]));
+  QuaternionDirectSpin(qB^,Vector3TermMatrixMul(Vector3Cross(rB,Impulse),WorldInverseInertiaTensors[1]),1.0);
 
- I1B2CrossA1:=Vector3TermMatrixMul(B2CrossA1,WorldInverseInertiaTensors[0]);
- I1C2CrossA1:=Vector3TermMatrixMul(C2CrossA1,WorldInverseInertiaTensors[0]);
- I2B2CrossA1:=Vector3TermMatrixMul(B2CrossA1,WorldInverseInertiaTensors[1]);
- I2C2CrossA1:=Vector3TermMatrixMul(C2CrossA1,WorldInverseInertiaTensors[1]);
- RotationKMatrix[0,0]:=Vector3Dot(B2CrossA1,I1B2CrossA1)+Vector3Dot(B2CrossA1,I2B2CrossA1);
- RotationKMatrix[0,1]:=Vector3Dot(B2CrossA1,I1C2CrossA1)+Vector3Dot(B2CrossA1,I2C2CrossA1);
- RotationKMatrix[1,0]:=Vector3Dot(C2CrossA1,I1B2CrossA1)+Vector3Dot(C2CrossA1,I2B2CrossA1);
- RotationKMatrix[1,1]:=Vector3Dot(C2CrossA1,I1C2CrossA1)+Vector3Dot(C2CrossA1,I2C2CrossA1);
- if (RigidBodies[0].RigidBodyType=krbtDynamic) or (RigidBodies[1].RigidBodyType=krbtDynamic) then begin
-  Matrix2x2Inverse(InverseMassMatrixRotation,RotationKMatrix);
- end else begin
-  InverseMassMatrixRotation:=Matrix2x2Null;
- end;
+  (**** Rotation ****)
 
- RotationError.x:=Vector3Dot(a1,b2);
- RotationError.y:=Vector3Dot(a1,c2);            
+  I1B2CrossA1:=Vector3TermMatrixMul(B2CrossA1,WorldInverseInertiaTensors[0]);
+  I1C2CrossA1:=Vector3TermMatrixMul(C2CrossA1,WorldInverseInertiaTensors[0]);
+  I2B2CrossA1:=Vector3TermMatrixMul(B2CrossA1,WorldInverseInertiaTensors[1]);
+  I2C2CrossA1:=Vector3TermMatrixMul(C2CrossA1,WorldInverseInertiaTensors[1]);
+  RotationKMatrix[0,0]:=Vector3Dot(B2CrossA1,I1B2CrossA1)+Vector3Dot(B2CrossA1,I2B2CrossA1);
+  RotationKMatrix[0,1]:=Vector3Dot(B2CrossA1,I1C2CrossA1)+Vector3Dot(B2CrossA1,I2C2CrossA1);
+  RotationKMatrix[1,0]:=Vector3Dot(C2CrossA1,I1B2CrossA1)+Vector3Dot(C2CrossA1,I2B2CrossA1);
+  RotationKMatrix[1,1]:=Vector3Dot(C2CrossA1,I1C2CrossA1)+Vector3Dot(C2CrossA1,I2C2CrossA1);
+  if (RigidBodies[0].RigidBodyType=krbtDynamic) or (RigidBodies[1].RigidBodyType=krbtDynamic) then begin
+   Matrix2x2Inverse(InverseMassMatrixRotation,RotationKMatrix);
+  end else begin
+   InverseMassMatrixRotation:=Matrix2x2Null;
+  end;
 
- result:=result and (Vector2Length(RotationError)<Physics.AngularSlop);
+  RotationError.x:=Vector3Dot(a1,b2);
+  RotationError.y:=Vector3Dot(a1,c2);            
 
- RotationImpulse.x:=-((RotationError.x*InverseMassMatrixRotation[0,0])+(RotationError.y*InverseMassMatrixRotation[0,1]));
- RotationImpulse.y:=-((RotationError.x*InverseMassMatrixRotation[1,0])+(RotationError.y*InverseMassMatrixRotation[1,1]));
+  result:=result and (Vector2Length(RotationError)<Physics.AngularSlop);
 
- Impulse:=Vector3Add(Vector3ScalarMul(B2CrossA1,RotationImpulse.x),Vector3ScalarMul(C2CrossA1,RotationImpulse.y));
+  RotationImpulse.x:=-((RotationError.x*InverseMassMatrixRotation[0,0])+(RotationError.y*InverseMassMatrixRotation[0,1]));
+  RotationImpulse.y:=-((RotationError.x*InverseMassMatrixRotation[1,0])+(RotationError.y*InverseMassMatrixRotation[1,1]));
 
- QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3Neg(Impulse),WorldInverseInertiaTensors[0]),1.0);
+  Impulse:=Vector3Add(Vector3ScalarMul(B2CrossA1,RotationImpulse.x),Vector3ScalarMul(C2CrossA1,RotationImpulse.y));
 
- QuaternionDirectSpin(qB^,Vector3TermMatrixMul(Impulse,WorldInverseInertiaTensors[1]),1.0);
+  QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3Neg(Impulse),WorldInverseInertiaTensors[0]),1.0);
 
- (**** Limits ****)
+  QuaternionDirectSpin(qB^,Vector3TermMatrixMul(Impulse,WorldInverseInertiaTensors[1]),1.0);
+
+  (**** Limits ****)
  
- if LimitState then begin
-  if IsLowerLimitViolated then begin
-   ImpulseLower:=InverseMassMatrixLimitMotor*(-LowerLimitError);
-   result:=result and (ImpulseLower<Physics.AngularSlop);
-   Impulse:=Vector3ScalarMul(a1,ImpulseLower);
-   QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3Neg(Impulse),WorldInverseInertiaTensors[0]),1.0);
-   QuaternionDirectSpin(qB^,Vector3TermMatrixMul(Impulse,WorldInverseInertiaTensors[1]),1.0);
+  if LimitState then begin
+   if IsLowerLimitViolated then begin
+    ImpulseLower:=InverseMassMatrixLimitMotor*(-LowerLimitError);
+    result:=result and (ImpulseLower<Physics.AngularSlop);
+    Impulse:=Vector3ScalarMul(a1,ImpulseLower);
+    QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3Neg(Impulse),WorldInverseInertiaTensors[0]),1.0);
+    QuaternionDirectSpin(qB^,Vector3TermMatrixMul(Impulse,WorldInverseInertiaTensors[1]),1.0);
+   end;
+   if IsUpperLimitViolated then begin
+    ImpulseUpper:=InverseMassMatrixLimitMotor*(-UpperLimitError);
+    result:=result and (ImpulseUpper<Physics.AngularSlop);
+    Impulse:=Vector3ScalarMul(a1,-ImpulseUpper);
+    QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3Neg(Impulse),WorldInverseInertiaTensors[0]),1.0);
+    QuaternionDirectSpin(qB^,Vector3TermMatrixMul(Impulse,WorldInverseInertiaTensors[1]),1.0);
+   end;
   end;
-  if IsUpperLimitViolated then begin
-   ImpulseUpper:=InverseMassMatrixLimitMotor*(-UpperLimitError);
-   result:=result and (ImpulseUpper<Physics.AngularSlop);
-   Impulse:=Vector3ScalarMul(a1,-ImpulseUpper);
-   QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3Neg(Impulse),WorldInverseInertiaTensors[0]),1.0);
-   QuaternionDirectSpin(qB^,Vector3TermMatrixMul(Impulse,WorldInverseInertiaTensors[1]),1.0);
-  end;
- end;
 
+ end else begin
+
+  result:=true;
+  
+ end;
+ 
 end;
 
 function TKraftConstraintJointHinge.GetAnchorA:TKraftVector3;
@@ -26436,16 +26605,16 @@ begin
 end;
 
 constructor TKraftConstraintJointSlider.Create(const APhysics:TKraft;
-                                                       const ARigidBodyA,ARigidBodyB:TKraftRigidBody;
-                                                       const AWorldAnchorPoint:TKraftVector3;
-                                                       const AWorldSliderAxis:TKraftVector3;
-                                                       const ALimitEnabled:boolean=false;
-                                                       const AMotorEnabled:boolean=false;
-                                                       const AMinimumTranslationLimit:TKraftScalar=-1.0;
-                                                       const AMaximumTranslationLimit:TKraftScalar=1.0;
-                                                       const AMotorSpeed:TKraftScalar=0.0;
-                                                       const AMaximalMotorForce:TKraftScalar=0.0;
-                                                       const ACollideConnected:boolean=false);
+                                               const ARigidBodyA,ARigidBodyB:TKraftRigidBody;
+                                               const AWorldAnchorPoint:TKraftVector3;
+                                               const AWorldSliderAxis:TKraftVector3;
+                                               const ALimitEnabled:boolean=false;
+                                               const AMotorEnabled:boolean=false;
+                                               const AMinimumTranslationLimit:TKraftScalar=-1.0;
+                                               const AMaximumTranslationLimit:TKraftScalar=1.0;
+                                               const AMotorSpeed:TKraftScalar=0.0;
+                                               const AMaximalMotorForce:TKraftScalar=0.0;
+                                               const ACollideConnected:boolean=false);
 begin
 
  LimitState:=ALimitEnabled;
@@ -26471,6 +26640,9 @@ begin
  AccumulatedImpulseTranslation:=Vector2Origin;
  AccumulatedImpulseRotation:=Vector3Origin;
 
+ BiasLowerLimit:=0.0;
+ BiasUpperLimit:=0.0;
+
  InverseInitialOrientationDifference:=QuaternionInverse(QuaternionTermNormalize(QuaternionMul(ARigidBodyB.Sweep.q0,QuaternionInverse(ARigidBodyA.Sweep.q0))));
 
  if ACollideConnected then begin
@@ -26494,11 +26666,12 @@ end;
 procedure TKraftConstraintJointSlider.InitializeConstraintsAndWarmStart(const Island:TKraftIsland;const TimeStep:TKraftTimeStep);
 var cA,vA,wA,cB,vB,wB:PKraftVector3;
     qA,qB:PKraftQuaternion;
-    uDotSliderAxis,LowerLimitError,UpperLimitError,InverseMassOfBodies,ImpulseLimits:TKraftScalar;
+    uDotSliderAxis,LowerLimitError,UpperLimitError,InverseMassOfBodies,ImpulseLimits,BiasFactor:TKraftScalar;
     TranslationKMatrix:TKraftMatrix2x2;
     OldIsLowerLimitViolated,OldIsUpperLimitViolated:boolean;
     u,R1PlusU,I1R1PlusUCrossN1,I1R1PlusUCrossN2,I2R2CrossN1,I2R2CrossN2,
     LinearImpulseLimits,ImpulseMotor,LinearImpulse,AngularImpulseA,AngularImpulseB:TKraftVector3;
+    CurrentOrientationDifference,qError:TKraftQuaternion;
 begin
 
  IslandIndices[0]:=RigidBodies[0].IslandIndices[Island.IslandIndex];
@@ -26579,6 +26752,26 @@ begin
   InverseMassMatrixRotationConstraint:=Matrix3x3Null;
  end;
 
+ if Physics.ConstraintPositionCorrectionMode=kpcmNonLinearGaussSeidel then begin
+
+  BiasFactor:=0.0;
+
+  BiasTranslation:=Vector2Origin;
+
+  BiasRotation:=Vector3Origin;
+
+ end else begin
+
+  BiasFactor:=Physics.ConstraintBaumgarte/TimeStep.DeltaTime;
+
+  BiasTranslation:=Vector2ScalarMul(Vector2(Vector3Dot(u,N1),Vector3Dot(u,N2)),BiasFactor);
+
+  CurrentOrientationDifference:=QuaternionTermNormalize(QuaternionMul(qB^,QuaternionInverse(qA^)));
+  qError:=QuaternionMul(CurrentOrientationDifference,InverseInitialOrientationDifference);
+  BiasRotation:=Vector3ScalarMul(Vector3(qError.x,qError.y,qError.z),BiasFactor*2.0);
+
+ end;
+
  if LimitState and (IsLowerLimitViolated or IsUpperLimitViolated) then begin
   // Compute the inverse of the mass matrix K=JM^-1J^t for the limits (1x1 matrix)
   InverseMassMatrixLimit:=InverseMassOfBodies+
@@ -26589,8 +26782,15 @@ begin
   end else begin
    InverseMassMatrixLimit:=0.0;
   end;
+  if Physics.ConstraintPositionCorrectionMode=kpcmNonLinearGaussSeidel then begin
+   BiasLowerLimit:=0.0;
+   BiasUpperLimit:=0.0;
+  end else begin
+   BiasLowerLimit:=LowerLimitError*BiasFactor;
+   BiasUpperLimit:=UpperLimitError*BiasFactor;
+  end;
  end;
-            
+
  if MotorState then begin
   // Compute the inverse of the mass matrix K=JM^-1J^t for the motor (1x1 matrix)
   InverseMassMatrixMotor:=InverseMassOfBodies;
@@ -26603,7 +26803,7 @@ begin
 
  if Physics.WarmStarting then begin
 
-    // Compute the impulse P=J^T * lambda for the lower and upper limits constraints of body A
+  // Compute the impulse P=J^T * lambda for the lower and upper limits constraints of body A
   ImpulseLimits:=AccumulatedImpulseLowerLimit-AccumulatedImpulseUpperLimit;
   LinearImpulseLimits:=Vector3ScalarMul(SliderAxisWorld,ImpulseLimits);
 
@@ -26662,8 +26862,8 @@ begin
  (**** Translation ****)
 
  // Compute J*v for the 2 translation constraints
- JvTranslation.x:=(Vector3Dot(N1,vB^)+Vector3Dot(wB^,R2CrossN1))-(Vector3Dot(N1,vA^)+Vector3Dot(wA^,R1PlusUCrossN1));
- JvTranslation.y:=(Vector3Dot(N2,vB^)+Vector3Dot(wB^,R2CrossN2))-(Vector3Dot(N2,vA^)+Vector3Dot(wA^,R1PlusUCrossN2));
+ JvTranslation.x:=((Vector3Dot(N1,vB^)+Vector3Dot(wB^,R2CrossN1))-(Vector3Dot(N1,vA^)+Vector3Dot(wA^,R1PlusUCrossN1)))+BiasTranslation.x;
+ JvTranslation.y:=((Vector3Dot(N2,vB^)+Vector3Dot(wB^,R2CrossN2))-(Vector3Dot(N2,vA^)+Vector3Dot(wA^,R1PlusUCrossN2)))+BiasTranslation.y;
 
  TranslationImpulse.x:=-((JvTranslation.x*InverseMassMatrixTranslationConstraint[0,0])+(JvTranslation.y*InverseMassMatrixTranslationConstraint[0,1]));
  TranslationImpulse.y:=-((JvTranslation.x*InverseMassMatrixTranslationConstraint[1,0])+(JvTranslation.y*InverseMassMatrixTranslationConstraint[1,1]));
@@ -26690,7 +26890,7 @@ begin
 
  JvRotation:=Vector3Sub(wB^,wA^);
 
- RotationImpulse:=Vector3TermMatrixMul(Vector3Neg(JvRotation),InverseMassMatrixRotationConstraint);
+ RotationImpulse:=Vector3TermMatrixMul(Vector3Sub(Vector3Neg(JvRotation),BiasRotation),InverseMassMatrixRotationConstraint);
 
  Vector3DirectAdd(AccumulatedImpulseRotation,RotationImpulse);
 
@@ -26703,7 +26903,7 @@ begin
  if LimitState then begin
   if IsLowerLimitViolated then begin
    JvLowerLimit:=(Vector3Dot(SliderAxisWorld,vB^)+Vector3Dot(R2CrossSliderAxis,wB^))-(Vector3Dot(SliderAxisWorld,vA^)+Vector3Dot(R1PlusUCrossSliderAxis,wA^));
-   ImpulseLower:=InverseMassMatrixLimit*(-JvLowerLimit);
+   ImpulseLower:=InverseMassMatrixLimit*(-(JvLowerLimit+BiasLowerLimit));
    LambdaTemp:=AccumulatedImpulseLowerLimit;
    AccumulatedImpulseLowerLimit:=Max(0.0,AccumulatedImpulseLowerLimit+ImpulseLower);
    ImpulseLower:=AccumulatedImpulseLowerLimit-LambdaTemp;
@@ -26717,7 +26917,7 @@ begin
   end;
   if IsUpperLimitViolated then begin
    JvUpperLimit:=(Vector3Dot(SliderAxisWorld,vA^)+Vector3Dot(R1PlusUCrossSliderAxis,wA^))-(Vector3Dot(SliderAxisWorld,vB^)+Vector3Dot(R2CrossSliderAxis,wB^));
-   ImpulseUpper:=InverseMassMatrixLimit*(-JvUpperLimit);
+   ImpulseUpper:=InverseMassMatrixLimit*(-(JvUpperLimit+BiasUpperLimit));
    LambdaTemp:=AccumulatedImpulseUpperLimit;
    AccumulatedImpulseUpperLimit:=Max(0.0,AccumulatedImpulseUpperLimit+ImpulseUpper);
    ImpulseUpper:=-(AccumulatedImpulseUpperLimit-LambdaTemp);
@@ -26758,137 +26958,145 @@ var cA,cB:PKraftVector3;
     CurrentOrientationDifference,qError:TKraftQuaternion;
 begin
 
- cA:=@SolverPositions[0]^.Position;
- qA:=@SolverPositions[0]^.Orientation;
+ if Physics.ConstraintPositionCorrectionMode=kpcmNonLinearGaussSeidel then begin
 
- cB:=@SolverPositions[1]^.Position;
- qB:=@SolverPositions[1]^.Orientation;
+  cA:=@SolverPositions[0]^.Position;
+  qA:=@SolverPositions[0]^.Orientation;
 
- rA:=Vector3TermQuaternionRotate(Vector3Sub(LocalAnchors[0],LocalCenters[0]),qA^);
- rB:=Vector3TermQuaternionRotate(Vector3Sub(LocalAnchors[1],LocalCenters[1]),qB^);
+  cB:=@SolverPositions[1]^.Position;
+  qB:=@SolverPositions[1]^.Orientation;
 
- u:=Vector3Sub(Vector3Add(cB^,rB),Vector3Add(cA^,rA));
+  rA:=Vector3TermQuaternionRotate(Vector3Sub(LocalAnchors[0],LocalCenters[0]),qA^);
+  rB:=Vector3TermQuaternionRotate(Vector3Sub(LocalAnchors[1],LocalCenters[1]),qB^);
 
- SliderAxisWorld:=Vector3NormEx(Vector3TermQuaternionRotate(SliderAxisBodyA,qA^));
+  u:=Vector3Sub(Vector3Add(cB^,rB),Vector3Add(cA^,rA));
 
- N1:=Vector3GetOneUnitOrthogonalVector(SliderAxisWorld);
- N2:=Vector3Cross(SliderAxisWorld,N1);
+  SliderAxisWorld:=Vector3NormEx(Vector3TermQuaternionRotate(SliderAxisBodyA,qA^));
 
- uDotSliderAxis:=Vector3Dot(u,SliderAxisWorld);
+  N1:=Vector3GetOneUnitOrthogonalVector(SliderAxisWorld);
+  N2:=Vector3Cross(SliderAxisWorld,N1);
 
- LowerLimitError:=uDotSliderAxis-LowerLimit;
- UpperLimitError:=UpperLimit-uDotSliderAxis;
- IsLowerLimitViolated:=LowerLimitError<=0.0;
- IsUpperLimitViolated:=UpperLimitError<=0.0;
+  uDotSliderAxis:=Vector3Dot(u,SliderAxisWorld);
 
- R2CrossN1:=Vector3Cross(RelativePositions[1],N1);
- R2CrossN2:=Vector3Cross(RelativePositions[1],N2);
- R2CrossSliderAxis:=Vector3Cross(RelativePositions[1],SliderAxisWorld);
- R1PlusU:=Vector3Cross(RelativePositions[0],u);
- R1PlusUCrossN1:=Vector3Cross(R1PlusU,N1);
- R1PlusUCrossN2:=Vector3Cross(R1PlusU,N2);
- R1PlusUCrossSliderAxis:=Vector3Cross(R1PlusU,SliderAxisWorld);
+  LowerLimitError:=uDotSliderAxis-LowerLimit;
+  UpperLimitError:=UpperLimit-uDotSliderAxis;
+  IsLowerLimitViolated:=LowerLimitError<=0.0;
+  IsUpperLimitViolated:=UpperLimitError<=0.0;
 
- (**** Translation ****)
+  R2CrossN1:=Vector3Cross(RelativePositions[1],N1);
+  R2CrossN2:=Vector3Cross(RelativePositions[1],N2);
+  R2CrossSliderAxis:=Vector3Cross(RelativePositions[1],SliderAxisWorld);
+  R1PlusU:=Vector3Cross(RelativePositions[0],u);
+  R1PlusUCrossN1:=Vector3Cross(R1PlusU,N1);
+  R1PlusUCrossN2:=Vector3Cross(R1PlusU,N2);
+  R1PlusUCrossSliderAxis:=Vector3Cross(R1PlusU,SliderAxisWorld);
 
- InverseMassOfBodies:=RigidBodies[0].InverseMass+RigidBodies[1].InverseMass;
+  (**** Translation ****)
 
- I1R1PlusUCrossN1:=Vector3TermMatrixMul(R1PlusUCrossN1,WorldInverseInertiaTensors[0]);
- I1R1PlusUCrossN2:=Vector3TermMatrixMul(R1PlusUCrossN2,WorldInverseInertiaTensors[0]);
- I2R2CrossN1:=Vector3TermMatrixMul(R2CrossN1,WorldInverseInertiaTensors[1]);
- I2R2CrossN2:=Vector3TermMatrixMul(R2CrossN2,WorldInverseInertiaTensors[1]);
- TranslationKMatrix[0,0]:=InverseMassOfBodies+Vector3Dot(R1PlusUCrossN1,I1R1PlusUCrossN1)+Vector3Dot(R2CrossN1,I2R2CrossN1);
- TranslationKMatrix[0,1]:=Vector3Dot(R1PlusUCrossN1,I1R1PlusUCrossN2)+Vector3Dot(R2CrossN1,I2R2CrossN2);
- TranslationKMatrix[1,0]:=Vector3Dot(R1PlusUCrossN2,I1R1PlusUCrossN1)+Vector3Dot(R2CrossN2,I2R2CrossN1);
- TranslationKMatrix[1,1]:=InverseMassOfBodies+Vector3Dot(R1PlusUCrossN2,I1R1PlusUCrossN2)+Vector3Dot(R2CrossN2,I2R2CrossN2);
- if (RigidBodies[0].RigidBodyType=krbtDynamic) or (RigidBodies[1].RigidBodyType=krbtDynamic) then begin
-  Matrix2x2Inverse(InverseMassMatrixTranslationConstraint,TranslationKMatrix);
- end else begin
-  InverseMassMatrixRotationConstraint:=Matrix3x3Null;
- end;
+  InverseMassOfBodies:=RigidBodies[0].InverseMass+RigidBodies[1].InverseMass;
 
- TranslationError.x:=Vector3Dot(u,N1);
- TranslationError.y:=Vector3Dot(u,N2);
+  I1R1PlusUCrossN1:=Vector3TermMatrixMul(R1PlusUCrossN1,WorldInverseInertiaTensors[0]);
+  I1R1PlusUCrossN2:=Vector3TermMatrixMul(R1PlusUCrossN2,WorldInverseInertiaTensors[0]);
+  I2R2CrossN1:=Vector3TermMatrixMul(R2CrossN1,WorldInverseInertiaTensors[1]);
+  I2R2CrossN2:=Vector3TermMatrixMul(R2CrossN2,WorldInverseInertiaTensors[1]);
+  TranslationKMatrix[0,0]:=InverseMassOfBodies+Vector3Dot(R1PlusUCrossN1,I1R1PlusUCrossN1)+Vector3Dot(R2CrossN1,I2R2CrossN1);
+  TranslationKMatrix[0,1]:=Vector3Dot(R1PlusUCrossN1,I1R1PlusUCrossN2)+Vector3Dot(R2CrossN1,I2R2CrossN2);
+  TranslationKMatrix[1,0]:=Vector3Dot(R1PlusUCrossN2,I1R1PlusUCrossN1)+Vector3Dot(R2CrossN2,I2R2CrossN1);
+  TranslationKMatrix[1,1]:=InverseMassOfBodies+Vector3Dot(R1PlusUCrossN2,I1R1PlusUCrossN2)+Vector3Dot(R2CrossN2,I2R2CrossN2);
+  if (RigidBodies[0].RigidBodyType=krbtDynamic) or (RigidBodies[1].RigidBodyType=krbtDynamic) then begin
+   Matrix2x2Inverse(InverseMassMatrixTranslationConstraint,TranslationKMatrix);
+  end else begin
+   InverseMassMatrixRotationConstraint:=Matrix3x3Null;
+  end;
 
- TranslationImpulse.x:=-((TranslationError.x*InverseMassMatrixTranslationConstraint[0,0])+(TranslationError.y*InverseMassMatrixTranslationConstraint[0,1]));
- TranslationImpulse.y:=-((TranslationError.x*InverseMassMatrixTranslationConstraint[1,0])+(TranslationError.y*InverseMassMatrixTranslationConstraint[1,1]));
+  TranslationError.x:=Vector3Dot(u,N1);
+  TranslationError.y:=Vector3Dot(u,N2);
 
- LinearImpulse:=Vector3Add(Vector3ScalarMul(N1,TranslationImpulse.x),
-                           Vector3ScalarMul(N2,TranslationImpulse.y));
+  TranslationImpulse.x:=-((TranslationError.x*InverseMassMatrixTranslationConstraint[0,0])+(TranslationError.y*InverseMassMatrixTranslationConstraint[0,1]));
+  TranslationImpulse.y:=-((TranslationError.x*InverseMassMatrixTranslationConstraint[1,0])+(TranslationError.y*InverseMassMatrixTranslationConstraint[1,1]));
 
- AngularImpulseA:=Vector3Add(Vector3ScalarMul(R1PlusUCrossN1,TranslationImpulse.x),
-                             Vector3ScalarMul(R1PlusUCrossN2,TranslationImpulse.y));
+  LinearImpulse:=Vector3Add(Vector3ScalarMul(N1,TranslationImpulse.x),
+                            Vector3ScalarMul(N2,TranslationImpulse.y));
 
- AngularImpulseB:=Vector3Add(Vector3ScalarMul(R2CrossN1,TranslationImpulse.x),
-                             Vector3ScalarMul(R2CrossN2,TranslationImpulse.y));
+  AngularImpulseA:=Vector3Add(Vector3ScalarMul(R1PlusUCrossN1,TranslationImpulse.x),
+                              Vector3ScalarMul(R1PlusUCrossN2,TranslationImpulse.y));
 
- result:=Vector2Length(TranslationError)<Physics.LinearSlop;
+  AngularImpulseB:=Vector3Add(Vector3ScalarMul(R2CrossN1,TranslationImpulse.x),
+                              Vector3ScalarMul(R2CrossN2,TranslationImpulse.y));
 
- Vector3DirectSub(cA^,Vector3ScalarMul(LinearImpulse,InverseMasses[0]));
- QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3Neg(AngularImpulseA),WorldInverseInertiaTensors[0]),1.0);
+  result:=Vector2Length(TranslationError)<Physics.LinearSlop;
 
- Vector3DirectAdd(cB^,Vector3ScalarMul(LinearImpulse,InverseMasses[1]));
- QuaternionDirectSpin(qB^,Vector3TermMatrixMul(AngularImpulseB,WorldInverseInertiaTensors[1]),1.0);
+  Vector3DirectSub(cA^,Vector3ScalarMul(LinearImpulse,InverseMasses[0]));
+  QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3Neg(AngularImpulseA),WorldInverseInertiaTensors[0]),1.0);
 
- (**** Rotation ****)
+  Vector3DirectAdd(cB^,Vector3ScalarMul(LinearImpulse,InverseMasses[1]));
+  QuaternionDirectSpin(qB^,Vector3TermMatrixMul(AngularImpulseB,WorldInverseInertiaTensors[1]),1.0);
 
- if (RigidBodies[0].RigidBodyType=krbtDynamic) or (RigidBodies[1].RigidBodyType=krbtDynamic) then begin
-  InverseMassMatrixRotationConstraint:=Matrix3x3TermInverse(Matrix3x3TermAdd(WorldInverseInertiaTensors[0],WorldInverseInertiaTensors[1]));
- end else begin
-  InverseMassMatrixRotationConstraint:=Matrix3x3Null;
- end;
+  (**** Rotation ****)
 
- CurrentOrientationDifference:=QuaternionTermNormalize(QuaternionMul(qB^,QuaternionInverse(qA^)));
- qError:=QuaternionMul(CurrentOrientationDifference,InverseInitialOrientationDifference);
- RotationError.x:=qError.x*2.0;
- RotationError.y:=qError.y*2.0;
- RotationError.z:=qError.z*2.0;
+  if (RigidBodies[0].RigidBodyType=krbtDynamic) or (RigidBodies[1].RigidBodyType=krbtDynamic) then begin
+   InverseMassMatrixRotationConstraint:=Matrix3x3TermInverse(Matrix3x3TermAdd(WorldInverseInertiaTensors[0],WorldInverseInertiaTensors[1]));
+  end else begin
+   InverseMassMatrixRotationConstraint:=Matrix3x3Null;
+  end;
 
- RotationImpulse:=Vector3TermMatrixMul(Vector3Neg(RotationError),InverseMassMatrixRotationConstraint);
+  CurrentOrientationDifference:=QuaternionTermNormalize(QuaternionMul(qB^,QuaternionInverse(qA^)));
+  qError:=QuaternionMul(CurrentOrientationDifference,InverseInitialOrientationDifference);
+  RotationError.x:=qError.x*2.0;
+  RotationError.y:=qError.y*2.0;
+  RotationError.z:=qError.z*2.0;
 
- result:=result and (Vector3Length(RotationError)<Physics.AngularSlop);
+  RotationImpulse:=Vector3TermMatrixMul(Vector3Neg(RotationError),InverseMassMatrixRotationConstraint);
 
- QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3Neg(RotationImpulse),WorldInverseInertiaTensors[0]),1.0);
+  result:=result and (Vector3Length(RotationError)<Physics.AngularSlop);
 
- QuaternionDirectSpin(qB^,Vector3TermMatrixMul(RotationImpulse,WorldInverseInertiaTensors[1]),1.0);
+  QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3Neg(RotationImpulse),WorldInverseInertiaTensors[0]),1.0);
 
- (**** Limits ****)
+  QuaternionDirectSpin(qB^,Vector3TermMatrixMul(RotationImpulse,WorldInverseInertiaTensors[1]),1.0);
 
- if LimitState then begin
-  if IsLowerLimitViolated or IsUpperLimitViolated then begin
-   InverseMassMatrixLimit:=InverseMassOfBodies+
-                           Vector3Dot(R1PlusUCrossSliderAxis,Vector3TermMatrixMul(R1PlusUCrossSliderAxis,WorldInverseInertiaTensors[0]))+
-                           Vector3Dot(R2CrossSliderAxis,Vector3TermMatrixMul(R2CrossSliderAxis,WorldInverseInertiaTensors[1]));
-   if InverseMassMatrixLimit>0.0 then begin
-    InverseMassMatrixLimit:=1.0/InverseMassMatrixLimit;
-   end else begin
-    InverseMassMatrixLimit:=0.0;
+  (**** Limits ****)
+
+  if LimitState then begin
+   if IsLowerLimitViolated or IsUpperLimitViolated then begin
+    InverseMassMatrixLimit:=InverseMassOfBodies+
+                            Vector3Dot(R1PlusUCrossSliderAxis,Vector3TermMatrixMul(R1PlusUCrossSliderAxis,WorldInverseInertiaTensors[0]))+
+                            Vector3Dot(R2CrossSliderAxis,Vector3TermMatrixMul(R2CrossSliderAxis,WorldInverseInertiaTensors[1]));
+    if InverseMassMatrixLimit>0.0 then begin
+     InverseMassMatrixLimit:=1.0/InverseMassMatrixLimit;
+    end else begin
+     InverseMassMatrixLimit:=0.0;
+    end;
+   end;
+   if IsLowerLimitViolated then begin
+    ImpulseLower:=InverseMassMatrixLimit*(-LowerLimitError);
+    LinearImpulse:=Vector3ScalarMul(SliderAxisWorld,ImpulseLower);
+    AngularImpulseA:=Vector3ScalarMul(R1PlusUCrossSliderAxis,ImpulseLower);
+    AngularImpulseB:=Vector3ScalarMul(R2CrossSliderAxis,ImpulseLower);
+    result:=result and (LowerLimitError<Physics.LinearSlop);
+    Vector3DirectSub(cA^,Vector3ScalarMul(LinearImpulse,InverseMasses[0]));
+    QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3Neg(AngularImpulseA),WorldInverseInertiaTensors[0]),1.0);
+    Vector3DirectAdd(cB^,Vector3ScalarMul(LinearImpulse,InverseMasses[1]));
+    QuaternionDirectSpin(qB^,Vector3TermMatrixMul(AngularImpulseB,WorldInverseInertiaTensors[1]),1.0);
+   end;
+   if IsUpperLimitViolated then begin
+    ImpulseUpper:=-(InverseMassMatrixLimit*(-UpperLimitError));
+    LinearImpulse:=Vector3ScalarMul(SliderAxisWorld,ImpulseUpper);
+    AngularImpulseA:=Vector3ScalarMul(R1PlusUCrossSliderAxis,ImpulseUpper);
+    AngularImpulseB:=Vector3ScalarMul(R2CrossSliderAxis,ImpulseUpper);
+    result:=result and (UpperLimitError<Physics.LinearSlop);
+    Vector3DirectSub(cA^,Vector3ScalarMul(LinearImpulse,InverseMasses[0]));
+    QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3Neg(AngularImpulseA),WorldInverseInertiaTensors[0]),1.0);
+    Vector3DirectAdd(cB^,Vector3ScalarMul(LinearImpulse,InverseMasses[1]));
+    QuaternionDirectSpin(qB^,Vector3TermMatrixMul(AngularImpulseB,WorldInverseInertiaTensors[1]),1.0);
    end;
   end;
-  if IsLowerLimitViolated then begin
-   ImpulseLower:=InverseMassMatrixLimit*(-LowerLimitError);
-   LinearImpulse:=Vector3ScalarMul(SliderAxisWorld,ImpulseLower);
-   AngularImpulseA:=Vector3ScalarMul(R1PlusUCrossSliderAxis,ImpulseLower);
-   AngularImpulseB:=Vector3ScalarMul(R2CrossSliderAxis,ImpulseLower);
-   result:=result and (LowerLimitError<Physics.LinearSlop);
-   Vector3DirectSub(cA^,Vector3ScalarMul(LinearImpulse,InverseMasses[0]));
-   QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3Neg(AngularImpulseA),WorldInverseInertiaTensors[0]),1.0);
-   Vector3DirectAdd(cB^,Vector3ScalarMul(LinearImpulse,InverseMasses[1]));
-   QuaternionDirectSpin(qB^,Vector3TermMatrixMul(AngularImpulseB,WorldInverseInertiaTensors[1]),1.0);
-  end;
-  if IsUpperLimitViolated then begin
-   ImpulseUpper:=-(InverseMassMatrixLimit*(-UpperLimitError));
-   LinearImpulse:=Vector3ScalarMul(SliderAxisWorld,ImpulseUpper);
-   AngularImpulseA:=Vector3ScalarMul(R1PlusUCrossSliderAxis,ImpulseUpper);
-   AngularImpulseB:=Vector3ScalarMul(R2CrossSliderAxis,ImpulseUpper);
-   result:=result and (UpperLimitError<Physics.LinearSlop);
-   Vector3DirectSub(cA^,Vector3ScalarMul(LinearImpulse,InverseMasses[0]));
-   QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3Neg(AngularImpulseA),WorldInverseInertiaTensors[0]),1.0);
-   Vector3DirectAdd(cB^,Vector3ScalarMul(LinearImpulse,InverseMasses[1]));
-   QuaternionDirectSpin(qB^,Vector3TermMatrixMul(AngularImpulseB,WorldInverseInertiaTensors[1]),1.0);
-  end;
- end;
 
+ end else begin
+
+  result:=true;
+
+ end;
+ 
 end;
 
 function TKraftConstraintJointSlider.GetAnchorA:TKraftVector3;
@@ -27056,6 +27264,7 @@ begin
  DeltaTime:=TimeStep.DeltaTime;
  DeltaTimeRatio:=TimeStep.DeltaTimeRatio;
  EnableFriction:=Physics.EnableFriction;
+ PositionCorrectionMode:=Physics.ContactPositionCorrectionMode;
 end;
 
 procedure TKraftSolver.Store;
@@ -27165,107 +27374,171 @@ var ContactPairIndex,ContactIndex,TangentIndex,IndexA,IndexB:longint;
     tA,tB:TKraftMatrix4x4;
     SolverContactManifold:TKraftSolverContactManifold;
 begin
- for ContactPairIndex:=0 to CountContacts-1 do begin
+ if PositionCorrectionMode=kpcmNonLinearGaussSeidel then begin
 
-  VelocityState:=@VelocityStates[ContactPairIndex];
+  for ContactPairIndex:=0 to CountContacts-1 do begin
 
-  PositionState:=@PositionStates[ContactPairIndex];
+   VelocityState:=@VelocityStates[ContactPairIndex];
 
-  IndexA:=VelocityState^.Indices[0];
-  IndexB:=VelocityState^.Indices[1];
+   PositionState:=@PositionStates[ContactPairIndex];
 
-  iA:=@VelocityState^.WorldInverseInertiaTensors[0];
-  iB:=@VelocityState^.WorldInverseInertiaTensors[1];
+   IndexA:=VelocityState^.Indices[0];
+   IndexB:=VelocityState^.Indices[1];
 
-  mA:=VelocityState^.InverseMasses[0];
-  mB:=VelocityState^.InverseMasses[1];
+   iA:=@VelocityState^.WorldInverseInertiaTensors[0];
+   iB:=@VelocityState^.WorldInverseInertiaTensors[1];
 
-  LocalCenterA:=PositionState^.LocalCenters[0];
-  LocalCenterB:=PositionState^.LocalCenters[1];
+   mA:=VelocityState^.InverseMasses[0];
+   mB:=VelocityState^.InverseMasses[1];
 
-  cA:=Positions[IndexA].Position;
-  qA:=Positions[IndexA].Orientation;
-  tA:=QuaternionToMatrix4x4(qA);
-  Temp:=Vector3Sub(cA,Vector3TermMatrixMulBasis(LocalCenterA,tA));
-  PKraftVector3(pointer(@tA[3,0]))^.xyz:=PKraftVector3(pointer(@Temp))^.xyz;
+   LocalCenterA:=PositionState^.LocalCenters[0];
+   LocalCenterB:=PositionState^.LocalCenters[1];
 
-  cB:=Positions[IndexB].Position;
-  qB:=Positions[IndexB].Orientation;
-  tB:=QuaternionToMatrix4x4(qB);
-  Temp:=Vector3Sub(cB,Vector3TermMatrixMulBasis(LocalCenterB,tB));
-  PKraftVector3(pointer(@tB[3,0]))^.xyz:=PKraftVector3(pointer(@Temp))^.xyz;
+   cA:=Positions[IndexA].Position;
+   qA:=Positions[IndexA].Orientation;
+   tA:=QuaternionToMatrix4x4(qA);
+   Temp:=Vector3Sub(cA,Vector3TermMatrixMulBasis(LocalCenterA,tA));
+   PKraftVector3(pointer(@tA[3,0]))^.xyz:=PKraftVector3(pointer(@Temp))^.xyz;
 
-  vA:=Velocities[IndexA].LinearVelocity;
-  wA:=Velocities[IndexA].AngularVelocity;
+   cB:=Positions[IndexB].Position;
+   qB:=Positions[IndexB].Orientation;
+   tB:=QuaternionToMatrix4x4(qB);
+   Temp:=Vector3Sub(cB,Vector3TermMatrixMulBasis(LocalCenterB,tB));
+   PKraftVector3(pointer(@tB[3,0]))^.xyz:=PKraftVector3(pointer(@Temp))^.xyz;
 
-  vB:=Velocities[IndexB].LinearVelocity;
-  wB:=Velocities[IndexB].AngularVelocity;
+   vA:=Velocities[IndexA].LinearVelocity;
+   wA:=Velocities[IndexA].AngularVelocity;
 
-  Island.ContactPairs[ContactPairIndex]^.GetSolverContactManifold(SolverContactManifold,tA,tB,false);
+   vB:=Velocities[IndexB].LinearVelocity;
+   wB:=Velocities[IndexB].AngularVelocity;
 
-  VelocityState^.CountPoints:=SolverContactManifold.CountContacts;
+   Island.ContactPairs[ContactPairIndex]^.GetSolverContactManifold(SolverContactManifold,tA,tB,false);
 
-  VelocityState^.Normal:=SolverContactManifold.Normal;
+   VelocityState^.CountPoints:=SolverContactManifold.CountContacts;
 
-  ComputeBasis(VelocityState^.Normal,t[0],t[1]);
+   VelocityState^.Normal:=SolverContactManifold.Normal;
 
-  for ContactIndex:=0 to SolverContactManifold.CountContacts-1 do begin
+   ComputeBasis(VelocityState^.Normal,t[0],t[1]);
 
-   ContactPoint:=@VelocityState^.Points[ContactIndex];
+   for ContactIndex:=0 to SolverContactManifold.CountContacts-1 do begin
 
-   SolverContact:=@SolverContactManifold.Contacts[ContactIndex];
+    ContactPoint:=@VelocityState^.Points[ContactIndex];
 
-   P:=SolverContact^.Point;
-   ContactPoint^.RelativePositions[0]:=Vector3Sub(P,cA);
-   ContactPoint^.RelativePositions[1]:=Vector3Sub(P,cB);
+    SolverContact:=@SolverContactManifold.Contacts[ContactIndex];
 
-   rnA:=Vector3Cross(ContactPoint^.RelativePositions[0],VelocityState^.Normal);
-   rnB:=Vector3Cross(ContactPoint^.RelativePositions[1],VelocityState^.Normal);
+    P:=SolverContact^.Point;
+    ContactPoint^.RelativePositions[0]:=Vector3Sub(P,cA);
+    ContactPoint^.RelativePositions[1]:=Vector3Sub(P,cB);
 
-   NormalMass:=mA+mB+Vector3Dot(rnA,Vector3TermMatrixMul(rnA,iA^))+Vector3Dot(rnB,Vector3TermMatrixMul(rnB,iB^));
+    rnA:=Vector3Cross(ContactPoint^.RelativePositions[0],VelocityState^.Normal);
+    rnB:=Vector3Cross(ContactPoint^.RelativePositions[1],VelocityState^.Normal);
+
+    NormalMass:=mA+mB+Vector3Dot(rnA,Vector3TermMatrixMul(rnA,iA^))+Vector3Dot(rnB,Vector3TermMatrixMul(rnB,iB^));
                      
-   if NormalMass>0.0 then begin
-{   if NormalMass<=EPSILON then begin
-     writeln('n ',ContactPoint^.NormalMass:1:8);
-    end;{}
-    ContactPoint^.NormalMass:=1.0/NormalMass;
-   end else begin
-    ContactPoint^.NormalMass:=0.0;
-   end;
-
-   for TangentIndex:=0 to 1 do begin
-
-    rtA:=Vector3Cross(t[TangentIndex],ContactPoint^.RelativePositions[0]);
-    rtB:=Vector3Cross(t[TangentIndex],ContactPoint^.RelativePositions[1]);
-
-    TangentMass:=mA+mB+Vector3Dot(rtA,Vector3TermMatrixMul(rtA,iA^))+Vector3Dot(rtB,Vector3TermMatrixMul(rtB,iB^));
-
-    if TangentMass>0.0 then begin
-{    if TangentMass>1000.0 then begin
-      writeln('t ',TangentMass:1:8);
-     end;
-     writeln('t ',TangentMass:1:8);{}
-{    if TangentMass<=EPSILON then begin
-      writeln('t ',TangentMass:1:8);
+    if NormalMass>0.0 then begin
+ {   if NormalMass<=EPSILON then begin
+      writeln('n ',ContactPoint^.NormalMass:1:8);
      end;{}
-     ContactPoint^.TangentMass[TangentIndex]:=1.0/TangentMass;
+     ContactPoint^.NormalMass:=1.0/NormalMass;
     end else begin
-     ContactPoint^.TangentMass[TangentIndex]:=0.0;
+     ContactPoint^.NormalMass:=0.0;
+    end;
+
+    for TangentIndex:=0 to 1 do begin
+
+     rtA:=Vector3Cross(t[TangentIndex],ContactPoint^.RelativePositions[0]);
+     rtB:=Vector3Cross(t[TangentIndex],ContactPoint^.RelativePositions[1]);
+
+     TangentMass:=mA+mB+Vector3Dot(rtA,Vector3TermMatrixMul(rtA,iA^))+Vector3Dot(rtB,Vector3TermMatrixMul(rtB,iB^));
+
+     if TangentMass>0.0 then begin
+ {    if TangentMass>1000.0 then begin
+       writeln('t ',TangentMass:1:8);
+      end;
+      writeln('t ',TangentMass:1:8);{}
+ {    if TangentMass<=EPSILON then begin
+       writeln('t ',TangentMass:1:8);
+      end;{}
+      ContactPoint^.TangentMass[TangentIndex]:=1.0/TangentMass;
+     end else begin
+      ContactPoint^.TangentMass[TangentIndex]:=0.0;
+     end;
+
+    end;
+
+    dv:=Vector3Dot(Vector3Sub(Vector3Add(vB,
+                                         Vector3Cross(wB,
+                                                      ContactPoint^.RelativePositions[1])),
+                              Vector3Add(vA,
+                                         Vector3Cross(wA,
+                                                      ContactPoint^.RelativePositions[0]))),
+                   VelocityState^.Normal);
+    if dv<-1.0 then begin
+     ContactPoint^.Bias:=-(VelocityState^.Restitution*dv);
+    end else begin
+     ContactPoint^.Bias:=0.0;
     end;
 
    end;
 
-   dv:=Vector3Dot(Vector3Sub(Vector3Add(vB,
-                                        Vector3Cross(wB,
-                                                     ContactPoint^.RelativePositions[1])),
-                             Vector3Add(vA,
-                                        Vector3Cross(wA,
-                                                     ContactPoint^.RelativePositions[0]))),
-                  VelocityState^.Normal);
-   if dv<-1.0 then begin
-    ContactPoint^.Bias:=-(VelocityState^.Restitution*dv);
-   end else begin
-    ContactPoint^.Bias:=0.0;
+  end;
+
+ end else begin
+
+  for ContactPairIndex:=0 to CountContacts-1 do begin
+
+   VelocityState:=@VelocityStates[ContactPairIndex];
+
+   PositionState:=@PositionStates[ContactPairIndex];
+
+   IndexA:=VelocityState^.Indices[0];
+   IndexB:=VelocityState^.Indices[1];
+
+   iA:=@VelocityState^.WorldInverseInertiaTensors[0];
+   iB:=@VelocityState^.WorldInverseInertiaTensors[1];
+
+{  mA:=VelocityState^.InverseMasses[0];
+   mB:=VelocityState^.InverseMasses[1];{}
+
+   LocalCenterA:=PositionState^.LocalCenters[0];
+   LocalCenterB:=PositionState^.LocalCenters[1];
+
+   cA:=Positions[IndexA].Position;
+   qA:=Positions[IndexA].Orientation;
+   tA:=QuaternionToMatrix4x4(qA);
+   Temp:=Vector3Sub(cA,Vector3TermMatrixMulBasis(LocalCenterA,tA));
+   PKraftVector3(pointer(@tA[3,0]))^.xyz:=PKraftVector3(pointer(@Temp))^.xyz;
+
+   cB:=Positions[IndexB].Position;
+   qB:=Positions[IndexB].Orientation;
+   tB:=QuaternionToMatrix4x4(qB);
+   Temp:=Vector3Sub(cB,Vector3TermMatrixMulBasis(LocalCenterB,tB));
+   PKraftVector3(pointer(@tB[3,0]))^.xyz:=PKraftVector3(pointer(@Temp))^.xyz;
+
+   vA:=Velocities[IndexA].LinearVelocity;
+   wA:=Velocities[IndexA].AngularVelocity;
+
+   vB:=Velocities[IndexB].LinearVelocity;
+   wB:=Velocities[IndexB].AngularVelocity;
+
+   Island.ContactPairs[ContactPairIndex]^.GetSolverContactManifold(SolverContactManifold,tA,tB,true);
+
+   VelocityState^.CountPoints:=SolverContactManifold.CountContacts;
+
+   VelocityState^.Normal:=SolverContactManifold.Normal;
+
+// ComputeBasis(VelocityState^.Normal,t[0],t[1]);
+
+   for ContactIndex:=0 to SolverContactManifold.CountContacts-1 do begin
+
+    ContactPoint:=@VelocityState^.Points[ContactIndex];
+
+    SolverContact:=@SolverContactManifold.Contacts[ContactIndex];
+
+    P:=SolverContact^.Point;
+    ContactPoint^.RelativePositions[0]:=Vector3Sub(P,cA);
+    ContactPoint^.RelativePositions[1]:=Vector3Sub(P,cB);
+
    end;
 
   end;
@@ -27275,49 +27548,142 @@ begin
 end;
 
 procedure TKraftSolver.WarmStart;
-var ContactPairIndex,ContactIndex,IndexA,IndexB,CountPoints:longint;
+var ContactPairIndex,ContactIndex,IndexA,IndexB,CountPoints,TangentIndex:longint;
     VelocityState:PKraftSolverVelocityState;
     ContactPoint:PKraftSolverVelocityStateContactPoint;
     iA,iB:PKraftMatrix3x3;
-    mA,mB:TKraftScalar;
-    Normal,t0,t1,vA,wA,vB,wB,P:TKraftVector3;
+    mA,mB,nm,dv:TKraftScalar;
+    Normal,t0,t1,vA,wA,vB,wB,P,raCn,rbCn,raCt,rbCt:TKraftVector3;
+    TangentVectors:array[0..1] of TKraftVector3;
+    tm:array[0..1] of TKraftScalar;
 begin
- for ContactPairIndex:=0 to CountContacts-1 do begin
+ if PositionCorrectionMode=kpcmNonLinearGaussSeidel then begin
 
-  VelocityState:=@VelocityStates[ContactPairIndex];
-  IndexA:=VelocityState^.Indices[0];
-  IndexB:=VelocityState^.Indices[1];
-  iA:=@VelocityState^.WorldInverseInertiaTensors[0];
-  iB:=@VelocityState^.WorldInverseInertiaTensors[1];
-  mA:=VelocityState^.InverseMasses[0];
-  mB:=VelocityState^.InverseMasses[1];
-  CountPoints:=VelocityState^.CountPoints;
-  Normal:=VelocityState^.Normal;
-  ComputeBasis(Normal,t0,t1);
+  for ContactPairIndex:=0 to CountContacts-1 do begin
 
-  vA:=Velocities[IndexA].LinearVelocity;
-  wA:=Velocities[IndexA].AngularVelocity;
-  vB:=Velocities[IndexB].LinearVelocity;
-  wB:=Velocities[IndexB].AngularVelocity;
+   VelocityState:=@VelocityStates[ContactPairIndex];
+   IndexA:=VelocityState^.Indices[0];
+   IndexB:=VelocityState^.Indices[1];
+   iA:=@VelocityState^.WorldInverseInertiaTensors[0];
+   iB:=@VelocityState^.WorldInverseInertiaTensors[1];
+   mA:=VelocityState^.InverseMasses[0];
+   mB:=VelocityState^.InverseMasses[1];
+   CountPoints:=VelocityState^.CountPoints;
+   Normal:=VelocityState^.Normal;
+   ComputeBasis(Normal,t0,t1);
 
-  for ContactIndex:=0 to CountPoints-1 do begin
+   vA:=Velocities[IndexA].LinearVelocity;
+   wA:=Velocities[IndexA].AngularVelocity;
+   vB:=Velocities[IndexB].LinearVelocity;
+   wB:=Velocities[IndexB].AngularVelocity;
 
-   ContactPoint:=@VelocityState^.Points[ContactIndex];
+   for ContactIndex:=0 to CountPoints-1 do begin
 
-   P:=Vector3Add(Vector3ScalarMul(Normal,ContactPoint^.NormalImpulse),Vector3Add(Vector3ScalarMul(t0,ContactPoint^.TangentImpulse[0]),Vector3ScalarMul(t1,ContactPoint^.TangentImpulse[1])));
+    ContactPoint:=@VelocityState^.Points[ContactIndex];
 
-   Vector3DirectSub(vA,Vector3ScalarMul(P,mA));
-   Vector3DirectSub(wA,Vector3TermMatrixMul(Vector3Cross(ContactPoint^.RelativePositions[0],P),iA^));
+    P:=Vector3Add(Vector3ScalarMul(Normal,ContactPoint^.NormalImpulse),Vector3Add(Vector3ScalarMul(t0,ContactPoint^.TangentImpulse[0]),Vector3ScalarMul(t1,ContactPoint^.TangentImpulse[1])));
 
-   Vector3DirectAdd(vB,Vector3ScalarMul(P,mB));
-   Vector3DirectAdd(wB,Vector3TermMatrixMul(Vector3Cross(ContactPoint^.RelativePositions[1],P),iB^));
+    Vector3DirectSub(vA,Vector3ScalarMul(P,mA));
+    Vector3DirectSub(wA,Vector3TermMatrixMul(Vector3Cross(ContactPoint^.RelativePositions[0],P),iA^));
+
+    Vector3DirectAdd(vB,Vector3ScalarMul(P,mB));
+    Vector3DirectAdd(wB,Vector3TermMatrixMul(Vector3Cross(ContactPoint^.RelativePositions[1],P),iB^));
+
+   end;
+
+   Velocities[IndexA].LinearVelocity:=vA;
+   Velocities[IndexA].AngularVelocity:=wA;
+   Velocities[IndexB].LinearVelocity:=vB;
+   Velocities[IndexB].AngularVelocity:=wB;
 
   end;
 
-  Velocities[IndexA].LinearVelocity:=vA;
-  Velocities[IndexA].AngularVelocity:=wA;
-  Velocities[IndexB].LinearVelocity:=vB;
-  Velocities[IndexB].AngularVelocity:=wB;
+ end else begin
+
+  for ContactPairIndex:=0 to CountContacts-1 do begin
+
+   VelocityState:=@VelocityStates[ContactPairIndex];
+
+   IndexA:=VelocityState^.Indices[0];
+   IndexB:=VelocityState^.Indices[1];
+
+   if (IndexA>=0) and (IndexB>=0) then begin
+
+    vA:=Velocities[IndexA].LinearVelocity;
+    wA:=Velocities[IndexA].AngularVelocity;
+    vB:=Velocities[IndexB].LinearVelocity;
+    wB:=Velocities[IndexB].AngularVelocity;
+
+    ComputeBasis(VelocityState^.Normal,TangentVectors[0],TangentVectors[1]);
+
+    for ContactIndex:=0 to VelocityState^.CountPoints-1 do begin
+
+     ContactPoint:=@VelocityState^.Points[ContactIndex];
+
+     // Precalculate JM^-1JT for contact and friction constraints
+     raCn:=Vector3Cross(ContactPoint^.RelativePositions[0],VelocityState^.Normal);
+     rbCn:=Vector3Cross(ContactPoint^.RelativePositions[1],VelocityState^.Normal);
+     nm:=VelocityState.InverseMasses[0]+VelocityState.InverseMasses[1];
+     tm[0]:=nm;
+     tm[1]:=nm;
+
+     nm:=nm+(Vector3Dot(raCn,Vector3TermMatrixMul(raCn,VelocityState.WorldInverseInertiaTensors[0]))+
+             Vector3Dot(rbCn,Vector3TermMatrixMul(rbCn,VelocityState.WorldInverseInertiaTensors[1])));
+     if IsZero(nm) then begin
+      ContactPoint^.NormalMass:=0.0;
+     end else begin
+      ContactPoint^.NormalMass:=1.0/nm;
+     end;
+
+     for TangentIndex:=0 to 1 do begin
+      raCt:=Vector3Cross(TangentVectors[TangentIndex],ContactPoint^.RelativePositions[0]);
+      rbCt:=Vector3Cross(TangentVectors[TangentIndex],ContactPoint^.RelativePositions[1]);
+      tm[TangentIndex]:=tm[TangentIndex]+(Vector3Dot(raCt,Vector3TermMatrixMul(raCt,VelocityState^.WorldInverseInertiaTensors[0]))+
+                                          Vector3Dot(rbCt,Vector3TermMatrixMul(rbCt,VelocityState^.WorldInverseInertiaTensors[1])));
+      if IsZero(tm[TangentIndex]) then begin
+       ContactPoint^.TangentMass[TangentIndex]:=0.0;
+      end else begin
+       ContactPoint^.TangentMass[TangentIndex]:=1.0/tm[TangentIndex];
+      end;
+     end;
+
+     // Precalculate bias factor
+     ContactPoint^.Bias:=(-Physics.ContactBaumgarte)*(1.0/DeltaTime)*min(0.0,ContactPoint^.Penetration+Physics.PenetrationSlop);
+
+     // Warm start contact
+     P:=Vector3ScalarMul(VelocityState^.Normal,ContactPoint^.NormalImpulse);
+
+     if Physics.EnableFriction then begin
+      P:=Vector3Add(P,Vector3Add(Vector3ScalarMul(TangentVectors[0],ContactPoint^.TangentImpulse[0]),
+                                 Vector3ScalarMul(TangentVectors[1],ContactPoint^.TangentImpulse[1])));
+     end;
+
+     begin
+      vA:=Vector3Sub(vA,Vector3ScalarMul(P,VelocityState^.InverseMasses[0]));
+      wA:=Vector3Sub(wA,Vector3TermMatrixMul(Vector3Cross(ContactPoint^.RelativePositions[0],P),VelocityState^.WorldInverseInertiaTensors[0]));
+     end;
+
+     begin
+      vB:=Vector3Add(vB,Vector3ScalarMul(P,VelocityState^.InverseMasses[1]));
+      wB:=Vector3Add(wB,Vector3TermMatrixMul(Vector3Cross(ContactPoint^.RelativePositions[1],P),VelocityState^.WorldInverseInertiaTensors[1]));
+     end;
+
+     // Add in restitution bias
+     dv:=Vector3Dot(Vector3Sub(Vector3Sub(Vector3Add(vB,Vector3Cross(wB,ContactPoint^.RelativePositions[1])),vA),Vector3Cross(wA,ContactPoint^.RelativePositions[0])),VelocityState^.Normal);
+     if dv<-1.0 then begin
+      ContactPoint^.Bias:=ContactPoint^.Bias-(VelocityState^.Restitution*dv);
+     end;
+
+    end;
+
+    Velocities[IndexA].LinearVelocity:=vA;
+    Velocities[IndexA].AngularVelocity:=wA;
+    Velocities[IndexB].LinearVelocity:=vB;
+    Velocities[IndexB].AngularVelocity:=wB;
+
+   end;
+
+  end;
 
  end;
 end;
@@ -27327,95 +27693,199 @@ var ContactPairIndex,ContactIndex,TangentIndex,IndexA,IndexB,CountPoints:longint
     VelocityState:PKraftSolverVelocityState;
     ContactPoint:PKraftSolverVelocityStateContactPoint;
     iA,iB:PKraftMatrix3x3;
-    mA,mB,Friction,NormalImpulse,NormalMass,Bias,Lambda,MaxFriction,NewImpulse,vn:TKraftScalar;
-    Normal,t0,t1,vA,wA,rA,vB,wB,rB,dv,P:TKraftVector3;
+    mA,mB,Friction,NormalImpulse,NormalMass,Bias,Lambda,MaxFriction,NewImpulse,vn,MaxLambda,Old:TKraftScalar;
+    Normal,t0,t1,vA,wA,rA,vB,wB,rB,dv,P,Impulse:TKraftVector3;
     Basis:TKraftMatrix3x3;
     TangentMass,TangentImpulse:array[0..1] of TKraftScalar;
-    t:array[0..1] of TKraftVector3;
+    TangentVectors:array[0..1] of TKraftVector3;
 begin
- for ContactPairIndex:=0 to CountContacts-1 do begin
 
-  VelocityState:=@VelocityStates[ContactPairIndex];
-  IndexA:=VelocityState^.Indices[0];
-  IndexB:=VelocityState^.Indices[1];
-  iA:=@VelocityState^.WorldInverseInertiaTensors[0];
-  iB:=@VelocityState^.WorldInverseInertiaTensors[1];
-  mA:=VelocityState^.InverseMasses[0];
-  mB:=VelocityState^.InverseMasses[1];
-  CountPoints:=VelocityState^.CountPoints;
-  Normal:=VelocityState^.Normal;
-  Friction:=VelocityState^.Friction;
-  ComputeBasis(Normal,t[0],t[1]);
+ if PositionCorrectionMode=kpcmNonLinearGaussSeidel then begin
 
-  vA:=Velocities[IndexA].LinearVelocity;
-  wA:=Velocities[IndexA].AngularVelocity;
-  vB:=Velocities[IndexB].LinearVelocity;
-  wB:=Velocities[IndexB].AngularVelocity;
+  for ContactPairIndex:=0 to CountContacts-1 do begin
 
-  for ContactIndex:=0 to CountPoints-1 do begin
+   VelocityState:=@VelocityStates[ContactPairIndex];
+   IndexA:=VelocityState^.Indices[0];
+   IndexB:=VelocityState^.Indices[1];
+   iA:=@VelocityState^.WorldInverseInertiaTensors[0];
+   iB:=@VelocityState^.WorldInverseInertiaTensors[1];
+   mA:=VelocityState^.InverseMasses[0];
+   mB:=VelocityState^.InverseMasses[1];
+   CountPoints:=VelocityState^.CountPoints;
+   Normal:=VelocityState^.Normal;
+   Friction:=VelocityState^.Friction;
+   ComputeBasis(Normal,TangentVectors[0],TangentVectors[1]);
 
-   ContactPoint:=@VelocityState^.Points[ContactIndex];
+   vA:=Velocities[IndexA].LinearVelocity;
+   wA:=Velocities[IndexA].AngularVelocity;
+   vB:=Velocities[IndexB].LinearVelocity;
+   wB:=Velocities[IndexB].AngularVelocity;
 
-   rA:=ContactPoint^.RelativePositions[0];
-   rB:=ContactPoint^.RelativePositions[1];
-   NormalImpulse:=ContactPoint^.NormalImpulse;
-   NormalMass:=ContactPoint^.NormalMass;
-   Bias:=ContactPoint^.Bias;
-   TangentMass[0]:=ContactPoint^.TangentMass[0];
-   TangentMass[1]:=ContactPoint^.TangentMass[1];
-   TangentImpulse[0]:=ContactPoint^.TangentImpulse[0];
-   TangentImpulse[1]:=ContactPoint^.TangentImpulse[1];
+   for ContactIndex:=0 to CountPoints-1 do begin
 
-   if EnableFriction then begin
+    ContactPoint:=@VelocityState^.Points[ContactIndex];
 
-    for TangentIndex:=0 to 1 do begin
+    rA:=ContactPoint^.RelativePositions[0];
+    rB:=ContactPoint^.RelativePositions[1];
+    NormalImpulse:=ContactPoint^.NormalImpulse;
+    NormalMass:=ContactPoint^.NormalMass;
+    Bias:=ContactPoint^.Bias;
+    TangentMass[0]:=ContactPoint^.TangentMass[0];
+    TangentMass[1]:=ContactPoint^.TangentMass[1];
+    TangentImpulse[0]:=ContactPoint^.TangentImpulse[0];
+    TangentImpulse[1]:=ContactPoint^.TangentImpulse[1];
 
-     dv:=Vector3Sub(Vector3Add(vB,Vector3Cross(wB,rB)),Vector3Add(vA,Vector3Cross(wA,rA)));
+    if EnableFriction then begin
 
-     Lambda:=(-Vector3Dot(dv,t[TangentIndex]))*TangentMass[TangentIndex];
+     for TangentIndex:=0 to 1 do begin
 
-     MaxFriction:=Friction*NormalImpulse;
+      dv:=Vector3Sub(Vector3Add(vB,Vector3Cross(wB,rB)),Vector3Add(vA,Vector3Cross(wA,rA)));
 
-     NewImpulse:=Min(Max(TangentImpulse[TangentIndex]+Lambda,-MaxFriction),MaxFriction);
+      Lambda:=(-Vector3Dot(dv,TangentVectors[TangentIndex]))*TangentMass[TangentIndex];
 
-     Lambda:=NewImpulse-TangentImpulse[TangentIndex];
-     ContactPoint^.TangentImpulse[TangentIndex]:=NewImpulse;
+      MaxFriction:=Friction*NormalImpulse;
 
-     P:=Vector3ScalarMul(t[TangentIndex],Lambda);
+      NewImpulse:=Min(Max(TangentImpulse[TangentIndex]+Lambda,-MaxFriction),MaxFriction);
 
-     Vector3DirectSub(vA,Vector3ScalarMul(P,mA));
-     Vector3DirectSub(wA,Vector3TermMatrixMul(Vector3Cross(rA,P),iA^));
+      Lambda:=NewImpulse-TangentImpulse[TangentIndex];
+      ContactPoint^.TangentImpulse[TangentIndex]:=NewImpulse;
 
-     Vector3DirectAdd(vB,Vector3ScalarMul(P,mB));
-     Vector3DirectAdd(wB,Vector3TermMatrixMul(Vector3Cross(rB,P),iB^));
+      P:=Vector3ScalarMul(TangentVectors[TangentIndex],Lambda);
+
+      Vector3DirectSub(vA,Vector3ScalarMul(P,mA));
+      Vector3DirectSub(wA,Vector3TermMatrixMul(Vector3Cross(rA,P),iA^));
+
+      Vector3DirectAdd(vB,Vector3ScalarMul(P,mB));
+      Vector3DirectAdd(wB,Vector3TermMatrixMul(Vector3Cross(rB,P),iB^));
+
+     end;
 
     end;
 
+    dv:=Vector3Sub(Vector3Add(vB,Vector3Cross(wB,rB)),Vector3Add(vA,Vector3Cross(wA,rA)));
+
+    vn:=Vector3Dot(dv,Normal);
+    Lambda:=NormalMass*(Bias-vn);
+    NewImpulse:=Max(0.0,NormalImpulse+Lambda);
+    Lambda:=NewImpulse-NormalImpulse;
+    ContactPoint^.NormalImpulse:=NewImpulse;
+
+    P:=Vector3ScalarMul(Normal,Lambda);
+
+    Vector3DirectSub(vA,Vector3ScalarMul(P,mA));
+    Vector3DirectSub(wA,Vector3TermMatrixMul(Vector3Cross(rA,P),iA^));
+
+    Vector3DirectAdd(vB,Vector3ScalarMul(P,mB));
+    Vector3DirectAdd(wB,Vector3TermMatrixMul(Vector3Cross(rB,P),iB^));
    end;
 
-   dv:=Vector3Sub(Vector3Add(vB,Vector3Cross(wB,rB)),Vector3Add(vA,Vector3Cross(wA,rA)));
+   Velocities[IndexA].LinearVelocity:=vA;
+   Velocities[IndexA].AngularVelocity:=wA;
+   Velocities[IndexB].LinearVelocity:=vB;
+   Velocities[IndexB].AngularVelocity:=wB;
 
-   vn:=Vector3Dot(dv,Normal);
-   Lambda:=NormalMass*(Bias-vn);
-   NewImpulse:=Max(0.0,NormalImpulse+Lambda);
-   Lambda:=NewImpulse-NormalImpulse;
-   ContactPoint^.NormalImpulse:=NewImpulse;
-
-   P:=Vector3ScalarMul(Normal,Lambda);
-
-   Vector3DirectSub(vA,Vector3ScalarMul(P,mA));
-   Vector3DirectSub(wA,Vector3TermMatrixMul(Vector3Cross(rA,P),iA^));
-
-   Vector3DirectAdd(vB,Vector3ScalarMul(P,mB));
-   Vector3DirectAdd(wB,Vector3TermMatrixMul(Vector3Cross(rB,P),iB^));
   end;
 
-  Velocities[IndexA].LinearVelocity:=vA;
-  Velocities[IndexA].AngularVelocity:=wA;
-  Velocities[IndexB].LinearVelocity:=vB;
-  Velocities[IndexB].AngularVelocity:=wB;
+ end else begin
+
+  for ContactPairIndex:=0 to CountContacts-1 do begin
+
+   VelocityState:=@VelocityStates[ContactPairIndex];
+
+   IndexA:=VelocityState^.Indices[0];
+   IndexB:=VelocityState^.Indices[1];
+
+   if (IndexA>=0) and (IndexB>=0) then begin
+
+    vA:=Velocities[IndexA].LinearVelocity;
+    wA:=Velocities[IndexA].AngularVelocity;
+    vB:=Velocities[IndexB].LinearVelocity;
+    wB:=Velocities[IndexB].AngularVelocity;
+
+    ComputeBasis(VelocityState^.Normal,TangentVectors[0],TangentVectors[1]);
+
+    for ContactIndex:=0 to VelocityState^.CountPoints-1 do begin
+
+     ContactPoint:=@VelocityState^.Points[ContactIndex];
+
+     // Friction
+     if Physics.EnableFriction then begin
+
+      // relative velocity at contact
+      dv:=Vector3Sub(Vector3Sub(Vector3Add(vB,Vector3Cross(wB,ContactPoint^.RelativePositions[1])),vA),Vector3Cross(wA,ContactPoint^.RelativePositions[0]));
+
+      for TangentIndex:=0 to 1 do begin
+
+       lambda:=(-Vector3Dot(dv,TangentVectors[TangentIndex]))*ContactPoint^.TangentMass[TangentIndex];
+
+       // Calculate frictional impulse
+       MaxLambda:=VelocityState^.Friction*ContactPoint^.NormalImpulse;
+
+       // Clamp frictional impulse
+       Old:=ContactPoint^.TangentImpulse[TangentIndex];
+       ContactPoint^.TangentImpulse[TangentIndex]:=Min(Max(Old+lambda,-MaxLambda),MaxLambda);
+       lambda:=ContactPoint^.TangentImpulse[TangentIndex]-Old;
+
+       // Apply friction impulse
+       Impulse:=Vector3ScalarMul(TangentVectors[TangentIndex],lambda);
+
+       begin
+        vA:=Vector3Sub(vA,Vector3ScalarMul(Impulse,VelocityState^.InverseMasses[0]));
+        wA:=Vector3Sub(wA,Vector3TermMatrixMul(Vector3Cross(ContactPoint^.RelativePositions[0],Impulse),VelocityState^.WorldInverseInertiaTensors[0]));
+       end;
+
+       begin
+        vB:=Vector3Add(vB,Vector3ScalarMul(Impulse,VelocityState^.InverseMasses[1]));
+        wB:=Vector3Add(wB,Vector3TermMatrixMul(Vector3Cross(ContactPoint^.RelativePositions[1],Impulse),VelocityState^.WorldInverseInertiaTensors[1]));
+       end;
+
+      end;
+     end;
+
+     // Normal
+     begin
+
+      dv:=Vector3Sub(Vector3Sub(Vector3Add(vB,Vector3Cross(wB,ContactPoint^.RelativePositions[1])),vA),Vector3Cross(wA,ContactPoint^.RelativePositions[0]));
+
+      // Normal impulse
+      vn:=Vector3Dot(dv,VelocityState^.Normal);
+
+      // Factor in positional bias to calculate impulse scalar ContactIndex
+      lambda:=ContactPoint^.NormalMass*(ContactPoint^.bias-vn);
+
+      // Clamp impulse
+      old:=ContactPoint^.NormalImpulse;
+      ContactPoint^.NormalImpulse:=max(0.0,old+lambda);
+      lambda:=ContactPoint^.NormalImpulse-old;
+
+      // Apply impulse
+      Impulse:=Vector3ScalarMul(VelocityState^.Normal,lambda);
+
+      begin
+       vA:=Vector3Sub(vA,Vector3ScalarMul(Impulse,VelocityState^.InverseMasses[0]));
+       wA:=Vector3Sub(wA,Vector3TermMatrixMul(Vector3Cross(ContactPoint^.RelativePositions[0],Impulse),VelocityState^.WorldInverseInertiaTensors[0]));
+      end;
+
+      begin
+       vB:=Vector3Add(vB,Vector3ScalarMul(Impulse,VelocityState^.InverseMasses[1]));
+       wB:=Vector3Add(wB,Vector3TermMatrixMul(Vector3Cross(ContactPoint^.RelativePositions[1],Impulse),VelocityState^.WorldInverseInertiaTensors[1]));
+      end;
+
+     end;
+
+    end;
+
+    Velocities[IndexA].LinearVelocity:=vA;
+    Velocities[IndexA].AngularVelocity:=wA;
+    Velocities[IndexB].LinearVelocity:=vB;
+    Velocities[IndexB].AngularVelocity:=wB;
+
+   end;
+
+  end;
 
  end;
+
 end;
 
 function TKraftSolver.SolvePositionConstraints:boolean;
@@ -27429,85 +27899,95 @@ var ContactPairIndex,ContactIndex,IndexA,IndexB:longint;
     tA,tB:TKraftMatrix4x4;
     SolverContactManifold:TKraftSolverContactManifold;
 begin
- MinSeparation:=0.0;
- for ContactPairIndex:=0 to CountContacts-1 do begin
 
-  PositionState:=@PositionStates[ContactPairIndex];
+ if PositionCorrectionMode=kpcmNonLinearGaussSeidel then begin
 
-  IndexA:=PositionState^.Indices[0];
-  IndexB:=PositionState^.Indices[1];
+  MinSeparation:=0.0;
+  for ContactPairIndex:=0 to CountContacts-1 do begin
 
-  iA:=@PositionState^.WorldInverseInertiaTensors[0];
-  iB:=@PositionState^.WorldInverseInertiaTensors[1];
+   PositionState:=@PositionStates[ContactPairIndex];
 
-  mA:=PositionState^.InverseMasses[0];
-  mB:=PositionState^.InverseMasses[1];
+   IndexA:=PositionState^.Indices[0];
+   IndexB:=PositionState^.Indices[1];
 
-  LocalCenterA:=PositionState^.LocalCenters[0];
-  LocalCenterB:=PositionState^.LocalCenters[1];
+   iA:=@PositionState^.WorldInverseInertiaTensors[0];
+   iB:=@PositionState^.WorldInverseInertiaTensors[1];
 
-  cA:=Positions[IndexA].Position;
-  qA:=Positions[IndexA].Orientation;
-  tA:=QuaternionToMatrix4x4(qA);
-  Temp:=Vector3Sub(cA,Vector3TermMatrixMulBasis(LocalCenterA,tA));
-  PKraftVector3(pointer(@tA[3,0]))^.xyz:=PKraftVector3(pointer(@Temp))^.xyz;
+   mA:=PositionState^.InverseMasses[0];
+   mB:=PositionState^.InverseMasses[1];
 
-  cB:=Positions[IndexB].Position;
-  qB:=Positions[IndexB].Orientation;
-  tB:=QuaternionToMatrix4x4(qB);
-  Temp:=Vector3Sub(cB,Vector3TermMatrixMulBasis(LocalCenterB,tB));
-  PKraftVector3(pointer(@tB[3,0]))^.xyz:=PKraftVector3(pointer(@Temp))^.xyz;
+   LocalCenterA:=PositionState^.LocalCenters[0];
+   LocalCenterB:=PositionState^.LocalCenters[1];
 
-  Island.ContactPairs[ContactPairIndex]^.GetSolverContactManifold(SolverContactManifold,tA,tB,true);
+   cA:=Positions[IndexA].Position;
+   qA:=Positions[IndexA].Orientation;
+   tA:=QuaternionToMatrix4x4(qA);
+   Temp:=Vector3Sub(cA,Vector3TermMatrixMulBasis(LocalCenterA,tA));
+   PKraftVector3(pointer(@tA[3,0]))^.xyz:=PKraftVector3(pointer(@Temp))^.xyz;
 
-  Normal:=SolverContactManifold.Normal;
+   cB:=Positions[IndexB].Position;
+   qB:=Positions[IndexB].Orientation;
+   tB:=QuaternionToMatrix4x4(qB);
+   Temp:=Vector3Sub(cB,Vector3TermMatrixMulBasis(LocalCenterB,tB));
+   PKraftVector3(pointer(@tB[3,0]))^.xyz:=PKraftVector3(pointer(@Temp))^.xyz;
 
-  for ContactIndex:=0 to SolverContactManifold.CountContacts-1 do begin
+   Island.ContactPairs[ContactPairIndex]^.GetSolverContactManifold(SolverContactManifold,tA,tB,true);
 
-   SolverContact:=@SolverContactManifold.Contacts[ContactIndex];
+   Normal:=SolverContactManifold.Normal;
 
-   Point:=SolverContact^.Point;
-   Separation:=SolverContact^.Separation;
+   for ContactIndex:=0 to SolverContactManifold.CountContacts-1 do begin
 
-   rA:=Vector3Sub(Point,cA);
-   rB:=Vector3Sub(Point,cB);
+    SolverContact:=@SolverContactManifold.Contacts[ContactIndex];
 
-   if MinSeparation>Separation then begin
-    MinSeparation:=Separation;
+    Point:=SolverContact^.Point;
+    Separation:=SolverContact^.Separation;
+
+    rA:=Vector3Sub(Point,cA);
+    rB:=Vector3Sub(Point,cB);
+
+    if MinSeparation>Separation then begin
+     MinSeparation:=Separation;
+    end;
+
+    C:=Min(Max(Physics.ContactBaumgarte*(Separation+Physics.LinearSlop),-Physics.MaximalLinearCorrection),0.0);
+
+    rnA:=Vector3Cross(rA,Normal);
+    rnB:=Vector3Cross(rB,Normal);
+
+    K:=mA+mB+Vector3Dot(rnA,Vector3TermMatrixMul(rnA,iA^))+Vector3Dot(rnB,Vector3TermMatrixMul(rnB,iB^));
+
+    if K>0.0 then begin
+     Impulse:=-(C/K);   
+    end else begin
+     Impulse:=0.0;
+    end;
+
+    P:=Vector3ScalarMul(Normal,Impulse);
+
+    Vector3DirectSub(cA,Vector3ScalarMul(P,mA));
+    QuaternionDirectSpin(qA,Vector3TermMatrixMul(Vector3Cross(rA,Vector3Neg(P)),iA^),1.0);
+
+    Vector3DirectAdd(cB,Vector3ScalarMul(P,mB));
+    QuaternionDirectSpin(qB,Vector3TermMatrixMul(Vector3Cross(rB,P),iB^),1.0);
+
    end;
 
-   C:=Min(Max(Physics.Baumgarte*(Separation+Physics.LinearSlop),-Physics.MaximalLinearCorrection),0.0);
+   Positions[IndexA].Position:=cA;
+   Positions[IndexA].Orientation:=qA;
 
-   rnA:=Vector3Cross(rA,Normal);
-   rnB:=Vector3Cross(rB,Normal);
-
-   K:=mA+mB+Vector3Dot(rnA,Vector3TermMatrixMul(rnA,iA^))+Vector3Dot(rnB,Vector3TermMatrixMul(rnB,iB^));
-
-   if K>0.0 then begin
-    Impulse:=-(C/K);   
-   end else begin
-    Impulse:=0.0;
-   end;
-
-   P:=Vector3ScalarMul(Normal,Impulse);
-
-   Vector3DirectSub(cA,Vector3ScalarMul(P,mA));
-   QuaternionDirectSpin(qA,Vector3TermMatrixMul(Vector3Cross(rA,Vector3Neg(P)),iA^),1.0);
-
-   Vector3DirectAdd(cB,Vector3ScalarMul(P,mB));
-   QuaternionDirectSpin(qB,Vector3TermMatrixMul(Vector3Cross(rB,P),iB^),1.0);
+   Positions[IndexB].Position:=cB;
+   Positions[IndexB].Orientation:=qB;
 
   end;
 
-  Positions[IndexA].Position:=cA;
-  Positions[IndexA].Orientation:=qA;
+  result:=MinSeparation>=((-3.0)*Physics.LinearSlop);
 
-  Positions[IndexB].Position:=cB;
-  Positions[IndexB].Orientation:=qB;
+ end else begin
+
+  result:=true;
 
  end;
 
- result:=MinSeparation>=((-3.0)*Physics.LinearSlop);
 end;
 
 function TKraftSolver.SolveTimeOfImpactConstraints(IndexA,IndexB:longint):boolean;
@@ -27522,96 +28002,105 @@ var ContactPairIndex,ContactIndex,CurrentIndexA,CurrentIndexB:longint;
     SolverContactManifold:TKraftSolverContactManifold;
 begin
 
- MinSeparation:=0.0;
+ if PositionCorrectionMode=kpcmNonLinearGaussSeidel then begin
 
- for ContactPairIndex:=0 to CountContacts-1 do begin
+  MinSeparation:=0.0;
 
-  PositionState:=@PositionStates[ContactPairIndex];
+  for ContactPairIndex:=0 to CountContacts-1 do begin
 
-  CurrentIndexA:=PositionState^.Indices[0];
-  CurrentIndexB:=PositionState^.Indices[1];
+   PositionState:=@PositionStates[ContactPairIndex];
 
-  LocalCenterA:=PositionState^.LocalCenters[0];
-  LocalCenterB:=PositionState^.LocalCenters[1];
+   CurrentIndexA:=PositionState^.Indices[0];
+   CurrentIndexB:=PositionState^.Indices[1];
 
-  if (CurrentIndexA=IndexA) or (CurrentIndexA=IndexB) then begin
-   iA:=@PositionState^.WorldInverseInertiaTensors[0];
-   mA:=PositionState^.InverseMasses[0];
-  end else begin
-   mA:=0.0;
-   iA:=@Matrix3x3Null;
-  end;
+   LocalCenterA:=PositionState^.LocalCenters[0];
+   LocalCenterB:=PositionState^.LocalCenters[1];
 
-  if (CurrentIndexB=IndexA) or (CurrentIndexB=IndexB) then begin
-   iB:=@PositionState^.WorldInverseInertiaTensors[1];
-   mB:=PositionState^.InverseMasses[1];
-  end else begin
-   mB:=0.0;
-   iB:=@Matrix3x3Null;
-  end;
-
-  cA:=Positions[IndexA].Position;
-  qA:=Positions[IndexA].Orientation;
-  tA:=QuaternionToMatrix4x4(qA);
-  Temp:=Vector3Sub(cA,Vector3TermMatrixMulBasis(LocalCenterA,tA));
-  PKraftVector3(pointer(@tA[3,0]))^.xyz:=PKraftVector3(pointer(@Temp))^.xyz;
-
-  cB:=Positions[IndexB].Position;
-  qB:=Positions[IndexB].Orientation;
-  tB:=QuaternionToMatrix4x4(qB);
-  Temp:=Vector3Sub(cB,Vector3TermMatrixMulBasis(LocalCenterB,tB));
-  PKraftVector3(pointer(@tB[3,0]))^.xyz:=PKraftVector3(pointer(@Temp))^.xyz;
-
-  Island.ContactPairs[ContactPairIndex]^.GetSolverContactManifold(SolverContactManifold,tA,tB,true);
-
-  Normal:=SolverContactManifold.Normal;
-
-  for ContactIndex:=0 to SolverContactManifold.CountContacts-1 do begin
-
-   SolverContact:=@SolverContactManifold.Contacts[ContactIndex];
-
-   Point:=SolverContact^.Point;
-   Separation:=SolverContact^.Separation;
-
-   rA:=Vector3Sub(Point,cA);
-   rB:=Vector3Sub(Point,cB);
-
-   if MinSeparation>Separation then begin
-    MinSeparation:=Separation;
-   end;
-
-   C:=Min(Max(Physics.TimeOfImpactBaumgarte*(Separation+Physics.LinearSlop),-Physics.MaximalLinearCorrection),0.0);
-
-   rnA:=Vector3Cross(rA,Normal);
-   rnB:=Vector3Cross(rB,Normal);
-
-   K:=mA+mB+Vector3Dot(rnA,Vector3TermMatrixMul(rnA,iA^))+Vector3Dot(rnB,Vector3TermMatrixMul(rnB,iB^));
-
-   if K>0.0 then begin
-    Impulse:=-(C/K);
+   if (CurrentIndexA=IndexA) or (CurrentIndexA=IndexB) then begin
+    iA:=@PositionState^.WorldInverseInertiaTensors[0];
+    mA:=PositionState^.InverseMasses[0];
    end else begin
-    Impulse:=0.0;
+    mA:=0.0;
+    iA:=@Matrix3x3Null;
    end;
 
-   P:=Vector3ScalarMul(Normal,Impulse);
+   if (CurrentIndexB=IndexA) or (CurrentIndexB=IndexB) then begin
+    iB:=@PositionState^.WorldInverseInertiaTensors[1];
+    mB:=PositionState^.InverseMasses[1];
+   end else begin
+    mB:=0.0;
+    iB:=@Matrix3x3Null;
+   end;
 
-   Vector3DirectSub(cA,Vector3ScalarMul(P,mA));
-   QuaternionDirectSpin(qA,Vector3TermMatrixMul(Vector3Cross(rA,Vector3Neg(P)),iA^),1.0);
+   cA:=Positions[IndexA].Position;
+   qA:=Positions[IndexA].Orientation;
+   tA:=QuaternionToMatrix4x4(qA);
+   Temp:=Vector3Sub(cA,Vector3TermMatrixMulBasis(LocalCenterA,tA));
+   PKraftVector3(pointer(@tA[3,0]))^.xyz:=PKraftVector3(pointer(@Temp))^.xyz;
 
-   Vector3DirectAdd(cB,Vector3ScalarMul(P,mB));
-   QuaternionDirectSpin(qB,Vector3TermMatrixMul(Vector3Cross(rB,P),iB^),1.0);
+   cB:=Positions[IndexB].Position;
+   qB:=Positions[IndexB].Orientation;
+   tB:=QuaternionToMatrix4x4(qB);
+   Temp:=Vector3Sub(cB,Vector3TermMatrixMulBasis(LocalCenterB,tB));
+   PKraftVector3(pointer(@tB[3,0]))^.xyz:=PKraftVector3(pointer(@Temp))^.xyz;
+
+   Island.ContactPairs[ContactPairIndex]^.GetSolverContactManifold(SolverContactManifold,tA,tB,true);
+
+   Normal:=SolverContactManifold.Normal;
+
+   for ContactIndex:=0 to SolverContactManifold.CountContacts-1 do begin
+
+    SolverContact:=@SolverContactManifold.Contacts[ContactIndex];
+
+    Point:=SolverContact^.Point;
+    Separation:=SolverContact^.Separation;
+
+    rA:=Vector3Sub(Point,cA);
+    rB:=Vector3Sub(Point,cB);
+
+    if MinSeparation>Separation then begin
+     MinSeparation:=Separation;
+    end;
+
+    C:=Min(Max(Physics.TimeOfImpactBaumgarte*(Separation+Physics.LinearSlop),-Physics.MaximalLinearCorrection),0.0);
+
+    rnA:=Vector3Cross(rA,Normal);
+    rnB:=Vector3Cross(rB,Normal);
+
+    K:=mA+mB+Vector3Dot(rnA,Vector3TermMatrixMul(rnA,iA^))+Vector3Dot(rnB,Vector3TermMatrixMul(rnB,iB^));
+
+    if K>0.0 then begin
+     Impulse:=-(C/K);
+    end else begin
+     Impulse:=0.0;
+    end;
+
+    P:=Vector3ScalarMul(Normal,Impulse);
+
+    Vector3DirectSub(cA,Vector3ScalarMul(P,mA));
+    QuaternionDirectSpin(qA,Vector3TermMatrixMul(Vector3Cross(rA,Vector3Neg(P)),iA^),1.0);
+
+    Vector3DirectAdd(cB,Vector3ScalarMul(P,mB));
+    QuaternionDirectSpin(qB,Vector3TermMatrixMul(Vector3Cross(rB,P),iB^),1.0);
+
+   end;
+
+   Positions[IndexA].Position:=cA;
+   Positions[IndexA].Orientation:=qA;
+
+   Positions[IndexB].Position:=cB;
+   Positions[IndexB].Orientation:=qB;
 
   end;
 
-  Positions[IndexA].Position:=cA;
-  Positions[IndexA].Orientation:=qA;
+  result:=MinSeparation>=((-1.5)*Physics.LinearSlop);
 
-  Positions[IndexB].Position:=cB;
-  Positions[IndexB].Orientation:=qB;
+ end else begin
 
+  result:=true;
+  
  end;
 
- result:=MinSeparation>=((-1.5)*Physics.LinearSlop);
 end;
 
 procedure TKraftSolver.StoreImpulses;
@@ -27859,7 +28348,7 @@ begin
 
  Solver.InitializeConstraints;
 
- if Physics.WarmStarting then begin
+ if Physics.WarmStarting or (Physics.ContactPositionCorrectionMode=kpcmBaumgarte) then begin
   Solver.WarmStart;
  end;
 
@@ -27949,21 +28438,26 @@ begin
   end;
  end;
 
- for Iteration:=1 to Physics.PositionIterations do begin
-  OK:=true;
-  if not Solver.SolvePositionConstraints then begin
-   OK:=false;
-  end;
-  for i:=0 to CountConstraints-1 do begin
-   Constraint:=Constraints[i];
-   if assigned(Constraint) and not (kcfBreaked in Constraint.Flags) then begin
-    if not Constraint.SolvePositionConstraint(self,TimeStep) then begin
-     OK:=false;
+ if (Physics.ContactPositionCorrectionMode=kpcmNonLinearGaussSeidel) or
+    (Physics.ConstraintPositionCorrectionMode=kpcmNonLinearGaussSeidel) then begin
+  for Iteration:=1 to Physics.PositionIterations do begin
+   OK:=true;
+   if (Physics.ContactPositionCorrectionMode=kpcmNonLinearGaussSeidel) and not Solver.SolvePositionConstraints then begin
+    OK:=false;
+   end;
+   if Physics.ConstraintPositionCorrectionMode=kpcmNonLinearGaussSeidel then begin
+    for i:=0 to CountConstraints-1 do begin
+     Constraint:=Constraints[i];
+     if assigned(Constraint) and not (kcfBreaked in Constraint.Flags) then begin
+      if not Constraint.SolvePositionConstraint(self,TimeStep) then begin
+       OK:=false;
+      end;
+     end;
     end;
    end;
-  end;
-  if OK then begin
-   break;
+   if OK then begin
+    break;
+   end;
   end;
  end;
 
@@ -28421,7 +28915,9 @@ begin
 
  SleepTimeThreshold:=0.5;
 
- Baumgarte:=0.2;
+ ContactBaumgarte:=0.2;
+
+ ConstraintBaumgarte:=0.2;
 
  TimeOfImpactBaumgarte:=0.75;
 
@@ -28447,6 +28943,10 @@ begin
  TimeOfImpactAlgorithm:=ktoiaBilateralAdvancement;
 
  MaximalSubSteps:=16;
+
+ ContactPositionCorrectionMode:=kpcmNonLinearGaussSeidel;
+
+ ConstraintPositionCorrectionMode:=kpcmNonLinearGaussSeidel;
 
  VelocityIterations:=10;
 
@@ -29886,7 +30386,7 @@ begin
   TimeStep.InverseDeltaTime:=1.0;
  end else begin
   TimeStep.InverseDeltaTime:=1.0/TimeStep.DeltaTime;
- end;
+ end;                     
  TimeStep.DeltaTimeRatio:=LastInverseDeltaTime*TimeStep.DeltaTime;
  TimeStep.WarmStarting:=WarmStarting;
 
@@ -29935,9 +30435,15 @@ begin
    inc(ContinuousTime,HighResolutionTimer.GetTime-StartTime);
   end;
   kcmTimeOfImpactSubSteps:begin
-   StartTime:=HighResolutionTimer.GetTime;
-   SolveContinuousTimeOfImpactSubSteps(TimeStep);
-   inc(ContinuousTime,HighResolutionTimer.GetTime-StartTime);
+   if ContactPositionCorrectionMode=kpcmNonLinearGaussSeidel then begin
+    StartTime:=HighResolutionTimer.GetTime;
+    SolveContinuousTimeOfImpactSubSteps(TimeStep);
+    inc(ContinuousTime,HighResolutionTimer.GetTime-StartTime);
+   end else begin
+    StartTime:=HighResolutionTimer.GetTime;
+    SolveContinuousMotionClamping(TimeStep);
+    inc(ContinuousTime,HighResolutionTimer.GetTime-StartTime);
+   end;
   end;
  end;
 
