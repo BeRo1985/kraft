@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2015-10-08-09-01-0000                       *
+ *                        Version 2015-10-08-10-37-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -876,7 +876,7 @@ type PKraftForceMode=^TKraftForceMode;
        procedure Transform(const WithMatrix:TKraftMatrix3x3); overload;
        procedure Transform(const WithMatrix:TKraftMatrix4x4); overload;
 
-       procedure Build(const AMaximumCountConvexHullPoints:longint=-1;const ADegeneratedConvexHullIsError:boolean=true;const AUserDefinedTolerance:double=-1.0);
+       procedure Build(const AMaximumCountConvexHullPoints:longint=-1;const AUserDefinedTolerance:double=-1.0);
 
        procedure Update;
 
@@ -16104,7 +16104,7 @@ begin
  end;
 end;
 
-procedure TKraftConvexHull.Build(const AMaximumCountConvexHullPoints:longint=-1;const ADegeneratedConvexHullIsError:boolean=true;const AUserDefinedTolerance:double=-1.0);
+procedure TKraftConvexHull.Build(const AMaximumCountConvexHullPoints:longint=-1;const AUserDefinedTolerance:double=-1.0);
 const HashBits=8;
       HashSize=1 shl HashBits;
       HashMask=HashSize-1;
@@ -16129,7 +16129,7 @@ type PTempFaceEdgeHashItem=^TTempFaceEdgeHashItem;
 var PointIndex,TriangleIndex,TriangleVertexIndex,VertexIndex,OtherVertexIndex,OtherTriangleIndex,Index,
     OtherTriangleVertexIndex,SearchIndex,CountTempFaceEdges,FaceIndex,EdgeVertexOffset,TempFaceEdgeIndex,
     OtherTempFaceEdgeIndex,CountTempFaceEdgeHashItems,TempFaceEdgeHashItemIndex,v0,v1,v2,
-    FoundSharedVertex,FaceVertexIndex,OtherFaceVertexIndex,CountPoints,HashBucket:longint;
+    FoundSharedVertex,FaceVertexIndex,OtherFaceVertexIndex,CountPoints,HashBucket,CountTriangles:longint;
     TempFaceEdgeHash:longword;
     TempFaceEdgeHashItem:PTempFaceEdgeHashItem;
     TempPoints:TConvexHullVectors;
@@ -16157,6 +16157,7 @@ var PointIndex,TriangleIndex,TriangleVertexIndex,VertexIndex,OtherVertexIndex,Ot
     Plane:TConvexHullPlane;
     InputIsCoplanar:boolean;
     TemporaryGrahamScanVectors,HullGrahamScanVectors:TConvexHullGrahamScanVectors;
+    Triangle:PConvexHullTriangle;
 begin
  Faces:=nil;
  CountFaces:=0;
@@ -16538,18 +16539,14 @@ begin
       Edge^.Faces[0]:=TempFaceEdgeHashItem^.Face;
       Edge^.Faces[1]:=TempFaceEdge^.Face;
      end else begin
-      if ADegeneratedConvexHullIsError then begin
-       raise EKraftDegeneratedConvexHull.Create('Degenerated convex hull');
-      end;
+      raise EKraftDegeneratedConvexHull.Create('Degenerated convex hull');
      end;
     end;
    end;
    for TempFaceEdgeHashItemIndex:=0 to CountTempFaceEdgeHashItems-1 do begin
     TempFaceEdgeHashItem:=@TempFaceEdgeHashItems[TempFaceEdgeHashItemIndex];
     if TempFaceEdgeHashItem^.Edge<0 then begin
-     if ADegeneratedConvexHullIsError then begin
-      raise EKraftDegeneratedConvexHull.Create('Degenerated convex hull');
-     end;
+     raise EKraftDegeneratedConvexHull.Create('Degenerated convex hull');
     end;
    end;
    SetLength(Edges,CountEdges);
@@ -16558,32 +16555,63 @@ begin
    SetLength(TempFaceEdgeHashTable,0);
   end;
 
-  // Compute vertex adjacency for hill-climbing
-  for VertexIndex:=0 to CountVertices-1 do begin
-   Vertices[VertexIndex].CountAdjacencies:=0;
-  end;
-  for FaceIndex:=0 to CountFaces-1 do begin
-   for FaceVertexIndex:=0 to Faces[FaceIndex].CountVertices-1 do begin
-    VertexIndex:=Faces[FaceIndex].Vertices[FaceVertexIndex];
-    Vertex:=@Vertices[VertexIndex];
-    for OtherFaceVertexIndex:=1 to Faces[FaceIndex].CountVertices-2 do begin
-     OtherVertexIndex:=Faces[FaceIndex].Vertices[(FaceVertexIndex+OtherFaceVertexIndex) mod Faces[FaceIndex].CountVertices];
-     Found:=false;
-     for SearchIndex:=0 to Vertex^.CountAdjacencies-1 do begin
-      if Vertex^.Adjacencies[SearchIndex]=OtherVertexIndex then begin
-       Found:=true;
-       break;
-      end;
+  TempTriangles:=nil;
+  try
+
+   // Triangulate convex polygon faces into temporary triangles for the hill-climbing vertex adjacency computation
+   CountTriangles:=0;
+   for FaceIndex:=0 to CountFaces-1 do begin
+    Face:=@Faces[FaceIndex];
+    if Face^.CountVertices>2 then begin
+     inc(CountTriangles,Face^.CountVertices-2);
+    end;
+   end;
+   SetLength(TempTriangles,CountTriangles);
+   CountTriangles:=0;
+   for FaceIndex:=0 to CountFaces-1 do begin
+    Face:=@Faces[FaceIndex];
+    for FaceVertexIndex:=2 to Face^.CountVertices-1 do begin
+     if (CountTriangles+1)>length(TempTriangles) then begin
+      SetLength(TempTriangles,(CountTriangles+1)*2);
      end;
-     if not Found then begin
-      if (Vertex^.CountAdjacencies+1)>length(Vertex^.Adjacencies) then begin
-       SetLength(Vertex^.Adjacencies,(Vertex^.CountAdjacencies+1)*2);
+     Triangle:=@TempTriangles[CountTriangles];
+     inc(CountTriangles);
+     Triangle^[0]:=Face^.Vertices[0];
+     Triangle^[1]:=Face^.Vertices[FaceVertexIndex-1];
+     Triangle^[2]:=Face^.Vertices[FaceVertexIndex];
+    end;
+   end;
+
+   // Compute vertex adjacency for hill-climbing
+   for VertexIndex:=0 to CountVertices-1 do begin
+    Vertices[VertexIndex].CountAdjacencies:=0;
+   end;
+   for TriangleIndex:=0 to CountTriangles-1 do begin
+    for TriangleVertexIndex:=0 to 2 do begin
+     VertexIndex:=TempTriangles[TriangleIndex,TriangleVertexIndex];
+     Vertex:=@Vertices[VertexIndex];
+     for OtherTriangleVertexIndex:=1 to 2 do begin
+      OtherVertexIndex:=TempTriangles[TriangleIndex,ModuloThree[TriangleVertexIndex+OtherTriangleVertexIndex]];
+      Found:=false;
+      for SearchIndex:=0 to Vertex^.CountAdjacencies-1 do begin
+       if Vertex^.Adjacencies[SearchIndex]=OtherVertexIndex then begin
+        Found:=true;
+        break;
+       end;
       end;
-      Vertex^.Adjacencies[Vertex^.CountAdjacencies]:=OtherVertexIndex;
-      inc(Vertex^.CountAdjacencies);
+      if not Found then begin
+       if (Vertex^.CountAdjacencies+1)>length(Vertex^.Adjacencies) then begin
+        SetLength(Vertex^.Adjacencies,(Vertex^.CountAdjacencies+1)*2);
+       end;
+       Vertex^.Adjacencies[Vertex^.CountAdjacencies]:=OtherVertexIndex;
+       inc(Vertex^.CountAdjacencies);
+      end;
      end;
     end;
    end;
+
+  finally
+   SetLength(TempTriangles,0);
   end;
 
  finally
@@ -19495,6 +19523,10 @@ constructor TKraftShapePlane.Create(const APhysics:TKraft;const ARigidBody:TKraf
 var HullPlaneVertices:array[0..7] of TKraftVector3;
     b,p,q:TKraftVector3;
 begin
+ StaticAABBTreeProxy:=-1;
+ SleepingAABBTreeProxy:=-1;
+ DynamicAABBTreeProxy:=-1;
+ KinematicAABBTreeProxy:=-1;
  Plane:=APlane;
  GetPlaneSpace(Plane.Normal,p,q);
  PlaneCenter:=Vector3ScalarMul(Plane.Normal,Plane.Distance-(PlaneSize*0.5));
