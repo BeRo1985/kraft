@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2015-10-09-05-31-0000                       *
+ *                        Version 2015-10-09-09-05-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -560,16 +560,37 @@ type PKraftForceMode=^TKraftForceMode;
        procedure Transform(const WithMatrix:TKraftMatrix4x4);
      end;
 
-     TKraftConvexHullVertexList=class
+     PKraftContactFeaturePair=^TKraftContactFeaturePair;
+     TKraftContactFeaturePair=packed record
+      case longint of
+       0:(
+        EdgeA:byte;
+        FaceA:byte;
+        EdgeB:byte;
+        FaceB:byte;
+       );
+       1:(
+        Key:longword;
+       );
+     end;
+
+     PKraftClipVertex=^TKraftClipVertex;
+     TKraftClipVertex=record
+      Position:TKraftVector3;
+      FeaturePair:TKraftContactFeaturePair;
+     end;
+           
+     TKraftClipVertexList=class
       public
-       Vertices:array of TKraftVector3;
+       Vertices:array of TKraftClipVertex;
        Capacity:longint;
        Count:longint;
        Color:TKraftColor;
        constructor Create;
        destructor Destroy; override;
        procedure Clear;
-       procedure Add(const v:TKraftVector3);
+       procedure Add(const v:TKraftVector3;const fp:TKraftContactFeaturePair); overload;
+       procedure Add(const v:TKraftClipVertex); overload;
      end;
 
      PKraftRaycastData=^TKraftRaycastData;
@@ -1251,20 +1272,6 @@ type PKraftForceMode=^TKraftForceMode;
        function Run:boolean;
      end;
 
-     PKraftContactFeaturePair=^TKraftContactFeaturePair;
-     TKraftContactFeaturePair=packed record
-      case longint of
-       0:(
-        EdgeA:byte;
-        FaceA:byte;
-        EdgeB:byte;
-        FaceB:byte;
-       );
-       1:(
-        Key:longword;
-       );
-     end;
-
      PKraftContact=^TKraftContact;
      TKraftContact=record
       LocalPoints:array[0..1] of TKraftVector3;
@@ -1460,11 +1467,11 @@ type PKraftForceMode=^TKraftForceMode;
 
        OnCanCollide:TKraftContactManagerOnCanCollide;
 
-       ConvexHullVertexLists:array[0..MAX_THREADS-1,0..1] of TKraftConvexHullVertexList;
+       ClipVertexLists:array[0..MAX_THREADS-1,0..1] of TKraftClipVertexList;
 
 {$ifdef DebugDraw}
-       DebugConvexHullVertexLists:array[0..255] of TKraftConvexHullVertexList;
-       CountDebugConvexHullVertexLists:longint;
+       DebugClipVertexLists:array[0..255] of TKraftClipVertexList;
+       CountDebugClipVertexLists:longint;
 {$endif}
 
        TemporaryContacts:array[0..MAX_THREADS-1,0..MAX_TEMPORARY_CONTACTS-1] of TKraftContact;
@@ -10149,27 +10156,36 @@ begin
  QuaternionNormalize(Sweep.q);
 end;
 
-procedure ClipFace(const InVertices,OutVertices:TKraftConvexHullVertexList;const Plane:TKraftPlane);
+procedure ClipFace(const InVertices,OutVertices:TKraftClipVertexList;const Plane:TKraftPlane);
 var ve,NumVerts:longint;
     ds,de:TKraftScalar;
-    FirstVertex,EndVertex:PKraftVector3;
+    FirstVertex,EndVertex:PKraftClipVertex;
+    fp:TKraftContactFeaturePair;
 begin
  NumVerts:=InVertices.Count;
  if NumVerts>=2 then begin
   FirstVertex:=@InVertices.Vertices[InVertices.Count-1];
   EndVertex:=@InVertices.Vertices[0];
-  ds:=PlaneVectorDistance(Plane,FirstVertex^);
+  ds:=PlaneVectorDistance(Plane,FirstVertex^.Position);
   for ve:=0 to NumVerts-1 do begin
    EndVertex:=@InVertices.Vertices[ve];
-   de:=PlaneVectorDistance(Plane,EndVertex^);
+   de:=PlaneVectorDistance(Plane,EndVertex^.Position);
    if ds<0.0 then begin
     if de<0.0 then begin
      OutVertices.Add(EndVertex^);
     end else begin
-     OutVertices.Add(Vector3Lerp(FirstVertex^,EndVertex^,ds/(ds-de)));
+     fp.EdgeA:=EndVertex^.FeaturePair.EdgeA;
+     fp.FaceA:=EndVertex^.FeaturePair.FaceA;
+     fp.EdgeB:=ve;
+     fp.FaceB:=0;
+     OutVertices.Add(Vector3Lerp(FirstVertex^.Position,EndVertex^.Position,ds/(ds-de)),fp);
     end;
    end else if de<0.0 then begin
-    OutVertices.Add(Vector3Lerp(FirstVertex^,EndVertex^,ds/(ds-de)));
+    fp.EdgeA:=ve;
+    fp.FaceA:=0;
+    fp.EdgeB:=EndVertex^.FeaturePair.EdgeA;
+    fp.FaceB:=EndVertex^.FeaturePair.FaceA;
+    OutVertices.Add(Vector3Lerp(FirstVertex^.Position,EndVertex^.Position,ds/(ds-de)),fp);
     OutVertices.Add(EndVertex^);
    end;
    FirstVertex:=EndVertex;
@@ -10237,7 +10253,7 @@ begin
  result:=Matrix3x3TermAdd(I,Matrix3x3TermScalarMul(Matrix3x3TermSub(Matrix3x3TermMul(w1x,I),Iw1x),dt));
 end;
 
-constructor TKraftConvexHullVertexList.Create;
+constructor TKraftClipVertexList.Create;
 begin
  inherited Create;
  Vertices:=nil;
@@ -10249,17 +10265,30 @@ begin
  Color.a:=1.0;
 end;
 
-destructor TKraftConvexHullVertexList.Destroy;
+destructor TKraftClipVertexList.Destroy;
 begin
  SetLength(Vertices,0);
 end;
 
-procedure TKraftConvexHullVertexList.Clear;
+procedure TKraftClipVertexList.Clear;
 begin
  Count:=0;
 end;
 
-procedure TKraftConvexHullVertexList.Add(const v:TKraftVector3);
+procedure TKraftClipVertexList.Add(const v:TKraftVector3;const fp:TKraftContactFeaturePair);
+var i:longint;
+begin
+ i:=Count;
+ inc(Count);
+ if Count>Capacity then begin
+  Capacity:=Count*2;
+  SetLength(Vertices,Capacity);
+ end;
+ Vertices[i].Position:=v;
+ Vertices[i].FeaturePair:=fp;
+end;
+
+procedure TKraftClipVertexList.Add(const v:TKraftClipVertex);
 var i:longint;
 begin
  i:=Count;
@@ -20506,7 +20535,9 @@ var OldManifoldCountContacts:longint;
  end;
  procedure CollideConvexHullWithConvexHull(ShapeA,ShapeB:TKraftShapeConvexHull);
  const kTolerance=0.005; // Skip near parallel edges: |Ea x Eb| = sin(alpha) * |Ea| * |Eb|
-       eTolerance=0.05;
+       RelativeEdgeTolerance=0.90;
+       RelativeFaceTolerance=0.98;
+ var LinearSlop,SeparationTolerance,AbsoluteTolerance:single;
   function IsMinkowskiFace(const A,B,B_x_A,C,D,D_x_C:TKraftVector3):boolean; {$ifdef caninline}inline;{$endif}
   var CBA,DBA,ADC,BDC:TKraftScalar;
   begin
@@ -20705,13 +20736,14 @@ var OldManifoldCountContacts:longint;
   end;
   procedure ClipFaceContactPoints(const ReferenceHull:TKraftShapeConvexHull;const ReferenceFaceIndex:longint;const IncidentHull:TKraftShapeConvexHull;const IncidentFaceIndex:longint;const Flip:boolean);
   var Contact:PKraftContact;
-      ReferenceVertexIndex,OtherReferenceVertexIndex,IncidentVertexIndex,CliVertexIndex:longint;
+      ReferenceVertexIndex,OtherReferenceVertexIndex,IncidentVertexIndex,CliVertexIndex,ReferenceEdgeIndexOffset,IncidentEdgeIndexOffset:longint;
       ReferenceFace,IncidentFace:PKraftConvexHullFace;
-      ClipVertex,FirstClipVertex,EndClipVertex:PKraftVector3;
+      ClipVertex,FirstClipVertex,EndClipVertex:PKraftClipVertex;
       StartDistance,EndDistance,Distance:TKraftScalar;
-      ClipVertices:array[0..2] of TKraftConvexHullVertexList;
+      ClipVertices:array[0..2] of TKraftClipVertexList;
       ReferencePoint:TKraftVector3;
       ReferenceWorldPlane,ReferenceEdgePlane:TKraftPlane;
+      FeaturePair:TKraftContactFeaturePair;
   begin
 
    ContactManager.CountTemporaryContacts[ThreadIndex]:=0;
@@ -20721,40 +20753,51 @@ var OldManifoldCountContacts:longint;
 
    IncidentFace:=@IncidentHull.ConvexHull.Faces[IncidentFaceIndex];
 
-   ClipVertices[0]:=ContactManager.ConvexHullVertexLists[ThreadIndex,0];
+   ClipVertices[0]:=ContactManager.ClipVertexLists[ThreadIndex,0];
    ClipVertices[0].Clear;
 
+   ReferenceEdgeIndexOffset:=ReferenceFace^.EdgeVertexOffset;
+   IncidentEdgeIndexOffset:=IncidentFace^.EdgeVertexOffset;
+
    for IncidentVertexIndex:=0 to IncidentFace^.CountVertices-1 do begin
-    ClipVertices[0].Add(Vector3TermMatrixMul(IncidentHull.ConvexHull.Vertices[IncidentFace^.Vertices[IncidentVertexIndex]].Position,IncidentHull.WorldTransform));
+    FeaturePair.EdgeA:=IncidentEdgeIndexOffset+IncidentVertexIndex;
+    FeaturePair.FaceA:=IncidentFaceIndex;
+    FeaturePair.EdgeB:=IncidentEdgeIndexOffset+(IncidentVertexIndex+1);
+    FeaturePair.FaceB:=IncidentFaceIndex;
+    ClipVertices[0].Add(Vector3TermMatrixMul(IncidentHull.ConvexHull.Vertices[IncidentFace^.Vertices[IncidentVertexIndex]].Position,IncidentHull.WorldTransform),FeaturePair);
    end;
 
 {$ifdef DebugDraw}
-    if (ContactManager.Physics.CountThreads<2) and (ContactManager.CountDebugConvexHullVertexLists<length(ContactManager.DebugConvexHullVertexLists)) then begin
-     ContactManager.DebugConvexHullVertexLists[ContactManager.CountDebugConvexHullVertexLists].Color.r:=0.5;
-     ContactManager.DebugConvexHullVertexLists[ContactManager.CountDebugConvexHullVertexLists].Color.g:=1.0;
-     ContactManager.DebugConvexHullVertexLists[ContactManager.CountDebugConvexHullVertexLists].Color.b:=0.5;
-     ContactManager.DebugConvexHullVertexLists[ContactManager.CountDebugConvexHullVertexLists].Color.a:=1.0;
-     ContactManager.DebugConvexHullVertexLists[ContactManager.CountDebugConvexHullVertexLists].Clear;
+    if (ContactManager.Physics.CountThreads<2) and (ContactManager.CountDebugClipVertexLists<length(ContactManager.DebugClipVertexLists)) then begin
+     ContactManager.DebugClipVertexLists[ContactManager.CountDebugClipVertexLists].Color.r:=0.5;
+     ContactManager.DebugClipVertexLists[ContactManager.CountDebugClipVertexLists].Color.g:=1.0;
+     ContactManager.DebugClipVertexLists[ContactManager.CountDebugClipVertexLists].Color.b:=0.5;
+     ContactManager.DebugClipVertexLists[ContactManager.CountDebugClipVertexLists].Color.a:=1.0;
+     ContactManager.DebugClipVertexLists[ContactManager.CountDebugClipVertexLists].Clear;
      for CliVertexIndex:=0 to ClipVertices[0].Count-1 do begin
-      ContactManager.DebugConvexHullVertexLists[ContactManager.CountDebugConvexHullVertexLists].Add(ClipVertices[0].Vertices[CliVertexIndex]);
+      ContactManager.DebugClipVertexLists[ContactManager.CountDebugClipVertexLists].Add(ClipVertices[0].Vertices[CliVertexIndex]);
      end;
-     inc(ContactManager.CountDebugConvexHullVertexLists);
+     inc(ContactManager.CountDebugClipVertexLists);
     end;
-    if (ContactManager.Physics.CountThreads<2) and (ContactManager.CountDebugConvexHullVertexLists<length(ContactManager.DebugConvexHullVertexLists)) then begin
-     ContactManager.DebugConvexHullVertexLists[ContactManager.CountDebugConvexHullVertexLists].Color.r:=1.0;
-     ContactManager.DebugConvexHullVertexLists[ContactManager.CountDebugConvexHullVertexLists].Color.g:=0.5;
-     ContactManager.DebugConvexHullVertexLists[ContactManager.CountDebugConvexHullVertexLists].Color.b:=1.0;
-     ContactManager.DebugConvexHullVertexLists[ContactManager.CountDebugConvexHullVertexLists].Color.a:=1.0;
-     ContactManager.DebugConvexHullVertexLists[ContactManager.CountDebugConvexHullVertexLists].Clear;
+    if (ContactManager.Physics.CountThreads<2) and (ContactManager.CountDebugClipVertexLists<length(ContactManager.DebugClipVertexLists)) then begin
+     ContactManager.DebugClipVertexLists[ContactManager.CountDebugClipVertexLists].Color.r:=1.0;
+     ContactManager.DebugClipVertexLists[ContactManager.CountDebugClipVertexLists].Color.g:=0.5;
+     ContactManager.DebugClipVertexLists[ContactManager.CountDebugClipVertexLists].Color.b:=1.0;
+     ContactManager.DebugClipVertexLists[ContactManager.CountDebugClipVertexLists].Color.a:=1.0;
+     ContactManager.DebugClipVertexLists[ContactManager.CountDebugClipVertexLists].Clear;
      for ReferenceVertexIndex:=0 to ReferenceFace^.CountVertices-1 do begin
       ReferencePoint:=Vector3TermMatrixMul(ReferenceHull.ConvexHull.Vertices[ReferenceFace^.Vertices[ReferenceVertexIndex]].Position,ReferenceHull.WorldTransform);
-      ContactManager.DebugConvexHullVertexLists[ContactManager.CountDebugConvexHullVertexLists].Add(ReferencePoint);
+      FeaturePair.EdgeA:=ReferenceEdgeIndexOffset+ReferenceVertexIndex;
+      FeaturePair.FaceA:=ReferenceFaceIndex;
+      FeaturePair.EdgeB:=ReferenceEdgeIndexOffset+(ReferenceVertexIndex+1);
+      FeaturePair.FaceB:=ReferenceFaceIndex;
+      ContactManager.DebugClipVertexLists[ContactManager.CountDebugClipVertexLists].Add(ReferencePoint,FeaturePair);
      end;
-     inc(ContactManager.CountDebugConvexHullVertexLists);
+     inc(ContactManager.CountDebugClipVertexLists);
     end;
 {$endif}
 
-   ClipVertices[1]:=ContactManager.ConvexHullVertexLists[ThreadIndex,1];
+   ClipVertices[1]:=ContactManager.ClipVertexLists[ThreadIndex,1];
    ClipVertices[1].Clear;
 
    OtherReferenceVertexIndex:=ReferenceFace^.CountVertices-1;
@@ -20765,19 +20808,27 @@ var OldManifoldCountContacts:longint;
      ReferenceEdgePlane.Distance:=-Vector3Dot(ReferenceEdgePlane.Normal,ReferencePoint);
      FirstClipVertex:=@ClipVertices[0].Vertices[ClipVertices[0].Count-1];
      EndClipVertex:=@ClipVertices[0].Vertices[0];
-     StartDistance:=PlaneVectorDistance(ReferenceEdgePlane,FirstClipVertex^);
+     StartDistance:=PlaneVectorDistance(ReferenceEdgePlane,FirstClipVertex^.Position);
      for CliVertexIndex:=0 to ClipVertices[0].Count-1 do begin
       EndClipVertex:=@ClipVertices[0].Vertices[CliVertexIndex];
-      EndDistance:=PlaneVectorDistance(ReferenceEdgePlane,EndClipVertex^);
+      EndDistance:=PlaneVectorDistance(ReferenceEdgePlane,EndClipVertex^.Position);
       if StartDistance<0.0 then begin
        if EndDistance<0.0 then begin
-        ClipVertices[1].Add(EndClipVertex^);
+        ClipVertices[1].Add(EndClipVertex^.Position,EndClipVertex^.FeaturePair);
        end else begin
-        ClipVertices[1].Add(Vector3Lerp(FirstClipVertex^,EndClipVertex^,StartDistance/(StartDistance-EndDistance)));
+        FeaturePair.EdgeA:=EndClipVertex^.FeaturePair.EdgeA;
+        FeaturePair.FaceA:=EndClipVertex^.FeaturePair.FaceA;
+        FeaturePair.EdgeB:=ReferenceEdgeIndexOffset+ReferenceVertexIndex;
+        FeaturePair.FaceB:=ReferenceFaceIndex;
+        ClipVertices[1].Add(Vector3Lerp(FirstClipVertex^.Position,EndClipVertex^.Position,StartDistance/(StartDistance-EndDistance)),FeaturePair);
        end;
       end else if EndDistance<0.0 then begin
-       ClipVertices[1].Add(Vector3Lerp(FirstClipVertex^,EndClipVertex^,StartDistance/(StartDistance-EndDistance)));
-       ClipVertices[1].Add(EndClipVertex^);
+       FeaturePair.EdgeA:=ReferenceEdgeIndexOffset+ReferenceVertexIndex;
+       FeaturePair.FaceA:=ReferenceFaceIndex;
+       FeaturePair.EdgeB:=EndClipVertex^.FeaturePair.EdgeA;
+       FeaturePair.FaceB:=EndClipVertex^.FeaturePair.FaceA;
+       ClipVertices[1].Add(Vector3Lerp(FirstClipVertex^.Position,EndClipVertex^.Position,StartDistance/(StartDistance-EndDistance)),FeaturePair);
+       ClipVertices[1].Add(EndClipVertex^.Position,EndClipVertex^.FeaturePair);
       end;
       FirstClipVertex:=EndClipVertex;
       StartDistance:=EndDistance;
@@ -20795,35 +20846,35 @@ var OldManifoldCountContacts:longint;
    end;
 
 {$ifdef DebugDraw}
-    if (ContactManager.Physics.CountThreads<2) and (ContactManager.CountDebugConvexHullVertexLists<length(ContactManager.DebugConvexHullVertexLists)) then begin
-     ContactManager.DebugConvexHullVertexLists[ContactManager.CountDebugConvexHullVertexLists].Color.r:=0.5;
-     ContactManager.DebugConvexHullVertexLists[ContactManager.CountDebugConvexHullVertexLists].Color.g:=0.5;
-     ContactManager.DebugConvexHullVertexLists[ContactManager.CountDebugConvexHullVertexLists].Color.b:=1.0;
-     ContactManager.DebugConvexHullVertexLists[ContactManager.CountDebugConvexHullVertexLists].Color.a:=1.0;
-     ContactManager.DebugConvexHullVertexLists[ContactManager.CountDebugConvexHullVertexLists].Clear;
+    if (ContactManager.Physics.CountThreads<2) and (ContactManager.CountDebugClipVertexLists<length(ContactManager.DebugClipVertexLists)) then begin
+     ContactManager.DebugClipVertexLists[ContactManager.CountDebugClipVertexLists].Color.r:=0.5;
+     ContactManager.DebugClipVertexLists[ContactManager.CountDebugClipVertexLists].Color.g:=0.5;
+     ContactManager.DebugClipVertexLists[ContactManager.CountDebugClipVertexLists].Color.b:=1.0;
+     ContactManager.DebugClipVertexLists[ContactManager.CountDebugClipVertexLists].Color.a:=1.0;
+     ContactManager.DebugClipVertexLists[ContactManager.CountDebugClipVertexLists].Clear;
      for CliVertexIndex:=0 to ClipVertices[0].Count-1 do begin
-      ContactManager.DebugConvexHullVertexLists[ContactManager.CountDebugConvexHullVertexLists].Add(ClipVertices[0].Vertices[CliVertexIndex]);
+      ContactManager.DebugClipVertexLists[ContactManager.CountDebugClipVertexLists].Add(ClipVertices[0].Vertices[CliVertexIndex]);
      end;
-     inc(ContactManager.CountDebugConvexHullVertexLists);
+     inc(ContactManager.CountDebugClipVertexLists);
     end;
 {$endif}
 
    for CliVertexIndex:=0 to ClipVertices[0].Count-1 do begin
     ClipVertex:=@ClipVertices[0].Vertices[CliVertexIndex];
-    Distance:=PlaneVectorDistance(ReferenceWorldPlane,ClipVertex^);
+    Distance:=PlaneVectorDistance(ReferenceWorldPlane,ClipVertex^.Position);
     if Distance<0.0 then begin
      if ContactManager.CountTemporaryContacts[ThreadIndex]<MAX_TEMPORARY_CONTACTS then begin
       Contact:=@ContactManager.TemporaryContacts[ThreadIndex,ContactManager.CountTemporaryContacts[ThreadIndex]];
       inc(ContactManager.CountTemporaryContacts[ThreadIndex]);
       if Flip then begin
-       Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(ClipVertex^,Shapes[0].WorldTransform);
-       Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(Vector3Add(ClipVertex^,Vector3ScalarMul(ReferenceWorldPlane.Normal,-Distance)),Shapes[1].WorldTransform);
+       Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(ClipVertex^.Position,Shapes[0].WorldTransform);
+       Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(Vector3Add(ClipVertex^.Position,Vector3ScalarMul(ReferenceWorldPlane.Normal,-Distance)),Shapes[1].WorldTransform);
       end else begin
-       Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(Vector3Add(ClipVertex^,Vector3ScalarMul(ReferenceWorldPlane.Normal,-Distance)),Shapes[0].WorldTransform);
-       Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(ClipVertex^,Shapes[1].WorldTransform);
-      end;
+       Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(Vector3Add(ClipVertex^.Position,Vector3ScalarMul(ReferenceWorldPlane.Normal,-Distance)),Shapes[0].WorldTransform);
+       Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(ClipVertex^.Position,Shapes[1].WorldTransform);
+      end;                
       Contact^.Penetration:=Distance;
-      Contact^.FeaturePair.Key:=$ffffffff;// CliVertexIndex; // $ffffffff => nearest current-frame=>last-frame contact point search for warm starting
+      Contact^.FeaturePair:=ClipVertex^.FeaturePair;
      end else begin
       break;
      end;
@@ -20831,12 +20882,21 @@ var OldManifoldCountContacts:longint;
    end;
 
   end;
- var Contact:PKraftContact;
+ var Physics:TKraft;
+     Contact:PKraftContact;
      Iteration,ReferenceFaceIndex,IncidentFaceIndex:longint;
      EdgeA,EdgeB:PKraftConvexHullEdge;
      PenetrationDepth:TKraftScalar;
      a0,a1,b0,b1,pa,pb,Normal:TKraftVector3;
  begin
+
+  Physics:=ContactManager.Physics;
+
+  LinearSlop:=Physics.LinearSlop;
+
+  SeparationTolerance:=LinearSlop;
+  
+  AbsoluteTolerance:=LinearSlop*0.5;
 
   Manifold.CountContacts:=0;
 
@@ -20852,7 +20912,7 @@ var OldManifoldCountContacts:longint;
 
     if Manifold.HaveData then begin
 
-     if (Manifold.FaceQueryAB.Index>=0) and (Manifold.FaceQueryAB.Separation>0.0) then begin
+     if (Manifold.FaceQueryAB.Index>=0) and (Manifold.FaceQueryAB.Separation>SeparationTolerance) then begin
       if TestEarlyFaceDirection(ShapeA,ShapeB,Manifold.FaceQueryAB) then begin
        // Still existent seperating axis from last frame found, so exit!
        exit;
@@ -20861,7 +20921,7 @@ var OldManifoldCountContacts:longint;
        Iteration:=1;
        continue;
       end;
-     end else if (Manifold.FaceQueryBA.Index>=0) and (Manifold.FaceQueryBA.Separation>0.0) then begin
+     end else if (Manifold.FaceQueryBA.Index>=0) and (Manifold.FaceQueryBA.Separation>SeparationTolerance) then begin
       if TestEarlyFaceDirection(ShapeB,ShapeA,Manifold.FaceQueryBA) then begin
        // Still existent seperating axis from last frame found, so exit!
        exit;
@@ -20870,7 +20930,7 @@ var OldManifoldCountContacts:longint;
        Iteration:=1;
        continue;
       end;
-     end else if ((Manifold.EdgeQuery.IndexA>=0) and (Manifold.EdgeQuery.IndexB>=0)) and (Manifold.EdgeQuery.Separation>0.0) then begin
+     end else if ((Manifold.EdgeQuery.IndexA>=0) and (Manifold.EdgeQuery.IndexB>=0)) and (Manifold.EdgeQuery.Separation>SeparationTolerance) then begin
       if TestEarlyEdgeDirection(ShapeA,ShapeB,Manifold.EdgeQuery) then begin
        // Still existent seperating axis from last frame found, so exit!
        exit;
@@ -20879,9 +20939,9 @@ var OldManifoldCountContacts:longint;
        Iteration:=1;
        continue;
       end;
-     end else if ((Manifold.FaceQueryAB.Index<0) or (Manifold.FaceQueryAB.Separation>0.0)) or
-                 ((Manifold.FaceQueryBA.Index<0) or (Manifold.FaceQueryBA.Separation>0.0)) or
-                 (((Manifold.EdgeQuery.IndexA<0) or (Manifold.EdgeQuery.IndexB<0)) or (Manifold.EdgeQuery.Separation>0.0)) then begin
+     end else if ((Manifold.FaceQueryAB.Index<0) or (Manifold.FaceQueryAB.Separation>SeparationTolerance)) or
+                 ((Manifold.FaceQueryBA.Index<0) or (Manifold.FaceQueryBA.Separation>SeparationTolerance)) or
+                 (((Manifold.EdgeQuery.IndexA<0) or (Manifold.EdgeQuery.IndexB<0)) or (Manifold.EdgeQuery.Separation>SeparationTolerance)) then begin
       // Reject the try to rebuild the contact manifold from last frame, and process a new full seperating axis test
       Iteration:=1;
       continue;
@@ -20895,8 +20955,9 @@ var OldManifoldCountContacts:longint;
       end else if TestEarlyEdgeDirection(ShapeA,ShapeB,Manifold.EdgeQuery) then begin
        // Still existent seperating axis from last frame found, so exit!
        exit;
-{     end else if ((Manifold.EdgeQuery.IndexA>=0) and (Manifold.EdgeQuery.IndexB>=0)) and
-                  ((Manifold.EdgeQuery.Separation>(Manifold.FaceQueryAB.Separation+eTolerance)) and (Manifold.EdgeQuery.Separation>(Manifold.FaceQueryBA.Separation+eTolerance))) then begin
+{     end else if ((Manifold.EdgeQuery.IndexA>=0) and
+                   (Manifold.EdgeQuery.IndexB>=0)) and
+                  (Manifold.EdgeQuery.Separation>((Max(Manifold.FaceQueryAB.Separation,Manifold.FaceQueryBA.Separation)*kRelEdgeTolerance)+kAbsTolerance)) then begin
        // Reject the try to rebuild the contact manifold from last frame, and process a new full seperating axis test
        Iteration:=1;
        continue;
@@ -20932,26 +20993,27 @@ var OldManifoldCountContacts:longint;
     Manifold.HaveData:=true;
 
     QueryFaceDirections(ShapeA,ShapeB,Manifold.FaceQueryAB);
-    if Manifold.FaceQueryAB.Separation>0.0 then begin
+    if Manifold.FaceQueryAB.Separation>SeparationTolerance then begin
      exit;
     end;
 
     QueryFaceDirections(ShapeB,ShapeA,Manifold.FaceQueryBA);
-    if Manifold.FaceQueryBA.Separation>0.0 then begin
+    if Manifold.FaceQueryBA.Separation>SeparationTolerance then begin
      exit;
     end;
 
     QueryEdgeDirections(ShapeA,ShapeB,Manifold.EdgeQuery);
-    if Manifold.EdgeQuery.Separation>0.0 then begin
+    if Manifold.EdgeQuery.Separation>SeparationTolerance then begin
      exit;
     end;
 
    end;
 
    ContactManager.CountTemporaryContacts[ThreadIndex]:=0;
-   
-   if ((Manifold.EdgeQuery.IndexA>=0) and (Manifold.EdgeQuery.IndexB>=0)) and
-      ((Manifold.EdgeQuery.Separation>(Manifold.FaceQueryAB.Separation+eTolerance)) and (Manifold.EdgeQuery.Separation>(Manifold.FaceQueryBA.Separation+eTolerance))) then begin
+
+   if ((Manifold.EdgeQuery.IndexA>=0) and
+       (Manifold.EdgeQuery.IndexB>=0)) and
+      (Manifold.EdgeQuery.Separation>((Max(Manifold.FaceQueryAB.Separation,Manifold.FaceQueryBA.Separation)*RelativeEdgeTolerance)+AbsoluteTolerance)) then begin
 
     // Edge contact
 
@@ -20991,17 +21053,9 @@ var OldManifoldCountContacts:longint;
 
     // Face contact
 
-    if (Manifold.FaceQueryAB.Separation+EPSILON)>Manifold.FaceQueryBA.Separation then begin
+    if Manifold.FaceQueryBA.Separation>((Manifold.FaceQueryAB.Separation*RelativeFaceTolerance)+AbsoluteTolerance) then begin
 
-     ReferenceFaceIndex:=Manifold.FaceQueryAB.Index;
-     IncidentFaceIndex:=FindIncidentFaceIndex(ShapeA,Manifold.FaceQueryAB.Index,ShapeB);
-
-     Manifold.ContactManifoldType:=kcmtFaceA;
-     Manifold.LocalNormal:=ShapeA.ConvexHull.Faces[Manifold.FaceQueryAB.Index].Plane.Normal;
-
-     ClipFaceContactPoints(ShapeA,ReferenceFaceIndex,ShapeB,IncidentFaceIndex,false);
-
-    end else begin
+     // Face contact BA
 
      ReferenceFaceIndex:=FindIncidentFaceIndex(ShapeB,Manifold.FaceQueryBA.Index,ShapeA);
      IncidentFaceIndex:=Manifold.FaceQueryBA.Index;
@@ -21010,6 +21064,18 @@ var OldManifoldCountContacts:longint;
      Manifold.LocalNormal:=ShapeB.ConvexHull.Faces[Manifold.FaceQueryBA.Index].Plane.Normal;
 
      ClipFaceContactPoints(ShapeB,IncidentFaceIndex,ShapeA,ReferenceFaceIndex,true);
+
+    end else begin
+
+     // Face contact AB
+
+     ReferenceFaceIndex:=Manifold.FaceQueryAB.Index;
+     IncidentFaceIndex:=FindIncidentFaceIndex(ShapeA,Manifold.FaceQueryAB.Index,ShapeB);
+
+     Manifold.ContactManifoldType:=kcmtFaceA;
+     Manifold.LocalNormal:=ShapeA.ConvexHull.Faces[Manifold.FaceQueryAB.Index].Plane.Normal;
+
+     ClipFaceContactPoints(ShapeA,ReferenceFaceIndex,ShapeB,IncidentFaceIndex,false);
 
     end;
 
@@ -21454,14 +21520,14 @@ begin
  OnCanCollide:=nil;
 
  for ThreadIndex:=0 to MAX_THREADS-1 do begin
-  ConvexHullVertexLists[ThreadIndex,0]:=TKraftConvexHullVertexList.Create;
-  ConvexHullVertexLists[ThreadIndex,1]:=TKraftConvexHullVertexList.Create;
+  ClipVertexLists[ThreadIndex,0]:=TKraftClipVertexList.Create;
+  ClipVertexLists[ThreadIndex,1]:=TKraftClipVertexList.Create;
  end;
 
 {$ifdef DebugDraw}
- CountDebugConvexHullVertexLists:=0;
- for ThreadIndex:=0 to high(DebugConvexHullVertexLists) do begin
-  DebugConvexHullVertexLists[ThreadIndex]:=TKraftConvexHullVertexList.Create;
+ CountDebugClipVertexLists:=0;
+ for ThreadIndex:=0 to high(DebugClipVertexLists) do begin
+  DebugClipVertexLists[ThreadIndex]:=TKraftClipVertexList.Create;
  end;
 {$endif}
 
@@ -21512,13 +21578,13 @@ begin
 //Assert(CountMeshContactPairs=0);
 
  for ThreadIndex:=0 to MAX_THREADS-1 do begin
-  FreeAndNil(ConvexHullVertexLists[ThreadIndex,0]);
-  FreeAndNil(ConvexHullVertexLists[ThreadIndex,1]);
+  FreeAndNil(ClipVertexLists[ThreadIndex,0]);
+  FreeAndNil(ClipVertexLists[ThreadIndex,1]);
  end;
 
 {$ifdef DebugDraw}
- for ThreadIndex:=0 to high(DebugConvexHullVertexLists) do begin
-  DebugConvexHullVertexLists[ThreadIndex].Free;
+ for ThreadIndex:=0 to high(DebugClipVertexLists) do begin
+  DebugClipVertexLists[ThreadIndex].Free;
  end;
 {$endif}
 
@@ -22201,26 +22267,26 @@ begin
 
  glLineWidth(2);
  glBegin(GL_LINES);
- for i:=0 to CountDebugConvexHullVertexLists-1 do begin
+ for i:=0 to CountDebugClipVertexLists-1 do begin
 {$ifdef UseDouble}
-  glColor4dv(@DebugConvexHullVertexLists[i].Color);
-  for j:=0 to DebugConvexHullVertexLists[i].Count-1 do begin
+  glColor4dv(@DebugClipVertexLists[i].Color);
+  for j:=0 to DebugClipVertexLists[i].Count-1 do begin
    if j=0 then begin
-    glVertex3dv(@DebugConvexHullVertexLists[i].Vertices[DebugConvexHullVertexLists[i].Count-1]);
+    glVertex3dv(@DebugClipVertexLists[i].Vertices[DebugClipVertexLists[i].Count-1].Position);
    end else begin
-    glVertex3dv(@DebugConvexHullVertexLists[i].Vertices[j-1]);
+    glVertex3dv(@DebugClipVertexLists[i].Vertices[j-1].Position);
    end;
-   glVertex3dv(@DebugConvexHullVertexLists[i].Vertices[j]);
+   glVertex3dv(@DebugClipVertexLists[i].Vertices[j].Position);
   end;
 {$else}
-  glColor4fv(@DebugConvexHullVertexLists[i].Color);
-  for j:=0 to DebugConvexHullVertexLists[i].Count-1 do begin
+  glColor4fv(@DebugClipVertexLists[i].Color);
+  for j:=0 to DebugClipVertexLists[i].Count-1 do begin
    if j=0 then begin
-    glVertex3fv(@DebugConvexHullVertexLists[i].Vertices[DebugConvexHullVertexLists[i].Count-1]);
+    glVertex3fv(@DebugClipVertexLists[i].Vertices[DebugClipVertexLists[i].Count-1].Position);
    end else begin
-    glVertex3fv(@DebugConvexHullVertexLists[i].Vertices[j-1]);
+    glVertex3fv(@DebugClipVertexLists[i].Vertices[j-1].Position);
    end;
-   glVertex3fv(@DebugConvexHullVertexLists[i].Vertices[j]);
+   glVertex3fv(@DebugClipVertexLists[i].Vertices[j].Position);
   end;
 {$endif}
  end;
@@ -28853,7 +28919,7 @@ begin
  while assigned(SeedRigidBody) do begin
 
   if (krbfIslandVisited in SeedRigidBody.Flags) or                                // Seed can't be visited and apart of an island already
-     ((SeedRigidBody.Flags*[krbfAwake,krbfActive])<>[krbfAwake,krbfActive]) or // Seed must be awake
+     ((SeedRigidBody.Flags*[krbfAwake,krbfActive])<>[krbfAwake,krbfActive]) or    // Seed must be awake
      (SeedRigidBody.RigidBodyType=krbtStatic) then begin                          // Seed can't be a static body in order to keep islands as small as possible
    SeedRigidBody:=SeedRigidBody.RigidBodyNext;
    continue;
@@ -30096,7 +30162,7 @@ begin
  TimeStep.WarmStarting:=WarmStarting;
 
 {$ifdef DebugDraw}
- ContactManager.CountDebugConvexHullVertexLists:=0;
+ ContactManager.CountDebugClipVertexLists:=0;
 {$endif}
 
  OldFPUPrecisionMode:=GetPrecisionMode;
