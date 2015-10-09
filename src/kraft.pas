@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2015-10-09-09-05-0000                       *
+ *                        Version 2015-10-09-09-18-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -20872,9 +20872,19 @@ var OldManifoldCountContacts:longint;
       end else begin
        Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(Vector3Add(ClipVertex^.Position,Vector3ScalarMul(ReferenceWorldPlane.Normal,-Distance)),Shapes[0].WorldTransform);
        Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(ClipVertex^.Position,Shapes[1].WorldTransform);
-      end;                
+      end;
       Contact^.Penetration:=Distance;
-      Contact^.FeaturePair:=ClipVertex^.FeaturePair;
+      if Flip then begin
+       Contact^.FeaturePair.EdgeA:=ClipVertex^.FeaturePair.EdgeB;
+       Contact^.FeaturePair.FaceA:=ClipVertex^.FeaturePair.FaceB;
+       Contact^.FeaturePair.EdgeB:=ClipVertex^.FeaturePair.EdgeA;
+       Contact^.FeaturePair.FaceB:=ClipVertex^.FeaturePair.FaceA;
+      end else begin
+       Contact^.FeaturePair.EdgeA:=ClipVertex^.FeaturePair.EdgeA;
+       Contact^.FeaturePair.FaceA:=ClipVertex^.FeaturePair.FaceA;
+       Contact^.FeaturePair.EdgeB:=ClipVertex^.FeaturePair.EdgeB;
+       Contact^.FeaturePair.FaceB:=ClipVertex^.FeaturePair.FaceB;
+      end;
      end else begin
       break;
      end;
