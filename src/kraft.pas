@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2015-10-09-09-18-0000                       *
+ *                        Version 2015-10-10-18-58-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -1334,6 +1334,7 @@ type PKraftForceMode=^TKraftForceMode;
       LocalNormal:TKraftVector3;
       TangentVectors:array[0..1] of TKraftVector3;
       Contacts:array[0..MAX_CONTACTS-1] of TKraftContact;
+      RelativeTransform:TKraftMatrix4x4;
       FaceQueryAB:TKraftContactFaceQuery;
       FaceQueryBA:TKraftContactFaceQuery;
       EdgeQuery:TKraftContactEdgeQuery;
@@ -1348,6 +1349,9 @@ type PKraftForceMode=^TKraftForceMode;
      end;
 
      TKraftMeshContactPair=class;
+
+     PKraftContactPairContactManifoldMode=^TKraftContactPairContactManifoldMode;
+     TKraftContactPairContactManifoldMode=(kcpcmmVelocitySolver,kcpcmmPositionSolver,kcpcmmBaumgarte,kcpcmmTemporalCoherence);
 
      TKraftContactPair=object
       public
@@ -1368,7 +1372,7 @@ type PKraftForceMode=^TKraftForceMode;
        Flags:TKraftContactFlags;
        TimeOfImpactCount:longint;
        TimeOfImpact:TKraftScalar;
-       procedure GetSolverContactManifold(out SolverContactManifold:TKraftSolverContactManifold;const WorldTransformA,WorldTransformB:TKraftMatrix4x4;PositionSolving:boolean);
+       procedure GetSolverContactManifold(out SolverContactManifold:TKraftSolverContactManifold;const WorldTransformA,WorldTransformB:TKraftMatrix4x4;const ContactManifoldMode:TKraftContactPairContactManifoldMode);
        procedure DetectCollisions(const ContactManager:TKraftContactManager;const TriangleShape:TKraftShape=nil;const ThreadIndex:longint=0);
      end;
 
@@ -2222,6 +2226,7 @@ type PKraftForceMode=^TKraftForceMode;
 	    Penetration:TKraftScalar; // Depth of penetration from collision
 	    NormalImpulse:TKraftScalar; // Accumulated normal impulse
 	    TangentImpulse:array[0..1] of TKraftScalar; // Accumulated friction impulse
+      BaumgarteBias:TKraftScalar; // Baumgarte bias
 	    Bias:TKraftScalar; // Restitution + baumgarte
       NormalMass:TKraftScalar; // Normal constraint mass
       TangentMass:array[0..1] of TKraftScalar; // Tangent constraint mass
@@ -2825,6 +2830,10 @@ function Matrix4x4GetColumn(const m:TKraftMatrix4x4;const c:longint):TKraftVecto
 procedure Matrix4x4SetRow(var m:TKraftMatrix4x4;const r:longint;const v:TKraftVector4); {$ifdef caninline}inline;{$endif}
 function Matrix4x4GetRow(const m:TKraftMatrix4x4;const r:longint):TKraftVector4; {$ifdef caninline}inline;{$endif}
 function Matrix4x4Compare(const m1,m2:TKraftMatrix4x4):boolean;
+function Matrix4x4LengthSquared(const m:TKraftMatrix4x4):TKraftScalar;
+function Matrix4x4Length(const m:TKraftMatrix4x4):TKraftScalar;
+function Matrix4x4DifferenceSquared(const m1,m2:TKraftMatrix4x4):TKraftScalar;
+function Matrix4x4Difference(const m1,m2:TKraftMatrix4x4):TKraftScalar;
 procedure Matrix4x4Reflect(var mr:TKraftMatrix4x4;Plane:TKraftPlane);
 function Matrix4x4TermReflect(Plane:TKraftPlane):TKraftMatrix4x4;
 function Matrix4x4SimpleInverse(var mr:TKraftMatrix4x4;const ma:TKraftMatrix4x4):boolean; {$ifdef caninline}inline;{$endif}
@@ -3580,7 +3589,7 @@ end;
 function Vector3Cos(const v1,v2:TKraftVector3):TKraftScalar;
 var d:extended;
 begin
- d:=SQRT(Vector3LengthSquared(v1)*Vector3LengthSquared(v2));
+ d:=sqrt(Vector3LengthSquared(v1)*Vector3LengthSquared(v2));
  if d<>0.0 then begin
   result:=((v1.x*v2.x)+(v1.y*v2.y)+(v1.z*v2.z))/d; //result:=Vector3Dot(v1,v2)/d;
  end else begin
@@ -5038,7 +5047,7 @@ end;
 
 function Vector4LengthSquared(const v:TKraftVector4):TKraftScalar;
 begin
- result:=(v.x*v.x)+(v.y*v.y)+(v.z*v.z);
+ result:=sqr(v.x)+sqr(v.y)+sqr(v.z)+sqr(v.w);
 end;
 
 function Vector4DistSquared(const v1,v2:TKraftVector4):TKraftScalar;
@@ -6654,6 +6663,34 @@ begin
    end;
   end;
  end;
+end;
+                      
+function Matrix4x4LengthSquared(const m:TKraftMatrix4x4):TKraftScalar;
+begin
+ result:=Vector4LengthSquared(PKraftVector4(pointer(@m[0,0]))^)+
+         Vector4LengthSquared(PKraftVector4(pointer(@m[1,0]))^)+
+         Vector4LengthSquared(PKraftVector4(pointer(@m[2,0]))^)+
+         Vector4LengthSquared(PKraftVector4(pointer(@m[3,0]))^);
+end;
+
+function Matrix4x4Length(const m:TKraftMatrix4x4):TKraftScalar;
+begin
+ result:=Matrix4x4LengthSquared(m);
+ if result>0.0 then begin
+  result:=sqrt(result);
+ end else begin
+  result:=0.0;
+ end;
+end;
+
+function Matrix4x4DifferenceSquared(const m1,m2:TKraftMatrix4x4):TKraftScalar;
+begin
+ result:=Matrix4x4LengthSquared(Matrix4x4TermSub(m2,m1));
+end;
+
+function Matrix4x4Difference(const m1,m2:TKraftMatrix4x4):TKraftScalar;
+begin
+ result:=Matrix4x4Length(Matrix4x4TermSub(m2,m1));
 end;
 
 procedure Matrix4x4Reflect(var mr:TKraftMatrix4x4;Plane:TKraftPlane);
@@ -9866,16 +9903,16 @@ type TKraftShapeTriangle=class(TKraftShapeConvexHull)
 
 function IsSameValue(const a,b:TKraftScalar):boolean;
 const FuzzFactor=1000.0;
-      SingleResolution={$ifdef UseDouble}1e-15{$else}1e-7{$endif}*FuzzFactor;
+      Resolution={$ifdef UseDouble}1e-15{$else}1e-7{$endif}*FuzzFactor;
 var EpsilonTolerance:double;
 begin
  EpsilonTolerance:=abs(a);
  if EpsilonTolerance>abs(b) then begin
   EpsilonTolerance:=abs(b);
  end;
- EpsilonTolerance:=EpsilonTolerance*SingleResolution;
- if EpsilonTolerance<SingleResolution then begin
-  EpsilonTolerance:=SingleResolution;
+ EpsilonTolerance:=EpsilonTolerance*Resolution;
+ if EpsilonTolerance<Resolution then begin
+  EpsilonTolerance:=Resolution;
  end;
  if a>b then begin
   result:=(a-b)<=EpsilonTolerance;
@@ -10156,40 +10193,43 @@ begin
  QuaternionNormalize(Sweep.q);
 end;
 
-procedure ClipFace(const InVertices,OutVertices:TKraftClipVertexList;const Plane:TKraftPlane);
-var ve,NumVerts:longint;
-    ds,de:TKraftScalar;
-    FirstVertex,EndVertex:PKraftClipVertex;
-    fp:TKraftContactFeaturePair;
+procedure ClipFace(const InVertices,OutVertices:TKraftClipVertexList;const Plane:TKraftPlane;const ReferenceEdgeIndexOffset,ReferenceFaceIndex:longint);
+var Index,CountVertices:longint;
+    PreviousClipVertexDistance,CurrentClipVertexDistance:TKraftScalar;
+    PreviousClipVertex,CurrentClipVertex:PKraftClipVertex;
+    FeaturePair:TKraftContactFeaturePair;
 begin
- NumVerts:=InVertices.Count;
- if NumVerts>=2 then begin
-  FirstVertex:=@InVertices.Vertices[InVertices.Count-1];
-  EndVertex:=@InVertices.Vertices[0];
-  ds:=PlaneVectorDistance(Plane,FirstVertex^.Position);
-  for ve:=0 to NumVerts-1 do begin
-   EndVertex:=@InVertices.Vertices[ve];
-   de:=PlaneVectorDistance(Plane,EndVertex^.Position);
-   if ds<0.0 then begin
-    if de<0.0 then begin
-     OutVertices.Add(EndVertex^);
+ CountVertices:=InVertices.Count;
+ if CountVertices>=2 then begin
+  PreviousClipVertex:=@InVertices.Vertices[InVertices.Count-1];
+  CurrentClipVertex:=@InVertices.Vertices[0];
+  PreviousClipVertexDistance:=PlaneVectorDistance(Plane,PreviousClipVertex^.Position);
+  for Index:=0 to CountVertices-1 do begin
+   CurrentClipVertex:=@InVertices.Vertices[Index];
+   CurrentClipVertexDistance:=PlaneVectorDistance(Plane,CurrentClipVertex^.Position);
+   if PreviousClipVertexDistance<=0.0 then begin
+    if CurrentClipVertexDistance<=0.0 then begin
+     // Both vertices are behind the plane => keep CurrentClipVertex
+     OutVertices.Add(CurrentClipVertex^);
     end else begin
-     fp.EdgeA:=EndVertex^.FeaturePair.EdgeA;
-     fp.FaceA:=EndVertex^.FeaturePair.FaceA;
-     fp.EdgeB:=ve;
-     fp.FaceB:=0;
-     OutVertices.Add(Vector3Lerp(FirstVertex^.Position,EndVertex^.Position,ds/(ds-de)),fp);
+     // PreviousClipVertex is behind the plane, CurrentClipVertex is in front => intersection point
+     FeaturePair.EdgeA:=CurrentClipVertex^.FeaturePair.EdgeA;
+     FeaturePair.FaceA:=CurrentClipVertex^.FeaturePair.FaceA;
+     FeaturePair.EdgeB:=ReferenceEdgeIndexOffset+Index;
+     FeaturePair.FaceB:=ReferenceFaceIndex;
+     OutVertices.Add(Vector3Lerp(PreviousClipVertex^.Position,CurrentClipVertex^.Position,PreviousClipVertexDistance/(PreviousClipVertexDistance-CurrentClipVertexDistance)),FeaturePair);
     end;
-   end else if de<0.0 then begin
-    fp.EdgeA:=ve;
-    fp.FaceA:=0;
-    fp.EdgeB:=EndVertex^.FeaturePair.EdgeA;
-    fp.FaceB:=EndVertex^.FeaturePair.FaceA;
-    OutVertices.Add(Vector3Lerp(FirstVertex^.Position,EndVertex^.Position,ds/(ds-de)),fp);
-    OutVertices.Add(EndVertex^);
+   end else if CurrentClipVertexDistance<=0.0 then begin
+    // CurrentClipVertex is behind the plane, PreviousClipVertex is in front => intersection point
+    FeaturePair.EdgeA:=ReferenceEdgeIndexOffset+Index;
+    FeaturePair.FaceA:=ReferenceFaceIndex;
+    FeaturePair.EdgeB:=CurrentClipVertex^.FeaturePair.EdgeA;
+    FeaturePair.FaceB:=CurrentClipVertex^.FeaturePair.FaceA;
+    OutVertices.Add(Vector3Lerp(PreviousClipVertex^.Position,CurrentClipVertex^.Position,PreviousClipVertexDistance/(PreviousClipVertexDistance-CurrentClipVertexDistance)),FeaturePair);
+    OutVertices.Add(CurrentClipVertex^);
    end;
-   FirstVertex:=EndVertex;
-   ds:=de;
+   PreviousClipVertex:=CurrentClipVertex;
+   PreviousClipVertexDistance:=CurrentClipVertexDistance;
   end;
  end;
 end;
@@ -17740,7 +17780,6 @@ procedure TKraftShape.SynchronizeProxies;
 var Updated,NeedUpdate:boolean;
     WorldCenterOfMass,WorldDisplacement,WorldBoundsExpansion,TempPoint:TKraftVector3;
     TempAABB:TKraftAABB;
-    AABBMaxExpansion:TKraftScalar;
 begin
 
  if assigned(RigidBody) then begin
@@ -17774,18 +17813,9 @@ begin
   WorldDisplacement:=Vector3ScalarMul(RigidBody.LinearVelocity,Physics.WorldDeltaTime);
   if Vector3LengthSquared(WorldDisplacement)<Vector3LengthSquared(RigidBody.WorldDisplacement) then begin
    WorldDisplacement:=RigidBody.WorldDisplacement;
-  end;
-
-  WorldBoundsExpansion:=Vector3ScalarMul(Vector3(AngularMotionDisc,AngularMotionDisc,AngularMotionDisc),Vector3Length(RigidBody.AngularVelocity)*Physics.WorldDeltaTime*AABB_MULTIPLIER);
-
-  AABBMaxExpansion:=Max(AABB_MAX_EXPANSION,ShapeSphere.Radius*AABB_MAX_EXPANSION);
-
-  if Vector3LengthSquared(WorldDisplacement)>sqr(AABBMaxExpansion) then begin
-   Vector3Scale(WorldDisplacement,AABBMaxExpansion/Vector3Length(WorldDisplacement));
-  end;
-  if Vector3LengthSquared(WorldBoundsExpansion)>sqr(AABBMaxExpansion) then begin
-   Vector3Scale(WorldBoundsExpansion,AABBMaxExpansion/Vector3Length(WorldBoundsExpansion));
-  end;
+  end;                                         
+                                                                                                                                               
+  WorldBoundsExpansion:=Vector3ScalarMul(Vector3(AngularMotionDisc,AngularMotionDisc,AngularMotionDisc),Vector3Length(RigidBody.AngularVelocity)*Physics.WorldDeltaTime);
 
   WorldAABB:=AABBStretch(WorldAABB,WorldDisplacement,WorldBoundsExpansion);
 
@@ -19551,64 +19581,60 @@ begin
 end;
 {$endif}
 
-procedure TKraftContactPair.GetSolverContactManifold(out SolverContactManifold:TKraftSolverContactManifold;const WorldTransformA,WorldTransformB:TKraftMatrix4x4;PositionSolving:boolean);
+procedure TKraftContactPair.GetSolverContactManifold(out SolverContactManifold:TKraftSolverContactManifold;const WorldTransformA,WorldTransformB:TKraftMatrix4x4;const ContactManifoldMode:TKraftContactPairContactManifoldMode);
 var ContactIndex:longint;
     Contact:PKraftContact;
     SolverContact:PKraftSolverContact;
     PointA,PointB,PlanePoint,ClipPoint,cA,cB:TKraftVector3;
     tA,tB:TKraftMatrix4x4;
 begin
- //PositionSolving:=true;
  tA:=Matrix4x4TermMul(Shapes[0].LocalTransform,WorldTransformA);
  tB:=Matrix4x4TermMul(Shapes[1].LocalTransform,WorldTransformB);
  SolverContactManifold.CountContacts:=Manifold.CountContacts;
  case Manifold.ContactManifoldType of
   kcmtImplicit:begin
-   if Manifold.CountContacts>1 then begin
-    SolverContactManifold.Normal:=Vector3Origin;
-    for ContactIndex:=0 to Manifold.CountContacts-1 do begin
-     Contact:=@Manifold.Contacts[ContactIndex];
-     PointA:=Vector3TermMatrixMul(Contact^.LocalPoints[0],tA);
-     PointB:=Vector3TermMatrixMul(Contact^.LocalPoints[1],tB);
-     SolverContactManifold.Normal:=Vector3Add(SolverContactManifold.Normal,Vector3Sub(PointB,PointA));
-    end;
+   SolverContactManifold.Normal:=Vector3Origin;
+   for ContactIndex:=0 to Manifold.CountContacts-1 do begin
+    Contact:=@Manifold.Contacts[ContactIndex];
+    PointA:=Vector3TermMatrixMul(Contact^.LocalPoints[0],tA);
+    PointB:=Vector3TermMatrixMul(Contact^.LocalPoints[1],tB);
+    SolverContactManifold.Normal:=Vector3Add(SolverContactManifold.Normal,Vector3Sub(PointB,PointA));
+   end;
+   if Vector3LengthSquared(SolverContactManifold.Normal)<EPSILON then begin
+    SolverContactManifold.Normal:=Vector3YAxis;
+   end else begin
     SolverContactManifold.Normal:=Vector3NormEx(SolverContactManifold.Normal);
-    for ContactIndex:=0 to Manifold.CountContacts-1 do begin
-     Contact:=@Manifold.Contacts[ContactIndex];
-     SolverContact:=@SolverContactManifold.Contacts[ContactIndex];
-     PointA:=Vector3TermMatrixMul(Contact^.LocalPoints[0],tA);
-     PointB:=Vector3TermMatrixMul(Contact^.LocalPoints[1],tB);
-     if PositionSolving then begin
-      SolverContact^.Point:=Vector3Avg(PointA,PointB);
-      SolverContact^.Separation:=Vector3Dot(Vector3Sub(PointB,PointA),SolverContactManifold.Normal)-(Manifold.LocalRadius[0]+Manifold.LocalRadius[1]);
-     end else begin
+   end;
+   for ContactIndex:=0 to Manifold.CountContacts-1 do begin
+    Contact:=@Manifold.Contacts[ContactIndex];
+    SolverContact:=@SolverContactManifold.Contacts[ContactIndex];
+    PointA:=Vector3TermMatrixMul(Contact^.LocalPoints[0],tA);
+    PointB:=Vector3TermMatrixMul(Contact^.LocalPoints[1],tB);
+    case ContactManifoldMode of
+     kcpcmmVelocitySolver:begin
       cA:=Vector3Add(PointA,Vector3ScalarMul(SolverContactManifold.Normal,Manifold.LocalRadius[0]));
       cB:=Vector3Sub(PointB,Vector3ScalarMul(SolverContactManifold.Normal,Manifold.LocalRadius[1]));
       SolverContact^.Point:=Vector3Avg(cA,cB);
       SolverContact^.Separation:=Vector3Dot(Vector3Sub(cB,cA),SolverContactManifold.Normal);
      end;
+     kcpcmmPositionSolver:begin
+      cA:=Vector3Add(PointA,Vector3ScalarMul(SolverContactManifold.Normal,Manifold.LocalRadius[0]));
+      cB:=Vector3Sub(PointB,Vector3ScalarMul(SolverContactManifold.Normal,Manifold.LocalRadius[1]));
+      SolverContact^.Point:=Vector3Avg(cA,cB);
+      SolverContact^.Separation:=Vector3Dot(Vector3Sub(cB,cA),SolverContactManifold.Normal);
+{      SolverContact^.Point:=Vector3Avg(PointA,PointB);
+      SolverContact^.Separation:=Vector3Dot(Vector3Sub(PointB,PointA),SolverContactManifold.Normal)-(Manifold.LocalRadius[0]+Manifold.LocalRadius[1]);{}
+     end;
+     kcpcmmBaumgarte:begin
+      SolverContact^.Point:=Vector3Avg(PointA,PointB);
+      SolverContact^.Separation:=Vector3Dot(Vector3Sub(PointB,PointA),SolverContactManifold.Normal)-(Manifold.LocalRadius[0]+Manifold.LocalRadius[1]);
+     end;
+     kcpcmmTemporalCoherence:begin
+      SolverContact^.Point:=Vector3Avg(PointA,PointB);
+      SolverContact^.Separation:=Vector3Dot(Vector3Sub(PointB,PointA),SolverContactManifold.Normal)-(Manifold.LocalRadius[0]+Manifold.LocalRadius[1]);
+     end;
+    end;
 {    if abs(SolverContact^.Separation)>100.0 then begin
-      if abs(SolverContact^.Separation)>100.0 then begin
-       writeln(SolverContact^.Separation:1:8);
-      end;
-     end;}
-    end;
-   end else if Manifold.CountContacts=1 then begin
-    Contact:=@Manifold.Contacts[0];
-    SolverContact:=@SolverContactManifold.Contacts[0];
-    PointA:=Vector3TermMatrixMul(Contact^.LocalPoints[0],tA);
-    PointB:=Vector3TermMatrixMul(Contact^.LocalPoints[1],tB);
-    SolverContactManifold.Normal:=Vector3NormEx(Vector3Sub(PointB,PointA));
-    if PositionSolving then begin
-     SolverContact^.Point:=Vector3Avg(PointA,PointB);
-     SolverContact^.Separation:=Vector3Dot(Vector3Sub(PointB,PointA),SolverContactManifold.Normal)-(Manifold.LocalRadius[0]+Manifold.LocalRadius[1]);
-    end else begin
-     cA:=Vector3Add(PointA,Vector3ScalarMul(SolverContactManifold.Normal,Manifold.LocalRadius[0]));
-     cB:=Vector3Sub(PointB,Vector3ScalarMul(SolverContactManifold.Normal,Manifold.LocalRadius[1]));
-     SolverContact^.Point:=Vector3Avg(cA,cB);
-     SolverContact^.Separation:=Vector3Dot(Vector3Sub(cB,cA),SolverContactManifold.Normal);
-    end;
-{   if abs(SolverContact^.Separation)>100.0 then begin
      if abs(SolverContact^.Separation)>100.0 then begin
       writeln(SolverContact^.Separation:1:8);
      end;
@@ -19622,14 +19648,29 @@ begin
     SolverContact:=@SolverContactManifold.Contacts[ContactIndex];
     PlanePoint:=Vector3TermMatrixMul(Contact^.LocalPoints[0],tA);
     ClipPoint:=Vector3TermMatrixMul(Contact^.LocalPoints[1],tB);
-    if PositionSolving then begin
-     SolverContact^.Point:=ClipPoint;
-     SolverContact^.Separation:=Vector3Dot(Vector3Sub(ClipPoint,PlanePoint),SolverContactManifold.Normal)-(Manifold.LocalRadius[0]+Manifold.LocalRadius[1]);
-    end else begin
-     cA:=Vector3Add(ClipPoint,Vector3ScalarMul(SolverContactManifold.Normal,Manifold.LocalRadius[0]-Vector3Dot(Vector3Sub(ClipPoint,PlanePoint),SolverContactManifold.Normal)));
-     cB:=Vector3Sub(ClipPoint,Vector3ScalarMul(SolverContactManifold.Normal,Manifold.LocalRadius[1]));
-     SolverContact^.Point:=Vector3Avg(cA,cB);
-     SolverContact^.Separation:=Vector3Dot(Vector3Sub(cB,cA),SolverContactManifold.Normal);
+    case ContactManifoldMode of
+     kcpcmmVelocitySolver:begin
+      cA:=Vector3Add(ClipPoint,Vector3ScalarMul(SolverContactManifold.Normal,Manifold.LocalRadius[0]-Vector3Dot(Vector3Sub(ClipPoint,PlanePoint),SolverContactManifold.Normal)));
+      cB:=Vector3Sub(ClipPoint,Vector3ScalarMul(SolverContactManifold.Normal,Manifold.LocalRadius[1]));
+      SolverContact^.Point:=Vector3Avg(cA,cB);
+      SolverContact^.Separation:=Vector3Dot(Vector3Sub(cB,cA),SolverContactManifold.Normal);
+     end;
+     kcpcmmPositionSolver:begin
+      SolverContact^.Point:=ClipPoint;
+      SolverContact^.Separation:=Vector3Dot(Vector3Sub(ClipPoint,PlanePoint),SolverContactManifold.Normal)-(Manifold.LocalRadius[0]+Manifold.LocalRadius[1]);
+     end;
+     kcpcmmBaumgarte:begin
+      cA:=Vector3Add(ClipPoint,Vector3ScalarMul(SolverContactManifold.Normal,Manifold.LocalRadius[0]-Vector3Dot(Vector3Sub(ClipPoint,PlanePoint),SolverContactManifold.Normal)));
+      cB:=Vector3Sub(ClipPoint,Vector3ScalarMul(SolverContactManifold.Normal,Manifold.LocalRadius[1]));
+      SolverContact^.Point:=Vector3Avg(cA,cB);
+      SolverContact^.Separation:=Vector3Dot(Vector3Sub(cB,cA),SolverContactManifold.Normal);
+     end;
+     kcpcmmTemporalCoherence:begin
+      cA:=Vector3Add(ClipPoint,Vector3ScalarMul(SolverContactManifold.Normal,Manifold.LocalRadius[0]-Vector3Dot(Vector3Sub(ClipPoint,PlanePoint),SolverContactManifold.Normal)));
+      cB:=Vector3Sub(ClipPoint,Vector3ScalarMul(SolverContactManifold.Normal,Manifold.LocalRadius[1]));
+      SolverContact^.Point:=Vector3Avg(cA,cB);
+      SolverContact^.Separation:=Vector3Dot(Vector3Sub(cB,cA),SolverContactManifold.Normal);
+     end;
     end;
    end;
   end;
@@ -19640,14 +19681,29 @@ begin
     SolverContact:=@SolverContactManifold.Contacts[ContactIndex];
     ClipPoint:=Vector3TermMatrixMul(Contact^.LocalPoints[0],tA);
     PlanePoint:=Vector3TermMatrixMul(Contact^.LocalPoints[1],tB);
-    if PositionSolving then begin
-     SolverContact^.Point:=ClipPoint;
-     SolverContact^.Separation:=Vector3Dot(Vector3Sub(ClipPoint,PlanePoint),SolverContactManifold.Normal)-(Manifold.LocalRadius[0]+Manifold.LocalRadius[1]);
-    end else begin
-     cA:=Vector3Sub(ClipPoint,Vector3ScalarMul(SolverContactManifold.Normal,Manifold.LocalRadius[0]));
-     cB:=Vector3Add(ClipPoint,Vector3ScalarMul(SolverContactManifold.Normal,Manifold.LocalRadius[1]-Vector3Dot(Vector3Sub(ClipPoint,PlanePoint),SolverContactManifold.Normal)));
-     SolverContact^.Point:=Vector3Avg(cA,cB);
-     SolverContact^.Separation:=Vector3Dot(Vector3Sub(cA,cB),SolverContactManifold.Normal);
+    case ContactManifoldMode of
+     kcpcmmVelocitySolver:begin
+      cA:=Vector3Sub(ClipPoint,Vector3ScalarMul(SolverContactManifold.Normal,Manifold.LocalRadius[0]));
+      cB:=Vector3Add(ClipPoint,Vector3ScalarMul(SolverContactManifold.Normal,Manifold.LocalRadius[1]-Vector3Dot(Vector3Sub(ClipPoint,PlanePoint),SolverContactManifold.Normal)));
+      SolverContact^.Point:=Vector3Avg(cA,cB);
+      SolverContact^.Separation:=Vector3Dot(Vector3Sub(cA,cB),SolverContactManifold.Normal);
+     end;
+     kcpcmmPositionSolver:begin
+      SolverContact^.Point:=ClipPoint;
+      SolverContact^.Separation:=Vector3Dot(Vector3Sub(ClipPoint,PlanePoint),SolverContactManifold.Normal)-(Manifold.LocalRadius[0]+Manifold.LocalRadius[1]);
+     end;
+     kcpcmmBaumgarte:begin
+      cA:=Vector3Sub(ClipPoint,Vector3ScalarMul(SolverContactManifold.Normal,Manifold.LocalRadius[0]));
+      cB:=Vector3Add(ClipPoint,Vector3ScalarMul(SolverContactManifold.Normal,Manifold.LocalRadius[1]-Vector3Dot(Vector3Sub(ClipPoint,PlanePoint),SolverContactManifold.Normal)));
+      SolverContact^.Point:=Vector3Avg(cA,cB);
+      SolverContact^.Separation:=Vector3Dot(Vector3Sub(cA,cB),SolverContactManifold.Normal);
+     end;
+     kcpcmmTemporalCoherence:begin
+      cA:=Vector3Sub(ClipPoint,Vector3ScalarMul(SolverContactManifold.Normal,Manifold.LocalRadius[0]));
+      cB:=Vector3Add(ClipPoint,Vector3ScalarMul(SolverContactManifold.Normal,Manifold.LocalRadius[1]-Vector3Dot(Vector3Sub(ClipPoint,PlanePoint),SolverContactManifold.Normal)));
+      SolverContact^.Point:=Vector3Avg(cA,cB);
+      SolverContact^.Separation:=Vector3Dot(Vector3Sub(cA,cB),SolverContactManifold.Normal);
+     end;
     end;
    end;
    SolverContactManifold.Normal:=Vector3Neg(SolverContactManifold.Normal);
@@ -19681,14 +19737,25 @@ begin
     SolverContact:=@SolverContactManifold.Contacts[ContactIndex];
     PointA:=Vector3TermMatrixMul(Contact^.LocalPoints[0],tA);
     PointB:=Vector3TermMatrixMul(Contact^.LocalPoints[1],tB);
-    if PositionSolving then begin
-     SolverContact^.Point:=Vector3Avg(PointA,PointB);
-     SolverContact^.Separation:=Vector3Dot(Vector3Sub(PointB,PointA),SolverContactManifold.Normal)-(Manifold.LocalRadius[0]+Manifold.LocalRadius[1]);
-    end else begin
-     cA:=Vector3Add(PointA,Vector3ScalarMul(SolverContactManifold.Normal,Manifold.LocalRadius[0]));
-     cB:=Vector3Sub(PointB,Vector3ScalarMul(SolverContactManifold.Normal,Manifold.LocalRadius[1]));
-     SolverContact^.Point:=Vector3Avg(cA,cB);
-     SolverContact^.Separation:=Vector3Dot(Vector3Sub(cB,cA),SolverContactManifold.Normal);
+    case ContactManifoldMode of
+     kcpcmmVelocitySolver:begin
+      cA:=Vector3Add(PointA,Vector3ScalarMul(SolverContactManifold.Normal,Manifold.LocalRadius[0]));
+      cB:=Vector3Sub(PointB,Vector3ScalarMul(SolverContactManifold.Normal,Manifold.LocalRadius[1]));
+      SolverContact^.Point:=Vector3Avg(cA,cB);
+      SolverContact^.Separation:=Vector3Dot(Vector3Sub(cB,cA),SolverContactManifold.Normal);
+     end;
+     kcpcmmPositionSolver:begin
+      SolverContact^.Point:=Vector3Avg(PointA,PointB);
+      SolverContact^.Separation:=Vector3Dot(Vector3Sub(PointB,PointA),SolverContactManifold.Normal)-(Manifold.LocalRadius[0]+Manifold.LocalRadius[1]);
+     end;
+     kcpcmmBaumgarte:begin
+      SolverContact^.Point:=Vector3Avg(PointA,PointB);
+      SolverContact^.Separation:=Vector3Dot(Vector3Sub(PointB,PointA),SolverContactManifold.Normal)-(Manifold.LocalRadius[0]+Manifold.LocalRadius[1]);
+     end;
+     kcpcmmTemporalCoherence:begin
+      SolverContact^.Point:=Vector3Avg(PointA,PointB);
+      SolverContact^.Separation:=Vector3Dot(Vector3Sub(PointB,PointA),SolverContactManifold.Normal)-(Manifold.LocalRadius[0]+Manifold.LocalRadius[1]);
+     end;
     end;
    end;
   end;
@@ -19697,6 +19764,7 @@ end;
 
 procedure TKraftContactPair.DetectCollisions(const ContactManager:TKraftContactManager;const TriangleShape:TKraftShape=nil;const ThreadIndex:longint=0);
 var OldManifoldCountContacts:longint;
+    OldContactManifoldType:TKraftContactManifoldType;
     ShapeTriangle:TKraftShapeTriangle;
  procedure AddImplicitContact(const p0,p1:TKraftVector3;const r0,r1:TKraftScalar;const Key:longword;const IsLocal:boolean); {$ifdef caninline}inline;{$endif}
  var Contact:PKraftContact;
@@ -19805,13 +19873,7 @@ var OldManifoldCountContacts:longint;
   CenterB:=Vector3TermMatrixMul(ShapeB.LocalCentroid,ShapeB.WorldTransform);
   Distance:=Vector3Length(Vector3Sub(CenterB,CenterA));
   if Distance<(ShapeA.Radius+ShapeB.Radius) then begin
-   if Distance<EPSILON then begin
-    // Degenerate case
-    AddImplicitNormalContact(Vector3XAxis,ShapeA.LocalCentroid,ShapeB.LocalCentroid,ShapeA.Radius,ShapeB.Radius,1,true);
-   end else begin
-    // Normal case
-    AddImplicitContact(ShapeA.LocalCentroid,ShapeB.LocalCentroid,ShapeA.Radius,ShapeB.Radius,1,true);
-   end;
+   AddImplicitContact(ShapeA.LocalCentroid,ShapeB.LocalCentroid,ShapeA.Radius,ShapeB.Radius,1,true);
   end;
  end;
  procedure CollideSphereWithCapsule(ShapeA:TKraftShapeSphere;ShapeB:TKraftShapeCapsule); {$ifdef caninline}inline;{$endif}
@@ -19831,13 +19893,7 @@ var OldManifoldCountContacts:longint;
   Position:=Vector3Add(CenterB,Vector3ScalarMul(GeometryDirection,Alpha));
   Distance:=Vector3DistSquared(Position,CenterA);
   if Distance<=sqr(ShapeA.Radius+ShapeB.Radius) then begin
-   if Distance<EPSILON then begin
-    // Degenerate case
-    AddImplicitNormalContact(Vector3XAxis,CenterA,Position,ShapeA.Radius,ShapeB.Radius,1,false);
-   end else begin
-    // Normal case
-    AddImplicitContact(CenterA,Position,ShapeA.Radius,ShapeB.Radius,1,false);
-   end;
+   AddImplicitContact(CenterA,Position,ShapeA.Radius,ShapeB.Radius,1,false);
   end;
  end;
  procedure CollideSphereWithConvexHull(ShapeA:TKraftShapeSphere;ShapeB:TKraftShapeConvexHull); {$ifdef caninline}inline;{$endif}
@@ -20149,24 +20205,7 @@ var OldManifoldCountContacts:longint;
 
   if SquaredDistance<SquaredRadiiWithTolerance then begin
 
-   if SquaredDistance<EPSILON then begin
-    // Degenerate case
-    AddImplicitNormalContact(Vector3XAxis,
-                             ClosestPointA,
-                             ClosestPointB,
-                             RadiusA,
-                             RadiusB,
-                             1,
-                             false);
-   end else begin
-    // Normal case
-    AddImplicitContact(ClosestPointA,
-                       ClosestPointB,
-                       RadiusA,
-                       RadiusB,
-                       1,
-                       false);
-   end;
+   AddImplicitContact(ClosestPointA,ClosestPointB,RadiusA,RadiusB,1,false);
 
    // If the two capsules are nearly parallel, an additional support point provides stability
    {if (Vector3Length(Vector3Cross(GeometryDirectionA,GeometryDirectionB))<(sqrt(Vector3LengthSquared(GeometryDirectionA)*Vector3LengthSquared(GeometryDirectionB))*Tolerance)) then{}begin
@@ -20189,25 +20228,9 @@ var OldManifoldCountContacts:longint;
 
     SquaredDistance:=Vector3DistSquared(ClosestPointA,ClosestPointB);
     if SquaredDistance<SquaredRadiiWithTolerance then begin
-     if SquaredDistance<EPSILON then begin
-      // Degenerate case
-      AddImplicitNormalContact(Vector3XAxis,
-                               ClosestPointA,
-                               ClosestPointB,
-                               RadiusA,
-                               RadiusB,
-                               2,
-                               false);
-     end else begin
-      // Normal case
-      AddImplicitContact(ClosestPointA,
-                         ClosestPointB,
-                         RadiusA,
-                         RadiusB,
-                         2,
-                         false);
-     end;
+     AddImplicitContact(ClosestPointA,ClosestPointB,RadiusA,RadiusB,2,false);
     end;
+    
    end;
 
   end;
@@ -20317,7 +20340,7 @@ var OldManifoldCountContacts:longint;
      end;
     end;
 
-    // No parallel face plane with two contacts found, so use GJK closest points for one TKraftScalar implicit surface contact
+    // No parallel face plane with two contacts found, so use GJK closest points for one single implicit surface contact
     AddImplicitNormalContact(Vector3Neg(Vector3TermMatrixMulTransposedBasis(GJK.Normal,Shapes[1].WorldTransform)),
                              GJK.ClosestPoints[0],
                              GJK.ClosestPoints[1],
@@ -20537,6 +20560,7 @@ var OldManifoldCountContacts:longint;
  const kTolerance=0.005; // Skip near parallel edges: |Ea x Eb| = sin(alpha) * |Ea| * |Eb|
        RelativeEdgeTolerance=0.90;
        RelativeFaceTolerance=0.98;
+       TemporalCoherenceRelativeTransformTolerance=0.0001;
  var LinearSlop,SeparationTolerance,AbsoluteTolerance:single;
   function IsMinkowskiFace(const A,B,B_x_A,C,D,D_x_C:TKraftVector3):boolean; {$ifdef caninline}inline;{$endif}
   var CBA,DBA,ADC,BDC:TKraftScalar;
@@ -20738,8 +20762,8 @@ var OldManifoldCountContacts:longint;
   var Contact:PKraftContact;
       ReferenceVertexIndex,OtherReferenceVertexIndex,IncidentVertexIndex,CliVertexIndex,ReferenceEdgeIndexOffset,IncidentEdgeIndexOffset:longint;
       ReferenceFace,IncidentFace:PKraftConvexHullFace;
-      ClipVertex,FirstClipVertex,EndClipVertex:PKraftClipVertex;
-      StartDistance,EndDistance,Distance:TKraftScalar;
+      ClipVertex,PreviousClipVertex,CurrentClipVertex:PKraftClipVertex;
+      PreviousClipVertexDistance,CurrentClipVertexDistance,Distance:TKraftScalar;
       ClipVertices:array[0..2] of TKraftClipVertexList;
       ReferencePoint:TKraftVector3;
       ReferenceWorldPlane,ReferenceEdgePlane:TKraftPlane;
@@ -20806,32 +20830,35 @@ var OldManifoldCountContacts:longint;
      ReferencePoint:=Vector3TermMatrixMul(ReferenceHull.ConvexHull.Vertices[ReferenceFace^.Vertices[ReferenceVertexIndex]].Position,ReferenceHull.WorldTransform);
      ReferenceEdgePlane.Normal:=Vector3Neg(Vector3NormEx(Vector3Cross(ReferenceWorldPlane.Normal,Vector3Sub(ReferencePoint,Vector3TermMatrixMul(ReferenceHull.ConvexHull.Vertices[ReferenceFace^.Vertices[OtherReferenceVertexIndex]].Position,ReferenceHull.WorldTransform)))));
      ReferenceEdgePlane.Distance:=-Vector3Dot(ReferenceEdgePlane.Normal,ReferencePoint);
-     FirstClipVertex:=@ClipVertices[0].Vertices[ClipVertices[0].Count-1];
-     EndClipVertex:=@ClipVertices[0].Vertices[0];
-     StartDistance:=PlaneVectorDistance(ReferenceEdgePlane,FirstClipVertex^.Position);
+     PreviousClipVertex:=@ClipVertices[0].Vertices[ClipVertices[0].Count-1];
+     CurrentClipVertex:=@ClipVertices[0].Vertices[0];
+     PreviousClipVertexDistance:=PlaneVectorDistance(ReferenceEdgePlane,PreviousClipVertex^.Position);
      for CliVertexIndex:=0 to ClipVertices[0].Count-1 do begin
-      EndClipVertex:=@ClipVertices[0].Vertices[CliVertexIndex];
-      EndDistance:=PlaneVectorDistance(ReferenceEdgePlane,EndClipVertex^.Position);
-      if StartDistance<0.0 then begin
-       if EndDistance<0.0 then begin
-        ClipVertices[1].Add(EndClipVertex^.Position,EndClipVertex^.FeaturePair);
+      CurrentClipVertex:=@ClipVertices[0].Vertices[CliVertexIndex];
+      CurrentClipVertexDistance:=PlaneVectorDistance(ReferenceEdgePlane,CurrentClipVertex^.Position);
+      if PreviousClipVertexDistance<=0.0 then begin
+       if CurrentClipVertexDistance<=0.0 then begin
+        // Both vertices are behind the plane => keep CurrentClipVertex
+        ClipVertices[1].Add(CurrentClipVertex^.Position,CurrentClipVertex^.FeaturePair);
        end else begin
-        FeaturePair.EdgeA:=EndClipVertex^.FeaturePair.EdgeA;
-        FeaturePair.FaceA:=EndClipVertex^.FeaturePair.FaceA;
+        // PreviousClipVertex is behind the plane, CurrentClipVertex is in front => intersection point
+        FeaturePair.EdgeA:=CurrentClipVertex^.FeaturePair.EdgeA;
+        FeaturePair.FaceA:=CurrentClipVertex^.FeaturePair.FaceA;
         FeaturePair.EdgeB:=ReferenceEdgeIndexOffset+ReferenceVertexIndex;
         FeaturePair.FaceB:=ReferenceFaceIndex;
-        ClipVertices[1].Add(Vector3Lerp(FirstClipVertex^.Position,EndClipVertex^.Position,StartDistance/(StartDistance-EndDistance)),FeaturePair);
+        ClipVertices[1].Add(Vector3Lerp(PreviousClipVertex^.Position,CurrentClipVertex^.Position,PreviousClipVertexDistance/(PreviousClipVertexDistance-CurrentClipVertexDistance)),FeaturePair);
        end;
-      end else if EndDistance<0.0 then begin
+      end else if CurrentClipVertexDistance<=0.0 then begin
+       // CurrentClipVertex is behind the plane, PreviousClipVertex is in front => intersection point
        FeaturePair.EdgeA:=ReferenceEdgeIndexOffset+ReferenceVertexIndex;
        FeaturePair.FaceA:=ReferenceFaceIndex;
-       FeaturePair.EdgeB:=EndClipVertex^.FeaturePair.EdgeA;
-       FeaturePair.FaceB:=EndClipVertex^.FeaturePair.FaceA;
-       ClipVertices[1].Add(Vector3Lerp(FirstClipVertex^.Position,EndClipVertex^.Position,StartDistance/(StartDistance-EndDistance)),FeaturePair);
-       ClipVertices[1].Add(EndClipVertex^.Position,EndClipVertex^.FeaturePair);
+       FeaturePair.EdgeB:=CurrentClipVertex^.FeaturePair.EdgeA;
+       FeaturePair.FaceB:=CurrentClipVertex^.FeaturePair.FaceA;
+       ClipVertices[1].Add(Vector3Lerp(PreviousClipVertex^.Position,CurrentClipVertex^.Position,PreviousClipVertexDistance/(PreviousClipVertexDistance-CurrentClipVertexDistance)),FeaturePair);
+       ClipVertices[1].Add(CurrentClipVertex^.Position,CurrentClipVertex^.FeaturePair);
       end;
-      FirstClipVertex:=EndClipVertex;
-      StartDistance:=EndDistance;
+      PreviousClipVertex:=CurrentClipVertex;
+      PreviousClipVertexDistance:=CurrentClipVertexDistance;
      end;
     end;
     if ClipVertices[1].Count=0 then begin
@@ -20866,20 +20893,25 @@ var OldManifoldCountContacts:longint;
      if ContactManager.CountTemporaryContacts[ThreadIndex]<MAX_TEMPORARY_CONTACTS then begin
       Contact:=@ContactManager.TemporaryContacts[ThreadIndex,ContactManager.CountTemporaryContacts[ThreadIndex]];
       inc(ContactManager.CountTemporaryContacts[ThreadIndex]);
-      if Flip then begin
-       Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(ClipVertex^.Position,Shapes[0].WorldTransform);
-       Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(Vector3Add(ClipVertex^.Position,Vector3ScalarMul(ReferenceWorldPlane.Normal,-Distance)),Shapes[1].WorldTransform);
-      end else begin
-       Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(Vector3Add(ClipVertex^.Position,Vector3ScalarMul(ReferenceWorldPlane.Normal,-Distance)),Shapes[0].WorldTransform);
-       Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(ClipVertex^.Position,Shapes[1].WorldTransform);
-      end;
       Contact^.Penetration:=Distance;
       if Flip then begin
+       // Face BA contact, where B is the reference face and where A is the incident face
+       Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(ClipVertex^.Position,Shapes[0].WorldTransform);
+       Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(Vector3Sub(ClipVertex^.Position,
+                                                                        Vector3ScalarMul(ReferenceWorldPlane.Normal,
+                                                                                         Distance)),
+                                                             Shapes[1].WorldTransform);
        Contact^.FeaturePair.EdgeA:=ClipVertex^.FeaturePair.EdgeB;
        Contact^.FeaturePair.FaceA:=ClipVertex^.FeaturePair.FaceB;
        Contact^.FeaturePair.EdgeB:=ClipVertex^.FeaturePair.EdgeA;
        Contact^.FeaturePair.FaceB:=ClipVertex^.FeaturePair.FaceA;
       end else begin
+       // Face AB contact, where A is the reference face and where B is the incident face
+       Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(Vector3Sub(ClipVertex^.Position,
+                                                                        Vector3ScalarMul(ReferenceWorldPlane.Normal,
+                                                                                         Distance)),
+                                                             Shapes[0].WorldTransform);
+       Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(ClipVertex^.Position,Shapes[1].WorldTransform);
        Contact^.FeaturePair.EdgeA:=ClipVertex^.FeaturePair.EdgeA;
        Contact^.FeaturePair.FaceA:=ClipVertex^.FeaturePair.FaceA;
        Contact^.FeaturePair.EdgeB:=ClipVertex^.FeaturePair.EdgeB;
@@ -20894,10 +20926,11 @@ var OldManifoldCountContacts:longint;
   end;
  var Physics:TKraft;
      Contact:PKraftContact;
-     Iteration,ReferenceFaceIndex,IncidentFaceIndex:longint;
+     ReferenceFaceIndex,IncidentFaceIndex,Index,ValidContacts:longint;
      EdgeA,EdgeB:PKraftConvexHullEdge;
      PenetrationDepth:TKraftScalar;
      a0,a1,b0,b1,pa,pb,Normal:TKraftVector3;
+     SolverContactManifold:TKraftSolverContactManifold;
  begin
 
   Physics:=ContactManager.Physics;
@@ -20905,7 +20938,7 @@ var OldManifoldCountContacts:longint;
   LinearSlop:=Physics.LinearSlop;
 
   SeparationTolerance:=LinearSlop;
-  
+
   AbsoluteTolerance:=LinearSlop*0.5;
 
   Manifold.CountContacts:=0;
@@ -20913,111 +20946,105 @@ var OldManifoldCountContacts:longint;
   Manifold.LocalRadius[0]:=0.0;
   Manifold.LocalRadius[1]:=0.0;
 
-  Iteration:=0;
-  while Iteration<2 do begin
+  // Temporal coherence
+  if Manifold.HaveData then begin
 
-   ContactManager.CountTemporaryContacts[ThreadIndex]:=0;
+   // If we detected a separating axis in the last frame we try this first in the current frame.
+   // Chances are high it will still be a separating axis and we have an early out!
+   if (Manifold.FaceQueryAB.Index>=0) and (Manifold.FaceQueryAB.Separation>SeparationTolerance) then begin
+    if TestEarlyFaceDirection(ShapeA,ShapeB,Manifold.FaceQueryAB) then begin
+     // Still existent seperating axis from last frame found, so exit!
+     exit;
+    end;
+   end else if (Manifold.FaceQueryBA.Index>=0) and (Manifold.FaceQueryBA.Separation>SeparationTolerance) then begin
+    if TestEarlyFaceDirection(ShapeB,ShapeA,Manifold.FaceQueryBA) then begin
+     // Still existent seperating axis from last frame found, so exit!
+     exit;
+    end;
+   end else if ((Manifold.EdgeQuery.IndexA>=0) and (Manifold.EdgeQuery.IndexB>=0)) and (Manifold.EdgeQuery.Separation>SeparationTolerance) then begin
+    if TestEarlyEdgeDirection(ShapeA,ShapeB,Manifold.EdgeQuery) then begin
+     // Still existent seperating axis from last frame found, so exit!
+     exit;
+    end;
+   end;
 
-   if Iteration=0 then begin
+   // If we detected overlap in the last frame we try to rebuild the contact manifold from the last features again.
+   // Chance are high they still realize the contact manifold and we can skip the whole SAT!
+   if (OldContactManifoldType<>kcmtUnknown) and
+      (OldManifoldCountContacts>0) and
+      (Matrix4x4Difference(Manifold.RelativeTransform,
+                           Matrix4x4TermMulSimpleInverted(ShapeB.WorldTransform,
+                                                          ShapeA.WorldTransform))<TemporalCoherenceRelativeTransformTolerance) then begin
 
-    if Manifold.HaveData then begin
+    // Restore manifold meta data
+    Manifold.ContactManifoldType:=OldContactManifoldType;
+    Manifold.CountContacts:=OldManifoldCountContacts;
 
-     if (Manifold.FaceQueryAB.Index>=0) and (Manifold.FaceQueryAB.Separation>SeparationTolerance) then begin
-      if TestEarlyFaceDirection(ShapeA,ShapeB,Manifold.FaceQueryAB) then begin
-       // Still existent seperating axis from last frame found, so exit!
-       exit;
-      end else begin
-       // Reject the try to rebuild the contact manifold from last frame, and process a new full seperating axis test
-       Iteration:=1;
-       continue;
-      end;
-     end else if (Manifold.FaceQueryBA.Index>=0) and (Manifold.FaceQueryBA.Separation>SeparationTolerance) then begin
-      if TestEarlyFaceDirection(ShapeB,ShapeA,Manifold.FaceQueryBA) then begin
-       // Still existent seperating axis from last frame found, so exit!
-       exit;
-      end else begin
-       // Reject the try to rebuild the contact manifold from last frame, and process a new full seperating axis test
-       Iteration:=1;
-       continue;
-      end;
-     end else if ((Manifold.EdgeQuery.IndexA>=0) and (Manifold.EdgeQuery.IndexB>=0)) and (Manifold.EdgeQuery.Separation>SeparationTolerance) then begin
-      if TestEarlyEdgeDirection(ShapeA,ShapeB,Manifold.EdgeQuery) then begin
-       // Still existent seperating axis from last frame found, so exit!
-       exit;
-      end else begin
-       // Reject the try to rebuild the contact manifold from last frame, and process a new full seperating axis test
-       Iteration:=1;
-       continue;
-      end;
-     end else if ((Manifold.FaceQueryAB.Index<0) or (Manifold.FaceQueryAB.Separation>SeparationTolerance)) or
-                 ((Manifold.FaceQueryBA.Index<0) or (Manifold.FaceQueryBA.Separation>SeparationTolerance)) or
-                 (((Manifold.EdgeQuery.IndexA<0) or (Manifold.EdgeQuery.IndexB<0)) or (Manifold.EdgeQuery.Separation>SeparationTolerance)) then begin
-      // Reject the try to rebuild the contact manifold from last frame, and process a new full seperating axis test
-      Iteration:=1;
-      continue;
-     end else begin
-      if TestEarlyFaceDirection(ShapeA,ShapeB,Manifold.FaceQueryAB) then begin
-       // Still existent seperating axis from last frame found, so exit!
-       exit;
-      end else if TestEarlyFaceDirection(ShapeB,ShapeA,Manifold.FaceQueryBA) then begin
-       // Still existent seperating axis from last frame found, so exit!
-       exit;
-      end else if TestEarlyEdgeDirection(ShapeA,ShapeB,Manifold.EdgeQuery) then begin
-       // Still existent seperating axis from last frame found, so exit!
-       exit;
-{     end else if ((Manifold.EdgeQuery.IndexA>=0) and
-                   (Manifold.EdgeQuery.IndexB>=0)) and
-                  (Manifold.EdgeQuery.Separation>((Max(Manifold.FaceQueryAB.Separation,Manifold.FaceQueryBA.Separation)*kRelEdgeTolerance)+kAbsTolerance)) then begin
-       // Reject the try to rebuild the contact manifold from last frame, and process a new full seperating axis test
-       Iteration:=1;
-       continue;
-      end else begin
-       // Okay in this case, we can try to rebuild the contact manifold from last frame{}
-      end else begin
-       // Reject the try to rebuild the contact manifold from last frame, and process a new full seperating axis test
-       Iteration:=1;
-       continue;
+    // Verify last frame manifold contacts
+    GetSolverContactManifold(SolverContactManifold,ShapeA.WorldTransform,ShapeB.WorldTransform,kcpcmmTemporalCoherence);
+    if SolverContactManifold.CountContacts>0 then begin
+
+     ValidContacts:=0;
+     for Index:=0 to SolverContactManifold.CountContacts-1 do begin
+      if SolverContactManifold.Contacts[Index].Separation<SeparationTolerance then begin
+       inc(ValidContacts);
       end;
      end;
 
-    end else begin
+     if ValidContacts=SolverContactManifold.CountContacts then begin
+      // We've still valid contacts, so we can reuse the contact manifold directly from the last frame and we can skip the whole SAT
+//    writeln(ContactManager.Physics.HighResolutionTimer.GetTime);
+      exit;
+     end;
 
-     // We must process a full seperating axis test, since there are no last frame contact manifold data yet
-     Iteration:=1;
-     continue;
-
-    end;
-
-   end else begin
-
-    Manifold.FaceQueryAB.Index:=-1;
-    Manifold.FaceQueryAB.Separation:=3.4e+38;
-
-    Manifold.FaceQueryBA.Index:=-1;
-    Manifold.FaceQueryBA.Separation:=3.4e+38;
-
-    Manifold.EdgeQuery.IndexA:=-1;
-    Manifold.EdgeQuery.IndexB:=-1;
-    Manifold.EdgeQuery.Separation:=3.4e+38;
-
-    Manifold.HaveData:=true;
-
-    QueryFaceDirections(ShapeA,ShapeB,Manifold.FaceQueryAB);
-    if Manifold.FaceQueryAB.Separation>SeparationTolerance then begin
-     exit;
-    end;
-
-    QueryFaceDirections(ShapeB,ShapeA,Manifold.FaceQueryBA);
-    if Manifold.FaceQueryBA.Separation>SeparationTolerance then begin
-     exit;
-    end;
-
-    QueryEdgeDirections(ShapeA,ShapeB,Manifold.EdgeQuery);
-    if Manifold.EdgeQuery.Separation>SeparationTolerance then begin
-     exit;
     end;
 
    end;
+
+   // We must process a full seperating axis test, when there are no last frame contact manifold data yet, or when the
+   // temporal coherence checks have failed
+
+  end;
+
+  // Seperating axis test
+  begin
+
+   Manifold.ContactManifoldType:=kcmtUnknown;
+   Manifold.CountContacts:=0;
+
+   Manifold.FaceQueryAB.Index:=-1;
+   Manifold.FaceQueryAB.Separation:=3.4e+38;
+
+   Manifold.FaceQueryBA.Index:=-1;
+   Manifold.FaceQueryBA.Separation:=3.4e+38;
+
+   Manifold.EdgeQuery.IndexA:=-1;
+   Manifold.EdgeQuery.IndexB:=-1;
+   Manifold.EdgeQuery.Separation:=3.4e+38;
+
+   Manifold.HaveData:=true;
+
+   Manifold.RelativeTransform:=Matrix4x4TermMulSimpleInverted(ShapeB.WorldTransform,ShapeA.WorldTransform);
+
+   QueryFaceDirections(ShapeA,ShapeB,Manifold.FaceQueryAB);
+   if Manifold.FaceQueryAB.Separation>SeparationTolerance then begin
+    exit;
+   end;
+
+   QueryFaceDirections(ShapeB,ShapeA,Manifold.FaceQueryBA);
+   if Manifold.FaceQueryBA.Separation>SeparationTolerance then begin
+    exit;
+   end;
+
+   QueryEdgeDirections(ShapeA,ShapeB,Manifold.EdgeQuery);
+   if Manifold.EdgeQuery.Separation>SeparationTolerance then begin
+    exit;
+   end;
+
+  end;
+
+  // Contact generation
+  begin
 
    ContactManager.CountTemporaryContacts[ThreadIndex]:=0;
 
@@ -21038,13 +21065,13 @@ var OldManifoldCountContacts:longint;
     b1:=Vector3TermMatrixMul(ShapeB.ConvexHull.Vertices[EdgeB^.Vertices[1]].Position,ShapeB.WorldTransform);
 
     if GetEdgeContact(pa,pb,a0,a1,b0,b1) then begin
-{    Normal:=Vector3NormEx(Vector3Cross(Vector3Sub(a1,a0),Vector3Sub(b1,b0)));
+ {    Normal:=Vector3NormEx(Vector3Cross(Vector3Sub(a1,a0),Vector3Sub(b1,b0)));
      if Vector3Dot(Normal,Vector3Sub(ShapeB.GetCenter(ShapeB.WorldTransform),ShapeA.GetCenter(ShapeA.WorldTransform)))<0.0 then begin
       Normal:=Vector3Neg(Normal);
      end;
-  //{}Normal:=Vector3TermMatrixMulBasis(Manifold.EdgeQuery.Normal,Shapes[1].WorldTransform);
+ //{}Normal:=Vector3TermMatrixMulBasis(Manifold.EdgeQuery.Normal,Shapes[1].WorldTransform);
      PenetrationDepth:=Vector3Dot(Vector3Sub(pb,pa),Normal);
-     if PenetrationDepth<0.0 then begin    
+     if PenetrationDepth<0.0 then begin
       Manifold.ContactManifoldType:=kcmtEdges;
       Manifold.LocalNormal:=Vector3TermMatrixMulTransposedBasis(Normal,Shapes[0].WorldTransform);
       Contact:=@ContactManager.TemporaryContacts[ThreadIndex,ContactManager.CountTemporaryContacts[ThreadIndex]];
@@ -21094,15 +21121,6 @@ var OldManifoldCountContacts:longint;
    if ContactManager.CountTemporaryContacts[ThreadIndex]>0 then begin
     // Contacts found, reduce these down to four contacts with the largest area
     Manifold.CountContacts:=ContactManager.ReduceContacts(pointer(@ContactManager.TemporaryContacts[ThreadIndex,0]),ContactManager.CountTemporaryContacts[ThreadIndex],pointer(@Manifold.Contacts[0]));
-    exit;
-   end else begin
-    if Iteration=0 then begin
-     // We must process a new full seperating axis test, since the last frame contact manifold could not rebuilt.
-     inc(Iteration);
-    end else begin
-     // No contacts found
-     exit;
-    end;
    end;
 
   end;
@@ -21121,6 +21139,7 @@ begin
  Flags:=Flags+[kcfEnabled];
 
  OldManifoldCountContacts:=Manifold.CountContacts;
+ OldContactManifoldType:=Manifold.ContactManifoldType;
  for Index:=0 to OldManifoldCountContacts-1 do begin
   OldManifoldContacts[Index]:=Manifold.Contacts[Index];
  end;
@@ -21482,20 +21501,12 @@ procedure TKraftMeshContactPair.Update;
 var NewConvexAABBInMeshLocalSpace:TKraftAABB;
     Transform:TKraftMatrix4x4;
     Displacement,BoundsExpansion:TKraftVector3;
-    AABBMaxExpansion:TKraftScalar;
 begin
  Transform:=Matrix4x4TermMulSimpleInverted(ShapeConvex.WorldTransform,ShapeMesh.WorldTransform);
  NewConvexAABBInMeshLocalSpace:=AABBTransform(ShapeConvex.ShapeAABB,Transform);
  if not AABBContains(ConvexAABBInMeshLocalSpace,NewConvexAABBInMeshLocalSpace) then begin
   Displacement:=Vector3TermMatrixMulBasis(Vector3ScalarMul(RigidBodyConvex.LinearVelocity,RigidBodyConvex.Physics.WorldDeltaTime),Transform);
-  BoundsExpansion:=Vector3ScalarMul(Vector3(ShapeConvex.AngularMotionDisc,ShapeConvex.AngularMotionDisc,ShapeConvex.AngularMotionDisc),Vector3Length(RigidBodyConvex.AngularVelocity)*RigidBodyConvex.Physics.WorldDeltaTime*AABB_MULTIPLIER);
-  AABBMaxExpansion:=Max(AABB_MAX_EXPANSION,ShapeConvex.ShapeSphere.Radius*AABB_MAX_EXPANSION);
-  if Vector3LengthSquared(Displacement)>sqr(AABBMaxExpansion) then begin
-   Vector3Scale(Displacement,AABBMaxExpansion/Vector3Length(Displacement));
-  end;
-  if Vector3LengthSquared(BoundsExpansion)>sqr(AABBMaxExpansion) then begin
-   Vector3Scale(BoundsExpansion,AABBMaxExpansion/Vector3Length(BoundsExpansion));
-  end;
+  BoundsExpansion:=Vector3ScalarMul(Vector3(ShapeConvex.AngularMotionDisc,ShapeConvex.AngularMotionDisc,ShapeConvex.AngularMotionDisc),Vector3Length(RigidBodyConvex.AngularVelocity)*RigidBodyConvex.Physics.WorldDeltaTime);
   ConvexAABBInMeshLocalSpace:=AABBStretch(NewConvexAABBInMeshLocalSpace,Displacement,BoundsExpansion);
   Query;
  end;
@@ -21753,7 +21764,6 @@ var HashTableBucket:PKraftMeshContactPairHashTableBucket;
     MeshContactPair:TKraftMeshContactPair;
     Transform:TKraftMatrix4x4;
     Displacement,BoundsExpansion:TKraftVector3;
-    AABBMaxExpansion:TKraftScalar;
 begin
 
  HashTableBucket:=@MeshContactPairHashTable[HashTwoPointers(AShapeConvex,AShapeMesh) and high(TKraftMeshContactPairHashTable)];
@@ -21782,14 +21792,7 @@ begin
 
  Transform:=Matrix4x4TermMulSimpleInverted(MeshContactPair.ShapeConvex.WorldTransform,MeshContactPair.ShapeMesh.WorldTransform);
  Displacement:=Vector3TermMatrixMulBasis(Vector3ScalarMul(MeshContactPair.RigidBodyConvex.LinearVelocity,MeshContactPair.RigidBodyConvex.Physics.WorldDeltaTime),Transform);
- BoundsExpansion:=Vector3ScalarMul(Vector3(MeshContactPair.ShapeConvex.AngularMotionDisc,MeshContactPair.ShapeConvex.AngularMotionDisc,MeshContactPair.ShapeConvex.AngularMotionDisc),Vector3Length(MeshContactPair.RigidBodyConvex.AngularVelocity)*MeshContactPair.RigidBodyConvex.Physics.WorldDeltaTime*AABB_MULTIPLIER);
- AABBMaxExpansion:=Max(AABB_MAX_EXPANSION,MeshContactPair.ShapeConvex.ShapeSphere.Radius*AABB_MAX_EXPANSION);
- if Vector3LengthSquared(Displacement)>sqr(AABBMaxExpansion) then begin
-  Vector3Scale(Displacement,AABBMaxExpansion/Vector3Length(Displacement));
- end;
- if Vector3LengthSquared(BoundsExpansion)>sqr(AABBMaxExpansion) then begin
-  Vector3Scale(BoundsExpansion,AABBMaxExpansion/Vector3Length(BoundsExpansion));
- end;
+ BoundsExpansion:=Vector3ScalarMul(Vector3(MeshContactPair.ShapeConvex.AngularMotionDisc,MeshContactPair.ShapeConvex.AngularMotionDisc,MeshContactPair.ShapeConvex.AngularMotionDisc),Vector3Length(MeshContactPair.RigidBodyConvex.AngularVelocity)*MeshContactPair.RigidBodyConvex.Physics.WorldDeltaTime);
  MeshContactPair.ConvexAABBInMeshLocalSpace:=AABBStretch(AABBTransform(MeshContactPair.ShapeConvex.ShapeAABB,Transform),Displacement,BoundsExpansion);
 
  MeshContactPair.Query;
@@ -22075,7 +22078,7 @@ begin
 
   if assigned(ContactPair^.MeshContactPair) and (ContactPair^.ElementIndex>=0) then begin
    if not AABBIntersect(TKraftShapeMesh(ContactPair^.MeshContactPair.ShapeMesh).Mesh.Triangles[ContactPair^.ElementIndex].AABB,
-                                                ContactPair^.MeshContactPair.ConvexAABBInMeshLocalSpace) then begin
+                        ContactPair^.MeshContactPair.ConvexAABBInMeshLocalSpace) then begin
     if (ContactPair^.Flags*[kcfColliding,kcfWasColliding])<>[] then begin
      if (ContactPair^.Flags*[kcfColliding,kcfWasColliding])=[kcfColliding] then begin
       if assigned(OnContactBegin) then begin
@@ -22232,7 +22235,7 @@ begin
 
    ContactManifold:=@ContactPair^.Manifold;
                                                               
-   ContactPair^.GetSolverContactManifold(SolverContactManifold,ContactPair^.RigidBodies[0].WorldTransform,ContactPair^.RigidBodies[1].WorldTransform,false);
+   ContactPair^.GetSolverContactManifold(SolverContactManifold,ContactPair^.RigidBodies[0].WorldTransform,ContactPair^.RigidBodies[1].WorldTransform,kcpcmmBaumgarte);
 
    for i:=0 to ContactManifold^.CountContacts-1 do begin
 
@@ -27150,176 +27153,125 @@ var ContactPairIndex,ContactIndex,TangentIndex,IndexA,IndexB:longint;
     iA,iB:PKraftMatrix3x3;
     mA,mB,NormalMass,TangentMass,dv:TKraftScalar;
     LocalCenterA,LocalCenterB,cA,vA,wA,rnA,rtA,cB,vB,wB,rnB,rtB,P,Temp:TKraftVector3;
-    t:array[0..1] of TKraftVector3;
+    TangentVectors:array[0..1] of TKraftVector3;
     qA,qB:TKraftQuaternion;
     tA,tB:TKraftMatrix4x4;
     SolverContactManifold:TKraftSolverContactManifold;
+    Normal,t0,t1:TKraftVector3;
 begin
- if PositionCorrectionMode=kpcmNonLinearGaussSeidel then begin
 
-  for ContactPairIndex:=0 to CountContacts-1 do begin
+ for ContactPairIndex:=0 to CountContacts-1 do begin
 
-   VelocityState:=@VelocityStates[ContactPairIndex];
+  VelocityState:=@VelocityStates[ContactPairIndex];
 
-   PositionState:=@PositionStates[ContactPairIndex];
+  PositionState:=@PositionStates[ContactPairIndex];
 
-   IndexA:=VelocityState^.Indices[0];
-   IndexB:=VelocityState^.Indices[1];
+  IndexA:=VelocityState^.Indices[0];
+  IndexB:=VelocityState^.Indices[1];
 
-   iA:=@VelocityState^.WorldInverseInertiaTensors[0];
-   iB:=@VelocityState^.WorldInverseInertiaTensors[1];
+  iA:=@VelocityState^.WorldInverseInertiaTensors[0];
+  iB:=@VelocityState^.WorldInverseInertiaTensors[1];
 
-   mA:=VelocityState^.InverseMasses[0];
-   mB:=VelocityState^.InverseMasses[1];
+  mA:=VelocityState^.InverseMasses[0];
+  mB:=VelocityState^.InverseMasses[1];
 
-   LocalCenterA:=PositionState^.LocalCenters[0];
-   LocalCenterB:=PositionState^.LocalCenters[1];
+  LocalCenterA:=PositionState^.LocalCenters[0];
+  LocalCenterB:=PositionState^.LocalCenters[1];
 
-   cA:=Positions[IndexA].Position;
-   qA:=Positions[IndexA].Orientation;
-   tA:=QuaternionToMatrix4x4(qA);
-   Temp:=Vector3Sub(cA,Vector3TermMatrixMulBasis(LocalCenterA,tA));
-   PKraftVector3(pointer(@tA[3,0]))^.xyz:=PKraftVector3(pointer(@Temp))^.xyz;
+  cA:=Positions[IndexA].Position;
+  qA:=Positions[IndexA].Orientation;
+  tA:=QuaternionToMatrix4x4(qA);
+  Temp:=Vector3Sub(cA,Vector3TermMatrixMulBasis(LocalCenterA,tA));
+  PKraftVector3(pointer(@tA[3,0]))^.xyz:=PKraftVector3(pointer(@Temp))^.xyz;
 
-   cB:=Positions[IndexB].Position;
-   qB:=Positions[IndexB].Orientation;
-   tB:=QuaternionToMatrix4x4(qB);
-   Temp:=Vector3Sub(cB,Vector3TermMatrixMulBasis(LocalCenterB,tB));
-   PKraftVector3(pointer(@tB[3,0]))^.xyz:=PKraftVector3(pointer(@Temp))^.xyz;
+  cB:=Positions[IndexB].Position;
+  qB:=Positions[IndexB].Orientation;
+  tB:=QuaternionToMatrix4x4(qB);
+  Temp:=Vector3Sub(cB,Vector3TermMatrixMulBasis(LocalCenterB,tB));
+  PKraftVector3(pointer(@tB[3,0]))^.xyz:=PKraftVector3(pointer(@Temp))^.xyz;
 
-   vA:=Velocities[IndexA].LinearVelocity;
-   wA:=Velocities[IndexA].AngularVelocity;
+  vA:=Velocities[IndexA].LinearVelocity;
+  wA:=Velocities[IndexA].AngularVelocity;
 
-   vB:=Velocities[IndexB].LinearVelocity;
-   wB:=Velocities[IndexB].AngularVelocity;
+  vB:=Velocities[IndexB].LinearVelocity;
+  wB:=Velocities[IndexB].AngularVelocity;
 
-   Island.ContactPairs[ContactPairIndex]^.GetSolverContactManifold(SolverContactManifold,tA,tB,false);
+  if PositionCorrectionMode=kpcmBaumgarte then begin
+   Island.ContactPairs[ContactPairIndex]^.GetSolverContactManifold(SolverContactManifold,tA,tB,kcpcmmBaumgarte);
+  end else begin
+   Island.ContactPairs[ContactPairIndex]^.GetSolverContactManifold(SolverContactManifold,tA,tB,kcpcmmVelocitySolver);
+  end;
 
-   VelocityState^.CountPoints:=SolverContactManifold.CountContacts;
+  VelocityState^.CountPoints:=SolverContactManifold.CountContacts;
 
-   VelocityState^.Normal:=SolverContactManifold.Normal;
+  VelocityState^.Normal:=SolverContactManifold.Normal;
 
-   ComputeBasis(VelocityState^.Normal,t[0],t[1]);
+  ComputeBasis(VelocityState^.Normal,TangentVectors[0],TangentVectors[1]);
 
-   for ContactIndex:=0 to SolverContactManifold.CountContacts-1 do begin
+  for ContactIndex:=0 to SolverContactManifold.CountContacts-1 do begin
 
-    ContactPoint:=@VelocityState^.Points[ContactIndex];
+   ContactPoint:=@VelocityState^.Points[ContactIndex];
 
-    SolverContact:=@SolverContactManifold.Contacts[ContactIndex];
+   SolverContact:=@SolverContactManifold.Contacts[ContactIndex];
 
-    P:=SolverContact^.Point;
-    ContactPoint^.RelativePositions[0]:=Vector3Sub(P,cA);
-    ContactPoint^.RelativePositions[1]:=Vector3Sub(P,cB);
+   P:=SolverContact^.Point;
+   ContactPoint^.RelativePositions[0]:=Vector3Sub(P,cA);
+   ContactPoint^.RelativePositions[1]:=Vector3Sub(P,cB);
 
-    rnA:=Vector3Cross(ContactPoint^.RelativePositions[0],VelocityState^.Normal);
-    rnB:=Vector3Cross(ContactPoint^.RelativePositions[1],VelocityState^.Normal);
+   // Precalculate JM^-1JT for contact and friction constraints
+   rnA:=Vector3Cross(ContactPoint^.RelativePositions[0],VelocityState^.Normal);
+   rnB:=Vector3Cross(ContactPoint^.RelativePositions[1],VelocityState^.Normal);
 
-    NormalMass:=mA+mB+Vector3Dot(rnA,Vector3TermMatrixMul(rnA,iA^))+Vector3Dot(rnB,Vector3TermMatrixMul(rnB,iB^));
-                     
-    if NormalMass>0.0 then begin
- {   if NormalMass<=EPSILON then begin
-      writeln('n ',ContactPoint^.NormalMass:1:8);
-     end;{}
-     ContactPoint^.NormalMass:=1.0/NormalMass;
-    end else begin
-     ContactPoint^.NormalMass:=0.0;
-    end;
+   NormalMass:=mA+mB+Vector3Dot(rnA,Vector3TermMatrixMul(rnA,iA^))+Vector3Dot(rnB,Vector3TermMatrixMul(rnB,iB^));
 
-    for TangentIndex:=0 to 1 do begin
+   if NormalMass>0.0 then begin
+{   if NormalMass<=EPSILON then begin
+     writeln('n ',ContactPoint^.NormalMass:1:8);
+    end;{}
+    ContactPoint^.NormalMass:=1.0/NormalMass;
+   end else begin
+    ContactPoint^.NormalMass:=0.0;
+   end;
 
-     rtA:=Vector3Cross(t[TangentIndex],ContactPoint^.RelativePositions[0]);
-     rtB:=Vector3Cross(t[TangentIndex],ContactPoint^.RelativePositions[1]);
+   for TangentIndex:=0 to 1 do begin
 
-     TangentMass:=mA+mB+Vector3Dot(rtA,Vector3TermMatrixMul(rtA,iA^))+Vector3Dot(rtB,Vector3TermMatrixMul(rtB,iB^));
+    rtA:=Vector3Cross(TangentVectors[TangentIndex],ContactPoint^.RelativePositions[0]);
+    rtB:=Vector3Cross(TangentVectors[TangentIndex],ContactPoint^.RelativePositions[1]);
 
-     if TangentMass>0.0 then begin
- {    if TangentMass>1000.0 then begin
-       writeln('t ',TangentMass:1:8);
-      end;
-      writeln('t ',TangentMass:1:8);{}
- {    if TangentMass<=EPSILON then begin
-       writeln('t ',TangentMass:1:8);
-      end;{}
-      ContactPoint^.TangentMass[TangentIndex]:=1.0/TangentMass;
-     end else begin
-      ContactPoint^.TangentMass[TangentIndex]:=0.0;
+    TangentMass:=mA+mB+Vector3Dot(rtA,Vector3TermMatrixMul(rtA,iA^))+Vector3Dot(rtB,Vector3TermMatrixMul(rtB,iB^));
+
+    if TangentMass>0.0 then begin
+{    if TangentMass>1000.0 then begin
+      writeln('t ',TangentMass:1:8);
      end;
-
-    end;
-
-    dv:=Vector3Dot(Vector3Sub(Vector3Add(vB,
-                                         Vector3Cross(wB,
-                                                      ContactPoint^.RelativePositions[1])),
-                              Vector3Add(vA,
-                                         Vector3Cross(wA,
-                                                      ContactPoint^.RelativePositions[0]))),
-                   VelocityState^.Normal);
-    if dv<-1.0 then begin
-     ContactPoint^.Bias:=-(VelocityState^.Restitution*dv);
+     writeln('t ',TangentMass:1:8);{}
+{    if TangentMass<=EPSILON then begin
+      writeln('t ',TangentMass:1:8);
+     end;{}
+     ContactPoint^.TangentMass[TangentIndex]:=1.0/TangentMass;
     end else begin
-     ContactPoint^.Bias:=0.0;
+     ContactPoint^.TangentMass[TangentIndex]:=0.0;
     end;
 
    end;
 
-  end;
+   if PositionCorrectionMode=kpcmBaumgarte then begin
+    ContactPoint^.BaumgarteBias:=(-Physics.ContactBaumgarte)*(1.0/DeltaTime)*min(0.0,SolverContact^.Separation+Physics.PenetrationSlop);
+   end else begin
+    ContactPoint^.BaumgarteBias:=0.0;
+   end;
 
- end else begin
-
-  for ContactPairIndex:=0 to CountContacts-1 do begin
-
-   VelocityState:=@VelocityStates[ContactPairIndex];
-
-   PositionState:=@PositionStates[ContactPairIndex];
-
-   IndexA:=VelocityState^.Indices[0];
-   IndexB:=VelocityState^.Indices[1];
-
-   iA:=@VelocityState^.WorldInverseInertiaTensors[0];
-   iB:=@VelocityState^.WorldInverseInertiaTensors[1];
-
-{  mA:=VelocityState^.InverseMasses[0];
-   mB:=VelocityState^.InverseMasses[1];{}
-
-   LocalCenterA:=PositionState^.LocalCenters[0];
-   LocalCenterB:=PositionState^.LocalCenters[1];
-
-   cA:=Positions[IndexA].Position;
-   qA:=Positions[IndexA].Orientation;
-   tA:=QuaternionToMatrix4x4(qA);
-   Temp:=Vector3Sub(cA,Vector3TermMatrixMulBasis(LocalCenterA,tA));
-   PKraftVector3(pointer(@tA[3,0]))^.xyz:=PKraftVector3(pointer(@Temp))^.xyz;
-
-   cB:=Positions[IndexB].Position;
-   qB:=Positions[IndexB].Orientation;
-   tB:=QuaternionToMatrix4x4(qB);
-   Temp:=Vector3Sub(cB,Vector3TermMatrixMulBasis(LocalCenterB,tB));
-   PKraftVector3(pointer(@tB[3,0]))^.xyz:=PKraftVector3(pointer(@Temp))^.xyz;
-
-   vA:=Velocities[IndexA].LinearVelocity;
-   wA:=Velocities[IndexA].AngularVelocity;
-
-   vB:=Velocities[IndexB].LinearVelocity;
-   wB:=Velocities[IndexB].AngularVelocity;
-
-   Island.ContactPairs[ContactPairIndex]^.GetSolverContactManifold(SolverContactManifold,tA,tB,true);
-
-   VelocityState^.CountPoints:=SolverContactManifold.CountContacts;
-
-   VelocityState^.Normal:=SolverContactManifold.Normal;
-
-// ComputeBasis(VelocityState^.Normal,t[0],t[1]);
-
-   for ContactIndex:=0 to SolverContactManifold.CountContacts-1 do begin
-
-    ContactPoint:=@VelocityState^.Points[ContactIndex];
-
-    SolverContact:=@SolverContactManifold.Contacts[ContactIndex];
-
-    P:=SolverContact^.Point;
-    ContactPoint^.RelativePositions[0]:=Vector3Sub(P,cA);
-    ContactPoint^.RelativePositions[1]:=Vector3Sub(P,cB);
-
+   dv:=Vector3Dot(Vector3Sub(Vector3Add(vB,
+                                        Vector3Cross(wB,
+                                                     ContactPoint^.RelativePositions[1])),
+                             Vector3Add(vA,
+                                        Vector3Cross(wA,
+                                                     ContactPoint^.RelativePositions[0]))),
+                  VelocityState^.Normal);
+   if dv<-1.0 then begin
+    ContactPoint^.Bias:=ContactPoint^.BaumgarteBias-(VelocityState^.Restitution*dv);
+   end else begin
+    ContactPoint^.Bias:=ContactPoint^.BaumgarteBias;
    end;
 
   end;
@@ -27329,144 +27281,70 @@ begin
 end;
 
 procedure TKraftSolver.WarmStart;
-var ContactPairIndex,ContactIndex,IndexA,IndexB,CountPoints,TangentIndex:longint;
+var ContactPairIndex,ContactIndex,IndexA,IndexB,CountPoints:longint;
     VelocityState:PKraftSolverVelocityState;
     ContactPoint:PKraftSolverVelocityStateContactPoint;
     iA,iB:PKraftMatrix3x3;
-    mA,mB,nm,dv:TKraftScalar;
-    Normal,t0,t1,vA,wA,vB,wB,P,raCn,rbCn,raCt,rbCt:TKraftVector3;
+    mA,mB,dv:TKraftScalar;
+    Normal,vA,wA,vB,wB,P:TKraftVector3;
     TangentVectors:array[0..1] of TKraftVector3;
-    tm:array[0..1] of TKraftScalar;
 begin
- if PositionCorrectionMode=kpcmNonLinearGaussSeidel then begin
 
-  for ContactPairIndex:=0 to CountContacts-1 do begin
+ for ContactPairIndex:=0 to CountContacts-1 do begin
 
-   VelocityState:=@VelocityStates[ContactPairIndex];
-   IndexA:=VelocityState^.Indices[0];
-   IndexB:=VelocityState^.Indices[1];
-   iA:=@VelocityState^.WorldInverseInertiaTensors[0];
-   iB:=@VelocityState^.WorldInverseInertiaTensors[1];
-   mA:=VelocityState^.InverseMasses[0];
-   mB:=VelocityState^.InverseMasses[1];
-   CountPoints:=VelocityState^.CountPoints;
-   Normal:=VelocityState^.Normal;
-   ComputeBasis(Normal,t0,t1);
+  VelocityState:=@VelocityStates[ContactPairIndex];
+  IndexA:=VelocityState^.Indices[0];
+  IndexB:=VelocityState^.Indices[1];
+  iA:=@VelocityState^.WorldInverseInertiaTensors[0];
+  iB:=@VelocityState^.WorldInverseInertiaTensors[1];
+  mA:=VelocityState^.InverseMasses[0];
+  mB:=VelocityState^.InverseMasses[1];
+  CountPoints:=VelocityState^.CountPoints;
+  Normal:=VelocityState^.Normal;
 
-   vA:=Velocities[IndexA].LinearVelocity;
-   wA:=Velocities[IndexA].AngularVelocity;
-   vB:=Velocities[IndexB].LinearVelocity;
-   wB:=Velocities[IndexB].AngularVelocity;
+  ComputeBasis(Normal,TangentVectors[0],TangentVectors[1]);
 
-   for ContactIndex:=0 to CountPoints-1 do begin
+  vA:=Velocities[IndexA].LinearVelocity;
+  wA:=Velocities[IndexA].AngularVelocity;
+  vB:=Velocities[IndexB].LinearVelocity;
+  wB:=Velocities[IndexB].AngularVelocity;
 
-    ContactPoint:=@VelocityState^.Points[ContactIndex];
+  for ContactIndex:=0 to CountPoints-1 do begin
 
-    P:=Vector3Add(Vector3ScalarMul(Normal,ContactPoint^.NormalImpulse),Vector3Add(Vector3ScalarMul(t0,ContactPoint^.TangentImpulse[0]),Vector3ScalarMul(t1,ContactPoint^.TangentImpulse[1])));
+   ContactPoint:=@VelocityState^.Points[ContactIndex];
 
-    Vector3DirectSub(vA,Vector3ScalarMul(P,mA));
-    Vector3DirectSub(wA,Vector3TermMatrixMul(Vector3Cross(ContactPoint^.RelativePositions[0],P),iA^));
+   P:=Vector3Add(Vector3ScalarMul(Normal,ContactPoint^.NormalImpulse),
+                 Vector3Add(Vector3ScalarMul(TangentVectors[0],ContactPoint^.TangentImpulse[0]),
+                            Vector3ScalarMul(TangentVectors[1],ContactPoint^.TangentImpulse[1])));
 
-    Vector3DirectAdd(vB,Vector3ScalarMul(P,mB));
-    Vector3DirectAdd(wB,Vector3TermMatrixMul(Vector3Cross(ContactPoint^.RelativePositions[1],P),iB^));
+   Vector3DirectSub(vA,Vector3ScalarMul(P,mA));
+   Vector3DirectSub(wA,Vector3TermMatrixMul(Vector3Cross(ContactPoint^.RelativePositions[0],P),iA^));
 
-   end;
+   Vector3DirectAdd(vB,Vector3ScalarMul(P,mB));
+   Vector3DirectAdd(wB,Vector3TermMatrixMul(Vector3Cross(ContactPoint^.RelativePositions[1],P),iB^));
 
-   Velocities[IndexA].LinearVelocity:=vA;
-   Velocities[IndexA].AngularVelocity:=wA;
-   Velocities[IndexB].LinearVelocity:=vB;
-   Velocities[IndexB].AngularVelocity:=wB;
-
-  end;
-
- end else begin
-
-  for ContactPairIndex:=0 to CountContacts-1 do begin
-
-   VelocityState:=@VelocityStates[ContactPairIndex];
-
-   IndexA:=VelocityState^.Indices[0];
-   IndexB:=VelocityState^.Indices[1];
-
-   if (IndexA>=0) and (IndexB>=0) then begin
-
-    vA:=Velocities[IndexA].LinearVelocity;
-    wA:=Velocities[IndexA].AngularVelocity;
-    vB:=Velocities[IndexB].LinearVelocity;
-    wB:=Velocities[IndexB].AngularVelocity;
-
-    ComputeBasis(VelocityState^.Normal,TangentVectors[0],TangentVectors[1]);
-
-    for ContactIndex:=0 to VelocityState^.CountPoints-1 do begin
-
-     ContactPoint:=@VelocityState^.Points[ContactIndex];
-
-     // Precalculate JM^-1JT for contact and friction constraints
-     raCn:=Vector3Cross(ContactPoint^.RelativePositions[0],VelocityState^.Normal);
-     rbCn:=Vector3Cross(ContactPoint^.RelativePositions[1],VelocityState^.Normal);
-     nm:=VelocityState.InverseMasses[0]+VelocityState.InverseMasses[1];
-     tm[0]:=nm;
-     tm[1]:=nm;
-
-     nm:=nm+(Vector3Dot(raCn,Vector3TermMatrixMul(raCn,VelocityState.WorldInverseInertiaTensors[0]))+
-             Vector3Dot(rbCn,Vector3TermMatrixMul(rbCn,VelocityState.WorldInverseInertiaTensors[1])));
-     if IsZero(nm) then begin
-      ContactPoint^.NormalMass:=0.0;
-     end else begin
-      ContactPoint^.NormalMass:=1.0/nm;
-     end;
-
-     for TangentIndex:=0 to 1 do begin
-      raCt:=Vector3Cross(TangentVectors[TangentIndex],ContactPoint^.RelativePositions[0]);
-      rbCt:=Vector3Cross(TangentVectors[TangentIndex],ContactPoint^.RelativePositions[1]);
-      tm[TangentIndex]:=tm[TangentIndex]+(Vector3Dot(raCt,Vector3TermMatrixMul(raCt,VelocityState^.WorldInverseInertiaTensors[0]))+
-                                          Vector3Dot(rbCt,Vector3TermMatrixMul(rbCt,VelocityState^.WorldInverseInertiaTensors[1])));
-      if IsZero(tm[TangentIndex]) then begin
-       ContactPoint^.TangentMass[TangentIndex]:=0.0;
-      end else begin
-       ContactPoint^.TangentMass[TangentIndex]:=1.0/tm[TangentIndex];
-      end;
-     end;
-
-     // Precalculate bias factor
-     ContactPoint^.Bias:=(-Physics.ContactBaumgarte)*(1.0/DeltaTime)*min(0.0,ContactPoint^.Penetration+Physics.PenetrationSlop);
-
-     // Warm start contact
-     P:=Vector3ScalarMul(VelocityState^.Normal,ContactPoint^.NormalImpulse);
-
-     if Physics.EnableFriction then begin
-      P:=Vector3Add(P,Vector3Add(Vector3ScalarMul(TangentVectors[0],ContactPoint^.TangentImpulse[0]),
-                                 Vector3ScalarMul(TangentVectors[1],ContactPoint^.TangentImpulse[1])));
-     end;
-
-     begin
-      vA:=Vector3Sub(vA,Vector3ScalarMul(P,VelocityState^.InverseMasses[0]));
-      wA:=Vector3Sub(wA,Vector3TermMatrixMul(Vector3Cross(ContactPoint^.RelativePositions[0],P),VelocityState^.WorldInverseInertiaTensors[0]));
-     end;
-
-     begin
-      vB:=Vector3Add(vB,Vector3ScalarMul(P,VelocityState^.InverseMasses[1]));
-      wB:=Vector3Add(wB,Vector3TermMatrixMul(Vector3Cross(ContactPoint^.RelativePositions[1],P),VelocityState^.WorldInverseInertiaTensors[1]));
-     end;
-
-     // Add in restitution bias
-     dv:=Vector3Dot(Vector3Sub(Vector3Sub(Vector3Add(vB,Vector3Cross(wB,ContactPoint^.RelativePositions[1])),vA),Vector3Cross(wA,ContactPoint^.RelativePositions[0])),VelocityState^.Normal);
-     if dv<-1.0 then begin
-      ContactPoint^.Bias:=ContactPoint^.Bias-(VelocityState^.Restitution*dv);
-     end;
-
+   if PositionCorrectionMode=kpcmBaumgarte then begin       
+    dv:=Vector3Dot(Vector3Sub(Vector3Add(vB,
+                                         Vector3Cross(wB,
+                                                      ContactPoint^.RelativePositions[1])),
+                              Vector3Add(vA,
+                                         Vector3Cross(wA,
+                                                      ContactPoint^.RelativePositions[0]))),
+                   VelocityState^.Normal);
+    if dv<-1.0 then begin
+     ContactPoint^.Bias:=ContactPoint^.BaumgarteBias-(VelocityState^.Restitution*dv);
     end;
-
-    Velocities[IndexA].LinearVelocity:=vA;
-    Velocities[IndexA].AngularVelocity:=wA;
-    Velocities[IndexB].LinearVelocity:=vB;
-    Velocities[IndexB].AngularVelocity:=wB;
-
    end;
 
   end;
+
+  Velocities[IndexA].LinearVelocity:=vA;
+  Velocities[IndexA].AngularVelocity:=wA;
+  Velocities[IndexB].LinearVelocity:=vB;
+  Velocities[IndexB].AngularVelocity:=wB;
 
  end;
+
 end;
 
 procedure TKraftSolver.SolveVelocityConstraints;
@@ -27474,196 +27352,87 @@ var ContactPairIndex,ContactIndex,TangentIndex,IndexA,IndexB,CountPoints:longint
     VelocityState:PKraftSolverVelocityState;
     ContactPoint:PKraftSolverVelocityStateContactPoint;
     iA,iB:PKraftMatrix3x3;
-    mA,mB,Friction,NormalImpulse,NormalMass,Bias,Lambda,MaxFriction,NewImpulse,vn,MaxLambda,Old:TKraftScalar;
-    Normal,t0,t1,vA,wA,rA,vB,wB,rB,dv,P,Impulse:TKraftVector3;
-    Basis:TKraftMatrix3x3;
-    TangentMass,TangentImpulse:array[0..1] of TKraftScalar;
+    mA,mB,Friction,Lambda,MaxLambda,vn,Old:TKraftScalar;
+    Normal,vA,wA,rA,vB,wB,rB,dv,P:TKraftVector3;
     TangentVectors:array[0..1] of TKraftVector3;
 begin
 
- if PositionCorrectionMode=kpcmNonLinearGaussSeidel then begin
+ for ContactPairIndex:=0 to CountContacts-1 do begin
 
-  for ContactPairIndex:=0 to CountContacts-1 do begin
+  VelocityState:=@VelocityStates[ContactPairIndex];
+  IndexA:=VelocityState^.Indices[0];
+  IndexB:=VelocityState^.Indices[1];
+  iA:=@VelocityState^.WorldInverseInertiaTensors[0];
+  iB:=@VelocityState^.WorldInverseInertiaTensors[1];
+  mA:=VelocityState^.InverseMasses[0];
+  mB:=VelocityState^.InverseMasses[1];
+  CountPoints:=VelocityState^.CountPoints;
+  Normal:=VelocityState^.Normal;
+  Friction:=VelocityState^.Friction;
+  ComputeBasis(Normal,TangentVectors[0],TangentVectors[1]);
 
-   VelocityState:=@VelocityStates[ContactPairIndex];
-   IndexA:=VelocityState^.Indices[0];
-   IndexB:=VelocityState^.Indices[1];
-   iA:=@VelocityState^.WorldInverseInertiaTensors[0];
-   iB:=@VelocityState^.WorldInverseInertiaTensors[1];
-   mA:=VelocityState^.InverseMasses[0];
-   mB:=VelocityState^.InverseMasses[1];
-   CountPoints:=VelocityState^.CountPoints;
-   Normal:=VelocityState^.Normal;
-   Friction:=VelocityState^.Friction;
-   ComputeBasis(Normal,TangentVectors[0],TangentVectors[1]);
+  vA:=Velocities[IndexA].LinearVelocity;
+  wA:=Velocities[IndexA].AngularVelocity;
+  vB:=Velocities[IndexB].LinearVelocity;
+  wB:=Velocities[IndexB].AngularVelocity;
 
-   vA:=Velocities[IndexA].LinearVelocity;
-   wA:=Velocities[IndexA].AngularVelocity;
-   vB:=Velocities[IndexB].LinearVelocity;
-   wB:=Velocities[IndexB].AngularVelocity;
+  for ContactIndex:=0 to CountPoints-1 do begin
 
-   for ContactIndex:=0 to CountPoints-1 do begin
+   ContactPoint:=@VelocityState^.Points[ContactIndex];
 
-    ContactPoint:=@VelocityState^.Points[ContactIndex];
+   rA:=ContactPoint^.RelativePositions[0];
+   rB:=ContactPoint^.RelativePositions[1];
 
-    rA:=ContactPoint^.RelativePositions[0];
-    rB:=ContactPoint^.RelativePositions[1];
-    NormalImpulse:=ContactPoint^.NormalImpulse;
-    NormalMass:=ContactPoint^.NormalMass;
-    Bias:=ContactPoint^.Bias;
-    TangentMass[0]:=ContactPoint^.TangentMass[0];
-    TangentMass[1]:=ContactPoint^.TangentMass[1];
-    TangentImpulse[0]:=ContactPoint^.TangentImpulse[0];
-    TangentImpulse[1]:=ContactPoint^.TangentImpulse[1];
+   if EnableFriction then begin
 
-    if EnableFriction then begin
+    MaxLambda:=Friction*ContactPoint^.NormalImpulse;
 
-     for TangentIndex:=0 to 1 do begin
+    for TangentIndex:=0 to 1 do begin
 
-      dv:=Vector3Sub(Vector3Add(vB,Vector3Cross(wB,rB)),Vector3Add(vA,Vector3Cross(wA,rA)));
+     dv:=Vector3Sub(Vector3Add(vB,Vector3Cross(wB,rB)),Vector3Add(vA,Vector3Cross(wA,rA)));
 
-      Lambda:=(-Vector3Dot(dv,TangentVectors[TangentIndex]))*TangentMass[TangentIndex];
+     Lambda:=(-Vector3Dot(dv,TangentVectors[TangentIndex]))*ContactPoint^.TangentMass[TangentIndex];
 
-      MaxFriction:=Friction*NormalImpulse;
+     Old:=ContactPoint^.TangentImpulse[TangentIndex];
+     ContactPoint^.TangentImpulse[TangentIndex]:=Min(Max(Old+Lambda,-MaxLambda),MaxLambda);
+     Lambda:=ContactPoint^.TangentImpulse[TangentIndex]-Old;
 
-      NewImpulse:=Min(Max(TangentImpulse[TangentIndex]+Lambda,-MaxFriction),MaxFriction);
+     P:=Vector3ScalarMul(TangentVectors[TangentIndex],Lambda);
 
-      Lambda:=NewImpulse-TangentImpulse[TangentIndex];
-      ContactPoint^.TangentImpulse[TangentIndex]:=NewImpulse;
+     Vector3DirectSub(vA,Vector3ScalarMul(P,mA));
+     Vector3DirectSub(wA,Vector3TermMatrixMul(Vector3Cross(rA,P),iA^));
 
-      P:=Vector3ScalarMul(TangentVectors[TangentIndex],Lambda);
-
-      Vector3DirectSub(vA,Vector3ScalarMul(P,mA));
-      Vector3DirectSub(wA,Vector3TermMatrixMul(Vector3Cross(rA,P),iA^));
-
-      Vector3DirectAdd(vB,Vector3ScalarMul(P,mB));
-      Vector3DirectAdd(wB,Vector3TermMatrixMul(Vector3Cross(rB,P),iB^));
-
-     end;
+     Vector3DirectAdd(vB,Vector3ScalarMul(P,mB));
+     Vector3DirectAdd(wB,Vector3TermMatrixMul(Vector3Cross(rB,P),iB^));
 
     end;
 
-    dv:=Vector3Sub(Vector3Add(vB,Vector3Cross(wB,rB)),Vector3Add(vA,Vector3Cross(wA,rA)));
-
-    vn:=Vector3Dot(dv,Normal);
-    Lambda:=NormalMass*(Bias-vn);
-    NewImpulse:=Max(0.0,NormalImpulse+Lambda);
-    Lambda:=NewImpulse-NormalImpulse;
-    ContactPoint^.NormalImpulse:=NewImpulse;
-
-    P:=Vector3ScalarMul(Normal,Lambda);
-
-    Vector3DirectSub(vA,Vector3ScalarMul(P,mA));
-    Vector3DirectSub(wA,Vector3TermMatrixMul(Vector3Cross(rA,P),iA^));
-
-    Vector3DirectAdd(vB,Vector3ScalarMul(P,mB));
-    Vector3DirectAdd(wB,Vector3TermMatrixMul(Vector3Cross(rB,P),iB^));
    end;
 
-   Velocities[IndexA].LinearVelocity:=vA;
-   Velocities[IndexA].AngularVelocity:=wA;
-   Velocities[IndexB].LinearVelocity:=vB;
-   Velocities[IndexB].AngularVelocity:=wB;
+   dv:=Vector3Sub(Vector3Add(vB,Vector3Cross(wB,rB)),Vector3Add(vA,Vector3Cross(wA,rA)));
+
+   vn:=Vector3Dot(dv,Normal);
+
+   Lambda:=ContactPoint^.NormalMass*(ContactPoint^.Bias-vn);
+
+   Old:=ContactPoint^.NormalImpulse;
+   ContactPoint^.NormalImpulse:=Max(0.0,Old+Lambda);
+   Lambda:=ContactPoint^.NormalImpulse-Old;
+
+   P:=Vector3ScalarMul(Normal,Lambda);
+
+   Vector3DirectSub(vA,Vector3ScalarMul(P,mA));
+   Vector3DirectSub(wA,Vector3TermMatrixMul(Vector3Cross(rA,P),iA^));
+
+   Vector3DirectAdd(vB,Vector3ScalarMul(P,mB));
+   Vector3DirectAdd(wB,Vector3TermMatrixMul(Vector3Cross(rB,P),iB^));
 
   end;
 
- end else begin
-
-  for ContactPairIndex:=0 to CountContacts-1 do begin
-
-   VelocityState:=@VelocityStates[ContactPairIndex];
-
-   IndexA:=VelocityState^.Indices[0];
-   IndexB:=VelocityState^.Indices[1];
-
-   if (IndexA>=0) and (IndexB>=0) then begin
-
-    vA:=Velocities[IndexA].LinearVelocity;
-    wA:=Velocities[IndexA].AngularVelocity;
-    vB:=Velocities[IndexB].LinearVelocity;
-    wB:=Velocities[IndexB].AngularVelocity;
-
-    ComputeBasis(VelocityState^.Normal,TangentVectors[0],TangentVectors[1]);
-
-    for ContactIndex:=0 to VelocityState^.CountPoints-1 do begin
-
-     ContactPoint:=@VelocityState^.Points[ContactIndex];
-
-     // Friction
-     if Physics.EnableFriction then begin
-
-      // relative velocity at contact
-      dv:=Vector3Sub(Vector3Sub(Vector3Add(vB,Vector3Cross(wB,ContactPoint^.RelativePositions[1])),vA),Vector3Cross(wA,ContactPoint^.RelativePositions[0]));
-
-      for TangentIndex:=0 to 1 do begin
-
-       lambda:=(-Vector3Dot(dv,TangentVectors[TangentIndex]))*ContactPoint^.TangentMass[TangentIndex];
-
-       // Calculate frictional impulse
-       MaxLambda:=VelocityState^.Friction*ContactPoint^.NormalImpulse;
-
-       // Clamp frictional impulse
-       Old:=ContactPoint^.TangentImpulse[TangentIndex];
-       ContactPoint^.TangentImpulse[TangentIndex]:=Min(Max(Old+lambda,-MaxLambda),MaxLambda);
-       lambda:=ContactPoint^.TangentImpulse[TangentIndex]-Old;
-
-       // Apply friction impulse
-       Impulse:=Vector3ScalarMul(TangentVectors[TangentIndex],lambda);
-
-       begin
-        vA:=Vector3Sub(vA,Vector3ScalarMul(Impulse,VelocityState^.InverseMasses[0]));
-        wA:=Vector3Sub(wA,Vector3TermMatrixMul(Vector3Cross(ContactPoint^.RelativePositions[0],Impulse),VelocityState^.WorldInverseInertiaTensors[0]));
-       end;
-
-       begin
-        vB:=Vector3Add(vB,Vector3ScalarMul(Impulse,VelocityState^.InverseMasses[1]));
-        wB:=Vector3Add(wB,Vector3TermMatrixMul(Vector3Cross(ContactPoint^.RelativePositions[1],Impulse),VelocityState^.WorldInverseInertiaTensors[1]));
-       end;
-
-      end;
-     end;
-
-     // Normal
-     begin
-
-      dv:=Vector3Sub(Vector3Sub(Vector3Add(vB,Vector3Cross(wB,ContactPoint^.RelativePositions[1])),vA),Vector3Cross(wA,ContactPoint^.RelativePositions[0]));
-
-      // Normal impulse
-      vn:=Vector3Dot(dv,VelocityState^.Normal);
-
-      // Factor in positional bias to calculate impulse scalar ContactIndex
-      lambda:=ContactPoint^.NormalMass*(ContactPoint^.bias-vn);
-
-      // Clamp impulse
-      old:=ContactPoint^.NormalImpulse;
-      ContactPoint^.NormalImpulse:=max(0.0,old+lambda);
-      lambda:=ContactPoint^.NormalImpulse-old;
-
-      // Apply impulse
-      Impulse:=Vector3ScalarMul(VelocityState^.Normal,lambda);
-
-      begin
-       vA:=Vector3Sub(vA,Vector3ScalarMul(Impulse,VelocityState^.InverseMasses[0]));
-       wA:=Vector3Sub(wA,Vector3TermMatrixMul(Vector3Cross(ContactPoint^.RelativePositions[0],Impulse),VelocityState^.WorldInverseInertiaTensors[0]));
-      end;
-
-      begin
-       vB:=Vector3Add(vB,Vector3ScalarMul(Impulse,VelocityState^.InverseMasses[1]));
-       wB:=Vector3Add(wB,Vector3TermMatrixMul(Vector3Cross(ContactPoint^.RelativePositions[1],Impulse),VelocityState^.WorldInverseInertiaTensors[1]));
-      end;
-
-     end;
-
-    end;
-
-    Velocities[IndexA].LinearVelocity:=vA;
-    Velocities[IndexA].AngularVelocity:=wA;
-    Velocities[IndexB].LinearVelocity:=vB;
-    Velocities[IndexB].AngularVelocity:=wB;
-
-   end;
-
-  end;
+  Velocities[IndexA].LinearVelocity:=vA;
+  Velocities[IndexA].AngularVelocity:=wA;
+  Velocities[IndexB].LinearVelocity:=vB;
+  Velocities[IndexB].AngularVelocity:=wB;
 
  end;
 
@@ -27712,7 +27481,7 @@ begin
    Temp:=Vector3Sub(cB,Vector3TermMatrixMulBasis(LocalCenterB,tB));
    PKraftVector3(pointer(@tB[3,0]))^.xyz:=PKraftVector3(pointer(@Temp))^.xyz;
 
-   Island.ContactPairs[ContactPairIndex]^.GetSolverContactManifold(SolverContactManifold,tA,tB,true);
+   Island.ContactPairs[ContactPairIndex]^.GetSolverContactManifold(SolverContactManifold,tA,tB,kcpcmmPositionSolver);
 
    Normal:=SolverContactManifold.Normal;
 
@@ -27825,7 +27594,7 @@ begin
    Temp:=Vector3Sub(cB,Vector3TermMatrixMulBasis(LocalCenterB,tB));
    PKraftVector3(pointer(@tB[3,0]))^.xyz:=PKraftVector3(pointer(@Temp))^.xyz;
 
-   Island.ContactPairs[ContactPairIndex]^.GetSolverContactManifold(SolverContactManifold,tA,tB,true);
+   Island.ContactPairs[ContactPairIndex]^.GetSolverContactManifold(SolverContactManifold,tA,tB,kcpcmmPositionSolver);
 
    Normal:=SolverContactManifold.Normal;
 
@@ -28129,7 +27898,7 @@ begin
 
  Solver.InitializeConstraints;
 
- if Physics.WarmStarting or (Physics.ContactPositionCorrectionMode=kpcmBaumgarte) then begin
+ if Physics.WarmStarting then begin
   Solver.WarmStart;
  end;
 
@@ -28686,9 +28455,9 @@ begin
  Gravity.y:=-9.83;
  Gravity.z:=0.0;
 
- MaximalLinearVelocity:=1000.0;
+ MaximalLinearVelocity:=2.0;
 
- MaximalAngularVelocity:=0.0;//pi*0.5;
+ MaximalAngularVelocity:=pi*0.5;
 
  LinearVelocityThreshold:=0.1;
 
