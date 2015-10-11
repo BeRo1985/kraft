@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2015-10-10-18-58-0000                       *
+ *                        Version 2015-10-11-09-34-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -560,24 +560,26 @@ type PKraftForceMode=^TKraftForceMode;
        procedure Transform(const WithMatrix:TKraftMatrix4x4);
      end;
 
-     PKraftContactFeaturePair=^TKraftContactFeaturePair;
-     TKraftContactFeaturePair=packed record
+     // 64-bit contact feature ID
+     PKraftContactFeatureID=^TKraftContactFeatureID;
+     TKraftContactFeatureID=record
       case longint of
        0:(
-        EdgeA:byte;
-        FaceA:byte;
-        EdgeB:byte;
-        FaceB:byte;
+        // when the last bit isn't set => continuous edge numbering at convex hulls for face<->face contacts
+        // when the last bit is set    => continuous edge numbering at convex hulls for edge<->edge contacts
+        ElementA:longword;
+        ElementB:longword;
        );
        1:(
-        Key:longword;
+        // -1 => feature matching per nearest point search (like for example Bullet does it also)
+        Key:int64;
        );
      end;
 
      PKraftClipVertex=^TKraftClipVertex;
      TKraftClipVertex=record
       Position:TKraftVector3;
-      FeaturePair:TKraftContactFeaturePair;
+      FeatureID:TKraftContactFeatureID;
      end;
            
      TKraftClipVertexList=class
@@ -589,7 +591,7 @@ type PKraftForceMode=^TKraftForceMode;
        constructor Create;
        destructor Destroy; override;
        procedure Clear;
-       procedure Add(const v:TKraftVector3;const fp:TKraftContactFeaturePair); overload;
+       procedure Add(const v:TKraftVector3;const fp:TKraftContactFeatureID); overload;
        procedure Add(const v:TKraftClipVertex); overload;
      end;
 
@@ -1281,7 +1283,7 @@ type PKraftForceMode=^TKraftForceMode;
       Bias:TKraftScalar;
       NormalMass:TKraftScalar;
       TangentMass:array[0..1] of TKraftScalar;
-      FeaturePair:TKraftContactFeaturePair;
+      FeatureID:TKraftContactFeatureID;
       WarmStartState:longword;
      end;
 
@@ -10197,7 +10199,7 @@ procedure ClipFace(const InVertices,OutVertices:TKraftClipVertexList;const Plane
 var Index,CountVertices:longint;
     PreviousClipVertexDistance,CurrentClipVertexDistance:TKraftScalar;
     PreviousClipVertex,CurrentClipVertex:PKraftClipVertex;
-    FeaturePair:TKraftContactFeaturePair;
+    FeatureID:TKraftContactFeatureID;
 begin
  CountVertices:=InVertices.Count;
  if CountVertices>=2 then begin
@@ -10213,19 +10215,15 @@ begin
      OutVertices.Add(CurrentClipVertex^);
     end else begin
      // PreviousClipVertex is behind the plane, CurrentClipVertex is in front => intersection point
-     FeaturePair.EdgeA:=CurrentClipVertex^.FeaturePair.EdgeA;
-     FeaturePair.FaceA:=CurrentClipVertex^.FeaturePair.FaceA;
-     FeaturePair.EdgeB:=ReferenceEdgeIndexOffset+Index;
-     FeaturePair.FaceB:=ReferenceFaceIndex;
-     OutVertices.Add(Vector3Lerp(PreviousClipVertex^.Position,CurrentClipVertex^.Position,PreviousClipVertexDistance/(PreviousClipVertexDistance-CurrentClipVertexDistance)),FeaturePair);
+     FeatureID.ElementA:=CurrentClipVertex^.FeatureID.ElementA;
+     FeatureID.ElementB:=ReferenceEdgeIndexOffset+Index;
+     OutVertices.Add(Vector3Lerp(PreviousClipVertex^.Position,CurrentClipVertex^.Position,PreviousClipVertexDistance/(PreviousClipVertexDistance-CurrentClipVertexDistance)),FeatureID);
     end;
    end else if CurrentClipVertexDistance<=0.0 then begin
     // CurrentClipVertex is behind the plane, PreviousClipVertex is in front => intersection point
-    FeaturePair.EdgeA:=ReferenceEdgeIndexOffset+Index;
-    FeaturePair.FaceA:=ReferenceFaceIndex;
-    FeaturePair.EdgeB:=CurrentClipVertex^.FeaturePair.EdgeA;
-    FeaturePair.FaceB:=CurrentClipVertex^.FeaturePair.FaceA;
-    OutVertices.Add(Vector3Lerp(PreviousClipVertex^.Position,CurrentClipVertex^.Position,PreviousClipVertexDistance/(PreviousClipVertexDistance-CurrentClipVertexDistance)),FeaturePair);
+    FeatureID.ElementA:=ReferenceEdgeIndexOffset+Index;
+    FeatureID.ElementB:=CurrentClipVertex^.FeatureID.ElementA;
+    OutVertices.Add(Vector3Lerp(PreviousClipVertex^.Position,CurrentClipVertex^.Position,PreviousClipVertexDistance/(PreviousClipVertexDistance-CurrentClipVertexDistance)),FeatureID);
     OutVertices.Add(CurrentClipVertex^);
    end;
    PreviousClipVertex:=CurrentClipVertex;
@@ -10315,7 +10313,7 @@ begin
  Count:=0;
 end;
 
-procedure TKraftClipVertexList.Add(const v:TKraftVector3;const fp:TKraftContactFeaturePair);
+procedure TKraftClipVertexList.Add(const v:TKraftVector3;const fp:TKraftContactFeatureID);
 var i:longint;
 begin
  i:=Count;
@@ -10325,7 +10323,7 @@ begin
   SetLength(Vertices,Capacity);
  end;
  Vertices[i].Position:=v;
- Vertices[i].FeaturePair:=fp;
+ Vertices[i].FeatureID:=fp;
 end;
 
 procedure TKraftClipVertexList.Add(const v:TKraftClipVertex);
@@ -19766,7 +19764,16 @@ procedure TKraftContactPair.DetectCollisions(const ContactManager:TKraftContactM
 var OldManifoldCountContacts:longint;
     OldContactManifoldType:TKraftContactManifoldType;
     ShapeTriangle:TKraftShapeTriangle;
- procedure AddImplicitContact(const p0,p1:TKraftVector3;const r0,r1:TKraftScalar;const Key:longword;const IsLocal:boolean); {$ifdef caninline}inline;{$endif}
+ function CreateFeatureID(const ElementA,ElementB:longword):TKraftContactFeatureID; overload; {$ifdef caninline}inline;{$endif}
+ begin
+  result.ElementA:=ElementA;
+  result.ElementB:=ElementB;
+ end;
+ function CreateFeatureID(const Key:int64):TKraftContactFeatureID; overload; {$ifdef caninline}inline;{$endif}
+ begin
+  result.Key:=Key;
+ end;
+ procedure AddImplicitContact(const p0,p1:TKraftVector3;const r0,r1:TKraftScalar;const FeatureID:TKraftContactFeatureID;const IsLocal:boolean); {$ifdef caninline}inline;{$endif}
  var Contact:PKraftContact;
  begin
   if Manifold.CountContacts<MAX_CONTACTS then begin
@@ -19782,10 +19789,10 @@ var OldManifoldCountContacts:longint;
     Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(p0,Shapes[0].WorldTransform);
     Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(p1,Shapes[1].WorldTransform);
    end;
-   Contact^.FeaturePair.Key:=Key;
+   Contact^.FeatureID:=FeatureID;
   end;
  end;
- procedure AddFaceAContact(const Normal,p0,p1:TKraftVector3;const r0,r1:TKraftScalar;const Key:longword;const IsLocal:boolean); {$ifdef caninline}inline;{$endif}
+ procedure AddFaceAContact(const Normal,p0,p1:TKraftVector3;const r0,r1:TKraftScalar;const FeatureID:TKraftContactFeatureID;const IsLocal:boolean); {$ifdef caninline}inline;{$endif}
  var Contact:PKraftContact;
  begin
   if Manifold.CountContacts<MAX_CONTACTS then begin
@@ -19802,10 +19809,10 @@ var OldManifoldCountContacts:longint;
     Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(p0,Shapes[0].WorldTransform);
     Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(p1,Shapes[1].WorldTransform);
    end;
-   Contact^.FeaturePair.Key:=Key;
+   Contact^.FeatureID:=FeatureID;
   end;
  end;
- procedure AddFaceBContact(const Normal,p0,p1:TKraftVector3;const r0,r1:TKraftScalar;const Key:longword;const IsLocal:boolean); {$ifdef caninline}inline;{$endif}
+ procedure AddFaceBContact(const Normal,p0,p1:TKraftVector3;const r0,r1:TKraftScalar;const FeatureID:TKraftContactFeatureID;const IsLocal:boolean); {$ifdef caninline}inline;{$endif}
  var Contact:PKraftContact;
  begin
   if Manifold.CountContacts<MAX_CONTACTS then begin
@@ -19822,10 +19829,10 @@ var OldManifoldCountContacts:longint;
     Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(p0,Shapes[0].WorldTransform);
     Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(p1,Shapes[1].WorldTransform);
    end;
-   Contact^.FeaturePair.Key:=Key;
+   Contact^.FeatureID:=FeatureID;
   end;
  end;
- procedure AddImplicitEdgeContact(const Normal,p0,p1:TKraftVector3;const r0,r1:TKraftScalar;const Key:longword;const IsLocal:boolean); {$ifdef caninline}inline;{$endif}
+ procedure AddImplicitEdgeContact(const Normal,p0,p1:TKraftVector3;const r0,r1:TKraftScalar;const FeatureID:TKraftContactFeatureID;const IsLocal:boolean); {$ifdef caninline}inline;{$endif}
  var Contact:PKraftContact;
  begin
   if Manifold.CountContacts<MAX_CONTACTS then begin
@@ -19842,10 +19849,10 @@ var OldManifoldCountContacts:longint;
     Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(p0,Shapes[0].WorldTransform);
     Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(p1,Shapes[1].WorldTransform);
    end;
-   Contact^.FeaturePair.Key:=Key;
+   Contact^.FeatureID:=FeatureID;
   end;
  end;
- procedure AddImplicitNormalContact(const Normal,p0,p1:TKraftVector3;const r0,r1:TKraftScalar;const Key:longword;const IsLocal:boolean); {$ifdef caninline}inline;{$endif}
+ procedure AddImplicitNormalContact(const Normal,p0,p1:TKraftVector3;const r0,r1:TKraftScalar;const FeatureID:TKraftContactFeatureID;const IsLocal:boolean); {$ifdef caninline}inline;{$endif}
  var Contact:PKraftContact;
  begin
   if Manifold.CountContacts<MAX_CONTACTS then begin
@@ -19862,7 +19869,7 @@ var OldManifoldCountContacts:longint;
     Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(p0,Shapes[0].WorldTransform);
     Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(p1,Shapes[1].WorldTransform);
    end;
-   Contact^.FeaturePair.Key:=Key;
+   Contact^.FeatureID:=FeatureID;
   end;
  end;
  procedure CollideSphereWithSphere(ShapeA,ShapeB:TKraftShapeSphere); {$ifdef caninline}inline;{$endif}
@@ -19873,7 +19880,7 @@ var OldManifoldCountContacts:longint;
   CenterB:=Vector3TermMatrixMul(ShapeB.LocalCentroid,ShapeB.WorldTransform);
   Distance:=Vector3Length(Vector3Sub(CenterB,CenterA));
   if Distance<(ShapeA.Radius+ShapeB.Radius) then begin
-   AddImplicitContact(ShapeA.LocalCentroid,ShapeB.LocalCentroid,ShapeA.Radius,ShapeB.Radius,1,true);
+   AddImplicitContact(ShapeA.LocalCentroid,ShapeB.LocalCentroid,ShapeA.Radius,ShapeB.Radius,CreateFeatureID(0),true);
   end;
  end;
  procedure CollideSphereWithCapsule(ShapeA:TKraftShapeSphere;ShapeB:TKraftShapeCapsule); {$ifdef caninline}inline;{$endif}
@@ -19893,11 +19900,11 @@ var OldManifoldCountContacts:longint;
   Position:=Vector3Add(CenterB,Vector3ScalarMul(GeometryDirection,Alpha));
   Distance:=Vector3DistSquared(Position,CenterA);
   if Distance<=sqr(ShapeA.Radius+ShapeB.Radius) then begin
-   AddImplicitContact(CenterA,Position,ShapeA.Radius,ShapeB.Radius,1,false);
+   AddImplicitContact(CenterA,Position,ShapeA.Radius,ShapeB.Radius,CreateFeatureID(0),false);
   end;
  end;
  procedure CollideSphereWithConvexHull(ShapeA:TKraftShapeSphere;ShapeB:TKraftShapeConvexHull); {$ifdef caninline}inline;{$endif}
- var FaceIndex,ClosestFaceIndex,VertexIndex:longint;
+ var FaceIndex,ClosestFaceIndex,VertexIndex,BestClosestFaceIndex:longint;
      Distance,ClosestDistance,BestClosestPointDistance,d:TKraftScalar;
      Center,SphereCenter,Normal,ClosestPoint,BestClosestPointOnHull,BestClosestPointNormal,ab,ap,a,b,v,n:TKraftVector3;
      InsideSphere,InsidePolygon,HasBestClosestPoint:boolean;
@@ -19925,17 +19932,18 @@ var OldManifoldCountContacts:longint;
                              GJK.ClosestPoints[1],
                              ShapeA.Radius,
                              0.0,
-                             1,
+                             CreateFeatureID(-2),  
                              false);
    end;
 
   end else begin
 
    // Deep contact, the more hard way, the followed code works also for shallow contacts, but GJK should be faster for shallow
-   // contacts, I think.  
+   // contacts, I think.
 
    BestClosestPointDistance:=3.4e+38;
    HasBestClosestPoint:=false;
+   BestClosestFaceIndex:=-1;
    ClosestDistance:=3.4e+38;
    ClosestFaceIndex:=-1;
    InsideSphere:=true;
@@ -19977,7 +19985,7 @@ var OldManifoldCountContacts:longint;
                         Vector3TermMatrixMul(Vector3Sub(SphereCenter,Vector3ScalarMul(n,Distance)),ShapeB.WorldTransform),
                         ShapeA.Radius,
                         0.0,
-                        1,
+                        CreateFeatureID(0,FaceIndex),
                         false);
         exit;
        end else begin
@@ -19991,6 +19999,7 @@ var OldManifoldCountContacts:longint;
           BestClosestPointDistance:=Distance;
           BestClosestPointOnHull:=ClosestPoint;
           BestClosestPointNormal:=Normal;
+          BestClosestFaceIndex:=FaceIndex;
          end;
         end;
        end;
@@ -20010,7 +20019,7 @@ var OldManifoldCountContacts:longint;
                              Vector3TermMatrixMul(Vector3Add(SphereCenter,Vector3ScalarMul(n,-ClosestDistance)),ShapeB.WorldTransform),
                              ShapeA.Radius,
                              0.0,
-                             1,
+                             CreateFeatureID(1,ClosestFaceIndex),
                              false);
    end else if HasBestClosestPoint then begin
     AddImplicitNormalContact(Vector3Neg(BestClosestPointNormal),
@@ -20018,7 +20027,7 @@ var OldManifoldCountContacts:longint;
                              Vector3TermMatrixMul(BestClosestPointOnHull,ShapeB.WorldTransform),
                              ShapeA.Radius,
                              0.0,
-                             1,
+                             CreateFeatureID(2,BestClosestFaceIndex),
                              false);
    end;
   end;
@@ -20027,7 +20036,7 @@ var OldManifoldCountContacts:longint;
  const ModuloThree:array[0..5] of longint=(0,1,2,0,1,2);
  var IntersectionDist,ContactDist,DistSqr,FaceDist,MinDist:TKraftScalar;
      Center,SphereRelativePosition,ClosestPoint,Normal:TKraftVector3;
-     Axis,AxisSign:longint;
+     Axis,AxisSign,BestFaceIndex:longint;
  begin
   Center:=Vector3TermMatrixMul(ShapeA.LocalCentroid,ShapeA.WorldTransform);
   SphereRelativePosition:=Vector3TermMatrixMulInverted(Center,ShapeB.WorldTransform);
@@ -20038,6 +20047,7 @@ var OldManifoldCountContacts:longint;
   DistSqr:=Vector3LengthSquared(Normal);
   IntersectionDist:=ShapeA.Radius;
   ContactDist:=IntersectionDist+EPSILON;
+  BestFaceIndex:=0;
   if DistSqr<=sqr(ContactDist) then begin
    if DistSqr<=EPSILON then begin
     begin
@@ -20045,6 +20055,7 @@ var OldManifoldCountContacts:longint;
      MinDist:=FaceDist;
      Axis:=0;
      AxisSign:=1;
+     BestFaceIndex:=1;
     end;
     begin
      FaceDist:=ShapeB.Extents.x+SphereRelativePosition.x;
@@ -20052,6 +20063,7 @@ var OldManifoldCountContacts:longint;
       MinDist:=FaceDist;
       Axis:=0;
       AxisSign:=-1;
+      BestFaceIndex:=2;
      end;
     end;
     begin
@@ -20060,6 +20072,7 @@ var OldManifoldCountContacts:longint;
       MinDist:=FaceDist;
       Axis:=1;
       AxisSign:=1;
+      BestFaceIndex:=3;
      end;
     end;
     begin
@@ -20068,6 +20081,7 @@ var OldManifoldCountContacts:longint;
       MinDist:=FaceDist;
       Axis:=1;
       AxisSign:=-1;
+      BestFaceIndex:=4;
      end;
     end;
     begin
@@ -20076,6 +20090,7 @@ var OldManifoldCountContacts:longint;
       MinDist:=FaceDist;
       Axis:=2;
       AxisSign:=1;
+      BestFaceIndex:=5;
      end;
     end;
     begin
@@ -20084,6 +20099,7 @@ var OldManifoldCountContacts:longint;
 //    MinDist:=FaceDist;
       Axis:=2;
       AxisSign:=-1;
+      BestFaceIndex:=6;
      end;
     end;
     ClosestPoint:=SphereRelativePosition;
@@ -20094,7 +20110,7 @@ var OldManifoldCountContacts:longint;
    end else begin
     {Distance:=}Vector3NormalizeEx(Normal);
    end;
-   AddFaceBContact(Normal,Center,Vector3TermMatrixMul(ClosestPoint,ShapeB.WorldTransform),ShapeA.Radius,0.0,1,false);
+   AddFaceBContact(Normal,Center,Vector3TermMatrixMul(ClosestPoint,ShapeB.WorldTransform),ShapeA.Radius,0.0,CreateFeatureID(BestFaceIndex),false);
   end;
  end;
  procedure CollideSphereWithPlane(ShapeA:TKraftShapeSphere;ShapeB:TKraftShapePlane); {$ifdef caninline}inline;{$endif}
@@ -20106,7 +20122,7 @@ var OldManifoldCountContacts:longint;
   Distance:=PlaneVectorDistance(ShapeB.Plane,SphereCenter);
   if Distance<=ShapeA.Radius then begin
    Normal:=ShapeB.Plane.Normal;
-   AddFaceBContact(Normal,Center,Vector3TermMatrixMul(Vector3Sub(SphereCenter,Vector3ScalarMul(Normal,Distance)),ShapeB.WorldTransform),ShapeA.Radius,0.0,1,false);
+   AddFaceBContact(Normal,Center,Vector3TermMatrixMul(Vector3Sub(SphereCenter,Vector3ScalarMul(Normal,Distance)),ShapeB.WorldTransform),ShapeA.Radius,0.0,CreateFeatureID(0),false);
   end;
  end;
  procedure CollideSphereWithTriangle(ShapeA:TKraftShapeSphere;ShapeB:TKraftShapeTriangle); {$ifdef caninline}inline;{$endif}
@@ -20161,10 +20177,10 @@ var OldManifoldCountContacts:longint;
     {if IsEdge then begin
       AddImplicitNormalContact(Vector3Neg(ContactToCenter),Center,Vector3TermMatrixMul(ContactPointOnTriangle,ShapeB.WorldTransform),ShapeA.Radius,0.0,1);
      end else}begin
-      AddImplicitContact(Center,Vector3TermMatrixMul(ContactPointOnTriangle,ShapeB.WorldTransform),ShapeA.Radius,0.0,1,false);
+      AddImplicitContact(Center,Vector3TermMatrixMul(ContactPointOnTriangle,ShapeB.WorldTransform),ShapeA.Radius,0.0,CreateFeatureID(0),false);
      end;
     end else begin
-     AddFaceBContact(Normal,Center,Vector3TermMatrixMul(ContactPointOnTriangle,ShapeB.WorldTransform),ShapeA.Radius,0.0,1,false);
+     AddFaceBContact(Normal,Center,Vector3TermMatrixMul(ContactPointOnTriangle,ShapeB.WorldTransform),ShapeA.Radius,0.0,CreateFeatureID(1),false);
     end;
    end;
   end;
@@ -20205,7 +20221,7 @@ var OldManifoldCountContacts:longint;
 
   if SquaredDistance<SquaredRadiiWithTolerance then begin
 
-   AddImplicitContact(ClosestPointA,ClosestPointB,RadiusA,RadiusB,1,false);
+   AddImplicitContact(ClosestPointA,ClosestPointB,RadiusA,RadiusB,CreateFeatureID(0),false);
 
    // If the two capsules are nearly parallel, an additional support point provides stability
    {if (Vector3Length(Vector3Cross(GeometryDirectionA,GeometryDirectionB))<(sqrt(Vector3LengthSquared(GeometryDirectionA)*Vector3LengthSquared(GeometryDirectionB))*Tolerance)) then{}begin
@@ -20228,7 +20244,7 @@ var OldManifoldCountContacts:longint;
 
     SquaredDistance:=Vector3DistSquared(ClosestPointA,ClosestPointB);
     if SquaredDistance<SquaredRadiiWithTolerance then begin
-     AddImplicitContact(ClosestPointA,ClosestPointB,RadiusA,RadiusB,2,false);
+     AddImplicitContact(ClosestPointA,ClosestPointB,RadiusA,RadiusB,CreateFeatureID(1),false);
     end;
     
    end;
@@ -20326,7 +20342,7 @@ var OldManifoldCountContacts:longint;
                           Vector3TermMatrixMul(Vector3Sub(ClosestPoints[PointIndex],Vector3ScalarMul(FaceNormal,Distance)),ShapeB.WorldTransform),
                           ShapeA.Radius,
                           0.0,
-                          PointIndex+1,
+                          CreateFeatureID(1,PointIndex),
                           false);
          end;
         end;
@@ -20346,7 +20362,7 @@ var OldManifoldCountContacts:longint;
                              GJK.ClosestPoints[1],
                              ShapeA.Radius,
                              0.0,
-                             1,
+                             CreateFeatureID(0),
                              false);
    end;
 
@@ -20428,7 +20444,7 @@ var OldManifoldCountContacts:longint;
                             ClosestPoints[1],
                             CapsuleRadius,
                             0.0,
-                            1,
+                            CreateFeatureID(2,MaxEdgeIndex),
                             false);
      exit;
     end;
@@ -20460,7 +20476,7 @@ var OldManifoldCountContacts:longint;
                         Vector3TermMatrixMul(Vector3Sub(ClosestPoints[PointIndex],Vector3ScalarMul(FaceNormal,Distance)),ShapeB.WorldTransform),
                         CapsuleRadius,
                         0.0,
-                        PointIndex+1,
+                        CreateFeatureID(3,PointIndex),
                         false);
        end;
       end;
@@ -20522,7 +20538,7 @@ var OldManifoldCountContacts:longint;
                     Vector3TermMatrixMul(pb,ShapeB.WorldTransform),
                     Radius,
                     0.0,
-                    Index+1,
+                    CreateFeatureID(1,Index),
                     false);
     inc(Count);
    end;
@@ -20549,7 +20565,7 @@ var OldManifoldCountContacts:longint;
                     Vector3TermMatrixMul(pb,ShapeB.WorldTransform),
                     Radius,
                     0.0,
-                    3,
+                    CreateFeatureID(0),
                     false);
    end;
 
@@ -20767,7 +20783,7 @@ var OldManifoldCountContacts:longint;
       ClipVertices:array[0..2] of TKraftClipVertexList;
       ReferencePoint:TKraftVector3;
       ReferenceWorldPlane,ReferenceEdgePlane:TKraftPlane;
-      FeaturePair:TKraftContactFeaturePair;
+      FeatureID:TKraftContactFeatureID;
   begin
 
    ContactManager.CountTemporaryContacts[ThreadIndex]:=0;
@@ -20784,11 +20800,9 @@ var OldManifoldCountContacts:longint;
    IncidentEdgeIndexOffset:=IncidentFace^.EdgeVertexOffset;
 
    for IncidentVertexIndex:=0 to IncidentFace^.CountVertices-1 do begin
-    FeaturePair.EdgeA:=IncidentEdgeIndexOffset+IncidentVertexIndex;
-    FeaturePair.FaceA:=IncidentFaceIndex;
-    FeaturePair.EdgeB:=IncidentEdgeIndexOffset+(IncidentVertexIndex+1);
-    FeaturePair.FaceB:=IncidentFaceIndex;
-    ClipVertices[0].Add(Vector3TermMatrixMul(IncidentHull.ConvexHull.Vertices[IncidentFace^.Vertices[IncidentVertexIndex]].Position,IncidentHull.WorldTransform),FeaturePair);
+    FeatureID.ElementA:=IncidentEdgeIndexOffset+IncidentVertexIndex;
+    FeatureID.ElementB:=IncidentEdgeIndexOffset+(IncidentVertexIndex+1);
+    ClipVertices[0].Add(Vector3TermMatrixMul(IncidentHull.ConvexHull.Vertices[IncidentFace^.Vertices[IncidentVertexIndex]].Position,IncidentHull.WorldTransform),FeatureID);
    end;
 
 {$ifdef DebugDraw}
@@ -20811,11 +20825,9 @@ var OldManifoldCountContacts:longint;
      ContactManager.DebugClipVertexLists[ContactManager.CountDebugClipVertexLists].Clear;
      for ReferenceVertexIndex:=0 to ReferenceFace^.CountVertices-1 do begin
       ReferencePoint:=Vector3TermMatrixMul(ReferenceHull.ConvexHull.Vertices[ReferenceFace^.Vertices[ReferenceVertexIndex]].Position,ReferenceHull.WorldTransform);
-      FeaturePair.EdgeA:=ReferenceEdgeIndexOffset+ReferenceVertexIndex;
-      FeaturePair.FaceA:=ReferenceFaceIndex;
-      FeaturePair.EdgeB:=ReferenceEdgeIndexOffset+(ReferenceVertexIndex+1);
-      FeaturePair.FaceB:=ReferenceFaceIndex;
-      ContactManager.DebugClipVertexLists[ContactManager.CountDebugClipVertexLists].Add(ReferencePoint,FeaturePair);
+      FeatureID.ElementA:=ReferenceEdgeIndexOffset+ReferenceVertexIndex;
+      FeatureID.ElementB:=ReferenceEdgeIndexOffset+(ReferenceVertexIndex+1);
+      ContactManager.DebugClipVertexLists[ContactManager.CountDebugClipVertexLists].Add(ReferencePoint,FeatureID);
      end;
      inc(ContactManager.CountDebugClipVertexLists);
     end;
@@ -20839,23 +20851,19 @@ var OldManifoldCountContacts:longint;
       if PreviousClipVertexDistance<=0.0 then begin
        if CurrentClipVertexDistance<=0.0 then begin
         // Both vertices are behind the plane => keep CurrentClipVertex
-        ClipVertices[1].Add(CurrentClipVertex^.Position,CurrentClipVertex^.FeaturePair);
+        ClipVertices[1].Add(CurrentClipVertex^.Position,CurrentClipVertex^.FeatureID);
        end else begin
         // PreviousClipVertex is behind the plane, CurrentClipVertex is in front => intersection point
-        FeaturePair.EdgeA:=CurrentClipVertex^.FeaturePair.EdgeA;
-        FeaturePair.FaceA:=CurrentClipVertex^.FeaturePair.FaceA;
-        FeaturePair.EdgeB:=ReferenceEdgeIndexOffset+ReferenceVertexIndex;
-        FeaturePair.FaceB:=ReferenceFaceIndex;
-        ClipVertices[1].Add(Vector3Lerp(PreviousClipVertex^.Position,CurrentClipVertex^.Position,PreviousClipVertexDistance/(PreviousClipVertexDistance-CurrentClipVertexDistance)),FeaturePair);
+        FeatureID.ElementA:=CurrentClipVertex^.FeatureID.ElementA;
+        FeatureID.ElementB:=ReferenceEdgeIndexOffset+ReferenceVertexIndex;
+        ClipVertices[1].Add(Vector3Lerp(PreviousClipVertex^.Position,CurrentClipVertex^.Position,PreviousClipVertexDistance/(PreviousClipVertexDistance-CurrentClipVertexDistance)),FeatureID);
        end;
       end else if CurrentClipVertexDistance<=0.0 then begin
        // CurrentClipVertex is behind the plane, PreviousClipVertex is in front => intersection point
-       FeaturePair.EdgeA:=ReferenceEdgeIndexOffset+ReferenceVertexIndex;
-       FeaturePair.FaceA:=ReferenceFaceIndex;
-       FeaturePair.EdgeB:=CurrentClipVertex^.FeaturePair.EdgeA;
-       FeaturePair.FaceB:=CurrentClipVertex^.FeaturePair.FaceA;
-       ClipVertices[1].Add(Vector3Lerp(PreviousClipVertex^.Position,CurrentClipVertex^.Position,PreviousClipVertexDistance/(PreviousClipVertexDistance-CurrentClipVertexDistance)),FeaturePair);
-       ClipVertices[1].Add(CurrentClipVertex^.Position,CurrentClipVertex^.FeaturePair);
+       FeatureID.ElementA:=ReferenceEdgeIndexOffset+ReferenceVertexIndex;
+       FeatureID.ElementB:=CurrentClipVertex^.FeatureID.ElementA;
+       ClipVertices[1].Add(Vector3Lerp(PreviousClipVertex^.Position,CurrentClipVertex^.Position,PreviousClipVertexDistance/(PreviousClipVertexDistance-CurrentClipVertexDistance)),FeatureID);
+       ClipVertices[1].Add(CurrentClipVertex^.Position,CurrentClipVertex^.FeatureID);
       end;
       PreviousClipVertex:=CurrentClipVertex;
       PreviousClipVertexDistance:=CurrentClipVertexDistance;
@@ -20901,10 +20909,8 @@ var OldManifoldCountContacts:longint;
                                                                         Vector3ScalarMul(ReferenceWorldPlane.Normal,
                                                                                          Distance)),
                                                              Shapes[1].WorldTransform);
-       Contact^.FeaturePair.EdgeA:=ClipVertex^.FeaturePair.EdgeB;
-       Contact^.FeaturePair.FaceA:=ClipVertex^.FeaturePair.FaceB;
-       Contact^.FeaturePair.EdgeB:=ClipVertex^.FeaturePair.EdgeA;
-       Contact^.FeaturePair.FaceB:=ClipVertex^.FeaturePair.FaceA;
+       Contact^.FeatureID.ElementA:=ClipVertex^.FeatureID.ElementB;
+       Contact^.FeatureID.ElementB:=ClipVertex^.FeatureID.ElementA;
       end else begin
        // Face AB contact, where A is the reference face and where B is the incident face
        Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(Vector3Sub(ClipVertex^.Position,
@@ -20912,10 +20918,8 @@ var OldManifoldCountContacts:longint;
                                                                                          Distance)),
                                                              Shapes[0].WorldTransform);
        Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(ClipVertex^.Position,Shapes[1].WorldTransform);
-       Contact^.FeaturePair.EdgeA:=ClipVertex^.FeaturePair.EdgeA;
-       Contact^.FeaturePair.FaceA:=ClipVertex^.FeaturePair.FaceA;
-       Contact^.FeaturePair.EdgeB:=ClipVertex^.FeaturePair.EdgeB;
-       Contact^.FeaturePair.FaceB:=ClipVertex^.FeaturePair.FaceB;
+       Contact^.FeatureID.ElementA:=ClipVertex^.FeatureID.ElementA;
+       Contact^.FeatureID.ElementB:=ClipVertex^.FeatureID.ElementB;
       end;
      end else begin
       break;
@@ -21065,7 +21069,7 @@ var OldManifoldCountContacts:longint;
     b1:=Vector3TermMatrixMul(ShapeB.ConvexHull.Vertices[EdgeB^.Vertices[1]].Position,ShapeB.WorldTransform);
 
     if GetEdgeContact(pa,pb,a0,a1,b0,b1) then begin
- {    Normal:=Vector3NormEx(Vector3Cross(Vector3Sub(a1,a0),Vector3Sub(b1,b0)));
+ {   Normal:=Vector3NormEx(Vector3Cross(Vector3Sub(a1,a0),Vector3Sub(b1,b0)));
      if Vector3Dot(Normal,Vector3Sub(ShapeB.GetCenter(ShapeB.WorldTransform),ShapeA.GetCenter(ShapeA.WorldTransform)))<0.0 then begin
       Normal:=Vector3Neg(Normal);
      end;
@@ -21079,10 +21083,8 @@ var OldManifoldCountContacts:longint;
       Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(pa,Shapes[0].WorldTransform);
       Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(pb,Shapes[1].WorldTransform);
       Contact^.Penetration:=PenetrationDepth;
-      Contact^.FeaturePair.EdgeA:=Manifold.EdgeQuery.IndexA;
-      Contact^.FeaturePair.FaceA:=$ff;
-      Contact^.FeaturePair.EdgeB:=Manifold.EdgeQuery.IndexB;
-      Contact^.FeaturePair.FaceB:=$ff;
+      Contact^.FeatureID.ElementA:=Manifold.EdgeQuery.IndexA or longword($80000000);
+      Contact^.FeatureID.ElementB:=Manifold.EdgeQuery.IndexB or longword($80000000);
      end;
     end;
 
@@ -21234,12 +21236,12 @@ begin
    for Index:=0 to Manifold.CountContacts-1 do begin
     Contact:=@Manifold.Contacts[Index];
     BestOldContact:=nil;
-    if Contact^.FeaturePair.Key=$ffffffff then begin
+    if Contact^.FeatureID.Key=-1 then begin
      BestContactDistance:=ContactManager.Physics.ContactBreakingThreshold;
      for SubIndex:=0 to OldManifoldCountContacts-1 do begin
       OldContact:=@OldManifoldContacts[SubIndex];
       ContactDistance:=Vector3Dist(Contact^.LocalPoints[0],OldContact^.LocalPoints[0]);
-      if BestContactDistance>ContactDistance then begin
+      if (OldContact^.FeatureID.Key=-1) and (BestContactDistance>ContactDistance) then begin
        BestContactDistance:=ContactDistance;
        BestOldContact:=OldContact;
       end;
@@ -21247,7 +21249,7 @@ begin
     end else begin
      for SubIndex:=0 to OldManifoldCountContacts-1 do begin
       OldContact:=@OldManifoldContacts[SubIndex];
-      if Contact^.FeaturePair.Key=OldContact^.FeaturePair.Key then begin
+      if Contact^.FeatureID.Key=OldContact^.FeatureID.Key then begin
        BestOldContact:=OldContact;
        break;
       end;
