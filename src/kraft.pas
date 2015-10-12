@@ -546,18 +546,11 @@ type PKraftForceMode=^TKraftForceMode;
      end;
 
      PKraftMassData=^TKraftMassData;
-     TKraftMassData=object
-      public
-       Inertia:TKraftMatrix3x3;
-       Center:TKraftVector3;
-       Mass:TKraftScalar;
-       Volume:TKraftScalar;
-       Count:longint;
-       procedure Adjust(const NewMass:TKraftScalar);
-       procedure Add(const WithMassData:TKraftMassData);
-       procedure Rotate(const WithMatrix:TKraftMatrix3x3);
-       procedure Translate(const WithVector:TKraftVector3);
-       procedure Transform(const WithMatrix:TKraftMatrix4x4);
+     TKraftMassData=record
+      Inertia:TKraftMatrix3x3;
+      Center:TKraftVector3;
+      Mass:TKraftScalar;
+      Volume:TKraftScalar;
      end;
 
      // 64-bit contact feature ID
@@ -858,8 +851,6 @@ type PKraftForceMode=^TKraftForceMode;
 
        procedure CalculateMassData;
 
-       procedure CalculateCentroid;
-
       public
 
        Physics:TKraft;
@@ -1058,8 +1049,6 @@ type PKraftForceMode=^TKraftForceMode;
        destructor Destroy; override;
 
        procedure UpdateShapeAABB; virtual;
-
-       procedure FillMassData(BodyInertiaTensor:TKraftMatrix3x3;const LocalTransform:TKraftMatrix4x4;const Mass,Volume:TKraftScalar); virtual;
 
        procedure CalculateMassData; virtual;
 
@@ -2903,6 +2892,9 @@ function QuaternionSpin(const q:TKraftQuaternion;const Omega:TKraftVector3;const
 procedure QuaternionDirectSpin(var q:TKraftQuaternion;const Omega:TKraftVector3;const DeltaTime:TKraftScalar); overload;
 function QuaternionFromToRotation(const FromDirection,ToDirection:TKraftVector3):TKraftQuaternion; {$ifdef caninline}inline;{$endif}
 
+function InertiaTensorTransform(const Inertia,Transform:TKraftMatrix3x3):TKraftMatrix3x3; {$ifdef caninline}inline;{$endif}
+function InertiaTensorParallelAxisTheorem(const Center:TKraftVector3;const Mass:TKraftScalar):TKraftMatrix3x3; {$ifdef caninline}inline;{$endif}
+
 implementation
 
 const daabbtNULLNODE=-1;
@@ -3904,7 +3896,7 @@ begin
  end;
 end;
 {$endif}
-                    
+
 procedure Vector3NormalizeEx(var v:TKraftVector3); {$ifdef CPU386ASMForSinglePrecision}assembler;
 asm
  movups xmm0,dqword ptr [v]
@@ -9592,7 +9584,27 @@ begin
   end;
 
  end;
-  
+
+end;
+
+function InertiaTensorTransform(const Inertia,Transform:TKraftMatrix3x3):TKraftMatrix3x3; {$ifdef caninline}inline;{$endif}
+begin
+ result:=Matrix3x3TermMulTranspose(Matrix3x3TermMul(Transform,Inertia),Transform);
+end;
+
+function InertiaTensorParallelAxisTheorem(const Center:TKraftVector3;const Mass:TKraftScalar):TKraftMatrix3x3; {$ifdef caninline}inline;{$endif}
+var CenterDotCenter:TKraftScalar;
+begin
+ CenterDotCenter:=sqr(Center.x)+sqr(Center.y)+sqr(Center.z);
+ result[0,0]:=((Matrix3x3Identity[0,0]*CenterDotCenter)-(Center.x*Center.x))*Mass;
+ result[0,1]:=((Matrix3x3Identity[0,1]*CenterDotCenter)-(Center.y*Center.x))*Mass;
+ result[0,2]:=((Matrix3x3Identity[0,2]*CenterDotCenter)-(Center.z*Center.x))*Mass;
+ result[1,0]:=((Matrix3x3Identity[1,0]*CenterDotCenter)-(Center.x*Center.y))*Mass;
+ result[1,1]:=((Matrix3x3Identity[1,1]*CenterDotCenter)-(Center.y*Center.y))*Mass;
+ result[1,2]:=((Matrix3x3Identity[1,2]*CenterDotCenter)-(Center.z*Center.y))*Mass;
+ result[2,0]:=((Matrix3x3Identity[2,0]*CenterDotCenter)-(Center.x*Center.z))*Mass;
+ result[2,1]:=((Matrix3x3Identity[2,1]*CenterDotCenter)-(Center.y*Center.z))*Mass;
+ result[2,2]:=((Matrix3x3Identity[2,2]*CenterDotCenter)-(Center.z*Center.z))*Mass;
 end;
 
 constructor TKraftHighResolutionTimer.Create(FrameRate:longint=60);
@@ -16100,248 +16112,125 @@ end;
 procedure TKraftConvexHull.CalculateMassData;
 const ModuloThree:array[0..5] of longint=(0,1,2,0,1,2);
       Density=1.0;
- function cube(x:TKraftScalar):TKraftScalar;
- begin
-  result:=x*x*x;
- end;
-var i,j,k,a,b,c,v0,v1,v2:longint;
+var FaceIndex,FaceVertexIndex,CoordinateIndex,SecondCoordinateIndex,ThirdCoordinateIndex:longint;
     Face:PKraftConvexHullFace;
-    nx,ny,nz,Fa,Fb,Fc,Faa,Fbb,Fcc,Faaa,Fbbb,Fccc,Faab,Fbbc,Fcca,
-    P1,Pa,Pb,Paa,Pab,Pbb,Paaa,Paab,Pabb,Pbbb,w,k1,k2,k3,k4,t0,
-    a0,a1,da,b0,b1,db,a0_2,a0_3,a0_4,b0_2,b0_3,b0_4,
-    a1_2,a1_3,b1_2,b1_3,C1,Ca,Caa,Caaa,Cb,Cbb,Cbbb,
-    Cab,Kab,Caab,Kaab,Cabb,Kabb:TKraftScalar;
-    vn,va,vb,t1,t2,tp:TKraftVector3;
-    Transform:TKraftMatrix4x4;
+    vU,vV,vW:PKraftVector3;
+    CurrentVolume,CentroidX,CentroidY,CentroidZ,Volume,Denominator:double;
+    Diag,OffDiag,u,v,w:array[0..2] of double;
 begin
 
- // Based on Brian Mirtich, "Fast and Accurate Computation of Polyhedral Mass Properties," journal of graphics tools, volume 1, number 2, 1996.
- begin
-  t0:=0.0;
-  t1:=Vector3Origin;
-  t2:=Vector3Origin;
-  tp:=Vector3Origin;
+ CentroidX:=0.0;
+ CentroidY:=0.0;
+ CentroidZ:=0.0;
 
-  for i:=0 to CountFaces-1 do begin
-
-   Face:=@Faces[i];
-
-   for j:=1 to Face^.CountVertices-2 do begin
-
-    v0:=Face^.Vertices[0];
-    v1:=Face^.Vertices[j];
-    v2:=Face^.Vertices[j+1];
-
-    va:=Vector3Sub(Vertices[v1].Position,Vertices[v0].Position);
-    vb:=Vector3Sub(Vertices[v2].Position,Vertices[v0].Position);
-    vn:=Vector3Cross(vb,va);
-    nx:=abs(vn.x);
-    ny:=abs(vn.y);
-    nz:=abs(vn.z);
-    if (nx>ny) and (nx>nz) then begin
-     c:=0;
-    end else if ny>nx then begin
-     c:=1;
-    end else begin
-     c:=2;
-    end;
-
-    // Even though all triangles might be initially valid,
-    // a triangle may degenerate into a segment after applying
-    // space transformation.
-    if abs(vn.xyz[c])>EPSILON then begin
-     a:=ModuloThree[c+1];
-     b:=ModuloThree[a+1];
-
-     begin
-      // Calculate face integrals
-      begin
-       a0:=0;
-       a1:=0;
-       b0:=0;
-       b1:=0;
-       P1:=0;
-       Pa:=0;
-       Pb:=0;
-       Paa:=0;
-       Pab:=0;
-       Pbb:=0;
-       Paaa:=0;
-       Paab:=0;
-       Pabb:=0;
-       Pbbb:=0;
-       for k:=0 to 2 do begin
-        case k of
-         0:begin
-          a0:=Vertices[v0].Position.xyz[a];
-          b0:=Vertices[v0].Position.xyz[b];
-          a1:=Vertices[v1].Position.xyz[a];
-          b1:=Vertices[v1].Position.xyz[b];
-         end;
-         1:begin
-          a0:=Vertices[v1].Position.xyz[a];
-          b0:=Vertices[v1].Position.xyz[b];
-          a1:=Vertices[v2].Position.xyz[a];
-          b1:=Vertices[v2].Position.xyz[b];
-         end;
-         2:begin
-          a0:=Vertices[v2].Position.xyz[a];
-          b0:=Vertices[v2].Position.xyz[b];
-          a1:=Vertices[v0].Position.xyz[a];
-          b1:=Vertices[v0].Position.xyz[b];
-         end;
-        end;
-        da:=a1-a0;
-        db:=b1-b0;
-        a0_2:=a0*a0;
-        a0_3:=a0_2*a0;
-        a0_4:=a0_3*a0;
-        b0_2:=b0*b0;
-        b0_3:=b0_2*b0;
-        b0_4:=b0_3*b0;
-        a1_2:=a1*a1;
-        a1_3:=a1_2*a1;
-        b1_2:=b1*b1;
-        b1_3:=b1_2*b1;
-        C1:=a1+a0;
-        Ca:=(a1*C1)+a0_2;
-        Caa:=(a1*Ca)+a0_3;
-        Caaa:=(a1*Caa)+a0_4;
-        Cb:=(b1*(b1+b0))+b0_2;
-        Cbb:=(b1*Cb)+b0_3;
-        Cbbb:=(b1*Cbb)+b0_4;
-        Cab:=(3.0*a1_2)+(2.0*a1*a0)+a0_2;
-        Kab:=a1_2+(2.0*a1*a0)+(3*a0_2);
-        Caab:=(a0*Cab)+(4.0*a1_3);
-        Kaab:=(a1*Kab)+(4.0*a0_3);
-        Cabb:=(4.0*b1_3)+(3.0*b1_2*b0)+(2.0*b1*b0_2)+b0_3;
-        Kabb:=b1_3+(2.0*b1_2*b0)+(3.0*b1*b0_2)+(4.0*b0_3);
-        P1:=P1+(db*C1);
-        Pa:=Pa+(db*Ca);
-        Paa:=Paa+(db*Caa);
-        Paaa:=Paaa+(db*Caaa);
-        Pb:=Pb+(da*Cb);
-        Pbb:=Pbb+(da*Cbb);
-        Pbbb:=Pbbb+(da*Cbbb);
-        Pab:=Pab+(db*((b1*Cab)+(b0*Kab)));
-        Paab:=Paab+(db*((b1*Caab)+(b0*Kaab)));
-        Pabb:=Pabb+(da*((a1*Cabb)+(a0*Kabb)));
-       end;
-       P1:=P1/2.0;
-       Pa:=Pa/6.0;
-       Paa:=Paa/12.0;
-       Paaa:=Paaa/20.0;
-       Pb:=Pb/(-6.0);
-       Pbb:=Pbb/(-12.0);
-       Pbbb:=Pbbb/(-20.0);
-       Pab:=Pab/24.0;
-       Paab:=Paab/60.0;
-       Pabb:=Pabb/(-60.0);
-      end;
-      w:=-Vector3Dot(vn,Vertices[v0].Position);
-      k1:=1.0/vn.xyz[c];
-      k2:=k1*k1;
-      k3:=k2*k1;
-      k4:=k3*k1;
-      Fa:=k1*Pa;
-      Fb:=k1*Pb;
-      Fc:=(-k2)*((vn.xyz[A]*Pa)+(vn.xyz[B]*Pb)+(w*P1));
-      Faa:=k1*Paa;
-      Fbb:=k1*Pbb;
-      Fcc:=k3*((sqr(vn.xyz[A])*Paa)+(2.0*vn.xyz[A]*vn.xyz[B]*Pab)+(sqr(vn.xyz[B])*Pbb)+(w*(2.0*((vn.xyz[A]*Pa)+(vn.xyz[B]*Pb))+(w*P1))));
-      Faaa:=k1*Paaa;
-      Fbbb:=k1*Pbbb;
-      Fccc:=(-k4)*((CUBE(vn.xyz[A])*Paaa)+(3.0*sqr(vn.xyz[A])*vn.xyz[B]*Paab)+(3.0*vn.xyz[A]*sqr(vn.xyz[B])*Pabb)+(CUBE(vn.xyz[B])*Pbbb)+
-            (3.0*w*((sqr(vn.xyz[A])*Paa)+(2.0*vn.xyz[A]*vn.xyz[B]*Pab)+(sqr(vn.xyz[B])*Pbb)))+
-            (w*w*(3.0*((vn.xyz[A]*Pa)+(vn.xyz[B]*Pb))+(w*P1))));
-      Faab:=k1*Paab;
-      Fbbc:=(-k2)*((vn.xyz[A]*Pabb)+(vn.xyz[B]*Pbbb)+(w*Pbb));
-      Fcca:=k3*((sqr(vn.xyz[A])*Paaa)+(2.0*vn.xyz[A]*vn.xyz[B]*Paab)+(sqr(vn.xyz[B])*Pabb)+(w*(2.0*((vn.xyz[A]*Paa)+(vn.xyz[B]*Pab))+(w*Pa))));
-     end;
-     if a=0 then begin
-      t0:=t0+(vn.x*Fa);
-     end else if b=0 then begin
-      t0:=t0+(vn.x*Fb);
-     end else begin
-      t0:=t0+(vn.x*Fc);
-     end;
-     T1.xyz[A]:=T1.xyz[A]+(vn.xyz[A]*Faa);
-     T1.xyz[B]:=T1.xyz[B]+(vn.xyz[B]*Fbb);
-     T1.xyz[C]:=T1.xyz[C]+(vn.xyz[C]*Fcc);
-     T2.xyz[A]:=T2.xyz[A]+(vn.xyz[A]*Faaa);
-     T2.xyz[B]:=T2.xyz[B]+(vn.xyz[B]*Fbbb);
-     T2.xyz[C]:=T2.xyz[C]+(vn.xyz[C]*Fccc);
-     TP.xyz[A]:=TP.xyz[A]+(vn.xyz[A]*Faab);
-     TP.xyz[B]:=TP.xyz[B]+(vn.xyz[B]*Fbbc);
-     TP.xyz[C]:=TP.xyz[C]+(vn.xyz[C]*Fcca);
-    end;
-   end;
-  end;
-  Vector3Scale(T1,1.0/2.0);
-  Vector3Scale(T2,1.0/3.0);
-  Vector3Scale(TP,1.0/2.0);
-  MassData.Volume:=t0;
-  MassData.Mass:=t0*Density;
-  MassData.Inertia[0,0]:=Density*(t2.y+t2.z);
-  MassData.Inertia[0,1]:=-(Density*tp.x);
-  MassData.Inertia[0,2]:=-(Density*tp.z);
-  MassData.Inertia[1,0]:=-(Density*tp.x);
-  MassData.Inertia[1,1]:=Density*(t2.z+t2.x);
-  MassData.Inertia[1,2]:=-(Density*tp.y);
-  MassData.Inertia[2,0]:=-(Density*tp.z);
-  MassData.Inertia[2,1]:=-(Density*tp.y);
-  MassData.Inertia[2,2]:=Density*(t2.x+t2.y);
-  MassData.Center:=Vector3ScalarMul(T1,1.0/t0);
-//MassData.Translate(Vector3ScalarMul(T1,1.0/t0));
- end;
-
-end;
-
-procedure TKraftConvexHull.CalculateCentroid;
-var i,j:longint;
-    Face:PKraftConvexHullFace;
-    vA,vB,vC:PKraftVector3;
-    x,y,z,Volume,Denominator:double;
-    AreaMagnitudeNormal:TKraftVector3;
-begin
-
- x:=0.0;
- y:=0.0;
- z:=0.0;
  Volume:=0.0;
 
- for i:=0 to CountFaces-1 do begin
+ Diag[0]:=0.0;
+ Diag[1]:=0.0;
+ Diag[2]:=0.0;
 
-  Face:=@Faces[i];
+ OffDiag[0]:=0.0;
+ OffDiag[1]:=0.0;
+ OffDiag[2]:=0.0;
 
-  vA:=@Vertices[Face^.Vertices[0]].Position;
+ for FaceIndex:=0 to CountFaces-1 do begin
 
-  for j:=1 to Face^.CountVertices-2 do begin
+  Face:=@Faces[FaceIndex];
 
-   vB:=@Vertices[Face^.Vertices[j]].Position;
+  vU:=@Vertices[Face^.Vertices[0]].Position;
+  u[0]:=vU^.x;
+  u[1]:=vU^.y;
+  u[2]:=vU^.z;
 
-   vC:=@Vertices[Face^.Vertices[j+1]].Position;
+  for FaceVertexIndex:=1 to Face^.CountVertices-2 do begin
 
-   // Compute area-magnitude normal
-   AreaMagnitudeNormal:=Vector3Cross(Vector3Sub(vB^,vA^),Vector3Sub(vC^,vA^));
+   vV:=@Vertices[Face^.Vertices[FaceVertexIndex]].Position;
+   v[0]:=vV^.x;
+   v[1]:=vV^.y;
+   v[2]:=vV^.z;
 
-   // Compute contribution to volume integral
-   Volume:=Volume+Vector3Dot(vA^,AreaMagnitudeNormal);
+   vW:=@Vertices[Face^.Vertices[FaceVertexIndex+1]].Position;
+   w[0]:=vW^.x;
+   w[1]:=vW^.y;
+   w[2]:=vW^.z;
 
-   // Compute contribution to centroid integral for each dimension
-   x:=x+((sqr(vA^.x+vB^.x)+sqr(vB^.x+vC^.x)+sqr(vC^.x+vA^.x))*AreaMagnitudeNormal.x);
-   y:=y+((sqr(vA^.y+vB^.y)+sqr(vB^.y+vC^.y)+sqr(vC^.y+vA^.y))*AreaMagnitudeNormal.y);
-   z:=z+((sqr(vA^.z+vB^.z)+sqr(vB^.z+vC^.z)+sqr(vC^.z+vA^.z))*AreaMagnitudeNormal.z);
+   CurrentVolume:=Vector3Dot(vU^,Vector3Cross(vV^,vW^));
+
+   Volume:=Volume+CurrentVolume;
+
+   CentroidX:=CentroidX+((vU^.x+vV^.x+vW^.x)*CurrentVolume);
+   CentroidY:=CentroidY+((vU^.y+vV^.y+vW^.y)*CurrentVolume);
+   CentroidZ:=CentroidZ+((vU^.z+vV^.z+vW^.z)*CurrentVolume);
+
+   for CoordinateIndex:=0 to 2 do begin
+
+    SecondCoordinateIndex:=ModuloThree[CoordinateIndex+1];
+    ThirdCoordinateIndex:=ModuloThree[CoordinateIndex+2];
+
+    Diag[CoordinateIndex]:=Diag[CoordinateIndex]+(((u[CoordinateIndex]*v[CoordinateIndex])+
+                                                   (v[CoordinateIndex]*w[CoordinateIndex])+
+                                                   (w[CoordinateIndex]*u[CoordinateIndex])+
+                                                   (u[CoordinateIndex]*u[CoordinateIndex])+
+                                                   (v[CoordinateIndex]*v[CoordinateIndex])+
+                                                   (w[CoordinateIndex]*w[CoordinateIndex]))*CurrentVolume);
+
+	  OffDiag[CoordinateIndex]:=OffDiag[CoordinateIndex]+(((u[SecondCoordinateIndex]*v[ThirdCoordinateIndex])+
+                                                         (v[SecondCoordinateIndex]*w[ThirdCoordinateIndex])+
+                                                         (w[SecondCoordinateIndex]*u[ThirdCoordinateIndex])+
+                                                         (u[SecondCoordinateIndex]*w[ThirdCoordinateIndex])+
+                                                         (v[SecondCoordinateIndex]*u[ThirdCoordinateIndex])+
+                                                         (w[SecondCoordinateIndex]*v[ThirdCoordinateIndex])+
+                                                         (u[SecondCoordinateIndex]*u[ThirdCoordinateIndex]*2.0)+
+                                                         (v[SecondCoordinateIndex]*v[ThirdCoordinateIndex]*2.0)+
+                                                         (w[SecondCoordinateIndex]*w[ThirdCoordinateIndex]*2.0))*CurrentVolume);
+
+   end;
 
   end;
 
  end;
 
- Denominator:=Volume*8.0; // 8.0 = 48.0/6.0 = (24.0*2.0)/6.0
+ Denominator:=Volume*4.0;
+ Centroid.x:=CentroidX/Denominator;
+ Centroid.y:=CentroidY/Denominator;
+ Centroid.z:=CentroidZ/Denominator;
 
- Centroid.x:=x/Denominator;
- Centroid.y:=y/Denominator;
- Centroid.z:=z/Denominator;
+ Volume:=Volume/6.0;
+
+ Denominator:=Volume*60.0;
+ Diag[0]:=Diag[0]/Denominator;
+ Diag[1]:=Diag[1]/Denominator;
+ Diag[2]:=Diag[2]/Denominator;
+
+ Denominator:=Volume*120.0;
+ OffDiag[0]:=OffDiag[0]/Denominator;
+ OffDiag[1]:=OffDiag[1]/Denominator;
+ OffDiag[2]:=OffDiag[2]/Denominator;
+
+ MassData.Volume:=Volume;
+ MassData.Mass:=Volume*Density;
+
+ if MassData.Mass>EPSILON then begin
+  MassData.Inertia[0,0]:=(Diag[1]+Diag[2])*MassData.Mass;
+  MassData.Inertia[0,1]:=(-OffDiag[2])*MassData.Mass;
+  MassData.Inertia[0,2]:=(-OffDiag[1])*MassData.Mass;
+  MassData.Inertia[1,0]:=(-OffDiag[2])*MassData.Mass;
+  MassData.Inertia[1,1]:=(Diag[0]+Diag[2])*MassData.Mass;
+  MassData.Inertia[1,2]:=(-OffDiag[0])*MassData.Mass;
+  MassData.Inertia[2,0]:=(-OffDiag[1])*MassData.Mass;
+  MassData.Inertia[2,1]:=(-OffDiag[0])*MassData.Mass;
+  MassData.Inertia[2,2]:=(Diag[0]+Diag[1])*MassData.Mass;
+ end else begin
+  MassData.Inertia[0,0]:=0.0;
+  MassData.Inertia[0,1]:=0.0;
+  MassData.Inertia[0,2]:=0.0;
+  MassData.Inertia[1,0]:=0.0;
+  MassData.Inertia[1,1]:=0.0;
+  MassData.Inertia[1,2]:=0.0;
+  MassData.Inertia[2,0]:=0.0;
+  MassData.Inertia[2,1]:=0.0;
+  MassData.Inertia[2,2]:=0.0;
+ end;
 
 end;
 
@@ -16355,8 +16244,6 @@ begin
  SetLength(Vertices,CountVertices);
 
  CalculateMassData;
-
- CalculateCentroid;
 
  // Construct AABB and bounding sphere
  Sphere.Center.x:=0.0;
@@ -17470,115 +17357,6 @@ begin
  end;
 end;
 
-procedure TKraftMassData.Adjust(const NewMass:TKraftScalar);
-begin
- Matrix3x3ScalarMul(Inertia,NewMass/Mass);
- Mass:=NewMass;
-end;
-
-procedure TKraftMassData.Add(const WithMassData:TKraftMassData);
-begin
- Center:=Vector3ScalarMul(Vector3Add(Vector3ScalarMul(Center,Mass),Vector3ScalarMul(WithMassData.Center,WithMassData.Mass)),1.0/(Mass+WithMassData.Mass));
- Mass:=Mass+WithMassData.Mass;
- Matrix3x3Add(Inertia,WithMassData.Inertia);
-end;
-
-procedure TKraftMassData.Rotate(const WithMatrix:TKraftMatrix3x3);
-begin
- if not (SameValue(WithMatrix[0,0],1.0) and SameValue(WithMatrix[0,1],0.0) and SameValue(WithMatrix[0,2],0.0) and
-         SameValue(WithMatrix[1,0],0.0) and SameValue(WithMatrix[1,1],1.0) and SameValue(WithMatrix[1,2],0.0) and
-         SameValue(WithMatrix[2,0],0.0) and SameValue(WithMatrix[2,1],0.0) and SameValue(WithMatrix[2,2],1.0)) then begin
-  Inertia:=Matrix3x3TermMul(Matrix3x3TermMul(WithMatrix,Inertia),Matrix3x3TermTranspose(WithMatrix));
-  Inertia[1,0]:=Inertia[0,1];
-  Inertia[2,0]:=Inertia[0,2];
-  Inertia[2,1]:=Inertia[1,2];
-  Vector3MatrixMul(Center,WithMatrix);
- end;
-end;
-
-procedure TKraftMassData.Translate(const WithVector:TKraftVector3);
-var mc,mca:TKraftMatrix3x3;
-    ca:TKraftVector3;
-begin
- if not IsZero(Vector3LengthSquared(WithVector)) then begin
-  mc[0,0]:=0.0;
-  mc[0,1]:=-Center.z;
-  mc[0,2]:=Center.y;
-{$ifdef SIMD}
-  mc[0,3]:=0.0;
-{$endif}
-  mc[1,0]:=Center.z;
-  mc[1,1]:=0.0;
-  mc[1,2]:=-Center.x;
-{$ifdef SIMD}
-  mc[1,3]:=0.0;
-{$endif}
-  mc[2,0]:=-Center.y;
-  mc[2,1]:=Center.x;
-  mc[2,2]:=0.0;
-{$ifdef SIMD}
-  mc[2,3]:=0.0;
-{$endif}
-  ca:=Vector3Add(Center,WithVector);
-  mca[0,0]:=0.0;
-  mca[0,1]:=-ca.z;
-  mca[0,2]:=ca.y;
-{$ifdef SIMD}
-  mca[0,3]:=0.0;
-{$endif}
-  mca[1,0]:=ca.z;
-  mca[1,1]:=0.0;
-  mca[1,2]:=-ca.x;
-{$ifdef SIMD}
-  mca[1,3]:=0.0;
-{$endif}
-  mca[2,0]:=-ca.y;
-  mca[2,1]:=ca.x;
-  mca[2,2]:=0.0;
-{$ifdef SIMD}
-  mca[2,3]:=0.0;
-{$endif}
-  Inertia:=Matrix3x3TermAdd(Inertia,Matrix3x3TermScalarMul(Matrix3x3TermSub(Matrix3x3TermMul(mc,mc),Matrix3x3TermMul(mca,mca)),Mass));
-  Inertia[1,0]:=Inertia[0,1];
-  Inertia[2,0]:=Inertia[0,2];
-  Inertia[2,1]:=Inertia[1,2];
-  Center:=Vector3Add(Center,WithVector);
- end;
-end;
-
-procedure TKraftMassData.Transform(const WithMatrix:TKraftMatrix4x4);
-begin
- Rotate(Matrix3x3(WithMatrix));
- Translate(Vector3(WithMatrix[3,0],WithMatrix[3,1],WithMatrix[3,2]));
-end;
-{var TempLocalCenter,a,b,c:TKraftVector3;
-    Identity:TKraftMatrix3x3;
-begin
-
- TempLocalCenter.x:=WithMatrix[3,0];
- TempLocalCenter.y:=WithMatrix[3,1];
- TempLocalCenter.z:=WithMatrix[3,2];
-
- Inertia:=Matrix3x3TermMul(Matrix3x3TermMul(Matrix3x3(WithMatrix),Inertia),Matrix3x3TermTranspose(Matrix3x3(WithMatrix)));
- Identity:=Matrix3x3Identity;
- Matrix3x3ScalarMul(Identity,Vector3Dot(TempLocalCenter,TempLocalCenter));
- a:=Vector3ScalarMul(TempLocalCenter,TempLocalCenter.x);
- b:=Vector3ScalarMul(TempLocalCenter,TempLocalCenter.y);
- c:=Vector3ScalarMul(TempLocalCenter,TempLocalCenter.z);
- Identity[0,0]:=(Identity[0,0]-a.x)*Mass;
- Identity[0,1]:=(Identity[0,1]-a.y)*Mass;
- Identity[0,2]:=(Identity[0,2]-a.z)*Mass;
- Identity[0,0]:=(Identity[1,0]-b.x)*Mass;
- Identity[1,1]:=(Identity[1,1]-b.y)*Mass;
- Identity[1,2]:=(Identity[1,2]-b.z)*Mass;
- Identity[2,0]:=(Identity[2,0]-c.x)*Mass;
- Identity[2,1]:=(Identity[2,1]-c.y)*Mass;
- Identity[2,2]:=(Identity[2,2]-c.z)*Mass;
- Matrix3x3Sub(Inertia,Identity);
-
- Center:=Vector3Add(Center,TempLocalCenter);
-end;{}
-
 constructor TKraftShape.Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody);
 begin
  inherited Create;
@@ -17725,40 +17503,6 @@ end;
 
 procedure TKraftShape.UpdateShapeAABB;
 begin
-end;
-
-procedure TKraftShape.FillMassData(BodyInertiaTensor:TKraftMatrix3x3;const LocalTransform:TKraftMatrix4x4;const Mass,Volume:TKraftScalar);
-var TempLocalCenter,a,b,c:TKraftVector3;
-    Identity:TKraftMatrix3x3;
-begin
-
- TempLocalCenter.x:=LocalTransform[3,0];
- TempLocalCenter.y:=LocalTransform[3,1];
- TempLocalCenter.z:=LocalTransform[3,2];
-
- BodyInertiaTensor:=Matrix3x3TermMul(Matrix3x3TermMul(Matrix3x3(LocalTransform),BodyInertiaTensor),Matrix3x3TermTranspose(Matrix3x3(LocalTransform)));
- Identity:=Matrix3x3Identity;
- Matrix3x3ScalarMul(Identity,Vector3Dot(TempLocalCenter,TempLocalCenter));
- a:=Vector3ScalarMul(TempLocalCenter,TempLocalCenter.x);
- b:=Vector3ScalarMul(TempLocalCenter,TempLocalCenter.y);
- c:=Vector3ScalarMul(TempLocalCenter,TempLocalCenter.z);
- Identity[0,0]:=(Identity[0,0]-a.x)*Mass;
- Identity[0,1]:=(Identity[0,1]-a.y)*Mass;
- Identity[0,2]:=(Identity[0,2]-a.z)*Mass;
- Identity[0,0]:=(Identity[1,0]-b.x)*Mass;
- Identity[1,1]:=(Identity[1,1]-b.y)*Mass;
- Identity[1,2]:=(Identity[1,2]-b.z)*Mass;
- Identity[2,0]:=(Identity[2,0]-c.x)*Mass;
- Identity[2,1]:=(Identity[2,1]-c.y)*Mass;
- Identity[2,2]:=(Identity[2,2]-c.z)*Mass;
- Matrix3x3Sub(BodyInertiaTensor,Identity);
-
- MassData.Center:=TempLocalCenter;
- MassData.Inertia:=BodyInertiaTensor;
- MassData.Mass:=Mass;
- MassData.Volume:=Volume;
- MassData.Count:=1;
-
 end;
 
 procedure TKraftShape.CalculateMassData;
@@ -17966,21 +17710,22 @@ begin
 end;
 
 procedure TKraftShapeSphere.CalculateMassData;
-var Mass,Volume:TKraftScalar;
-    BodyInertiaTensor:TKraftMatrix3x3;
 begin
- Volume:=((Radius*Radius*Radius)*pi)*(4.0/3.0);
- Mass:=Volume*Density;
- BodyInertiaTensor[0,0]:=Mass*(sqr(Radius)*0.4);
- BodyInertiaTensor[0,1]:=0.0;
- BodyInertiaTensor[0,2]:=0.0;
- BodyInertiaTensor[1,0]:=0.0;
- BodyInertiaTensor[1,1]:=Mass*(sqr(Radius)*0.4);
- BodyInertiaTensor[1,2]:=0.0;
- BodyInertiaTensor[2,0]:=0.0;
- BodyInertiaTensor[2,1]:=0.0;
- BodyInertiaTensor[2,2]:=Mass*(sqr(Radius)*0.4);
- FillMassData(BodyInertiaTensor,LocalTransform,Mass,Volume);
+ MassData.Volume:=((4.0*pi)*(Radius*Radius*Radius))/3.0;
+ MassData.Mass:=MassData.Volume*Density;
+ MassData.Inertia[0,0]:=(2.0*(sqr(Radius)*MassData.Mass))/5.0;
+ MassData.Inertia[0,1]:=0.0;
+ MassData.Inertia[0,2]:=0.0;
+ MassData.Inertia[1,0]:=0.0;
+ MassData.Inertia[1,1]:=(2.0*(sqr(Radius)*MassData.Mass))/5.0;
+ MassData.Inertia[1,2]:=0.0;
+ MassData.Inertia[2,0]:=0.0;
+ MassData.Inertia[2,1]:=0.0;
+ MassData.Inertia[2,2]:=(2.0*(sqr(Radius)*MassData.Mass))/5.0;
+ MassData.Center.x:=LocalTransform[3,0];
+ MassData.Center.y:=LocalTransform[3,1];
+ MassData.Center.z:=LocalTransform[3,2];
+ Matrix3x3Add(MassData.Inertia,InertiaTensorParallelAxisTheorem(MassData.Center,MassData.Mass));
 end;
 
 function TKraftShapeSphere.GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3;
@@ -18115,113 +17860,77 @@ begin
  ShapeAABB.Max.z:=Radius;
 end;
 
-(**)
+//{$define UseTKraftShapeCapsuleCalculateMassDataReferenceTestImplementation}
+{$ifdef UseTKraftShapeCapsuleCalculateMassDataReferenceTestImplementation}
 procedure TKraftShapeCapsule.CalculateMassData;
-var CylinderMass,CapMass,Mass,Volume:TKraftScalar;
-    BodyInertiaTensor:TKraftMatrix3x3;
+var RadiusSquared:TKraftScalar;
+    CapMassData,CylinderMassData:TKraftMassData;
 begin
- CylinderMass:=pi*sqr(Radius)*Height*Density;
- CapMass:=((4.0/3.0)*pi*Radius*Radius*Radius*density);
- Volume:=((4.0/3.0)*pi*Radius*Radius*Radius)+(Height*pi*sqr(Radius));
- Mass:=CylinderMass+CapMass;
-{BodyInertiaTensor[0,0]:=((1.0/12.0)*(CylinderMass*sqr(Height)))+(0.25*CylinderMass*sqr(Radius))+(0.4*CapMass*sqr(Radius))+(CapMass*sqr(0.5*Height));
- BodyInertiaTensor[0,1]:=0.0;
- BodyInertiaTensor[0,2]:=0.0;
- BodyInertiaTensor[1,0]:=0.0;
- BodyInertiaTensor[1,1]:=((1.0/2.0)*(CylinderMass*sqr(Radius)))+(0.2*CapMass*sqr(Radius));
- BodyInertiaTensor[1,2]:=0.0;
- BodyInertiaTensor[2,0]:=0.0;
- BodyInertiaTensor[2,1]:=0.0;
- BodyInertiaTensor[2,2]:=((1.0/12.0)*(CylinderMass*sqr(Height)))+(0.25*CylinderMass*sqr(Radius))+(0.4*CapMass*sqr(Radius))+(CapMass*sqr(0.5*Height));{}
- BodyInertiaTensor[0,0]:=(CylinderMass*((0.25*CylinderMass*sqr(Radius))+((1.0/12.0)*sqr(Height))))+(CapMass*((0.4*sqr(Radius))+(0.375*(Radius*Height))+(0.25*sqr(Height))));
- BodyInertiaTensor[0,1]:=0.0;
- BodyInertiaTensor[0,2]:=0.0;
- BodyInertiaTensor[1,0]:=0.0;
- BodyInertiaTensor[1,1]:=((0.5*CylinderMass)+(0.4*CapMass))*sqr(Radius);
- BodyInertiaTensor[1,2]:=0.0;
- BodyInertiaTensor[2,0]:=0.0;
- BodyInertiaTensor[2,1]:=0.0;
- BodyInertiaTensor[2,2]:=(CylinderMass*((0.25*CylinderMass*sqr(Radius))+((1.0/12.0)*sqr(Height))))+(CapMass*((0.4*sqr(Radius))+(0.375*(Radius*Height))+(0.25*sqr(Height))));{}
- FillMassData(BodyInertiaTensor,LocalTransform,Mass,Volume);
-end;(**)
-
-
-(*)
+ RadiusSquared:=sqr(Radius);
+ begin
+  CapMassData.Volume:=(2.0/3.0)*pi*RadiusSquared*Radius;
+  CapMassData.Mass:=CapMassData.Volume*Density;
+  CapMassData.Inertia[0,0]:=((2.0/5.0)*CapMassData.Mass*RadiusSquared)+(CapMassData.Mass*Height*(((3.0*Radius)+(2.0*Height))/8.0));
+  CapMassData.Inertia[0,1]:=0.0;
+  CapMassData.Inertia[0,2]:=0.0;
+  CapMassData.Inertia[1,0]:=0.0;
+  CapMassData.Inertia[1,1]:=(2.0/5.0)*CapMassData.Mass*RadiusSquared;
+  CapMassData.Inertia[1,2]:=0.0;
+  CapMassData.Inertia[2,0]:=0.0;
+  CapMassData.Inertia[2,1]:=0.0;
+  CapMassData.Inertia[2,2]:=((2.0/5.0)*CapMassData.Mass*RadiusSquared)+(CapMassData.Mass*Height*(((3.0*Radius)+(2.0*Height))/8.0));
+ end;
+ begin
+  CylinderMassData.Volume:=pi*RadiusSquared*Height;
+  CylinderMassData.Mass:=CylinderMassData.Volume*Density;
+  CylinderMassData.Inertia[0,0]:=(1.0/12.0)*CylinderMassData.Mass*((3.0*RadiusSquared)+sqr(Height));
+  CylinderMassData.Inertia[0,1]:=0.0;
+  CylinderMassData.Inertia[0,2]:=0.0;
+  CylinderMassData.Inertia[1,0]:=0.0;
+  CylinderMassData.Inertia[1,1]:=(1.0/2.0)*CylinderMassData.Mass*RadiusSquared;
+  CylinderMassData.Inertia[1,2]:=0.0;
+  CylinderMassData.Inertia[2,0]:=0.0;
+  CylinderMassData.Inertia[2,1]:=0.0;
+  CylinderMassData.Inertia[2,2]:=(1.0/12.0)*CylinderMassData.Mass*((3.0*RadiusSquared)+sqr(Height));
+ end;
+ MassData.Volume:=(CapMassData.Volume*2.0)+CylinderMassData.Volume;
+ MassData.Mass:=(CapMassData.Mass*2.0)+CylinderMassData.Mass;
+ MassData.Inertia[0,0]:=(CapMassData.Inertia[0,0]*2.0)+CylinderMassData.Inertia[0,0];
+ MassData.Inertia[0,1]:=(CapMassData.Inertia[0,1]*2.0)+CylinderMassData.Inertia[0,1];
+ MassData.Inertia[0,2]:=(CapMassData.Inertia[0,2]*2.0)+CylinderMassData.Inertia[0,2];
+ MassData.Inertia[1,0]:=(CapMassData.Inertia[1,0]*2.0)+CylinderMassData.Inertia[1,0];
+ MassData.Inertia[1,1]:=(CapMassData.Inertia[1,1]*2.0)+CylinderMassData.Inertia[1,1];
+ MassData.Inertia[1,2]:=(CapMassData.Inertia[1,2]*2.0)+CylinderMassData.Inertia[1,2];
+ MassData.Inertia[2,0]:=(CapMassData.Inertia[2,0]*2.0)+CylinderMassData.Inertia[2,0];
+ MassData.Inertia[2,1]:=(CapMassData.Inertia[2,1]*2.0)+CylinderMassData.Inertia[2,1];
+ MassData.Inertia[2,2]:=(CapMassData.Inertia[2,2]*2.0)+CylinderMassData.Inertia[2,2];
+ MassData.Center.x:=LocalTransform[3,0];
+ MassData.Center.y:=LocalTransform[3,1];
+ MassData.Center.z:=LocalTransform[3,2];
+ MassData.Inertia:=Matrix3x3TermAdd(InertiaTensorTransform(MassData.Inertia,Matrix3x3(LocalTransform)),
+                                    InertiaTensorParallelAxisTheorem(MassData.Center,MassData.Mass));
+end;
+{$else}
 procedure TKraftShapeCapsule.CalculateMassData;
-const pi2Over3=(2.0/3.0)*pi;
-      TwoOver5=2.0/5.0;
-      OneOver12=1.0/12.0;
-      OneOver2=1.0/2.0;
-var Length,SquaredLength,SquaredRadius,xs,ys,zs:single;
-    x,y,z:TKraftVector3;
-    MassDataA,MassDataB:TKraftMassData;
-    RotationMatrix:TKraftMatrix3x3;
 begin
- Length:=Height;
- SquaredLength:=sqr(Length);
- SquaredRadius:=sqr(Radius);
- begin
-  // Hemisphere
-  MassDataA.Mass:=pi2Over3*SquaredRadius*Radius*Density;
-  ys:=TwoOver5*MassDataA.Mass*SquaredRadius;
-  xs:=ys+(MassDataA.Mass*Length*(((3.0*Radius)+(2.0*Length))/8.0));
-  zs:=xs;
-  MassDataA.Inertia[0,0]:=xs;
-  MassDataA.Inertia[0,1]:=0.0;
-  MassDataA.Inertia[0,2]:=0.0;
-  MassDataA.Inertia[1,0]:=0.0;
-  MassDataA.Inertia[1,1]:=ys;
-  MassDataA.Inertia[1,2]:=0.0;
-  MassDataA.Inertia[2,0]:=0.0;
-  MassDataA.Inertia[2,1]:=0.0;
-  MassDataA.Inertia[2,2]:=zs;
- end;
- begin
-  // Cylinder
-  MassDataB.Mass:=pi*SquaredRadius*Length*Density;
-  xs:=OneOver12*MassDataB.Mass*((3.0*SquaredRadius)+SquaredLength);
-  ys:=Oneover2*MassDataB.Mass*SquaredRadius;
-  zs:=xs;
-  MassDataB.Inertia[0,0]:=xs;
-  MassDataB.Inertia[0,1]:=0.0;
-  MassDataB.Inertia[0,2]:=0.0;
-  MassDataB.Inertia[1,0]:=0.0;
-  MassDataB.Inertia[1,1]:=ys;
-  MassDataB.Inertia[1,2]:=0.0;
-  MassDataB.Inertia[2,0]:=0.0;
-  MassDataB.Inertia[2,1]:=0.0;
-  MassDataB.Inertia[2,2]:=zs;
- end;
- begin
-  MassData.Mass:=(MassDataA.Mass*2.0)+MassDataB.Mass;
-  MassData.Inertia:=Matrix3x3TermAdd(Matrix3x3TermScalarMul(MassDataA.Inertia,2.0),MassDataB.Inertia);
- y:=Vector3NormEx(Axis);
-  ComputeBasis(y,x,z);
-  RotationMatrix[0,0]:=x.x;
-  RotationMatrix[0,1]:=x.y;
-  RotationMatrix[0,2]:=x.z;
-{$ifdef SIMD}
-  RotationMatrix[0,3]:=0.0;
+ MassData.Volume:=(pi*(Radius*Radius))*(Height+((4.0*Radius)/3.0));
+ MassData.Mass:=MassData.Volume*Density;
+ MassData.Inertia[0,0]:=(((5.0*(Height*Height*Height))+(20.0*(Height*Height)*Radius)+(45.0*Height*(Radius*Radius))+(32.0*(Radius*Radius*Radius)))/((60.0*Height)+(80.0*Radius)))*MassData.Mass;
+ MassData.Inertia[0,1]:=0.0;
+ MassData.Inertia[0,2]:=0.0;
+ MassData.Inertia[1,0]:=0.0;
+ MassData.Inertia[1,1]:=(((Radius*Radius)*((15.0*Height)+(16.0*Radius)))/((30.0*Height)+(40.0*Radius)))*MassData.Mass;
+ MassData.Inertia[1,2]:=0.0;
+ MassData.Inertia[2,0]:=0.0;
+ MassData.Inertia[2,1]:=0.0;
+ MassData.Inertia[2,2]:=(((5.0*(Height*Height*Height))+(20.0*(Height*Height)*Radius)+(45.0*Height*(Radius*Radius))+(32.0*(Radius*Radius*Radius)))/((60.0*Height)+(80.0*Radius)))*MassData.Mass;
+ MassData.Center.x:=LocalTransform[3,0];
+ MassData.Center.y:=LocalTransform[3,1];
+ MassData.Center.z:=LocalTransform[3,2];
+ MassData.Inertia:=Matrix3x3TermAdd(InertiaTensorTransform(MassData.Inertia,Matrix3x3(LocalTransform)),
+                                    InertiaTensorParallelAxisTheorem(MassData.Center,MassData.Mass));
+end;
 {$endif}
-  RotationMatrix[1,0]:=y.x;
-  RotationMatrix[1,1]:=y.y;
-  RotationMatrix[1,2]:=y.z;
-{$ifdef SIMD}
-  RotationMatrix[1,3]:=0.0;
-{$endif}
-  RotationMatrix[2,0]:=z.x;
-  RotationMatrix[2,1]:=z.y;
-  RotationMatrix[2,2]:=z.z;
-{$ifdef SIMD}
-  RotationMatrix[2,3]:=0.0;
-{$endif}
-  MassData.Center:=Vector3Origin;
-  MassData.Inertia:=Matrix3x3TermMulTranspose(Matrix3x3TermMul(RotationMatrix,MassData.Inertia),RotationMatrix);
-//  Matrix3x3Add(MassData.Inertia,Matrix3x3TermMul(Matrix3x3TermSub(Matrix3x3TermScalarMul(Matrix3x3Identity,Vector3LengthSquared(MassData.Center)),Matrix3x3OuterProduct(MassData.Center,MassData.Center)),MassData.Inertia));
-  MassData.Center:=Vector3Origin;
-  MassData.Volume:=((4.0/3.0)*pi*Radius*Radius*Radius)+(Height*pi*sqr(Radius));
- end;
-end;(**)
 
 function TKraftShapeCapsule.GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3;
 var Normal,p0,p1:TKraftVector3;
@@ -18690,21 +18399,23 @@ begin
 end;
 
 procedure TKraftShapeBox.CalculateMassData;
-var Mass,Volume:TKraftScalar;
-    BodyInertiaTensor:TKraftMatrix3x3;
-begin
- Volume:=Extents.x*Extents.y*Extents.z;
- Mass:=Volume*Density;
- BodyInertiaTensor[0,0]:=(Mass*(sqr(Extents.y)+sqr(Extents.z)))/12.0;
- BodyInertiaTensor[0,1]:=0.0;
- BodyInertiaTensor[0,2]:=0.0;
- BodyInertiaTensor[1,0]:=0.0;
- BodyInertiaTensor[1,1]:=(Mass*(sqr(Extents.x)+sqr(Extents.z)))/12.0;
- BodyInertiaTensor[1,2]:=0.0;
- BodyInertiaTensor[2,0]:=0.0;
- BodyInertiaTensor[2,1]:=0.0;
- BodyInertiaTensor[2,2]:=(Mass*(sqr(Extents.x)+sqr(Extents.y)))/12.0;
- FillMassData(BodyInertiaTensor,LocalTransform,Mass,Volume);   
+begin                                                   
+ MassData.Volume:=Extents.x*Extents.y*Extents.z;
+ MassData.Mass:=MassData.Volume*Density;
+ MassData.Inertia[0,0]:=((sqr(Extents.y)+sqr(Extents.z))*MassData.Mass)/12.0;
+ MassData.Inertia[0,1]:=0.0;
+ MassData.Inertia[0,2]:=0.0;
+ MassData.Inertia[1,0]:=0.0;
+ MassData.Inertia[1,1]:=((sqr(Extents.x)+sqr(Extents.z))*MassData.Mass)/12.0;
+ MassData.Inertia[1,2]:=0.0;
+ MassData.Inertia[2,0]:=0.0;
+ MassData.Inertia[2,1]:=0.0;
+ MassData.Inertia[2,2]:=((sqr(Extents.x)+sqr(Extents.y))*MassData.Mass)/12.0;
+ MassData.Center.x:=LocalTransform[3,0];
+ MassData.Center.y:=LocalTransform[3,1];
+ MassData.Center.z:=LocalTransform[3,2];
+ MassData.Inertia:=Matrix3x3TermAdd(InertiaTensorTransform(MassData.Inertia,Matrix3x3(LocalTransform)),
+                                    InertiaTensorParallelAxisTheorem(MassData.Center,MassData.Mass));
 end;
 
 function TKraftShapeBox.GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3;
@@ -21083,8 +20794,8 @@ var OldManifoldCountContacts:longint;
       Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(pa,Shapes[0].WorldTransform);
       Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(pb,Shapes[1].WorldTransform);
       Contact^.Penetration:=PenetrationDepth;
-      Contact^.FeatureID.ElementA:=Manifold.EdgeQuery.IndexA or longword($80000000);
-      Contact^.FeatureID.ElementB:=Manifold.EdgeQuery.IndexB or longword($80000000);
+      Contact^.FeatureID.ElementA:=longword(Manifold.EdgeQuery.IndexA) or longword($80000000);
+      Contact^.FeatureID.ElementB:=longword(Manifold.EdgeQuery.IndexB) or longword($80000000);
      end;
     end;
 
@@ -23133,10 +22844,9 @@ begin
 end;
 
 procedure TKraftRigidBody.Finish;
-{}procedure CalculateMassData; {$ifdef caninline}inline;{$endif}
+ procedure CalculateMassData; {$ifdef caninline}inline;{$endif}
  var Shape:TKraftShape;
-     TempLocalCenter,a,b,c:TKraftVector3;
-     Identity:TKraftMatrix3x3;
+     TempLocalCenter:TKraftVector3;
  begin
 
   FillChar(BodyInertiaTensor,SizeOf(TKraftMatrix3x3),AnsiChar(#0));
@@ -23185,27 +22895,11 @@ procedure TKraftRigidBody.Finish;
     TempLocalCenter.y:=TempLocalCenter.y/Mass;
     TempLocalCenter.z:=TempLocalCenter.z/Mass;
 
-    Identity:=Matrix3x3Identity;
+    Matrix3x3Sub(BodyInertiaTensor,InertiaTensorParallelAxisTheorem(TempLocalCenter,Mass));
 
-    Matrix3x3ScalarMul(Identity,Vector3Dot(TempLocalCenter,TempLocalCenter));
-    a:=Vector3ScalarMul(TempLocalCenter,TempLocalCenter.x);
-    b:=Vector3ScalarMul(TempLocalCenter,TempLocalCenter.y);
-    c:=Vector3ScalarMul(TempLocalCenter,TempLocalCenter.z);
-    Identity[0,0]:=(Identity[0,0]-a.x)*Mass;
-    Identity[0,1]:=(Identity[0,1]-a.y)*Mass;
-    Identity[0,2]:=(Identity[0,2]-a.z)*Mass;
-    Identity[0,0]:=(Identity[1,0]-b.x)*Mass;
-    Identity[1,1]:=(Identity[1,1]-b.y)*Mass;
-    Identity[1,2]:=(Identity[1,2]-b.z)*Mass;
-    Identity[2,0]:=(Identity[2,0]-c.x)*Mass;
-    Identity[2,1]:=(Identity[2,1]-c.y)*Mass;
-    Identity[2,2]:=(Identity[2,2]-c.z)*Mass;
-
-    Matrix3x3Sub(BodyInertiaTensor,Identity);
-
-    BodyInertiaTensor[1,0]:=BodyInertiaTensor[0,1];
+{   BodyInertiaTensor[1,0]:=BodyInertiaTensor[0,1];
     BodyInertiaTensor[2,0]:=BodyInertiaTensor[0,2];
-    BodyInertiaTensor[2,1]:=BodyInertiaTensor[1,2];
+    BodyInertiaTensor[2,1]:=BodyInertiaTensor[1,2];{}
 
     Matrix3x3Inverse(BodyInverseInertiaTensor,BodyInertiaTensor);
 
