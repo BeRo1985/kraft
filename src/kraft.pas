@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2015-10-12-06-12-0000                       *
+ *                        Version 2015-10-13-03-33-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -23621,7 +23621,35 @@ begin
 
  RelativePosition:=Vector3TermQuaternionRotate(Vector3Sub(LocalAnchor,LocalCenter),qA^);
 
-{MassMatrix[0,0]:=(((sqr(RelativePosition.z)*WorldInverseInertiaTensor[1,1])-
+{$define TKraftConstraintJointGrabMassMatrixCodeVariantA}
+
+{$if defined(TKraftConstraintJointGrabMassMatrixCodeVariantA)}
+
+ MassMatrix[0,0]:=((InverseMass+Gamma)-
+                   (RelativePosition.z*((WorldInverseInertiaTensor[1,2]*RelativePosition.y)-(WorldInverseInertiaTensor[1,1]*RelativePosition.z))))+
+                  (RelativePosition.y*((WorldInverseInertiaTensor[2,2]*RelativePosition.y)-(WorldInverseInertiaTensor[2,1]*RelativePosition.z)));
+ MassMatrix[0,1]:=(RelativePosition.z*((WorldInverseInertiaTensor[0,2]*RelativePosition.y)-(WorldInverseInertiaTensor[0,1]*RelativePosition.z)))-
+                  (RelativePosition.x*((WorldInverseInertiaTensor[2,2]*RelativePosition.y)-(WorldInverseInertiaTensor[2,1]*RelativePosition.z)));
+ MassMatrix[0,2]:=(RelativePosition.x*((WorldInverseInertiaTensor[1,2]*RelativePosition.y)-(WorldInverseInertiaTensor[1,1]*RelativePosition.z)))-
+                  (RelativePosition.y*((WorldInverseInertiaTensor[0,2]*RelativePosition.y)-(WorldInverseInertiaTensor[0,1]*RelativePosition.z)));
+ MassMatrix[1,0]:=(RelativePosition.z*((WorldInverseInertiaTensor[1,2]*RelativePosition.x)-(WorldInverseInertiaTensor[1,0]*RelativePosition.z)))-
+                  (RelativePosition.y*((WorldInverseInertiaTensor[2,2]*RelativePosition.x)-(WorldInverseInertiaTensor[2,0]*RelativePosition.z)));
+ MassMatrix[1,1]:=((InverseMass+Gamma)-
+                   (RelativePosition.z*((WorldInverseInertiaTensor[0,2]*RelativePosition.x)-(WorldInverseInertiaTensor[0,0]*RelativePosition.z))))+
+                  (RelativePosition.x*((WorldInverseInertiaTensor[2,2]*RelativePosition.x)-(WorldInverseInertiaTensor[2,0]*RelativePosition.z)));
+ MassMatrix[1,2]:=(RelativePosition.y*((WorldInverseInertiaTensor[0,2]*RelativePosition.x)-(WorldInverseInertiaTensor[0,0]*RelativePosition.z)))-
+                  (RelativePosition.x*((WorldInverseInertiaTensor[1,2]*RelativePosition.x)-(WorldInverseInertiaTensor[1,0]*RelativePosition.z)));
+ MassMatrix[2,0]:=(RelativePosition.y*((WorldInverseInertiaTensor[2,1]*RelativePosition.x)-(WorldInverseInertiaTensor[2,0]*RelativePosition.y)))-
+                  (RelativePosition.z*((WorldInverseInertiaTensor[1,1]*RelativePosition.x)-(WorldInverseInertiaTensor[1,0]*RelativePosition.y)));
+ MassMatrix[2,1]:=(RelativePosition.z*((WorldInverseInertiaTensor[0,1]*RelativePosition.x)-(WorldInverseInertiaTensor[0,0]*RelativePosition.y)))-
+                  (RelativePosition.x*((WorldInverseInertiaTensor[2,1]*RelativePosition.x)-(WorldInverseInertiaTensor[2,0]*RelativePosition.y)));
+ MassMatrix[2,2]:=((InverseMass+Gamma)-
+                   (RelativePosition.y*((WorldInverseInertiaTensor[0,1]*RelativePosition.x)-(WorldInverseInertiaTensor[0,0]*RelativePosition.y))))+
+                  (RelativePosition.x*((WorldInverseInertiaTensor[1,1]*RelativePosition.x)-(WorldInverseInertiaTensor[1,0]*RelativePosition.y)));
+
+{$elseif defined(TKraftConstraintJointGrabMassMatrixCodeVariantB)}
+
+ MassMatrix[0,0]:=(((sqr(RelativePosition.z)*WorldInverseInertiaTensor[1,1])-
                     ((RelativePosition.y*RelativePosition.z)*(WorldInverseInertiaTensor[1,2]+WorldInverseInertiaTensor[2,1])))+
                    (sqr(RelativePosition.y)*WorldInverseInertiaTensor[2,2]))+
                   (InverseMass+Gamma);
@@ -23629,13 +23657,13 @@ begin
                     ((RelativePosition.x*RelativePosition.z)*WorldInverseInertiaTensor[1,2]))+
                    ((RelativePosition.y*RelativePosition.z)*WorldInverseInertiaTensor[2,0]))-
                   ((RelativePosition.x*RelativePosition.y)*WorldInverseInertiaTensor[2,2]);
- MassMatrix[0,2]:=((((RelativePosition.y*RelativePosition.z)*WorldInverseInertiaTensor[1,0])- 
-                    ((RelativePosition.x*RelativePosition.z)*WorldInverseInertiaTensor[1,1]))- 
+ MassMatrix[0,2]:=((((RelativePosition.y*RelativePosition.z)*WorldInverseInertiaTensor[1,0])-
+                    ((RelativePosition.x*RelativePosition.z)*WorldInverseInertiaTensor[1,1]))-
                    (sqr(RelativePosition.y)*WorldInverseInertiaTensor[2,0]))+
                   ((RelativePosition.x*RelativePosition.y)*WorldInverseInertiaTensor[2,1]);
- MassMatrix[1,0]:=(((-(sqr(RelativePosition.z)*WorldInverseInertiaTensor[0,1]))+ 
-                    ((RelativePosition.y*RelativePosition.z)*WorldInverseInertiaTensor[0,2]))+ 
-                   ((RelativePosition.x*RelativePosition.z)*WorldInverseInertiaTensor[2,1]))- 
+ MassMatrix[1,0]:=(((-(sqr(RelativePosition.z)*WorldInverseInertiaTensor[0,1]))+
+                    ((RelativePosition.y*RelativePosition.z)*WorldInverseInertiaTensor[0,2]))+
+                   ((RelativePosition.x*RelativePosition.z)*WorldInverseInertiaTensor[2,1]))-
                   ((RelativePosition.x*RelativePosition.y)*WorldInverseInertiaTensor[2,2]);
  MassMatrix[1,1]:=(((sqr(RelativePosition.z)*WorldInverseInertiaTensor[0,0])-
                     ((RelativePosition.x*RelativePosition.z)*(WorldInverseInertiaTensor[0,2]+WorldInverseInertiaTensor[2,0])))+
@@ -23657,9 +23685,8 @@ begin
                     ((RelativePosition.x*RelativePosition.y)*(WorldInverseInertiaTensor[0,1]+WorldInverseInertiaTensor[1,0])))+
                    (sqr(RelativePosition.x)*WorldInverseInertiaTensor[1,1]))+
                   (InverseMass+Gamma);
- Matrix3x3Inverse(EffectiveMass,MassMatrix);{}
 
- SkewSymmetricMatrix:=GetSkewSymmetricMatrixPlus(RelativePosition);
+{$else}
 
  MassMatrix[0,0]:=InverseMass+Gamma;
  MassMatrix[0,1]:=0.0;
@@ -23679,8 +23706,14 @@ begin
 {$ifdef SIMD}
  MassMatrix[2,3]:=0.0;
 {$endif}
+
+ SkewSymmetricMatrix:=GetSkewSymmetricMatrixPlus(RelativePosition);
+
  Matrix3x3Add(MassMatrix,Matrix3x3TermMulTranspose(Matrix3x3TermMul(SkewSymmetricMatrix,WorldInverseInertiaTensor),SkewSymmetricMatrix));
- Matrix3x3Inverse(EffectiveMass,MassMatrix); (**)
+
+{$ifend}
+
+ Matrix3x3Inverse(EffectiveMass,MassMatrix);
 
  mC:=Vector3ScalarMul(Vector3Sub(Vector3Add(cA^,RelativePosition),WorldPoint),Beta);
 
