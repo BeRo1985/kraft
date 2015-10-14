@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2015-10-14-11-38-0000                       *
+ *                        Version 2015-10-14-12-00-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -242,7 +242,7 @@ type PKraftForceMode=^TKraftForceMode;
                                   ktoiaBilateralAdvancement);         // Time of impact detection with bilateral advancement
 
      PKraftPositionCorrectionMode=^TKraftPositionCorrectionMode;
-     TKraftPositionCorrectionMode=(kpcmBaumgarte,                     // Faster but it can be inacurate in some situations
+     TKraftPositionCorrectionMode=(kpcmBaumgarte,                     // Faster but it can be inaccurate in some situations
                                    kpcmNonLinearGaussSeidel);         // Slower but it's more precise (default)
 
      PKraftContactFlag=^TKraftContactFlag;
