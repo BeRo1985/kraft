@@ -12,7 +12,8 @@ Kraft Physics Engine has the following features:
 
 - Rigid body dynamics
 - Discrete collision detection
-- Optional additional continuous collision detection, either with Bilateral Advancement or Conservative Advancement  
+- Optional additional continuous collision detection with Motion Clamping or with Box2D-style time of impact sub stepping, either with Bilateral Advancement or Conservative Advancement.  
+- Optional additional support for speculative contacts as faster and more inaccurate fake continuous collision detection mode.
 - Full one-shot contact manifold collision shapes (spheres, capsules, convex hulls, boxes, and for static geometries also triangle meshes) based on combinations of for-warm-start-simplex-caching-able GJK, Gauss-Map optimized Clipping-SAT and implicit collision algorithms.
 - Optional MPR-based (Minkowski Portal Refinement) incremental persistent contact manifold work mode (see TKraft.PersistentContactManifold boolean), but its usage isn't recommended, because the full one-shot contact manifold work mode is faster, more robust and more tested. It is implemented only as comparison reference (for example for debugging purposes), and for more reasons against incremental persistent contact manifold real usage, see http://box2d.org/files/GDC2015/DirkGregorius_Contacts.pdf .
 - Multiple collision shapes per rigid body without the need for a compound shape
