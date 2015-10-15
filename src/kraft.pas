@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2015-10-14-12-00-0000                       *
+ *                        Version 2015-10-15-06-56-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -191,6 +191,8 @@ const EPSILON={$ifdef UseDouble}1e-14{$else}1e-5{$endif}; // actually {$ifdef Us
 
       MPRMaximumIterations=128;
 
+      MPRSweepCastMaximumIterations=32;
+
       GJKTolerance=1e-4;
 
       GJKMaximumIterations=128;
@@ -231,6 +233,7 @@ type PKraftForceMode=^TKraftForceMode;
 
      PKraftContinuousMode=^TKraftContinuousMode;
      TKraftContinuousMode=(kcmNone,                     // No continuous collision detection and response
+                           kcmSpeculativeContacts,      // Fake continuous collision detection and response with speculative contacts
                            kcmMotionClamping,           // Continuous collision detection and response with motion clamping
                            kcmTimeOfImpactSubSteps);    // Continuous collision detection and response with time of impact sub stepping
                                                         // (needs kpcmNonLinearGaussSeidel at ContactPositionCorrectionMode, otherwise it
@@ -1317,7 +1320,8 @@ type PKraftForceMode=^TKraftForceMode;
                                 kcmtEdges,
                                 kcmtImplicitEdge,
                                 kcmtImplicitNormal,
-                                kcmtPersistentImplicit);
+                                kcmtPersistentImplicit,
+                                kcmtSpeculative);
 
      PKraftContactManifold=^TKraftContactManifold;
      TKraftContactManifold=record
@@ -1325,6 +1329,7 @@ type PKraftForceMode=^TKraftForceMode;
       HaveData:longbool;
       Persistent:longbool;
       CountContacts:longint;
+      LostSpeculativeBounce:single;
       LocalRadius:array[0..1] of TKraftScalar;
       LocalNormal:TKraftVector3;
       TangentVectors:array[0..1] of TKraftVector3;
@@ -1369,7 +1374,7 @@ type PKraftForceMode=^TKraftForceMode;
        TimeOfImpactCount:longint;
        TimeOfImpact:TKraftScalar;
        procedure GetSolverContactManifold(out SolverContactManifold:TKraftSolverContactManifold;const WorldTransformA,WorldTransformB:TKraftMatrix4x4;const ContactManifoldMode:TKraftContactPairContactManifoldMode);
-       procedure DetectCollisions(const ContactManager:TKraftContactManager;const TriangleShape:TKraftShape=nil;const ThreadIndex:longint=0);
+       procedure DetectCollisions(const ContactManager:TKraftContactManager;const TriangleShape:TKraftShape=nil;const ThreadIndex:longint=0;const SpeculativeContacts:boolean=true;const DeltaTime:double=0.0);
      end;
 
      TPKraftContactPairs=array of PKraftContactPair;
@@ -2233,6 +2238,8 @@ type PKraftForceMode=^TKraftForceMode;
       Points:array[0..MAX_CONTACTS-1] of TKraftSolverVelocityStateContactPoint;
       Normal:TKraftVector3;
       Centers:array[0..1] of TKraftVector3;
+      LostSpeculativeBounce:single;
+      SpeculativeVelocity:single;      
       WorldInverseInertiaTensors:array[0..1] of TKraftMatrix3x3;
       NormalMass:TKraftScalar;
       TangentMass:array[0..1] of TKraftScalar;
@@ -2258,6 +2265,30 @@ type PKraftForceMode=^TKraftForceMode;
 
      TKraftSolverPositionStates=array of TKraftSolverPositionState;
 
+     PKraftSolverSpeculativeContactState=^TKraftSolverSpeculativeContactState;
+     TKraftSolverSpeculativeContactState=record
+      Points:array[0..1] of TKraftVector3;
+      Normal:TKraftVector3;
+      Centers:array[0..1] of TKraftVector3;
+      LocalCenters:array[0..1] of TKraftVector3;
+      RelativePositions:array[0..1] of TKraftVector3;
+      WorldInverseInertiaTensors:array[0..1] of TKraftMatrix3x3;
+      Separation:single;
+      RestitutionBias:single;
+      LostSpeculativeBounce:single;
+      SpeculativeVelocity:single;
+      NormalImpulse:single;
+      TangentImpulse:array[0..1] of single;
+      NormalMass:single;
+      TangentMass:array[0..1] of single;
+      InverseMasses:array[0..1] of single;
+      Restitution:single;
+      Friction:single;
+      Indices:array[0..1] of longint;
+     end;
+
+     TKraftSolverSpeculativeContactStates=array of TKraftSolverSpeculativeContactState;
+
      TKraftSolver=class
       public
 
@@ -2277,7 +2308,12 @@ type PKraftForceMode=^TKraftForceMode;
        PositionStates:TKraftSolverPositionStates;
        CountPositionStates:longint;
 
+       SpeculativeContactStates:TKraftSolverSpeculativeContactStates;
+       CountSpeculativeContactStates:longint;
+
        CountContacts:longint;
+
+       CountSpeculativeContacts:longint;
 
        DeltaTime:TKraftScalar;
 
@@ -2304,6 +2340,8 @@ type PKraftForceMode=^TKraftForceMode;
 
        function SolveTimeOfImpactConstraints(IndexA,IndexB:longint):boolean;
 
+       procedure SolveSpeculativeContactConstraints;
+
        procedure StoreImpulses;
 
      end;
@@ -2327,6 +2365,9 @@ type PKraftForceMode=^TKraftForceMode;
        StaticContactPairs:TPKraftContactPairs;
        CountStaticContactPairs:longint;
 
+       SpeculativeContactPairs:TPKraftContactPairs;
+       CountSpeculativeContactPairs:longint;
+              
        Solver:TKraftSolver;
 
        constructor Create(const APhysics:TKraft;const AIndex:longint);
@@ -2476,6 +2517,8 @@ type PKraftForceMode=^TKraftForceMode;
 
        SleepTimeThreshold:TKraftScalar;
 
+       VelocityThreshold:TKraftScalar;
+
        ContactBaumgarte:TKraftScalar;
 
        ConstraintBaumgarte:TKraftScalar;
@@ -2509,6 +2552,8 @@ type PKraftForceMode=^TKraftForceMode;
        VelocityIterations:longint;
 
        PositionIterations:longint;
+
+       SpeculativeIterations:longint;
 
        TimeOfImpactIterations:longint;
 
@@ -11215,6 +11260,188 @@ begin
 
 end;
 
+function MPRAreSweptShapesIntersecting(const ShapeA,ShapeB:TKraftShape;const Sweep:TKraftVector3;const Transform:TKraftMatrix4x4;var HitPosition:TKraftVector3):boolean;
+ function GetSweptExtremePoint(const Direction:TKraftVector3;out ExtremePointA:TKraftVector3):TKraftVector3;
+ begin
+  ExtremePointA:=ShapeA.GetLocalFullSupport(Direction);
+  result:=Vector3Sub(ExtremePointA,Vector3TermMatrixMul(ShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Direction,Transform)),Transform));
+  if Vector3Dot(Direction,Sweep)>0.0 then begin
+   result:=Vector3Add(result,Sweep);
+  end;
+ end;
+var Count:longint;
+    LocalPoint,v0,v1,v1a,v2,v2a,v3,v3a,v4,v4a,v1v0,v2v0,v3v0,t,n:TKraftVector3;
+    Dot,DotV0,BarycentricCoordinate,v0v1v2v3Volume,v1v2v3Volume,v0v2v3Volume,v0v1v3Volume,
+    InverseTotalVolume,v0Weight,v1Weight,v2Weight,v3Weight,Dot2:TKraftScalar;
+begin
+ result:=false;
+
+ LocalPoint.x:=Transform[3,0];
+ LocalPoint.y:=Transform[3,1];
+ LocalPoint.z:=Transform[3,2];
+
+ if Vector3LengthSquared(LocalPoint)<EPSILON then begin
+  HitPosition:=LocalPoint;
+  result:=true;
+  exit;
+ end;
+
+ v0:=Vector3Neg(LocalPoint);
+
+ n:=LocalPoint;
+ v1:=GetSweptExtremePoint(n,v1a);
+
+ n:=Vector3Cross(v1,v0);
+ if Vector3LengthSquared(n)<EPSILON then begin
+  Dot:=Vector3Dot(v1,LocalPoint);
+  if Dot<0.0 then begin
+   result:=false;
+  end else begin
+   DotV0:=Vector3Dot(v0,LocalPoint);
+   BarycentricCoordinate:=-(Dotv0/(Dot-DotV0));
+   HitPosition:=Vector3ScalarMul(v1a,BarycentricCoordinate);
+   result:=true;
+  end;
+  exit;
+ end;
+
+ v2:=GetSweptExtremePoint(n,v2a);
+
+ n:=Vector3Cross(Vector3Sub(v1,v0),Vector3Sub(v2,v0));
+
+ for Count:=1 to MPRMaximumIterations do begin
+  v3:=GetSweptExtremePoint(n,v3a);
+  if Vector3Dot(v0,Vector3Cross(v1,v3))<0.0 then begin
+   v2:=v3;
+   v2a:=v3a;
+   n:=Vector3Cross(Vector3Sub(v1,v0),Vector3Sub(v3,v0));
+  end else if Vector3Dot(v0,Vector3Cross(v3,v2))<0.0 then begin
+   v1:=v3;
+   v1a:=v3a;
+   n:=Vector3Cross(Vector3Sub(v2,v0),Vector3Sub(v3,v0));
+  end else begin
+   break;
+  end;
+ end;
+
+ Count:=0;
+ while true do begin
+
+  n:=Vector3Cross(Vector3Sub(v3,v2),Vector3Sub(v1,v2));
+
+  Dot:=Vector3Dot(v1,n);
+  if Dot>=0.0 then begin
+
+   v1v0:=Vector3Sub(v1,v0);
+   v2v0:=Vector3Sub(v2,v0);
+   v3v0:=Vector3Sub(v3,v0);
+
+   v0v1v2v3Volume:=Vector3Dot(Vector3Cross(v1v0,v2v0),v3v0);
+   v1v2v3Volume:=Vector3Dot(Vector3Cross(v1,v2),v3);
+   v0v2v3Volume:=Vector3Dot(Vector3Cross(LocalPoint,v2v0),v3v0);
+   v0v1v3Volume:=Vector3Dot(Vector3Cross(v1v0,LocalPoint),v3v0);
+
+   InverseTotalVolume:=1.0/v0v1v2v3Volume;
+   v0Weight:=v1v2v3volume*InverseTotalVolume;
+   v1Weight:=v0v2v3volume*InverseTotalVolume;
+   v2Weight:=v0v1v3volume*InverseTotalVolume;
+   v3Weight:=1.0-(v0Weight+v1Weight+v2Weight);
+   HitPosition:=Vector3Add(Vector3Add(Vector3ScalarMul(v1a,v1Weight),Vector3ScalarMul(v2a,v2Weight)),Vector3ScalarMul(v3a,v3Weight));
+   result:=true;
+   exit;
+  end;
+
+  v4:=GetSweptExtremePoint(n,v4a);
+  Dot2:=Vector3Dot(v4,n);
+  if (Dot2<0.0) or
+     ((Dot2-Dot)<MPRTolerance) or
+     (Count>MPRSweepCastMaximumIterations) then begin
+   HitPosition:=LocalPoint;
+   exit;
+  end;
+
+  t:=Vector3Cross(v4,v0);
+  if Vector3Dot(t,v1)>=0.0 then begin
+   if Vector3Dot(t,v2)>=0.0 then begin
+    v1:=v4;
+    v1a:=v4a;
+   end else begin
+    v3:=v4;
+    v3a:=v4a;
+   end;
+  end else begin
+   if Vector3Dot(t,v3)>=0.0 then begin
+    v2:=v4;
+    v2a:=v4a;
+   end else begin
+    v1:=v4;
+    v1a:=v4a;
+   end;
+  end;
+  inc(Count);
+ end;
+
+end;
+
+function MPRSweep(const ShapeA,ShapeB:TKraftShape;const SweepA,SweepB:TKraftSweep):boolean; overload;
+var RayLengthSquared,SweepLength,MaximumRadius,t0,t1:TKraftScalar;
+    VelocityWorld,LocalOrigin,LocalDirection,Sweep,HitPosition,VelocityA,VelocityB:TKraftVector3;
+    NegativeSweepLength:boolean;
+    LocalTransformBinA:TKraftMatrix4x4;
+    Positions:array[0..1,0..1] of TKraftVector3;
+    Transforms:array[0..1,0..1] of TKraftMatrix4x4;
+begin
+ result:=false;
+
+ Transforms[0,0]:=Matrix4x4TermMul(ShapeA.LocalTransform,SweepTransform(SweepA,0.0));
+ Transforms[0,1]:=Matrix4x4TermMul(ShapeA.LocalTransform,SweepTransform(SweepA,1.0));
+ Transforms[1,0]:=Matrix4x4TermMul(ShapeB.LocalTransform,SweepTransform(SweepB,0.0));
+ Transforms[1,1]:=Matrix4x4TermMul(ShapeB.LocalTransform,SweepTransform(SweepB,1.0));
+
+ Positions[0,0]:=Vector3TermMatrixMul(ShapeA.LocalCenterOfMass,Transforms[0,0]);
+ Positions[0,1]:=Vector3TermMatrixMul(ShapeA.LocalCenterOfMass,Transforms[0,1]);
+ Positions[1,0]:=Vector3TermMatrixMul(ShapeB.LocalCenterOfMass,Transforms[1,0]);
+ Positions[1,1]:=Vector3TermMatrixMul(ShapeB.LocalCenterOfMass,Transforms[1,1]);
+
+ if not SweepSphereSphere(Positions[0,0],Positions[0,1],ShapeA.ShapeSphere.Radius,Positions[1,0],Positions[1,1],ShapeB.ShapeSphere.Radius,t0,t1) then begin
+  exit;
+ end;
+
+ VelocityA:=Vector3Sub(Positions[0,1],Positions[0,0]);
+ VelocityB:=Vector3Sub(Positions[1,1],Positions[1,0]);
+
+ VelocityWorld:=Vector3Sub(VelocityB,VelocityA);
+
+ LocalDirection:=Vector3SafeNorm(Vector3TermMatrixMulTransposedBasis(VelocityWorld,Transforms[0,0]));
+
+ LocalTransformBinA:=Matrix4x4TermMulInverted(Transforms[1,0],Transforms[0,0]);
+
+ MaximumRadius:=ShapeA.ShapeSphere.Radius+ShapeB.ShapeSphere.Radius;
+
+ LocalOrigin.x:=LocalTransformBinA[3,0];
+ LocalOrigin.y:=LocalTransformBinA[3,1];
+ LocalOrigin.z:=LocalTransformBinA[3,2];
+
+ // This sweep amount needs to expand the minkowski difference to fully intersect the plane defined by the sweep direction and origin.
+ RayLengthSquared:=Vector3LengthSquared(LocalDirection);
+ if RayLengthSquared>EPSILON then begin
+  // Scale the sweep length by the margins. Divide by the length to pull the margin into terms of the length of the ray.
+  SweepLength:=(Vector3Dot(LocalOrigin,LocalDirection)+MaximumRadius)/sqrt(RayLengthSquared);
+ end else begin
+  SweepLength:=0.0;
+ end;
+
+ // If the sweep direction is found to be negative, the ray can be thought of as pointing away from the shape, so then do not sweep backward.
+ NegativeSweepLength:=SweepLength<0.0;
+ if NegativeSweepLength then begin
+  SweepLength:=0.0;
+ end;
+
+ Sweep:=Vector3ScalarMul(LocalDirection,SweepLength);
+
+ result:=MPRAreSweptShapesIntersecting(ShapeA,ShapeB,Sweep,LocalTransformBinA,HitPosition);
+end;
+
 function TKraftGJK.Run:boolean;
 var CountSaved,Index,iA,iB:longint;
     Initialized,Duplicate:boolean;
@@ -17394,9 +17621,9 @@ begin
 
  IsMesh:=false;
 
- Friction:=0.4;
+ Friction:=0.5;
 
- Restitution:=0.2;
+ Restitution:=0.0;
 
  Density:=1.0;
 
@@ -19440,10 +19667,21 @@ begin
     SolverContact^.Separation:=SolverContact^.Separation+Contact.Penetration;
    end;
   end;
+  kcmtSpeculative:begin
+   SolverContactManifold.Normal:=Vector3TermMatrixMulBasis(Manifold.LocalNormal,tB);
+   for ContactIndex:=0 to Manifold.CountContacts-1 do begin
+    Contact:=@Manifold.Contacts[ContactIndex];
+    SolverContact:=@SolverContactManifold.Contacts[ContactIndex];
+    SolverContactManifold.Points[0]:=Vector3TermMatrixMul(Contact^.LocalPoints[0],tA);
+    SolverContactManifold.Points[1]:=Vector3TermMatrixMul(Contact^.LocalPoints[1],tB);
+    SolverContact^.Point:=Vector3Avg(SolverContactManifold.Points[0],SolverContactManifold.Points[1]);
+    SolverContact^.Separation:=Contact^.Penetration;
+   end;
+  end;
  end;
 end;
 
-procedure TKraftContactPair.DetectCollisions(const ContactManager:TKraftContactManager;const TriangleShape:TKraftShape=nil;const ThreadIndex:longint=0);
+procedure TKraftContactPair.DetectCollisions(const ContactManager:TKraftContactManager;const TriangleShape:TKraftShape=nil;const ThreadIndex:longint=0;const SpeculativeContacts:boolean=true;const DeltaTime:double=0.0);
 var OldManifoldCountContacts:longint;
     OldContactManifoldType:TKraftContactManifoldType;
     ShapeTriangle:TKraftShapeTriangle;
@@ -19594,7 +19832,7 @@ var OldManifoldCountContacts:longint;
      Face:PKraftConvexHullFace;
      GJK:TKraftGJK;
  begin
-                   
+
   GJK.CachedSimplex:=@Manifold.GJKCachedSimplex;
   GJK.Simplex.Count:=0;
   GJK.Shapes[0]:=ShapeA;
@@ -21047,7 +21285,6 @@ var OldManifoldCountContacts:longint;
       // Non-first contact without old nearest found contact
       Contact:=@NewContact;
      end;
-     //Contact^.LostSpeculativeBounce:=0.0;
      Contact^.NormalImpulse:=0.0;
      Contact^.TangentImpulse[0]:=0.0;
      Contact^.TangentImpulse[1]:=0.0;
@@ -21116,6 +21353,68 @@ var OldManifoldCountContacts:longint;
    Manifold.ContactManifoldType:=kcmtUnknown;
   end;
   
+ end;
+ procedure FindSpeculativeContacts(ShapeA,ShapeB:TKraftShape);
+ var Index:longint;
+     VelocityLength,t0,t1:TKraftScalar;
+     Sweeps:array[0..1] of TKraftSweep;
+     Transforms:array[0..1,0..1] of TKraftMatrix4x4;
+     Contact:PKraftContact;
+     Velocity:TKraftVector3;
+     LinearVelocities:array[0..1] of TKraftVector3;
+     GJK:TKraftGJK;
+ begin
+  if (Manifold.CountContacts=0) and SpeculativeContacts and (ContactManager.Physics.ContinuousMode=kcmSpeculativeContacts) and
+     (assigned(Shapes[0].RigidBody) and assigned(Shapes[1].RigidBody)) and 
+     ((krbfContinuous in Shapes[0].RigidBody.Flags) or (krbfContinuous in Shapes[1].RigidBody.Flags)) then begin
+   if not (((Shapes[0].RigidBody.RigidBodyType=krbtDYNAMIC) and (Shapes[1].RigidBody.RigidBodyType=krbtDYNAMIC)) and not
+           (ContactManager.Physics.ContinuousAgainstDynamics and
+            ((krbfContinuousAgainstDynamics in Shapes[0].RigidBody.Flags) or (krbfContinuousAgainstDynamics in Shapes[1].RigidBody.Flags)))) then begin
+    for Index:=0 to 1 do begin
+     Sweeps[Index]:=Shapes[Index].RigidBody.Sweep;
+     Sweeps[Index].c0:=Sweeps[Index].c;
+     Sweeps[Index].q0:=Sweeps[Index].q;
+     ContactManager.Physics.Integrate(Sweeps[Index].c,Sweeps[Index].q,Shapes[Index].RigidBody.LinearVelocity,Shapes[Index].RigidBody.AngularVelocity,DeltaTime);
+     Sweeps[Index].Alpha0:=0.0;
+     Transforms[Index,0]:=Matrix4x4TermMul(Shapes[Index].LocalTransform,SweepTransform(Sweeps[Index],0.0));
+     Transforms[Index,1]:=Matrix4x4TermMul(Shapes[Index].LocalTransform,SweepTransform(Sweeps[Index],1.0));
+     LinearVelocities[Index]:=Vector3Sub(Vector3TermMatrixMul(Vector3Origin,Transforms[Index,1]),Vector3TermMatrixMul(Vector3Origin,Transforms[Index,0]));
+    end;
+    Velocity:=Vector3Sub(LinearVelocities[0],LinearVelocities[1]);
+    VelocityLength:=Vector3Length(Velocity);
+    if VelocityLength>Max(1e-5,Min(ShapeA.AngularMotionDisc,ShapeB.AngularMotionDisc)*0.125) then begin
+     if SweepSphereSphere(Vector3TermMatrixMul(ShapeA.LocalCenterOfMass,Transforms[0,0]),
+                          Vector3TermMatrixMul(ShapeA.LocalCenterOfMass,Transforms[0,1]),
+                          ShapeA.ShapeSphere.Radius,
+                          Vector3TermMatrixMul(ShapeB.LocalCenterOfMass,Transforms[1,0]),
+                          Vector3TermMatrixMul(ShapeB.LocalCenterOfMass,Transforms[1,1]),
+                          ShapeB.ShapeSphere.Radius,
+                          t0,
+                          t1) then begin
+      GJK.CachedSimplex:=@Manifold.GJKCachedSimplex;
+      GJK.Simplex.Count:=0;
+      GJK.Shapes[0]:=ShapeA;
+      GJK.Shapes[1]:=ShapeB;
+      GJK.Transforms[0]:=@ShapeA.WorldTransform;
+      GJK.Transforms[1]:=@ShapeB.WorldTransform;
+      GJK.UseRadii:=false;
+      GJK.Run;
+      if (GJK.Distance>0.0) and (GJK.Distance<(VelocityLength+EPSILON)) and not GJK.Failed then begin
+       if MPRSweep(ShapeA,ShapeB,Sweeps[0],Sweeps[1]) then begin
+        Manifold.ContactManifoldType:=kcmtSpeculative;
+        Manifold.CountContacts:=1;
+        Manifold.LocalNormal:=Vector3SafeNorm(Vector3TermMatrixMulTransposedBasis(Vector3Neg(GJK.Normal),Shapes[1].WorldTransform));
+        Contact:=@Manifold.Contacts[0];
+        Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(GJK.ClosestPoints[0],Shapes[0].WorldTransform);
+        Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(GJK.ClosestPoints[1],Shapes[1].WorldTransform);
+        Contact^.Penetration:=GJK.Distance;
+        Contact^.FeatureID:=CreateFeatureID(-1);
+       end;
+      end;
+     end;
+    end;
+   end;
+  end;
  end;
 var Index,SubIndex:longint;
     ShapeA,ShapeB:TKraftShape;
@@ -21219,6 +21518,10 @@ begin
     end;
    end;
 
+  end;
+
+  if SpeculativeContacts then begin
+   FindSpeculativeContacts(ShapeA,ShapeB);
   end;
 
   if ((ksfSensor in Shapes[0].Flags) or (ksfSensor in Shapes[1].Flags)) or
@@ -21994,7 +22297,7 @@ end;
 
 procedure TKraftContactManager.ProcessContactPair(const ContactPair:PKraftContactPair;const ThreadIndex:longint=0);
 begin
- ContactPair^.DetectCollisions(self,Physics.TriangleShapes[ThreadIndex],ThreadIndex);
+ ContactPair^.DetectCollisions(self,Physics.TriangleShapes[ThreadIndex],ThreadIndex,true,Physics.WorldDeltaTime);
 end;
 
 procedure TKraftContactManager.ProcessContactPairJob(const JobIndex,ThreadIndex:longint);
@@ -22261,31 +22564,71 @@ begin
     Contact:=@ContactManifold.Contacts[i];
 
     f:=(1024-Min(Max(Contact^.WarmStartState,0),1024))/1024.0;
+                                                  
+    if ContactPair^.Manifold.ContactManifoldType=kcmtSPECULATIVE then begin
 
-    if krbfAwake in ContactPair^.Shapes[0].RigidBody.Flags then begin
-     glColor4f(1.0-f,f,f,1.0);
-    end else begin
-     glColor4f(1.0,1.0,0.0,1.0);
-    end;
-    glBegin(GL_POINTS);
+     if krbfAwake in ContactPair^.Shapes[0].RigidBody.Flags then begin
+      glColor4f(0.0,f,1.0-f,1.0);
+     end else begin
+      glColor4f(0.0,1.0,0.0,1.0);
+     end;
+     glBegin(GL_POINTS);
 {$ifdef UseDouble}
-    glVertex3dv(@SolverContact^.Point);
+     glVertex3fd(@SolverContactManifold.Points[0]);
+     glVertex3fd(@SolverContactManifold.Points[1]);
 {$else}
-    glVertex3fv(@SolverContact^.Point);
+     glVertex3fv(@SolverContactManifold.Points[0]);
+     glVertex3fv(@SolverContactManifold.Points[1]);
 {$endif}
-    glEnd;
+     glEnd;
 
-    if krbfAwake in ContactPair^.Shapes[0].RigidBody.Flags then begin
-     glColor4f(1.0,1.0,1.0,1.0);
+     if krbfAwake in ContactPair^.Shapes[0].RigidBody.Flags then begin
+      glColor4f(1.0,1.0,1.0,1.0);
+     end else begin
+      glColor4f(0.2,0.2,0.2,1.0);
+     end;
+     glBegin(GL_LINES);
+{$ifdef UseDouble}
+     glVertex3fd(@SolverContactManifold.Points[0]);
+     glVertex3fd(@SolverContactManifold.Points[1]);
+{$else}
+     glVertex3fv(@SolverContactManifold.Points[0]);
+     glVertex3fv(@SolverContactManifold.Points[1]);
+{$endif}
+     glEnd;
+
     end else begin
-     glColor4f(0.2,0.2,0.2,1.0);
+
+     if krbfAwake in ContactPair^.Shapes[0].RigidBody.Flags then begin
+      glColor4f(1.0-f,f,f,1.0);
+     end else begin
+      glColor4f(1.0,1.0,0.0,1.0);
+     end;
+     glBegin(GL_POINTS);
+{$ifdef UseDouble}
+     glVertex3dv(@SolverContact^.Point);
+{$else}
+     glVertex3fv(@SolverContact^.Point);
+{$endif}
+     glEnd;
+
+     if krbfAwake in ContactPair^.Shapes[0].RigidBody.Flags then begin
+      glColor4f(1.0,1.0,1.0,1.0);
+     end else begin
+      glColor4f(0.2,0.2,0.2,1.0);
+     end;
+     glBegin(GL_LINES);
+{$ifdef UseDouble}
+     glVertex3dv(@SolverContact^.Point);
+{$else}
+     glVertex3fv(@SolverContact^.Point);
+{$endif}
+     glVertex3f(SolverContact^.Point.x+(SolverContactManifold.Normal.x*SolverContact^.Separation),
+                SolverContact^.Point.y+(SolverContactManifold.Normal.y*SolverContact^.Separation),
+                SolverContact^.Point.z+(SolverContactManifold.Normal.z*SolverContact^.Separation));
+     glEnd;
+
     end;
-    glBegin(GL_LINES);
-    glVertex3fv(@SolverContact^.Point);
-    glVertex3f(SolverContact^.Point.x+(SolverContactManifold.Normal.x*SolverContact^.Separation),
-               SolverContact^.Point.y+(SolverContactManifold.Normal.y*SolverContact^.Separation),
-               SolverContact^.Point.z+(SolverContactManifold.Normal.z*SolverContact^.Separation));
-    glEnd;
 
    end;
 
@@ -27062,6 +27405,10 @@ begin
  SetLength(PositionStates,64);
  CountPositionStates:=0;
 
+ SpeculativeContactStates:=nil;
+ SetLength(SpeculativeContactStates,64);
+ CountSpeculativeContactStates:=0;
+
  CountContacts:=0;
 
 end;
@@ -27072,6 +27419,7 @@ begin
  SetLength(Positions,0);
  SetLength(VelocityStates,0);
  SetLength(PositionStates,0);
+ SetLength(SpeculativeContactStates,0);
  inherited Destroy;
 end;
 
@@ -27090,6 +27438,7 @@ var ContactPairIndex,ContactIndex:longint;
     ContactPair:PKraftContactPair;
     Contact:PKraftContact;
     ContactPoint:PKraftSolverVelocityStateContactPoint;
+    SpeculativeContactState:PKraftSolverSpeculativeContactState;
 begin
 
  if Island.CountRigidBodies>length(Velocities) then begin
@@ -27113,6 +27462,13 @@ begin
   SetLength(PositionStates,CountContacts*2);
  end;
  CountPositionStates:=CountContacts;
+
+ CountSpeculativeContacts:=Island.CountSpeculativeContactPairs;
+
+ if CountSpeculativeContacts>length(SpeculativeContactStates) then begin
+  SetLength(SpeculativeContactStates,CountSpeculativeContacts*2);
+ end;
+ CountSpeculativeContactStates:=CountSpeculativeContacts;
 
  for ContactPairIndex:=0 to CountContacts-1 do begin
 
@@ -27146,6 +27502,9 @@ begin
   PositionState^.Indices[1]:=ContactPair^.RigidBodies[1].IslandIndices[Island.IslandIndex];
   PositionState^.CountPoints:=ContactPair^.Manifold.CountContacts;
 
+  VelocityState^.LostSpeculativeBounce:=ContactPair^.Manifold.LostSpeculativeBounce;
+  ContactPair^.Manifold.LostSpeculativeBounce:=0;
+    
   for ContactIndex:=0 to ContactPair^.Manifold.CountContacts-1 do begin
 
    Contact:=@ContactPair^.Manifold.Contacts[ContactIndex];
@@ -27174,6 +27533,33 @@ begin
 
  end;
 
+ for ContactPairIndex:=0 to CountSpeculativeContacts-1 do begin
+  ContactPair:=Island.SpeculativeContactPairs[ContactPairIndex];
+  Contact:=@ContactPair^.Manifold.Contacts[0];
+  SpeculativeContactState:=@SpeculativeContactStates[ContactPairIndex];
+  SpeculativeContactState^.Centers[0]:=ContactPair^.RigidBodies[0].Sweep.c0;
+  SpeculativeContactState^.Centers[1]:=ContactPair^.RigidBodies[1].Sweep.c0;
+  SpeculativeContactState^.LocalCenters[0]:=ContactPair^.RigidBodies[0].Sweep.LocalCenter;
+  SpeculativeContactState^.LocalCenters[1]:=ContactPair^.RigidBodies[1].Sweep.LocalCenter;
+  SpeculativeContactState^.WorldInverseInertiaTensors[0]:=ContactPair^.RigidBodies[0].WorldInverseInertiaTensor;
+  SpeculativeContactState^.WorldInverseInertiaTensors[1]:=ContactPair^.RigidBodies[1].WorldInverseInertiaTensor;
+  SpeculativeContactState^.InverseMasses[0]:=ContactPair^.RigidBodies[0].InverseMass;
+  SpeculativeContactState^.InverseMasses[1]:=ContactPair^.RigidBodies[1].InverseMass;
+  SpeculativeContactState^.Restitution:=ContactPair^.Restitution;
+  SpeculativeContactState^.Friction:=ContactPair^.Friction;
+  SpeculativeContactState^.Indices[0]:=ContactPair^.RigidBodies[0].IslandIndices[Island.IslandIndex];
+  SpeculativeContactState^.Indices[1]:=ContactPair^.RigidBodies[1].IslandIndices[Island.IslandIndex];
+  SpeculativeContactState^.LostSpeculativeBounce:=ContactPair^.Manifold.LostSpeculativeBounce;
+  SpeculativeContactState^.RelativePositions[0]:=Vector3Origin;
+  SpeculativeContactState^.RelativePositions[1]:=Vector3Origin;
+  SpeculativeContactState^.NormalImpulse:=Contact^.NormalImpulse;
+  SpeculativeContactState^.TangentImpulse[0]:=Contact^.TangentImpulse[0];
+  SpeculativeContactState^.TangentImpulse[1]:=Contact^.TangentImpulse[1];
+  SpeculativeContactState^.NormalMass:=0.0;
+  SpeculativeContactState^.TangentMass[0]:=0.0;
+  SpeculativeContactState^.TangentMass[1]:=0.0;
+ end;
+
 end;
 
 procedure TKraftSolver.InitializeConstraints;
@@ -27183,13 +27569,14 @@ var ContactPairIndex,ContactIndex,TangentIndex,IndexA,IndexB:longint;
     ContactPoint:PKraftSolverVelocityStateContactPoint;
     SolverContact:PKraftSolverContact;
     iA,iB:PKraftMatrix3x3;
-    mA,mB,NormalMass,TangentMass,dv:TKraftScalar;
+    mA,mB,NormalMass,TangentMass,dv,LostSpeculativeBounce,RestitutionBias:TKraftScalar;
     LocalCenterA,LocalCenterB,cA,vA,wA,rnA,rtA,cB,vB,wB,rnB,rtB,P,Temp:TKraftVector3;
     TangentVectors:array[0..1] of TKraftVector3;
     qA,qB:TKraftQuaternion;
     tA,tB:TKraftMatrix4x4;
     SolverContactManifold:TKraftSolverContactManifold;
     Normal,t0,t1:TKraftVector3;
+    SpeculativeContactState:PKraftSolverSpeculativeContactState;
 begin
 
  for ContactPairIndex:=0 to CountContacts-1 do begin
@@ -27238,6 +27625,8 @@ begin
 
   VelocityState^.Normal:=SolverContactManifold.Normal;
 
+  LostSpeculativeBounce:=VelocityState^.LostSpeculativeBounce/Max(1,SolverContactManifold.CountContacts);
+
   ComputeBasis(VelocityState^.Normal,TangentVectors[0],TangentVectors[1]);
 
   for ContactIndex:=0 to SolverContactManifold.CountContacts-1 do begin
@@ -27257,34 +27646,20 @@ begin
    NormalMass:=mA+mB+Vector3Dot(rnA,Vector3TermMatrixMul(rnA,iA^))+Vector3Dot(rnB,Vector3TermMatrixMul(rnB,iB^));
 
    if NormalMass>0.0 then begin
-{   if NormalMass<=EPSILON then begin
-     writeln('n ',ContactPoint^.NormalMass:1:8);
-    end;{}
     ContactPoint^.NormalMass:=1.0/NormalMass;
    end else begin
     ContactPoint^.NormalMass:=0.0;
    end;
 
    for TangentIndex:=0 to 1 do begin
-
     rtA:=Vector3Cross(TangentVectors[TangentIndex],ContactPoint^.RelativePositions[0]);
     rtB:=Vector3Cross(TangentVectors[TangentIndex],ContactPoint^.RelativePositions[1]);
-
     TangentMass:=mA+mB+Vector3Dot(rtA,Vector3TermMatrixMul(rtA,iA^))+Vector3Dot(rtB,Vector3TermMatrixMul(rtB,iB^));
-
     if TangentMass>0.0 then begin
-{    if TangentMass>1000.0 then begin
-      writeln('t ',TangentMass:1:8);
-     end;
-     writeln('t ',TangentMass:1:8);{}
-{    if TangentMass<=EPSILON then begin
-      writeln('t ',TangentMass:1:8);
-     end;{}
      ContactPoint^.TangentMass[TangentIndex]:=1.0/TangentMass;
     end else begin
      ContactPoint^.TangentMass[TangentIndex]:=0.0;
-    end;
-
+    end;    
    end;
 
    if PositionCorrectionMode=kpcmBaumgarte then begin
@@ -27293,6 +27668,8 @@ begin
     ContactPoint^.BaumgarteBias:=0.0;
    end;
 
+   ContactPoint^.BaumgarteBias:=ContactPoint^.BaumgarteBias+LostSpeculativeBounce;
+
    dv:=Vector3Dot(Vector3Sub(Vector3Add(vB,
                                         Vector3Cross(wB,
                                                      ContactPoint^.RelativePositions[1])),
@@ -27300,7 +27677,7 @@ begin
                                         Vector3Cross(wA,
                                                      ContactPoint^.RelativePositions[0]))),
                   VelocityState^.Normal);
-   if dv<-1.0 then begin
+   if dv<(-Physics.VelocityThreshold) then begin
     ContactPoint^.Bias:=ContactPoint^.BaumgarteBias-(VelocityState^.Restitution*dv);
    end else begin
     ContactPoint^.Bias:=ContactPoint^.BaumgarteBias;
@@ -27310,6 +27687,95 @@ begin
 
  end;
 
+ for ContactPairIndex:=0 to CountSpeculativeContacts-1 do begin
+
+  SpeculativeContactState:=@SpeculativeContactStates[ContactPairIndex];
+
+  IndexA:=SpeculativeContactState^.Indices[0];
+  IndexB:=SpeculativeContactState^.Indices[1];
+
+  iA:=@SpeculativeContactState^.WorldInverseInertiaTensors[0];
+  iB:=@SpeculativeContactState^.WorldInverseInertiaTensors[1];            
+
+  mA:=SpeculativeContactState^.InverseMasses[0];
+  mB:=SpeculativeContactState^.InverseMasses[1];
+
+  LocalCenterA:=SpeculativeContactState^.LocalCenters[0];
+  LocalCenterB:=SpeculativeContactState^.LocalCenters[1];
+
+  cA:=Positions[IndexA].Position;
+  qA:=Positions[IndexA].Orientation;
+  tA:=QuaternionToMatrix4x4(qA);
+  Temp:=Vector3Sub(cA,Vector3TermMatrixMulBasis(LocalCenterA,tA));
+  PKraftVector3(pointer(@tA[3,0]))^.xyz:=PKraftVector3(pointer(@Temp))^.xyz;
+
+  cB:=Positions[IndexB].Position;
+  qB:=Positions[IndexB].Orientation;
+  tB:=QuaternionToMatrix4x4(qB);
+  Temp:=Vector3Sub(cB,Vector3TermMatrixMulBasis(LocalCenterB,tB));
+  PKraftVector3(pointer(@tB[3,0]))^.xyz:=PKraftVector3(pointer(@Temp))^.xyz;
+
+  vA:=Velocities[IndexA].LinearVelocity;
+  wA:=Velocities[IndexA].AngularVelocity;
+
+  vB:=Velocities[IndexB].LinearVelocity;
+  wB:=Velocities[IndexB].AngularVelocity;
+
+  Island.SpeculativeContactPairs[ContactPairIndex]^.GetSolverContactManifold(SolverContactManifold,tA,tB,kcpcmmVelocitySolver);
+
+  SpeculativeContactState^.Normal:=SolverContactManifold.Normal;
+
+  SolverContact:=@SolverContactManifold.Contacts[0];
+
+  SpeculativeContactState^.RelativePositions[0]:=Vector3Sub(SolverContactManifold.Points[0],cA);
+  SpeculativeContactState^.RelativePositions[1]:=Vector3Sub(SolverContactManifold.Points[1],cB);
+
+  SpeculativeContactState^.Separation:=SolverContact^.Separation;
+
+  // Precalculate JM^-1JT for contact and friction constraints
+  rnA:=Vector3Cross(SpeculativeContactState^.RelativePositions[0],SpeculativeContactState^.Normal);
+  rnB:=Vector3Cross(SpeculativeContactState^.RelativePositions[1],SpeculativeContactState^.Normal);
+
+  NormalMass:=mA+mB+Vector3Dot(rnA,Vector3TermMatrixMul(rnA,iA^))+Vector3Dot(rnB,Vector3TermMatrixMul(rnB,iB^));
+
+  if NormalMass>0.0 then begin
+   SpeculativeContactState^.NormalMass:=1.0/NormalMass;
+  end else begin
+   SpeculativeContactState^.NormalMass:=0.0;
+  end;
+
+  for TangentIndex:=0 to 1 do begin
+   rtA:=Vector3Cross(TangentVectors[TangentIndex],SpeculativeContactState^.RelativePositions[0]);
+   rtB:=Vector3Cross(TangentVectors[TangentIndex],SpeculativeContactState^.RelativePositions[1]);
+   TangentMass:=mA+mB+Vector3Dot(rtA,Vector3TermMatrixMul(rtA,iA^))+Vector3Dot(rtB,Vector3TermMatrixMul(rtB,iB^));
+   if TangentMass>0.0 then begin
+    SpeculativeContactState^.TangentMass[TangentIndex]:=1.0/TangentMass;
+   end else begin
+    SpeculativeContactState^.TangentMass[TangentIndex]:=0.0;
+   end;
+  end;
+
+  // Precalculate speculative velocity
+  SpeculativeContactState^.SpeculativeVelocity:=-(SpeculativeContactState^.Separation/DeltaTime);
+
+  // Add in restitution bias to lost speculative bounce
+  RestitutionBias:=SpeculativeContactState^.LostSpeculativeBounce;
+  dv:=Vector3Dot(Vector3Sub(Vector3Add(vB,
+                                       Vector3Cross(wB,
+                                                    SpeculativeContactState^.RelativePositions[1])),
+                            Vector3Add(vA,
+                                       Vector3Cross(wA,
+                                                    SpeculativeContactState^.RelativePositions[0]))),
+                 SpeculativeContactState^.Normal);
+  SpeculativeContactState^.RestitutionBias:=RestitutionBias;
+  if dv<(-Physics.VelocityThreshold) then begin
+   RestitutionBias:=Max(RestitutionBias,-(SpeculativeContactState^.Restitution*dv));
+  end;
+  SpeculativeContactState^.LostSpeculativeBounce:=RestitutionBias;
+
+ end;
+
+
 end;
 
 procedure TKraftSolver.WarmStart;
@@ -27317,9 +27783,10 @@ var ContactPairIndex,ContactIndex,IndexA,IndexB,CountPoints:longint;
     VelocityState:PKraftSolverVelocityState;
     ContactPoint:PKraftSolverVelocityStateContactPoint;
     iA,iB:PKraftMatrix3x3;
-    mA,mB,dv:TKraftScalar;
+    mA,mB,dv,RestitutionBias:TKraftScalar;
     Normal,vA,wA,vB,wB,P:TKraftVector3;
     TangentVectors:array[0..1] of TKraftVector3;
+    SpeculativeContactState:PKraftSolverSpeculativeContactState;
 begin
 
  for ContactPairIndex:=0 to CountContacts-1 do begin
@@ -27363,12 +27830,62 @@ begin
                                          Vector3Cross(wA,
                                                       ContactPoint^.RelativePositions[0]))),
                    VelocityState^.Normal);
-    if dv<-1.0 then begin
+    if dv<(-Physics.VelocityThreshold) then begin
      ContactPoint^.Bias:=ContactPoint^.BaumgarteBias-(VelocityState^.Restitution*dv);
     end;
    end;
 
   end;
+
+  Velocities[IndexA].LinearVelocity:=vA;
+  Velocities[IndexA].AngularVelocity:=wA;
+  Velocities[IndexB].LinearVelocity:=vB;
+  Velocities[IndexB].AngularVelocity:=wB;
+
+ end;
+
+ for ContactPairIndex:=0 to CountSpeculativeContacts-1 do begin
+
+  SpeculativeContactState:=@SpeculativeContactStates[ContactPairIndex];
+
+  IndexA:=SpeculativeContactState^.Indices[0];
+  IndexB:=SpeculativeContactState^.Indices[1];
+  iA:=@SpeculativeContactState^.WorldInverseInertiaTensors[0];
+  iB:=@SpeculativeContactState^.WorldInverseInertiaTensors[1];
+  mA:=SpeculativeContactState^.InverseMasses[0];
+  mB:=SpeculativeContactState^.InverseMasses[1];
+  Normal:=SpeculativeContactState^.Normal;
+
+  ComputeBasis(Normal,TangentVectors[0],TangentVectors[1]);
+
+  vA:=Velocities[IndexA].LinearVelocity;
+  wA:=Velocities[IndexA].AngularVelocity;
+  vB:=Velocities[IndexB].LinearVelocity;
+  wB:=Velocities[IndexB].AngularVelocity;
+
+  P:=Vector3Add(Vector3ScalarMul(Normal,SpeculativeContactState^.NormalImpulse),
+                Vector3Add(Vector3ScalarMul(TangentVectors[0],SpeculativeContactState^.TangentImpulse[0]),
+                           Vector3ScalarMul(TangentVectors[1],SpeculativeContactState^.TangentImpulse[1])));
+
+  Vector3DirectSub(vA,Vector3ScalarMul(P,mA));
+  Vector3DirectSub(wA,Vector3TermMatrixMul(Vector3Cross(SpeculativeContactState^.RelativePositions[0],P),iA^));
+
+  Vector3DirectAdd(vB,Vector3ScalarMul(P,mB));
+  Vector3DirectAdd(wB,Vector3TermMatrixMul(Vector3Cross(SpeculativeContactState^.RelativePositions[1],P),iB^));
+
+  // Add in restitution bias to lost speculative bounce
+  RestitutionBias:=SpeculativeContactState^.RestitutionBias;
+  dv:=Vector3Dot(Vector3Sub(Vector3Add(vB,
+                                       Vector3Cross(wB,
+                                                    SpeculativeContactState^.RelativePositions[1])),
+                            Vector3Add(vA,
+                                       Vector3Cross(wA,
+                                                    SpeculativeContactState^.RelativePositions[0]))),
+                 SpeculativeContactState^.Normal);
+  if dv<(-Physics.VelocityThreshold) then begin
+   RestitutionBias:=Max(RestitutionBias,-(SpeculativeContactState^.Restitution*dv));
+  end;
+  SpeculativeContactState^.LostSpeculativeBounce:=RestitutionBias;
 
   Velocities[IndexA].LinearVelocity:=vA;
   Velocities[IndexA].AngularVelocity:=wA;
@@ -27685,16 +28202,101 @@ begin
 
 end;
 
+procedure TKraftSolver.SolveSpeculativeContactConstraints;
+var ContactPairIndex,TangentIndex,IndexA,IndexB:longint;
+    SpeculativeContactState:PKraftSolverSpeculativeContactState;
+    iA,iB:PKraftMatrix3x3;
+    mA,mB,Friction,Lambda,MaxLambda,vn,Old:TKraftScalar;
+    Normal,vA,wA,rA,vB,wB,rB,dv,P:TKraftVector3;
+    TangentVectors:array[0..1] of TKraftVector3;
+begin
+
+ for ContactPairIndex:=0 to CountSpeculativeContacts-1 do begin
+
+  SpeculativeContactState:=@SpeculativeContactStates[ContactPairIndex];
+  IndexA:=SpeculativeContactState^.Indices[0];
+  IndexB:=SpeculativeContactState^.Indices[1];
+  iA:=@SpeculativeContactState^.WorldInverseInertiaTensors[0];
+  iB:=@SpeculativeContactState^.WorldInverseInertiaTensors[1];
+  mA:=SpeculativeContactState^.InverseMasses[0];
+  mB:=SpeculativeContactState^.InverseMasses[1];
+  Normal:=SpeculativeContactState^.Normal;
+  Friction:=SpeculativeContactState^.Friction;
+  ComputeBasis(Normal,TangentVectors[0],TangentVectors[1]);
+
+  vA:=Velocities[IndexA].LinearVelocity;
+  wA:=Velocities[IndexA].AngularVelocity;
+  vB:=Velocities[IndexB].LinearVelocity;
+  wB:=Velocities[IndexB].AngularVelocity;    
+
+  rA:=SpeculativeContactState^.RelativePositions[0];
+  rB:=SpeculativeContactState^.RelativePositions[1];
+
+  if EnableFriction then begin
+
+   MaxLambda:=Friction*SpeculativeContactState^.NormalImpulse;
+
+   for TangentIndex:=0 to 1 do begin
+
+    dv:=Vector3Sub(Vector3Add(vB,Vector3Cross(wB,rB)),Vector3Add(vA,Vector3Cross(wA,rA)));
+
+    Lambda:=(-Vector3Dot(dv,TangentVectors[TangentIndex]))*SpeculativeContactState^.TangentMass[TangentIndex];
+
+    Old:=SpeculativeContactState^.TangentImpulse[TangentIndex];
+    SpeculativeContactState^.TangentImpulse[TangentIndex]:=Min(Max(Old+Lambda,-MaxLambda),MaxLambda);
+    Lambda:=SpeculativeContactState^.TangentImpulse[TangentIndex]-Old;
+
+    P:=Vector3ScalarMul(TangentVectors[TangentIndex],Lambda);
+
+    Vector3DirectSub(vA,Vector3ScalarMul(P,mA));
+    Vector3DirectSub(wA,Vector3TermMatrixMul(Vector3Cross(rA,P),iA^));
+
+    Vector3DirectAdd(vB,Vector3ScalarMul(P,mB));
+    Vector3DirectAdd(wB,Vector3TermMatrixMul(Vector3Cross(rB,P),iB^));
+
+   end;
+
+  end;
+
+  dv:=Vector3Sub(Vector3Add(vB,Vector3Cross(wB,rB)),Vector3Add(vA,Vector3Cross(wA,rA)));
+
+  vn:=Vector3Dot(dv,Normal);
+
+  Lambda:=SpeculativeContactState^.NormalMass*(SpeculativeContactState^.SpeculativeVelocity-vn);
+
+  Old:=SpeculativeContactState^.NormalImpulse;
+  SpeculativeContactState^.NormalImpulse:=Max(0.0,Old+Lambda);
+  Lambda:=SpeculativeContactState^.NormalImpulse-Old;
+
+  P:=Vector3ScalarMul(Normal,Lambda);
+
+  Vector3DirectSub(vA,Vector3ScalarMul(P,mA));
+  Vector3DirectSub(wA,Vector3TermMatrixMul(Vector3Cross(rA,P),iA^));
+
+  Vector3DirectAdd(vB,Vector3ScalarMul(P,mB));
+  Vector3DirectAdd(wB,Vector3TermMatrixMul(Vector3Cross(rB,P),iB^));
+
+  Velocities[IndexA].LinearVelocity:=vA;
+  Velocities[IndexA].AngularVelocity:=wA;
+  Velocities[IndexB].LinearVelocity:=vB;
+  Velocities[IndexB].AngularVelocity:=wB;
+
+ end;
+
+end;
+
 procedure TKraftSolver.StoreImpulses;
 var i,j:longint;
     VelocityState:PKraftSolverVelocityState;
     ContactPair:PKraftContactPair;
     Contact:PKraftContact;
     ContactPoint:PKraftSolverVelocityStateContactPoint;
+    SpeculativeContactState:PKraftSolverSpeculativeContactState;
 begin
  for i:=0 to CountContacts-1 do begin
   VelocityState:=@VelocityStates[i];
   ContactPair:=Island.ContactPairs[i];
+  ContactPair^.Manifold.LostSpeculativeBounce:=0.0;
   for j:=0 to VelocityState^.CountPoints-1 do begin
    Contact:=@ContactPair^.Manifold.Contacts[j];
    ContactPoint:=@VelocityState^.Points[j];
@@ -27702,6 +28304,15 @@ begin
    Contact^.TangentImpulse[0]:=ContactPoint^.TangentImpulse[0];
    Contact^.TangentImpulse[1]:=ContactPoint^.TangentImpulse[1];
   end;
+ end;
+ for i:=0 to CountSpeculativeContacts-1 do begin
+  SpeculativeContactState:=@SpeculativeContactStates[i];
+  ContactPair:=Island.SpeculativeContactPairs[i];
+  Contact:=@ContactPair^.Manifold.Contacts[0];
+  ContactPair^.Manifold.LostSpeculativeBounce:=SpeculativeContactState^.LostSpeculativeBounce;
+  Contact^.NormalImpulse:=SpeculativeContactState^.NormalImpulse;
+  Contact^.TangentImpulse[0]:=SpeculativeContactState^.TangentImpulse[0];
+  Contact^.TangentImpulse[1]:=SpeculativeContactState^.TangentImpulse[1];
  end;
 end;
 
@@ -27729,6 +28340,10 @@ begin
  SetLength(StaticContactPairs,64);
  CountStaticContactPairs:=0;
 
+ SpeculativeContactPairs:=nil;
+ SetLength(SpeculativeContactPairs,4096);
+ CountSpeculativeContactPairs:=0;
+
  Solver:=TKraftSolver.Create(Physics,self);
 
 end;
@@ -27739,6 +28354,7 @@ begin
  SetLength(Constraints,0);
  SetLength(ContactPairs,0);
  SetLength(StaticContactPairs,0);
+ SetLength(SpeculativeContactPairs,0);
  Solver.Free;
  inherited Destroy;
 end;
@@ -27749,6 +28365,7 @@ begin
  CountConstraints:=0;
  CountContactPairs:=0;
  CountStaticContactPairs:=0;
+ CountSpeculativeContactPairs:=0;
 end;
 
 function TKraftIsland.AddRigidBody(RigidBody:TKraftRigidBody):longint;
@@ -27778,21 +28395,29 @@ end;
 procedure TKraftIsland.AddContactPair(ContactPair:PKraftContactPair);
 begin
  ContactPair^.Island:=self;
- if (assigned(ContactPair^.RigidBodies[0]) and (ContactPair^.RigidBodies[0].RigidBodyType=krbtDynamic)) and
-    (assigned(ContactPair^.RigidBodies[1]) and (ContactPair^.RigidBodies[1].RigidBodyType=krbtDynamic)) then begin
-  // Dynamic vs dynamic (solving before dynamic vs static in a solver iteration)
-  if (CountContactPairs+1)>length(ContactPairs) then begin
-   SetLength(ContactPairs,(CountContactPairs+1)*2);
+ if ContactPair^.Manifold.ContactManifoldType=kcmtSpeculative then begin
+  if (CountSpeculativeContactPairs+1)>length(SpeculativeContactPairs) then begin
+   SetLength(SpeculativeContactPairs,(CountSpeculativeContactPairs+1)*2);
   end;
-  ContactPairs[CountContactPairs]:=ContactPair;
-  inc(CountContactPairs);
+  SpeculativeContactPairs[CountSpeculativeContactPairs]:=ContactPair;
+  inc(CountSpeculativeContactPairs);
  end else begin
-  // Dynamic vs static (solving after dynamic vs dynamic in a solver iteration)
-  if (CountStaticContactPairs+1)>length(StaticContactPairs) then begin
-   SetLength(StaticContactPairs,(CountStaticContactPairs+1)*2);
+  if (assigned(ContactPair^.RigidBodies[0]) and (ContactPair^.RigidBodies[0].RigidBodyType=krbtDynamic)) and
+     (assigned(ContactPair^.RigidBodies[1]) and (ContactPair^.RigidBodies[1].RigidBodyType=krbtDynamic)) then begin
+   // Dynamic vs dynamic (solving before dynamic vs static in a solver iteration)
+   if (CountContactPairs+1)>length(ContactPairs) then begin
+    SetLength(ContactPairs,(CountContactPairs+1)*2);
+   end;
+   ContactPairs[CountContactPairs]:=ContactPair;
+   inc(CountContactPairs);
+  end else begin
+   // Dynamic vs static (solving after dynamic vs dynamic in a solver iteration)
+   if (CountStaticContactPairs+1)>length(StaticContactPairs) then begin
+    SetLength(StaticContactPairs,(CountStaticContactPairs+1)*2);
+   end;
+   StaticContactPairs[CountStaticContactPairs]:=ContactPair;
+   inc(CountStaticContactPairs);
   end;
-  StaticContactPairs[CountStaticContactPairs]:=ContactPair;
-  inc(CountStaticContactPairs);
  end;
 end;
 
@@ -27940,20 +28565,25 @@ begin
    Constraint.InitializeConstraintsAndWarmStart(self,TimeStep);
   end;
  end;
- for Iteration:=1 to Physics.VelocityIterations do begin
-  for i:=0 to CountConstraints-1 do begin
-   Constraint:=Constraints[i];
-   if assigned(Constraint) and not (kcfBreaked in Constraint.Flags) then begin
-    if ((Constraint.Flags*[kcfActive,kcfBreakable,kcfBreaked])=[kcfActive,kcfBreakable]) and
-       ((Vector3Length(Constraint.GetReactionForce(TimeStep.InverseDeltaTime))>Constraint.BreakThresholdForce) or
-        (Vector3Length(Constraint.GetReactionTorque(TimeStep.InverseDeltaTime))>Constraint.BreakThresholdTorque)) then begin
-     Constraint.Flags:=Constraint.Flags+[kcfBreaked,kcfFreshBreaked];
-     continue;
+ for Iteration:=1 to Max(Physics.VelocityIterations,Physics.SpeculativeIterations) do begin
+  if Iteration<=Physics.VelocityIterations then begin
+   for i:=0 to CountConstraints-1 do begin
+    Constraint:=Constraints[i];
+    if assigned(Constraint) and not (kcfBreaked in Constraint.Flags) then begin
+     if ((Constraint.Flags*[kcfActive,kcfBreakable,kcfBreaked])=[kcfActive,kcfBreakable]) and
+        ((Vector3Length(Constraint.GetReactionForce(TimeStep.InverseDeltaTime))>Constraint.BreakThresholdForce) or
+         (Vector3Length(Constraint.GetReactionTorque(TimeStep.InverseDeltaTime))>Constraint.BreakThresholdTorque)) then begin
+      Constraint.Flags:=Constraint.Flags+[kcfBreaked,kcfFreshBreaked];
+      continue;
+     end;
+     Constraint.SolveVelocityConstraint(self,TimeStep);
     end;
-    Constraint.SolveVelocityConstraint(self,TimeStep);
    end;
+   Solver.SolveVelocityConstraints;
   end;
-  Solver.SolveVelocityConstraints;
+  if (Solver.CountSpeculativeContacts>0) and (Iteration<=Physics.SpeculativeIterations) then begin
+   Solver.SolveSpeculativeContactConstraints;
+  end;
  end;
  Solver.StoreImpulses;
 
@@ -28497,6 +29127,8 @@ begin
 
  SleepTimeThreshold:=0.5;
 
+ VelocityThreshold:=1.0;
+ 
  ContactBaumgarte:=0.2;
 
  ConstraintBaumgarte:=0.2;
@@ -28533,6 +29165,8 @@ begin
  VelocityIterations:=10;
 
  PositionIterations:=4;
+
+ SpeculativeIterations:=16;
 
  TimeOfImpactIterations:=20;
 
@@ -29799,7 +30433,7 @@ begin
   RigidBodies[0].Advance(MinimumAlpha);
   RigidBodies[1].Advance(MinimumAlpha);
 
-  MinimumContactPair^.DetectCollisions(ContactManager,TriangleShapes[0],0);
+  MinimumContactPair^.DetectCollisions(ContactManager,TriangleShapes[0],0,false,0.0);
 
   MinimumContactPair^.Flags:=MinimumContactPair^.Flags-[kcfTimeOfImpact];
   inc(MinimumContactPair^.TimeOfImpactCount);
@@ -29866,7 +30500,7 @@ begin
        OtherRigidBody.Advance(MinimumAlpha);
       end;
 
-      ContactPair^.DetectCollisions(ContactManager,TriangleShapes[0],0);
+      ContactPair^.DetectCollisions(ContactManager,TriangleShapes[0],0,false,0.0);
 
       if (not (kcfEnabled in ContactPair^.Flags)) or not (kcfColliding in ContactPair^.Flags) then begin
        OtherRigidBody.Sweep:=BackupSweeps[0];
