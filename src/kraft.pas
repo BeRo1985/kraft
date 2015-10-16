@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2015-10-16-06-55-0000                       *
+ *                        Version 2015-10-16-07-01-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -2195,7 +2195,7 @@ type PKraftForceMode=^TKraftForceMode;
        property Previous:TKraftConstraint read fPrevious;
        property Next:TKraftConstraint read fNext;
 
-       property Flags:TKraftConstraintFlags read fFlags;
+       property Flags:TKraftConstraintFlags read fFlags write fFlags;
 
        property BreakThresholdForce:TKraftScalar read fBreakThresholdForce write fBreakThresholdForce;
 
