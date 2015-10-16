@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2015-10-16-07-14-0000                       *
+ *                        Version 2015-10-16-12-15-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -979,6 +979,8 @@ type PKraftForceMode=^TKraftForceMode;
 
        procedure Finish;
 
+       function GetSignedDistance(const Position:TKraftVector3):TKraftScalar;
+
        function GetLocalFeatureSupportVertex(const Index:longint):TKraftVector3;
 
        function GetLocalFeatureSupportIndex(const Direction:TKraftVector3):longint;
@@ -1024,6 +1026,15 @@ type PKraftForceMode=^TKraftForceMode;
 
      TKraftMeshTriangles=array of TKraftMeshTriangle;
 
+     PKraftMeshNode=^TKraftMeshNode;
+     TKraftMeshNode=record
+      Children:array[0..1] of longint;
+      TriangleIndex:longint;
+      AABB:TKraftAABB;
+     end;
+
+     TKraftMeshNodes=array of TKraftMeshNode;
+
      PKraftMeshSkipListNode=^TKraftMeshSkipListNode;
      TKraftMeshSkipListNode=record
       SkipToNodeIndex:longint;
@@ -1050,10 +1061,15 @@ type PKraftForceMode=^TKraftForceMode;
        fTriangles:TKraftMeshTriangles;
        fCountTriangles:longint;
 
+       fNodes:TKraftMeshNodes;
+       fCountNodes:longint;
+
        fSkipListNodes:TKraftMeshSkipListNodes;
        fCountSkipListNodes:longint;
 
        fAABB:TKraftAABB;
+
+       fDoubleSided:boolean;
 
        procedure CalculateNormals;
 
@@ -1079,6 +1095,8 @@ type PKraftForceMode=^TKraftForceMode;
 
        procedure Finish;
 
+       function GetSignedDistance(const Position:TKraftVector3):TKraftScalar;
+       
        property AABB:TKraftAABB read fAABB;
 
       published
@@ -1097,9 +1115,14 @@ type PKraftForceMode=^TKraftForceMode;
        property Triangles:TKraftMeshTriangles read fTriangles;
        property CountTriangles:longint read fCountTriangles;
 
+       property Nodes:TKraftMeshNodes read fNodes;
+       property CountNodes:longint read fCountNodes;
+
        property SkipListNodes:TKraftMeshSkipListNodes read fSkipListNodes;
        property CountSkipListNodes:longint read fCountSkipListNodes;
 
+       property DoubleSided:boolean read fDoubleSided write fDoubleSided;
+       
      end;
 
      PKraftContactPair=^TKraftContactPair;
@@ -1187,6 +1210,8 @@ type PKraftForceMode=^TKraftForceMode;
        procedure SynchronizeProxies; virtual;
 
        procedure Finish; virtual;
+
+       function GetSignedDistance(const Position:TKraftVector3):TKraftScalar; virtual;
 
        function GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3; virtual;
 
@@ -1284,6 +1309,7 @@ type PKraftForceMode=^TKraftForceMode;
        destructor Destroy; override;
        procedure UpdateShapeAABB; override;
        procedure CalculateMassData; override;
+       function GetSignedDistance(const Position:TKraftVector3):TKraftScalar; override;
        function GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3; override;
        function GetLocalFeatureSupportVertex(const Index:longint):TKraftVector3; override;
        function GetLocalFeatureSupportIndex(const Direction:TKraftVector3):longint; override;
@@ -1306,6 +1332,7 @@ type PKraftForceMode=^TKraftForceMode;
        destructor Destroy; override;
        procedure UpdateShapeAABB; override;
        procedure CalculateMassData; override;
+       function GetSignedDistance(const Position:TKraftVector3):TKraftScalar; override;
        function GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3; override;
        function GetLocalFeatureSupportVertex(const Index:longint):TKraftVector3; override;
        function GetLocalFeatureSupportIndex(const Direction:TKraftVector3):longint; override;
@@ -1328,6 +1355,7 @@ type PKraftForceMode=^TKraftForceMode;
        destructor Destroy; override;
        procedure UpdateShapeAABB; override;
        procedure CalculateMassData; override;
+       function GetSignedDistance(const Position:TKraftVector3):TKraftScalar; override;
        function GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3; override;
        function GetLocalFeatureSupportVertex(const Index:longint):TKraftVector3; override;
        function GetLocalFeatureSupportIndex(const Direction:TKraftVector3):longint; override;
@@ -1350,6 +1378,7 @@ type PKraftForceMode=^TKraftForceMode;
        destructor Destroy; override;
        procedure UpdateShapeAABB; override;
        procedure CalculateMassData; override;
+       function GetSignedDistance(const Position:TKraftVector3):TKraftScalar; override;
        function GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3; override;
        function GetLocalFeatureSupportVertex(const Index:longint):TKraftVector3; override;
        function GetLocalFeatureSupportIndex(const Direction:TKraftVector3):longint; override;
@@ -1373,6 +1402,7 @@ type PKraftForceMode=^TKraftForceMode;
        destructor Destroy; override;
        procedure UpdateShapeAABB; override;
        procedure CalculateMassData; override;
+       function GetSignedDistance(const Position:TKraftVector3):TKraftScalar; override;
        function GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3; override;
        function GetLocalFeatureSupportVertex(const Index:longint):TKraftVector3; override;
        function GetLocalFeatureSupportIndex(const Direction:TKraftVector3):longint; override;
@@ -1393,6 +1423,7 @@ type PKraftForceMode=^TKraftForceMode;
        destructor Destroy; override;
        procedure UpdateShapeAABB; override;
        procedure CalculateMassData; override;
+       function GetSignedDistance(const Position:TKraftVector3):TKraftScalar; override;
        function GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3; override;
        function GetLocalFeatureSupportVertex(const Index:longint):TKraftVector3; override;
        function GetLocalFeatureSupportIndex(const Direction:TKraftVector3):longint; override;
@@ -3511,7 +3542,7 @@ function QuaternionInverse(const AQuaternion:TKraftQuaternion):TKraftQuaternion;
 function QuaternionAdd(const q1,q2:TKraftQuaternion):TKraftQuaternion;
 function QuaternionSub(const q1,q2:TKraftQuaternion):TKraftQuaternion;
 function QuaternionScalarMul(const q:TKraftQuaternion;const s:TKraftScalar):TKraftQuaternion;
-function QuaternionMul(const q1,q2:TKraftQuaternion):TKraftQuaternion; 
+function QuaternionMul(const q1,q2:TKraftQuaternion):TKraftQuaternion;
 function QuaternionRotateAroundAxis(const q1,q2:TKraftQuaternion):TKraftQuaternion; {$ifdef caninline}inline;{$endif}
 function QuaternionFromAxisAngle(const Axis:TKraftVector3;Angle:TKraftScalar):TKraftQuaternion; overload; {$ifdef caninline}inline;{$endif}
 function QuaternionFromSpherical(const Latitude,Longitude:TKraftScalar):TKraftQuaternion; {$ifdef caninline}inline;{$endif}
@@ -9178,7 +9209,6 @@ begin
                ((FromDirection.x*ToDirection.x)+(FromDirection.y*ToDirection.y)+(FromDirection.z*ToDirection.z));
 end;
 
-
 function AABBCost(const AABB:TKraftAABB):TKraftScalar; {$ifdef caninline}inline;{$endif}
 begin
 // result:=(AABB.Max.x-AABB.Min.x)+(AABB.Max.y-AABB.Min.y)+(AABB.Max.z-AABB.Min.z); // Manhattan distance
@@ -9343,6 +9373,18 @@ begin
                (abs((Direction.x*Diff.y)-(Direction.y*Diff.x))>((BoxExtents.x*abs(Direction.y))+(BoxExtents.y*abs(Direction.x))))));
 end;
 
+function ClosestPointToAABB(const AABB:TKraftAABB;const Point:TKraftVector3;const ClosestPointOnAABB:PKraftVector3=nil):TKraftScalar; {$ifdef caninline}inline;{$endif}
+var ClosestPoint:TKraftVector3;
+begin
+ ClosestPoint.x:=Min(Max(Point.x,AABB.Min.x),AABB.Max.x);
+ ClosestPoint.y:=Min(Max(Point.y,AABB.Min.y),AABB.Max.y);
+ ClosestPoint.z:=Min(Max(Point.z,AABB.Min.z),AABB.Max.z);
+ if assigned(ClosestPointOnAABB) then begin
+  ClosestPointOnAABB^:=ClosestPoint;
+ end;
+ result:=Vector3Dist(ClosestPoint,Point);
+end;
+
 function SphereFromAABB(const AABB:TKraftAABB):TKraftSphere; {$ifdef caninline}inline;{$endif}
 begin
  result.Center:=Vector3Avg(AABB.Min,AABB.Max);
@@ -9422,7 +9464,7 @@ begin
          IsPointsSameSide(p,p2,p0,Vector3Sub(p1,p0));
 end;
 
-function SquaredDistanceFromPointToTriangle(const p,a,b,c:TKraftVector3):TKraftScalar; overload;
+function SquaredDistanceFromPointToTriangle(const p,a,b,c:TKraftVector3):TKraftScalar;
 var ab,ac,bc,pa,pb,pc,ap,bp,cp,n:TKraftVector3;
     snom,sdenom,tnom,tdenom,unom,udenom,vc,vb,va,u,v,w:TKraftScalar;
 begin
@@ -10547,6 +10589,7 @@ type TKraftShapeTriangle=class(TKraftShapeConvexHull)
        destructor Destroy; override;
        procedure UpdateShapeAABB; override;
        procedure CalculateMassData; override;
+       function GetSignedDistance(const Position:TKraftVector3):TKraftScalar; override;
        function GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3; override;
        function GetLocalFeatureSupportVertex(const Index:longint):TKraftVector3; override;
        function GetLocalFeatureSupportIndex(const Direction:TKraftVector3):longint; override;
@@ -11559,7 +11602,7 @@ begin
 
  n:=Vector3Neg(v0);
  v1:=Vector3Sub(Vector3TermMatrixMul(ShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,TransformB)),TransformB),
-                    Vector3TermMatrixMul(ShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(v0,TransformA)),TransformA));
+                Vector3TermMatrixMul(ShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(v0,TransformA)),TransformA));
  if Vector3Dot(v1,n)<=0.0 then begin
   exit;
  end;
@@ -11571,7 +11614,7 @@ begin
  end;
 
  v2:=Vector3Sub(Vector3TermMatrixMul(ShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,TransformB)),TransformB),
-                    Vector3TermMatrixMul(ShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),TransformA)),TransformA));
+                Vector3TermMatrixMul(ShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),TransformA)),TransformA));
  if Vector3Dot(v2,n)<=0.0 then begin
   exit;
  end;
@@ -11587,7 +11630,7 @@ begin
  for Phase1Iteration:=1 to MPRMaximumIterations do begin
 
   v3:=Vector3Sub(Vector3TermMatrixMul(ShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,TransformB)),TransformB),
-                     Vector3TermMatrixMul(ShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),TransformA)),TransformA));
+                 Vector3TermMatrixMul(ShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),TransformA)),TransformA));
   if Vector3Dot(v3,n)<=0.0 then begin
    exit;
   end;
@@ -11622,7 +11665,7 @@ begin
     result:=true;
    end;
    v4:=Vector3Sub(Vector3TermMatrixMul(ShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,TransformB)),TransformB),
-                      Vector3TermMatrixMul(ShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),TransformA)),TransformA));
+                  Vector3TermMatrixMul(ShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),TransformA)),TransformA));
    if (Vector3Dot(Vector3Sub(v4,v3),n)<=MPRTolerance) or
       (Vector3Dot(v4,n)<=0.0) or
       (Phase2Iterations>MPRMaximumIterations) then begin
@@ -13082,7 +13125,7 @@ begin
   end;
   while Count>1 do begin
    First:=true;
-   MinCost:=3.4e+38;
+   MinCost:=MAX_SCALAR;
    iMin:=-1;
    jMin:=-1;
  {}/////////////////TOOPTIMIZE///////////////////
@@ -16922,12 +16965,12 @@ begin
    fSphere.Radius:=Max(fSphere.Radius,Vector3Length(Vector3Sub(fSphere.Center,fVertices[VertexIndex].Position)));
   end;
  end else begin
-  fAABB.Min.x:=3.4e+38;
-  fAABB.Min.y:=3.4e+38;
-  fAABB.Min.z:=3.4e+38;
-  fAABB.Max.x:=-3.4e+38;
-  fAABB.Max.y:=-3.4e+38;
-  fAABB.Max.z:=-3.4e+38;
+  fAABB.Min.x:=MAX_SCALAR;
+  fAABB.Min.y:=MAX_SCALAR;
+  fAABB.Min.z:=MAX_SCALAR;
+  fAABB.Max.x:=-MAX_SCALAR;
+  fAABB.Max.y:=-MAX_SCALAR;
+  fAABB.Max.z:=-MAX_SCALAR;
  end;
 
  fAngularMotionDisc:=Vector3Length(fSphere.Center)+fSphere.Radius;
@@ -17111,16 +17154,44 @@ begin
    fSphere.Radius:=Max(fSphere.Radius,Vector3Length(Vector3Sub(fSphere.Center,fVertices[VertexIndex].Position)));
   end;
  end else begin
-  fAABB.Min.x:=3.4e+38;
-  fAABB.Min.y:=3.4e+38;
-  fAABB.Min.z:=3.4e+38;
-  fAABB.Max.x:=-3.4e+38;
-  fAABB.Max.y:=-3.4e+38;
-  fAABB.Max.z:=-3.4e+38;
+  fAABB.Min.x:=MAX_SCALAR;
+  fAABB.Min.y:=MAX_SCALAR;
+  fAABB.Min.z:=MAX_SCALAR;
+  fAABB.Max.x:=-MAX_SCALAR;
+  fAABB.Max.y:=-MAX_SCALAR;
+  fAABB.Max.z:=-MAX_SCALAR;
  end;
 
  fAngularMotionDisc:=Vector3Length(fSphere.Center)+fSphere.Radius;
 
+end;
+
+function TKraftConvexHull.GetSignedDistance(const Position:TKraftVector3):TKraftScalar;
+var Index:longint;
+    Distance:TKraftScalar;
+begin
+ if fCountFaces>0 then begin
+  result:=PlaneVectorDistance(fFaces[0].Plane,Position);
+  for Index:=1 to fCountFaces-1 do begin
+   Distance:=PlaneVectorDistance(fFaces[Index].Plane,Position);
+   if result<Distance then begin
+    result:=Distance;
+   end;
+  end;
+  if result>=0.0 then begin
+   // Point lies on or outside convex hull
+   for Index:=0 to fCountFaces-1 do begin
+    Distance:=PlaneVectorDistance(fFaces[Index].Plane,Position);
+    if result>Distance then begin
+     result:=Distance;
+    end;
+   end;
+  end else begin
+   // Point lies inside convex hull
+  end;
+ end else begin
+  result:=MAX_SCALAR;
+ end;
 end;
 
 function TKraftConvexHull.GetLocalFeatureSupportVertex(const Index:longint):TKraftVector3;
@@ -17238,9 +17309,14 @@ begin
  fTriangles:=nil;
  fCountTriangles:=0;
 
+ fNodes:=nil;
+ fCountNodes:=0;
+
  fSkipListNodes:=nil;
  fCountSkipListNodes:=0;
 
+ fDoubleSided:=true;
+ 
  if assigned(fPhysics.fMeshLast) then begin
   fPhysics.fMeshLast.fNext:=self;
   fPrevious:=fPhysics.fMeshLast;
@@ -17261,6 +17337,8 @@ begin
  SetLength(fNormals,0);
 
  SetLength(fTriangles,0);
+
+ SetLength(fNodes,0);
 
  SetLength(fSkipListNodes,0);
 
@@ -18066,6 +18144,7 @@ begin
     end;
     SetLength(Nodes,CountNodes);
     begin
+     fCountNodes:=CountNodes;
      fCountSkipListNodes:=0;
      if Root>=0 then begin
       begin
@@ -18096,10 +18175,18 @@ begin
       end;
       begin
        // Pass 2 - Resize arrays
+       SetLength(fNodes,fCountNodes);
        SetLength(fSkipListNodes,fCountSkipListNodes);
       end;
       begin
        // Pass 3 - Fill arrays
+       for Index:=0 to CountNodes-1 do begin
+        Node:=@Nodes[Index];
+        fNodes[Index].Children[0]:=Node^.Children[0];
+        fNodes[Index].Children[1]:=Node^.Children[1];
+        fNodes[Index].TriangleIndex:=Node^.TriangleIndex;
+        fNodes[Index].AABB:=Node^.AABB;
+       end;          
        fCountSkipListNodes:=0;
        Stack[0]:=Root;
        Stack[1]:=0;
@@ -18181,6 +18268,106 @@ begin
   end;
  end;
 end;
+
+function TKraftMesh.GetSignedDistance(const Position:TKraftVector3):TKraftScalar;
+type PStackItem=^TStackItem;
+     TStackItem=record
+      NodeIndex:longint;
+      Distance:TKraftScalar;
+     end;
+     TStackItems=array[0..31] of TStackItem;
+var LocalStack:TStackItems;
+    LocalStackPointer,TriangleIndex:longint;
+    Node:PKraftMeshNode;
+    Triangle:PKraftMeshTriangle;
+    StackItem:PStackItem;
+    Distances:array[0..1] of TKraftScalar;
+    Distance,Thickness:TKraftScalar;
+begin
+ if fCountNodes>0 then begin
+  result:=MAX_SCALAR;
+  Thickness:=2.0*Physics.fLinearSlop;
+  StackItem:=@LocalStack[0];
+  StackItem^.NodeIndex:=0;
+  StackItem^.Distance:=ClosestPointToAABB(fNodes[0].AABB,Position)-Thickness;
+  LocalStackPointer:=2; 
+  while LocalStackPointer>0 do begin
+   dec(LocalStackPointer);
+   StackItem:=@LocalStack[LocalStackPointer];
+   if result>StackItem^.Distance then begin
+    result:=StackItem^.Distance;
+    if StackItem^.NodeIndex>=0 then begin
+     Node:=@fNodes[StackItem^.NodeIndex];
+     TriangleIndex:=Node^.TriangleIndex;
+     while TriangleIndex>=0 do begin
+      Triangle:=@fTriangles[TriangleIndex];
+      Distance:=sqrt(SquaredDistanceFromPointToTriangle(Position,fVertices[Triangle^.Vertices[0]],fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[2]]))-Thickness;
+      if (not fDoubleSided) and (PlaneVectorDistance(Triangle^.Plane,Position)<Thickness) then begin
+       Distance:=-Distance;
+      end;
+      if result>Distance then begin
+       result:=Distance;
+      end;
+      TriangleIndex:=Triangle^.Next;
+     end;
+     if (Node^.Children[0]>=0) and (Node^.Children[1]>=0) then begin
+      Distances[0]:=ClosestPointToAABB(fNodes[Node^.Children[0]].AABB,Position)-Thickness;
+      Distances[1]:=ClosestPointToAABB(fNodes[Node^.Children[1]].AABB,Position)-Thickness;
+      if Distances[0]<Distances[1] then begin
+       if Distances[0]<result then begin
+        StackItem:=@LocalStack[LocalStackPointer];
+        inc(LocalStackPointer);
+        StackItem^.NodeIndex:=Node^.Children[0];
+        StackItem^.Distance:=Distances[0];
+       end;
+       if Distances[1]<result then begin
+        StackItem:=@LocalStack[LocalStackPointer];
+        inc(LocalStackPointer);
+        StackItem^.NodeIndex:=Node^.Children[1];
+        StackItem^.Distance:=Distances[1];
+       end;
+      end else begin
+       if Distances[1]<result then begin
+        StackItem:=@LocalStack[LocalStackPointer];
+        inc(LocalStackPointer);
+        StackItem^.NodeIndex:=Node^.Children[1];
+        StackItem^.Distance:=Distances[1];
+       end;
+       if Distances[1]<result then begin
+        StackItem:=@LocalStack[LocalStackPointer];
+        inc(LocalStackPointer);
+        StackItem^.NodeIndex:=Node^.Children[0];
+        StackItem^.Distance:=Distances[0];
+       end;
+      end;
+     end else begin
+      if Node^.Children[0]>=0 then begin
+       Distances[0]:=ClosestPointToAABB(fNodes[Node^.Children[0]].AABB,Position)-Thickness;
+       if Distances[0]<result then begin
+        StackItem:=@LocalStack[LocalStackPointer];
+        inc(LocalStackPointer);
+        StackItem^.NodeIndex:=Node^.Children[0];
+        StackItem^.Distance:=Distances[0];
+       end;
+      end;
+      if Node^.Children[1]>=0 then begin
+       Distances[1]:=ClosestPointToAABB(fNodes[Node^.Children[1]].AABB,Position)-Thickness;
+       if Distances[1]<result then begin
+        StackItem:=@LocalStack[LocalStackPointer];
+        inc(LocalStackPointer);
+        StackItem^.NodeIndex:=Node^.Children[1];
+        StackItem^.Distance:=Distances[1];
+       end;
+      end;
+     end;
+    end;
+   end;
+  end;
+ end else begin
+  result:=0;
+ end;
+end;
+
 
 constructor TKraftShape.Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody);
 begin
@@ -18465,6 +18652,11 @@ begin
  fAngularMotionDisc:=Vector3Length(fShapeSphere.Center)+fShapeSphere.Radius;
 end;
 
+function TKraftShape.GetSignedDistance(const Position:TKraftVector3):TKraftScalar;
+begin
+ result:=0.0;
+end;
+
 function TKraftShape.GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3;
 begin
  result:=Vector3Origin;
@@ -18551,6 +18743,11 @@ begin
  fMassData.Center.y:=fLocalTransform[3,1];
  fMassData.Center.z:=fLocalTransform[3,2];
  Matrix3x3Add(fMassData.Inertia,InertiaTensorParallelAxisTheorem(fMassData.Center,fMassData.Mass));
+end;
+
+function TKraftShapeSphere.GetSignedDistance(const Position:TKraftVector3):TKraftScalar;
+begin
+ result:=Vector3Length(Vector3TermMatrixMulInverted(Position,fWorldTransform))-fRadius;
 end;
 
 function TKraftShapeSphere.GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3;
@@ -18756,6 +18953,23 @@ begin
                                     InertiaTensorParallelAxisTheorem(fMassData.Center,fMassData.Mass));
 end;
 {$endif}
+
+function TKraftShapeCapsule.GetSignedDistance(const Position:TKraftVector3):TKraftScalar;
+var p,a,b,pa,ba:TKraftVector3;
+    HalfHeight:TKraftScalar;
+begin
+ HalfHeight:=fHeight*0.5;
+ p:=Vector3TermMatrixMulInverted(Position,fWorldTransform);
+ a.x:=0.0;
+ a.y:=-HalfHeight;
+ a.z:=0.0;
+ b.x:=0.0;
+ b.y:=HalfHeight;
+ b.z:=0.0;
+ pa:=Vector3Sub(p,a);
+ ba:=Vector3Sub(b,a);
+ result:=Vector3Length(Vector3Sub(pa,Vector3ScalarMul(b,Min(Max(Vector3Dot(pa,ba)/Vector3Dot(ba,ba),0.0),1.0))))-fRadius;
+end;
 
 function TKraftShapeCapsule.GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3;
 var Normal,p0,p1:TKraftVector3;
@@ -19033,6 +19247,11 @@ begin
  fMassData.Inertia[2,2]:=fMassData.Inertia[2,2]*fDensity;
 end;
 
+function TKraftShapeConvexHull.GetSignedDistance(const Position:TKraftVector3):TKraftScalar;
+begin
+ result:=fConvexHull.GetSignedDistance(Vector3TermMatrixMulInverted(Position,fWorldTransform));
+end;
+
 function TKraftShapeConvexHull.GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3;
 begin
  result:=fConvexHull.GetLocalFullSupport(Vector3SafeNorm(Direction));
@@ -19241,6 +19460,71 @@ begin
  fMassData.Center.z:=fLocalTransform[3,2];
  fMassData.Inertia:=Matrix3x3TermAdd(InertiaTensorTransform(fMassData.Inertia,Matrix3x3(fLocalTransform)),
                                     InertiaTensorParallelAxisTheorem(fMassData.Center,fMassData.Mass));
+end;
+
+function TKraftShapeBox.GetSignedDistance(const Position:TKraftVector3):TKraftScalar;
+var ClosestBoxPoint,Temp,Direction:TKraftVector3;
+    Overlap:longint;
+begin
+ result:=0;
+ ClosestBoxPoint:=Vector3TermMatrixMulInverted(Position,fWorldTransform);
+ if ClosestBoxPoint.x<-Extents.x then begin
+  result:=result+sqr(ClosestBoxPoint.x-(-Extents.x));
+  ClosestBoxPoint.x:=-Extents.x;
+  Overlap:=0;
+ end else if ClosestBoxPoint.x>Extents.x then begin
+  result:=result+sqr(ClosestBoxPoint.x-Extents.x);
+  ClosestBoxPoint.x:=Extents.x;
+  Overlap:=0;
+ end else begin
+  Overlap:=1;
+ end;
+ if ClosestBoxPoint.y<-Extents.y then begin
+  result:=result+sqr(ClosestBoxPoint.y-(-Extents.y));
+  ClosestBoxPoint.y:=-Extents.y;
+ end else if ClosestBoxPoint.y>Extents.y then begin
+  result:=result+sqr(ClosestBoxPoint.y-Extents.y);
+  ClosestBoxPoint.y:=Extents.y;
+ end else begin
+  Overlap:=Overlap or 2;
+ end;
+ if ClosestBoxPoint.z<-Extents.z then begin
+  result:=result+sqr(ClosestBoxPoint.z-(-Extents.z));
+  ClosestBoxPoint.z:=-Extents.z;
+ end else if ClosestBoxPoint.z>Extents.z then begin
+  result:=result+sqr(ClosestBoxPoint.z-Extents.z);
+  ClosestBoxPoint.z:=Extents.z;
+ end else begin
+  Overlap:=Overlap or 3;
+ end;
+ if Overlap<>7 then begin
+  result:=sqrt(result);
+ end else begin
+  Temp:=ClosestBoxPoint;
+  Direction.x:=ClosestBoxPoint.x/Extents.x;
+  Direction.y:=ClosestBoxPoint.y/Extents.y;
+  Direction.z:=ClosestBoxPoint.z/Extents.z;
+  if (abs(Direction.x)>abs(Direction.y)) and (abs(Direction.x)>abs(Direction.z)) then begin
+   if Direction.x<0.0 then begin
+    ClosestBoxPoint.x:=-Extents.x;
+   end else begin
+    ClosestBoxPoint.x:=Extents.x;
+   end;
+  end else if (abs(Direction.y)>abs(Direction.x)) and (abs(Direction.y)>abs(Direction.z)) then begin
+   if Direction.y<0.0 then begin
+    ClosestBoxPoint.y:=-Extents.y;
+   end else begin
+    ClosestBoxPoint.y:=Extents.y;
+   end;
+  end else begin
+   if Direction.z<0.0 then begin
+    ClosestBoxPoint.z:=-Extents.z;
+   end else begin
+    ClosestBoxPoint.z:=Extents.z;
+   end;
+  end;
+  result:=-Vector3Dist(ClosestBoxPoint,Temp);
+ end;
 end;
 
 function TKraftShapeBox.GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3;
@@ -19506,6 +19790,11 @@ end;
 
 procedure TKraftShapePlane.CalculateMassData;
 begin
+end;
+
+function TKraftShapePlane.GetSignedDistance(const Position:TKraftVector3):TKraftScalar;
+begin
+ result:=Vector3Dot(Plane.Normal,Vector3TermMatrixMulInverted(Position,fWorldTransform))+Plane.Distance;
 end;
 
 function TKraftShapePlane.GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3;
@@ -19800,6 +20089,14 @@ begin
  fFeatureRadius:=0.0;
 end;
 
+function TKraftShapeTriangle.GetSignedDistance(const Position:TKraftVector3):TKraftScalar;
+begin
+ result:=sqrt(SquaredDistanceFromPointToTriangle(Vector3TermMatrixMulInverted(Position,fWorldTransform),
+                                                 fConvexHull.fVertices[0].Position,
+                                                 fConvexHull.fVertices[1].Position,
+                                                 fConvexHull.fVertices[2].Position))-(2.0*Physics.fLinearSlop);
+end;
+
 function TKraftShapeTriangle.GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3;
 var i:longint;
     Vertices:PPKraftConvexHullVertices;
@@ -19982,6 +20279,11 @@ procedure TKraftShapeMesh.CalculateMassData;
 begin
 end;
 
+function TKraftShapeMesh.GetSignedDistance(const Position:TKraftVector3):TKraftScalar;
+begin
+ result:=Mesh.GetSignedDistance(Vector3TermMatrixMulInverted(Position,fWorldTransform));
+end;
+
 function TKraftShapeMesh.GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3;
 begin
  result:=Vector3Origin;
@@ -20019,7 +20321,7 @@ begin
  Origin:=Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform);
  Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform));
  if Vector3LengthSquared(Direction)>EPSILON then begin
-  Nearest:=3.4e+38;
+  Nearest:=MAX_SCALAR;
   First:=true;
   SkipListNodeIndex:=0;  
   while SkipListNodeIndex<fMesh.fCountSkipListNodes do begin
@@ -20453,10 +20755,10 @@ var OldManifoldCountContacts:longint;
    // Deep contact, the more hard way, the followed code works also for shallow contacts, but GJK should be faster for shallow
    // contacts, I think.
 
-   BestClosestPointDistance:=3.4e+38;
+   BestClosestPointDistance:=MAX_SCALAR;
    HasBestClosestPoint:=false;
    BestClosestFaceIndex:=-1;
-   ClosestDistance:=3.4e+38;
+   ClosestDistance:=MAX_SCALAR;
    ClosestFaceIndex:=-1;
    InsideSphere:=true;
    Center:=Vector3TermMatrixMul(ShapeA.fLocalCentroid,ShapeA.fWorldTransform);
@@ -20890,7 +21192,7 @@ var OldManifoldCountContacts:longint;
 
    Transform:=Matrix4x4TermMulInverted(ShapeB.fWorldTransform,ShapeA.fWorldTransform);
    MaxFaceIndex:=-1;
-   MaxFaceSeparation:=-3.4e+38;
+   MaxFaceSeparation:=-MAX_SCALAR;
    for FaceIndex:=0 to ShapeB.fConvexHull.fCountFaces-1 do begin
     Face:=@ShapeB.fConvexHull.fFaces[FaceIndex];
     Plane:=PlaneFastTransform(Face^.Plane,Transform);
@@ -20905,7 +21207,7 @@ var OldManifoldCountContacts:longint;
    end;
 
    MaxEdgeIndex:=-1;
-   MaxEdgeSeparation:=-3.4e+38;
+   MaxEdgeSeparation:=-MAX_SCALAR;
    Ea:=Vector3Sub(CapsulePointEnd,CapsulePointStart);
    CenterB:=ShapeB.fLocalCenterOfMass;
    for EdgeIndex:=0 to ShapeB.fConvexHull.fCountEdges-1 do begin
@@ -21162,7 +21464,7 @@ var OldManifoldCountContacts:longint;
   begin
    Transform:=Matrix4x4TermMulSimpleInverted(HullA.fWorldTransform,HullB.fWorldTransform);
    MaxIndex:=-1;
-   MaxSeparation:=-3.4e+38;
+   MaxSeparation:=-MAX_SCALAR;
    for Index:=0 to HullA.fConvexHull.fCountFaces-1 do begin
     Plane:=PlaneFastTransform(HullA.fConvexHull.fFaces[Index].Plane,Transform);
     Separation:=PlaneVectorDistance(Plane,HullB.GetLocalFullSupport(Vector3Neg(Plane.Normal)));
@@ -21187,7 +21489,7 @@ var OldManifoldCountContacts:longint;
   begin
    MaxIndexA:=-1;
    MaxIndexB:=-1;
-   MaxSeparation:=-3.4e+38;
+   MaxSeparation:=-MAX_SCALAR;
    MaxNormal:=Vector3Origin;
    Transform:=Matrix4x4TermMulSimpleInverted(HullA.fWorldTransform,HullB.fWorldTransform);
    CenterA:=HullA.GetCenter(Transform);
@@ -21275,7 +21577,7 @@ var OldManifoldCountContacts:longint;
                                                                         ReferenceHull.fWorldTransform),
                                                         IncidentHull.fWorldTransform);
    result:=-1;
-   MinDot:=3.4e+38;
+   MinDot:=MAX_SCALAR;
    for i:=0 to IncidentHull.fConvexHull.fCountFaces-1 do begin
     Dot:=Vector3Dot(ReferenceNormal,IncidentHull.fConvexHull.fFaces[i].Plane.Normal);
 		if MinDot>Dot then begin
@@ -21527,14 +21829,14 @@ var OldManifoldCountContacts:longint;
    Manifold.CountContacts:=0;
 
    Manifold.FaceQueryAB.Index:=-1;
-   Manifold.FaceQueryAB.Separation:=3.4e+38;
+   Manifold.FaceQueryAB.Separation:=MAX_SCALAR;
 
    Manifold.FaceQueryBA.Index:=-1;
-   Manifold.FaceQueryBA.Separation:=3.4e+38;
+   Manifold.FaceQueryBA.Separation:=MAX_SCALAR;
 
    Manifold.EdgeQuery.IndexA:=-1;
    Manifold.EdgeQuery.IndexB:=-1;
-   Manifold.EdgeQuery.Separation:=3.4e+38;
+   Manifold.EdgeQuery.Separation:=MAX_SCALAR;
 
    Manifold.HaveData:=true;
 
@@ -31479,9 +31781,9 @@ var Hit:longbool;
      InsideSphere,InsidePolygon,HasBestClosestPoint:boolean;
      Face:PKraftConvexHullFace;
  begin
-  BestClosestPointDistance:=3.4e+38;
+  BestClosestPointDistance:=MAX_SCALAR;
   HasBestClosestPoint:=false;
-  ClosestDistance:=3.4e+38;
+  ClosestDistance:=MAX_SCALAR;
   ClosestFaceIndex:=-1;
   InsideSphere:=true;
   SphereCenter:=Vector3TermMatrixMulInverted(Sphere.Center,Shape.fWorldTransform);
