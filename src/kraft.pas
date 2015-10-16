@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2015-10-16-12-15-0000                       *
+ *                        Version 2015-10-16-13-40-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -9385,6 +9385,15 @@ begin
  result:=Vector3Dist(ClosestPoint,Point);
 end;
 
+function SquaredDistanceFromPointToAABB(const AABB:TKraftAABB;const Point:TKraftVector3):TKraftScalar; {$ifdef caninline}inline;{$endif}
+var ClosestPoint:TKraftVector3;
+begin
+ ClosestPoint.x:=Min(Max(Point.x,AABB.Min.x),AABB.Max.x);
+ ClosestPoint.y:=Min(Max(Point.y,AABB.Min.y),AABB.Max.y);
+ ClosestPoint.z:=Min(Max(Point.z,AABB.Min.z),AABB.Max.z);
+ result:=Vector3DistSquared(ClosestPoint,Point);
+end;
+
 function SphereFromAABB(const AABB:TKraftAABB):TKraftSphere; {$ifdef caninline}inline;{$endif}
 begin
  result.Center:=Vector3Avg(AABB.Min,AABB.Max);
@@ -18273,94 +18282,106 @@ function TKraftMesh.GetSignedDistance(const Position:TKraftVector3):TKraftScalar
 type PStackItem=^TStackItem;
      TStackItem=record
       NodeIndex:longint;
-      Distance:TKraftScalar;
+      SquaredDistance:TKraftScalar;
      end;
      TStackItems=array[0..31] of TStackItem;
 var LocalStack:TStackItems;
     LocalStackPointer,TriangleIndex:longint;
     Node:PKraftMeshNode;
-    Triangle:PKraftMeshTriangle;
+    Triangle,BestTriangle:PKraftMeshTriangle;
     StackItem:PStackItem;
-    Distances:array[0..1] of TKraftScalar;
-    Distance,Thickness:TKraftScalar;
+    SquaredDistances:array[0..1] of TKraftScalar;
+    SquaredDistance,SquaredThickness,SquaredThicknessEpsilon:TKraftScalar;
 begin
  if fCountNodes>0 then begin
   result:=MAX_SCALAR;
-  Thickness:=2.0*Physics.fLinearSlop;
-  StackItem:=@LocalStack[0];
+  BestTriangle:=nil;
+  if fDoubleSided then begin
+   SquaredThickness:=sqr(2.0*Physics.fLinearSlop);
+  end else begin
+   SquaredThickness:=0.0;
+  end;
+  SquaredThicknessEpsilon:=SquaredThickness+sqr(EPSILON);
+  LocalStackPointer:=0;
+  StackItem:=@LocalStack[LocalStackPointer];
+  inc(LocalStackPointer);
   StackItem^.NodeIndex:=0;
-  StackItem^.Distance:=ClosestPointToAABB(fNodes[0].AABB,Position)-Thickness;
-  LocalStackPointer:=2; 
+  StackItem^.SquaredDistance:=SquaredDistanceFromPointToAABB(fNodes[0].AABB,Position);
   while LocalStackPointer>0 do begin
    dec(LocalStackPointer);
    StackItem:=@LocalStack[LocalStackPointer];
-   if result>StackItem^.Distance then begin
-    result:=StackItem^.Distance;
+   if (StackItem^.SquaredDistance-SquaredThicknessEpsilon)<result then begin
     if StackItem^.NodeIndex>=0 then begin
      Node:=@fNodes[StackItem^.NodeIndex];
      TriangleIndex:=Node^.TriangleIndex;
      while TriangleIndex>=0 do begin
       Triangle:=@fTriangles[TriangleIndex];
-      Distance:=sqrt(SquaredDistanceFromPointToTriangle(Position,fVertices[Triangle^.Vertices[0]],fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[2]]))-Thickness;
-      if (not fDoubleSided) and (PlaneVectorDistance(Triangle^.Plane,Position)<Thickness) then begin
-       Distance:=-Distance;
-      end;
-      if result>Distance then begin
-       result:=Distance;
+      SquaredDistance:=SquaredDistanceFromPointToTriangle(Position,fVertices[Triangle^.Vertices[0]],fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[2]]);
+      if result>SquaredDistance then begin
+       result:=SquaredDistance;
+       BestTriangle:=Triangle;
       end;
       TriangleIndex:=Triangle^.Next;
      end;
      if (Node^.Children[0]>=0) and (Node^.Children[1]>=0) then begin
-      Distances[0]:=ClosestPointToAABB(fNodes[Node^.Children[0]].AABB,Position)-Thickness;
-      Distances[1]:=ClosestPointToAABB(fNodes[Node^.Children[1]].AABB,Position)-Thickness;
-      if Distances[0]<Distances[1] then begin
-       if Distances[0]<result then begin
+      SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[0]].AABB,Position);
+      SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[1]].AABB,Position);
+      if SquaredDistances[0]<SquaredDistances[1] then begin
+       if (SquaredDistances[0]-SquaredThicknessEpsilon)<result then begin
         StackItem:=@LocalStack[LocalStackPointer];
         inc(LocalStackPointer);
         StackItem^.NodeIndex:=Node^.Children[0];
-        StackItem^.Distance:=Distances[0];
+        StackItem^.SquaredDistance:=SquaredDistances[0];
        end;
-       if Distances[1]<result then begin
+       if (SquaredDistances[1]-SquaredThicknessEpsilon)<result then begin
         StackItem:=@LocalStack[LocalStackPointer];
         inc(LocalStackPointer);
         StackItem^.NodeIndex:=Node^.Children[1];
-        StackItem^.Distance:=Distances[1];
+        StackItem^.SquaredDistance:=SquaredDistances[1];
        end;
       end else begin
-       if Distances[1]<result then begin
+       if (SquaredDistances[1]-SquaredThicknessEpsilon)<result then begin
         StackItem:=@LocalStack[LocalStackPointer];
         inc(LocalStackPointer);
         StackItem^.NodeIndex:=Node^.Children[1];
-        StackItem^.Distance:=Distances[1];
+        StackItem^.SquaredDistance:=SquaredDistances[1];
        end;
-       if Distances[1]<result then begin
+       if (SquaredDistances[0]-SquaredThicknessEpsilon)<result then begin
         StackItem:=@LocalStack[LocalStackPointer];
         inc(LocalStackPointer);
         StackItem^.NodeIndex:=Node^.Children[0];
-        StackItem^.Distance:=Distances[0];
+        StackItem^.SquaredDistance:=SquaredDistances[0];
        end;
       end;
      end else begin
       if Node^.Children[0]>=0 then begin
-       Distances[0]:=ClosestPointToAABB(fNodes[Node^.Children[0]].AABB,Position)-Thickness;
-       if Distances[0]<result then begin
+       SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[0]].AABB,Position);
+       if (SquaredDistances[0]-SquaredThicknessEpsilon)<result then begin
         StackItem:=@LocalStack[LocalStackPointer];
         inc(LocalStackPointer);
         StackItem^.NodeIndex:=Node^.Children[0];
-        StackItem^.Distance:=Distances[0];
+        StackItem^.SquaredDistance:=SquaredDistances[0];
        end;
       end;
       if Node^.Children[1]>=0 then begin
-       Distances[1]:=ClosestPointToAABB(fNodes[Node^.Children[1]].AABB,Position)-Thickness;
-       if Distances[1]<result then begin
+       SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[1]].AABB,Position);
+       if (SquaredDistances[1]-SquaredThicknessEpsilon)<result then begin
         StackItem:=@LocalStack[LocalStackPointer];
         inc(LocalStackPointer);
         StackItem^.NodeIndex:=Node^.Children[1];
-        StackItem^.Distance:=Distances[1];
+        StackItem^.SquaredDistance:=SquaredDistances[1];
        end;
       end;
      end;
     end;
+   end;
+  end;
+  result:=sqrt(result);
+  if fDoubleSided then begin
+   result:=result-(2.0*Physics.fLinearSlop);
+  end else begin
+   if assigned(BestTriangle) and (PlaneVectorDistance(BestTriangle^.Plane,Position)<0.0) then begin
+    result:=-result;
    end;
   end;
  end else begin
