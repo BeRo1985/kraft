@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2015-10-16-07-01-0000                       *
+ *                        Version 2015-10-16-07-14-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -613,11 +613,11 @@ type PKraftForceMode=^TKraftForceMode;
        procedure Clear;
        procedure Add(const v:TKraftVector3;const fp:TKraftContactFeatureID); overload;
        procedure Add(const v:TKraftClipVertex); overload;
+       property Color:TKraftColor read fColor write fColor;
       published
        property Vertices:TKraftClipVertices read fVertices write fVertices;
        property Capacity:longint read fCapacity write fCapacity;
        property Count:longint read fCount write fCount;
-       property Color:TKraftColor read fColor write fColor;
      end;
 
      PKraftRaycastData=^TKraftRaycastData;
@@ -985,6 +985,14 @@ type PKraftForceMode=^TKraftForceMode;
 
        function GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3;
 
+       property Sphere:TKraftSphere read fSphere;
+
+       property AABB:TKraftAABB read fAABB;
+
+       property MassData:TKraftMassData read fMassData;
+
+       property Centroid:TKraftVector3 read fCentroid;
+
       published
 
        property Physics:TKraft read fPhysics;
@@ -1001,15 +1009,7 @@ type PKraftForceMode=^TKraftForceMode;
        property Edges:TKraftConvexHullEdges read fEdges;
        property CountEdges:longint read fCountEdges;
 
-       property Sphere:TKraftSphere read fSphere;
-
-       property AABB:TKraftAABB read fAABB;
-
        property AngularMotionDisc:TKraftScalar read fAngularMotionDisc;
-
-       property MassData:TKraftMassData read fMassData;
-
-       property Centroid:TKraftVector3 read fCentroid;
 
      end;
 
@@ -1079,6 +1079,8 @@ type PKraftForceMode=^TKraftForceMode;
 
        procedure Finish;
 
+       property AABB:TKraftAABB read fAABB;
+
       published
 
        property Physics:TKraft read fPhysics;
@@ -1097,8 +1099,6 @@ type PKraftForceMode=^TKraftForceMode;
 
        property SkipListNodes:TKraftMeshSkipListNodes read fSkipListNodes;
        property CountSkipListNodes:longint read fCountSkipListNodes;
-
-       property AABB:TKraftAABB read fAABB;
 
      end;
 
@@ -1218,6 +1218,20 @@ type PKraftForceMode=^TKraftForceMode;
 
        property InterpolatedWorldTransform:TKraftMatrix4x4 read fInterpolatedWorldTransform;
 
+       property ShapeAABB:TKraftAABB read fShapeAABB;
+
+       property ShapeSphere:TKraftSphere read fShapeSphere;
+
+       property WorldAABB:TKraftAABB read fWorldAABB;
+
+       property LastWorldAABB:TKraftAABB read fLastWorldAABB;
+
+       property LocalCenterOfMass:TKraftVector3 read fLocalCenterOfMass;
+
+       property LocalCentroid:TKraftVector3 read fLocalCentroid;
+
+       property MassData:TKraftMassData read fMassData;
+
       published
 
        property Physics:TKraft read fPhysics;
@@ -1241,20 +1255,6 @@ type PKraftForceMode=^TKraftForceMode;
        property SleepingAABBTreeProxy:longint read fSleepingAABBTreeProxy;
        property DynamicAABBTreeProxy:longint read fDynamicAABBTreeProxy;
        property KinematicAABBTreeProxy:longint read fKinematicAABBTreeProxy;
-
-       property ShapeAABB:TKraftAABB read fShapeAABB;
-
-       property ShapeSphere:TKraftSphere read fShapeSphere;
-
-       property WorldAABB:TKraftAABB read fWorldAABB;
-
-       property LastWorldAABB:TKraftAABB read fLastWorldAABB;
-
-       property LocalCenterOfMass:TKraftVector3 read fLocalCenterOfMass;
-
-       property LocalCentroid:TKraftVector3 read fLocalCentroid;
-
-       property MassData:TKraftMassData read fMassData;
 
        property AngularMotionDisc:TKraftScalar read fAngularMotionDisc;
 
@@ -1359,7 +1359,6 @@ type PKraftForceMode=^TKraftForceMode;
 {$ifdef DebugDraw}
        procedure Draw(const CameraMatrix:TKraftMatrix4x4); override;
 {$endif}
-      published
        property Extents:TKraftVector3 read fExtents;
      end;
 
@@ -1383,7 +1382,6 @@ type PKraftForceMode=^TKraftForceMode;
 {$ifdef DebugDraw}
        procedure Draw(const CameraMatrix:TKraftMatrix4x4); override;
 {$endif}
-      published
        property Plane:TKraftPlane read fPlane;
      end;
 
@@ -2023,6 +2021,20 @@ type PKraftForceMode=^TKraftForceMode;
        property ContactPairEdgeFirst:PKraftContactPairEdge read fContactPairEdgeFirst write fContactPairEdgeFirst;
        property ContactPairEdgeLast:PKraftContactPairEdge read fContactPairEdgeLast write fContactPairEdgeLast;
 
+       property WorldDisplacement:TKraftVector3 read fWorldDisplacement write fWorldDisplacement;
+
+       property Sweep:TKraftSweep read fSweep write fSweep;
+
+       property Gravity:TKraftVector3 read fGravity write fGravity;
+
+       property LinearVelocity:TKraftVector3 read fLinearVelocity write fLinearVelocity;
+       property AngularVelocity:TKraftVector3 read fAngularVelocity write fAngularVelocity;
+
+       property AngularMomentum:TKraftVector3 read GetAngularMomentum write SetAngularMomentum;
+
+       property Force:TKraftVector3 read fForce write fForce;
+       property Torque:TKraftVector3 read fTorque write fTorque;
+
       published
 
        property Physics:TKraft read fPhysics;
@@ -2057,12 +2069,6 @@ type PKraftForceMode=^TKraftForceMode;
 
        property Flags:TKraftRigidBodyFlags read fFlags write fFlags;
 
-       property WorldDisplacement:TKraftVector3 read fWorldDisplacement write fWorldDisplacement;
-
-       property Sweep:TKraftSweep read fSweep write fSweep;
-
-       property Gravity:TKraftVector3 read fGravity write fGravity;
-
        property TimeOfImpact:TKraftScalar read fTimeOfImpact write fTimeOfImpact;
 
        property NextOnIslandBuildStack:TKraftRigidBody read fNextOnIslandBuildStack write fNextOnIslandBuildStack;
@@ -2072,11 +2078,6 @@ type PKraftForceMode=^TKraftForceMode;
 
        property Mass:TKraftScalar read fMass write fMass;
        property InverseMass:TKraftScalar read fInverseMass write fInverseMass;
-
-       property LinearVelocity:TKraftVector3 read fLinearVelocity write fLinearVelocity;
-       property AngularVelocity:TKraftVector3 read fAngularVelocity write fAngularVelocity;
-
-       property AngularMomentum:TKraftVector3 read GetAngularMomentum write SetAngularMomentum;
 
        property MaximalLinearVelocity:TKraftScalar read fMaximalLinearVelocity write fMaximalLinearVelocity;
        property MaximalAngularVelocity:TKraftScalar read fMaximalAngularVelocity write fMaximalAngularVelocity;
@@ -2089,9 +2090,6 @@ type PKraftForceMode=^TKraftForceMode;
        property AngularVelocityAdditionalDamp:TKraftScalar read fAngularVelocityAdditionalDamp write fAngularVelocityAdditionalDamp;
        property LinearVelocityAdditionalDampThresholdSqr:TKraftScalar read fLinearVelocityAdditionalDampThresholdSqr write fLinearVelocityAdditionalDampThresholdSqr;
        property AngularVelocityAdditionalDampThresholdSqr:TKraftScalar read fAngularVelocityAdditionalDampThresholdSqr write fAngularVelocityAdditionalDampThresholdSqr;
-
-       property Force:TKraftVector3 read fForce write fForce;
-       property Torque:TKraftVector3 read fTorque write fTorque;
 
        property SleepTime:TKraftScalar read fSleepTime write fSleepTime;
 
@@ -3052,6 +3050,8 @@ type PKraftForceMode=^TKraftForceMode;
 
        function GetDistance(const ShapeA,ShapeB:TKraftShape):TKraftScalar;
 
+       property Gravity:TKraftVector3 read fGravity write fGravity;
+
       published
 
        property HighResolutionTimer:TKraftHighResolutionTimer read fHighResolutionTimer;
@@ -3118,8 +3118,6 @@ type PKraftForceMode=^TKraftForceMode;
        property AllowSleep:longbool read fAllowSleep write fAllowSleep;
 
        property AllowedPenetration:TKraftScalar read fAllowedPenetration write fAllowedPenetration;
-
-       property Gravity:TKraftVector3 read fGravity write fGravity;
 
        property MaximalLinearVelocity:TKraftScalar read fMaximalLinearVelocity write fMaximalLinearVelocity;
        property LinearVelocityThreshold:TKraftScalar read fLinearVelocityThreshold write fLinearVelocityThreshold;
