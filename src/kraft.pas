@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2015-10-16-13-40-0000                       *
+ *                        Version 2015-10-17-06-34-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -364,16 +364,15 @@ type PKraftForceMode=^TKraftForceMode;
        function FromMicroseconds(Time:int64):int64;
        function ToNanoseconds(Time:int64):int64;
        function FromNanoseconds(Time:int64):int64;
-      published
        property SecondInterval:int64 read fFrequency;
-       property Frequency:int64 read fFrequency write fFrequency;
-       property FrequencyShift:longint read fFrequencyShift write fFrequencyShift;
-       property FrameInterval:int64 read fFrameInterval write fFrameInterval;
-       property MillisecondInterval:int64 read fMillisecondInterval write fMillisecondInterval;
-       property TwoMillisecondsInterval:int64 read fTwoMillisecondsInterval write fTwoMillisecondsInterval;
-       property FourMillisecondsInterval:int64 read fFourMillisecondsInterval write fFourMillisecondsInterval;
-       property QuarterSecondInterval:int64 read fQuarterSecondInterval write fQuarterSecondInterval;
-       property HourInterval:int64 read fHourInterval write fHourInterval;
+       property Frequency:int64 read fFrequency;
+       property FrequencyShift:longint read fFrequencyShift;
+       property FrameInterval:int64 read fFrameInterval;
+       property MillisecondInterval:int64 read fMillisecondInterval;
+       property TwoMillisecondsInterval:int64 read fTwoMillisecondsInterval;
+       property FourMillisecondsInterval:int64 read fFourMillisecondsInterval;
+       property QuarterSecondInterval:int64 read fQuarterSecondInterval;
+       property HourInterval:int64 read fHourInterval;
      end;
 
      PKraftScalar=^TKraftScalar;
@@ -498,6 +497,28 @@ type PKraftForceMode=^TKraftForceMode;
       WarmStarting:longbool;
      end;
 
+     // This class does exist as workaround for FreePascal, which doesn't support TKraftVector3 as published property (but Delphi does it)
+     TKraftVector3Property=class
+      private
+       fVector:PKraftVector3;
+       function GetX:TKraftScalar;
+       function GetY:TKraftScalar;
+       function GetZ:TKraftScalar;
+       function GetVector:TKraftVector3;
+       procedure SetX(const NewValue:TKraftScalar);
+       procedure SetY(const NewValue:TKraftScalar);
+       procedure SetZ(const NewValue:TKraftScalar);
+       procedure SetVector(const NewVector:TKraftVector3);
+      public
+       constructor Create(AVector:PKraftVector3);
+       destructor Destroy; override;
+       property Vector:TKraftVector3 read GetVector write SetVector;
+      published
+       property x:TKraftScalar read GetX write SetX;
+       property y:TKraftScalar read GetY write SetY;
+       property z:TKraftScalar read GetZ write SetZ;
+     end;
+
      PKraftDynamicAABBTreeNode=^TKraftDynamicAABBTreeNode;
      TKraftDynamicAABBTreeNode=record
       AABB:TKraftAABB;
@@ -551,9 +572,8 @@ type PKraftForceMode=^TKraftForceMode;
        function ValidateMetrics:boolean;
        function Validate:boolean;
        function GetIntersectionProxy(const AABB:TKraftAABB):pointer;
-       property Nodes:PKraftDynamicAABBTreeNodes read fNodes;
-      published
        property Root:longint read fRoot;
+       property Nodes:PKraftDynamicAABBTreeNodes read fNodes;
        property NodeCount:longint read fNodeCount;
        property NodeCapacity:longint read fNodeCapacity;
        property FreeList:longint read fFreeList;
@@ -613,11 +633,10 @@ type PKraftForceMode=^TKraftForceMode;
        procedure Clear;
        procedure Add(const v:TKraftVector3;const fp:TKraftContactFeatureID); overload;
        procedure Add(const v:TKraftClipVertex); overload;
-       property Color:TKraftColor read fColor write fColor;
-      published
        property Vertices:TKraftClipVertices read fVertices write fVertices;
        property Capacity:longint read fCapacity write fCapacity;
        property Count:longint read fCount write fCount;
+       property Color:TKraftColor read fColor write fColor;
      end;
 
      PKraftRaycastData=^TKraftRaycastData;
@@ -715,9 +734,8 @@ type PKraftForceMode=^TKraftForceMode;
       public
        constructor Create(const AInstance:TKraftQuickHull);
        destructor Destroy; override;
-       property Point:TKraftQuickHullVector3D read fPoint write fPoint;
-      published
        property Instance:TKraftQuickHull read fInstance;
+       property Point:TKraftQuickHullVector3D read fPoint write fPoint;
        property Index:longint read fIndex write fIndex;
        property Previous:TKraftQuickHullVertex read fPrevious write fPrevious;
        property Next:TKraftQuickHullVertex read fNext write fNext;
@@ -786,13 +804,12 @@ type PKraftForceMode=^TKraftForceMode;
        function MergeAdjacentFace(const hedgeAdj:TKraftQuickHullHalfEdge;const Discarded:TList):longint;
        function AreaSquared(const hedge0,hedge1:TKraftQuickHullHalfEdge):double;
        procedure Triangulate(var NewFaces:TKraftQuickHullFaceList;const MinArea:double);
-       property Normal:TKraftQuickHullVector3D read fNormal write fNormal;
-       property Centroid:TKraftQuickHullVector3D read fCentroid write fCentroid;
-      published
        property Instance:TKraftQuickHull read fInstance;
        property Next:TKraftQuickHullFace read fNext write fNext;
        property he0:TKraftQuickHullHalfEdge read fhe0 write fhe0;
+       property Normal:TKraftQuickHullVector3D read fNormal write fNormal;
        property Area:double read fArea write fArea;
+       property Centroid:TKraftQuickHullVector3D read fCentroid write fCentroid;
        property PlaneOffset:double read fPlaneOffset write fPlaneOffset;
        property Index:longint read fIndex write fIndex;
        property CountVertices:longint read fCountVertices write fCountVertices;
@@ -817,7 +834,6 @@ type PKraftForceMode=^TKraftForceMode;
        function OppositeFace:TKraftQuickHullFace;
        function Length:double;
        function LengthSquared:double;
-      published
        property Instance:TKraftQuickHull read fInstance;
        property Vertex:TKraftQuickHullVertex read fVertex write fVertex;
        property Face:TKraftQuickHullFace read fFace write fFace;
@@ -877,20 +893,19 @@ type PKraftForceMode=^TKraftForceMode;
        procedure GetFaceIndices(out OutputFace:TKraftQuickHullOutputFace;const Face:TKraftQuickHullFace;const Flags:longint);
        procedure GetVertices(out OutputVertices:TKraftQuickHullVector3DArray);
        procedure GetFaces(out OutputFaces:TKraftQuickHullOutputFaces);
-       property VertexHashTable:TKraftQuickHullVertexHashTable read fVertexHashTable write fVertexHashTable;
-       property MinVertices:TKraftQuickHullThreeVertices read fMinVertices write fMinVertices;
-       property MaxVertices:TKraftQuickHullThreeVertices read fMaxVertices write fMaxVertices;
-       property NewFaces:TKraftQuickHullFaceList read fNewFaces write fNewFaces;
-       property Unclaimed:TKraftQuickHullVertexList read fUnclaimed write fUnclaimed;
-       property Claimed:TKraftQuickHullVertexList read fClaimed write fClaimed;
-      published
        property GarbageCollectedClassInstances:TList read fGarbageCollectedClassInstances write fGarbageCollectedClassInstances;
        property FindIndex:longint read fFindIndex write fFindIndex;
        property PointBuffer:TList read fPointBuffer write fPointBuffer;
-       property VertexPointIndices:TKraftQuickHullIntegerList read fVertexPointIndices write fVertexPointIndices;
-       property DiscardedFaces:TList read fDiscardedFaces write fDiscardedFaces;
-       property Faces:TList read fFaces write fFaces;
-       property Horizon:TList read fHorizon write fHorizon;
+       property VertexHashTable:TKraftQuickHullVertexHashTable read fVertexHashTable write fVertexHashTable;
+       property VertexPointIndices:TKraftQuickHullIntegerList read fVertexPointIndices;
+       property DiscardedFaces:TList read fDiscardedFaces;
+       property MinVertices:TKraftQuickHullThreeVertices read fMinVertices write fMinVertices;
+       property MaxVertices:TKraftQuickHullThreeVertices read fMaxVertices write fMaxVertices;
+       property Faces:TList read fFaces;
+       property Horizon:TList read fHorizon;
+       property NewFaces:TKraftQuickHullFaceList read fNewFaces write fNewFaces;
+       property Unclaimed:TKraftQuickHullVertexList read fUnclaimed write fUnclaimed;
+       property Claimed:TKraftQuickHullVertexList read fClaimed write fClaimed;
        property CountVertices:longint read fCountVertices write fCountVertices;
        property CountFaces:longint read fCountFaces write fCountFaces;
        property CountPoints:longint read fCountPoints write fCountPoints;
@@ -987,16 +1002,6 @@ type PKraftForceMode=^TKraftForceMode;
 
        function GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3;
 
-       property Sphere:TKraftSphere read fSphere;
-
-       property AABB:TKraftAABB read fAABB;
-
-       property MassData:TKraftMassData read fMassData;
-
-       property Centroid:TKraftVector3 read fCentroid;
-
-      published
-
        property Physics:TKraft read fPhysics;
 
        property Previous:TKraftConvexHull read fPrevious;
@@ -1011,7 +1016,15 @@ type PKraftForceMode=^TKraftForceMode;
        property Edges:TKraftConvexHullEdges read fEdges;
        property CountEdges:longint read fCountEdges;
 
+       property Sphere:TKraftSphere read fSphere;
+
+       property AABB:TKraftAABB read fAABB;
+
        property AngularMotionDisc:TKraftScalar read fAngularMotionDisc;
+
+       property MassData:TKraftMassData read fMassData;
+
+       property Centroid:TKraftVector3 read fCentroid;
 
      end;
 
@@ -1096,10 +1109,6 @@ type PKraftForceMode=^TKraftForceMode;
        procedure Finish;
 
        function GetSignedDistance(const Position:TKraftVector3):TKraftScalar;
-       
-       property AABB:TKraftAABB read fAABB;
-
-      published
 
        property Physics:TKraft read fPhysics;
 
@@ -1121,8 +1130,12 @@ type PKraftForceMode=^TKraftForceMode;
        property SkipListNodes:TKraftMeshSkipListNodes read fSkipListNodes;
        property CountSkipListNodes:longint read fCountSkipListNodes;
 
+       property AABB:TKraftAABB read fAABB;
+
+      published
+
        property DoubleSided:boolean read fDoubleSided write fDoubleSided;
-       
+
      end;
 
      PKraftContactPair=^TKraftContactPair;
@@ -1233,32 +1246,6 @@ type PKraftForceMode=^TKraftForceMode;
        procedure Draw(const CameraMatrix:TKraftMatrix4x4); virtual;
 {$endif}
 
-       property UserData:pointer read fUserData write fUserData;
-
-       property LocalTransform:TKraftMatrix4x4 read fLocalTransform write fLocalTransform;
-
-       property WorldTransform:TKraftMatrix4x4 read fWorldTransform;
-
-       property LastWorldTransform:TKraftMatrix4x4 read fLastWorldTransform;
-
-       property InterpolatedWorldTransform:TKraftMatrix4x4 read fInterpolatedWorldTransform;
-
-       property ShapeAABB:TKraftAABB read fShapeAABB;
-
-       property ShapeSphere:TKraftSphere read fShapeSphere;
-
-       property WorldAABB:TKraftAABB read fWorldAABB;
-
-       property LastWorldAABB:TKraftAABB read fLastWorldAABB;
-
-       property LocalCenterOfMass:TKraftVector3 read fLocalCenterOfMass;
-
-       property LocalCentroid:TKraftVector3 read fLocalCentroid;
-
-       property MassData:TKraftMassData read fMassData;
-
-      published
-
        property Physics:TKraft read fPhysics;
 
        property RigidBody:TKraftRigidBody read fRigidBody;
@@ -1268,6 +1255,49 @@ type PKraftForceMode=^TKraftForceMode;
        property ShapePrevious:TKraftShape read fShapePrevious;
        property ShapeNext:TKraftShape read fShapeNext;
 
+       property UserData:pointer read fUserData write fUserData;
+
+       property StaticAABBTreeProxy:longint read fStaticAABBTreeProxy write fStaticAABBTreeProxy;
+       property SleepingAABBTreeProxy:longint read fSleepingAABBTreeProxy write fSleepingAABBTreeProxy;
+       property DynamicAABBTreeProxy:longint read fDynamicAABBTreeProxy write fDynamicAABBTreeProxy;
+       property KinematicAABBTreeProxy:longint read fKinematicAABBTreeProxy write fKinematicAABBTreeProxy;
+
+       property ShapeAABB:TKraftAABB read fShapeAABB;
+
+       property ShapeSphere:TKraftSphere read fShapeSphere;
+
+       property WorldAABB:TKraftAABB read fWorldAABB write fWorldAABB;
+
+       property LastWorldAABB:TKraftAABB read fLastWorldAABB write fLastWorldAABB;
+
+       property LocalTransform:TKraftMatrix4x4 read fLocalTransform write fLocalTransform;
+
+       property LocalCenterOfMass:TKraftVector3 read fLocalCenterOfMass write fLocalCenterOfMass;
+
+       property LocalCentroid:TKraftVector3 read fLocalCentroid write fLocalCentroid;
+
+       property WorldTransform:TKraftMatrix4x4 read fWorldTransform write fWorldTransform;
+
+       property LastWorldTransform:TKraftMatrix4x4 read fLastWorldTransform write fLastWorldTransform;
+
+       property InterpolatedWorldTransform:TKraftMatrix4x4 read fInterpolatedWorldTransform write fInterpolatedWorldTransform;
+
+       property MassData:TKraftMassData read fMassData write fMassData;
+
+       property AngularMotionDisc:TKraftScalar read fAngularMotionDisc write fAngularMotionDisc;
+
+       property FeatureRadius:TKraftScalar read fFeatureRadius write fFeatureRadius;
+
+       property ContinuousMinimumRadiusScaleFactor:TKraftScalar read fContinuousMinimumRadiusScaleFactor write fContinuousMinimumRadiusScaleFactor;
+
+{$ifdef DebugDraw}
+       property DrawDisplayList:glUint read fDrawDisplayList write fDrawDisplayList;
+{$endif}
+
+       property IsMesh:longbool read fIsMesh write fIsMesh;
+
+      published
+
        property Flags:TKraftShapeFlags read fFlags write fFlags;
 
        property Friction:TKraftScalar read fFriction write fFriction;
@@ -1276,31 +1306,14 @@ type PKraftForceMode=^TKraftForceMode;
 
        property Density:TKraftScalar read fDensity write fDensity;
 
-       property StaticAABBTreeProxy:longint read fStaticAABBTreeProxy;
-       property SleepingAABBTreeProxy:longint read fSleepingAABBTreeProxy;
-       property DynamicAABBTreeProxy:longint read fDynamicAABBTreeProxy;
-       property KinematicAABBTreeProxy:longint read fKinematicAABBTreeProxy;
-
-       property AngularMotionDisc:TKraftScalar read fAngularMotionDisc;
-
-       property FeatureRadius:TKraftScalar read fFeatureRadius;
-
-       property ContinuousMinimumRadiusScaleFactor:TKraftScalar read fContinuousMinimumRadiusScaleFactor;
-
        property OnContactBegin:TKraftShapeOnContactBeginHook read fOnContactBegin write fOnContactBegin;
        property OnContactEnd:TKraftShapeOnContactEndHook read fOnContactEnd write fOnContactEnd;
        property OnContactStay:TKraftShapeOnContactStayHook read fOnContactStay write fOnContactStay;
 
-{$ifdef DebugDraw}
-       property DrawDisplayList:glUint read fDrawDisplayList;
-{$endif}
-
-       property IsMesh:longbool read fIsMesh;
-
      end;
 
      TKraftShapes=array of TKraftShape;
-     
+
      TKraftShapeSphere=class(TKraftShape)
       private
        fRadius:TKraftScalar;
@@ -1319,7 +1332,6 @@ type PKraftForceMode=^TKraftForceMode;
 {$ifdef DebugDraw}
        procedure Draw(const CameraMatrix:TKraftMatrix4x4); override;
 {$endif}
-      published
        property Radius:TKraftScalar read fRadius;
      end;
 
@@ -1342,7 +1354,6 @@ type PKraftForceMode=^TKraftForceMode;
 {$ifdef DebugDraw}
        procedure Draw(const CameraMatrix:TKraftMatrix4x4); override;
 {$endif}
-      published
        property Radius:TKraftScalar read fRadius;
        property Height:TKraftScalar read fHeight;
      end;
@@ -1365,7 +1376,6 @@ type PKraftForceMode=^TKraftForceMode;
 {$ifdef DebugDraw}
        procedure Draw(const CameraMatrix:TKraftMatrix4x4); override;
 {$endif}
-      published
        property ConvexHull:TKraftConvexHull read fConvexHull;
      end;
 
@@ -1433,7 +1443,6 @@ type PKraftForceMode=^TKraftForceMode;
 {$ifdef DebugDraw}
        procedure Draw(const CameraMatrix:TKraftMatrix4x4); override;
 {$endif}
-      published
        property Mesh:TKraftMesh read fMesh;
      end;
 
@@ -1777,8 +1786,6 @@ type PKraftForceMode=^TKraftForceMode;
 
        property FreeContactPairs:PKraftContactPair read fFreeContactPairs write fFreeContactPairs;
 
-      published
-
        property Physics:TKraft read fPhysics;
 
        property CountContactPairs:longint read fCountContactPairs;
@@ -1790,6 +1797,8 @@ type PKraftForceMode=^TKraftForceMode;
        property MeshContactPairLastFree:TKraftMeshContactPair read fMeshContactPairLastFree;
 
        property CountMeshContactPairs:longint read fCountMeshContactPairs;
+
+      published
 
        property OnContactBegin:TKraftContactManagerOnContactBeginHook read fOnContactBegin write fOnContactBegin;
        property OnContactEnd:TKraftContactManagerOnContactEndHook read fOnContactEnd write fOnContactEnd;
@@ -1896,6 +1905,8 @@ type PKraftForceMode=^TKraftForceMode;
        fSweep:TKraftSweep;
 
        fGravity:TKraftVector3;
+
+       fGravityProperty:TKraftVector3Property;
 
        fUserData:pointer;
 
@@ -2036,38 +2047,6 @@ type PKraftForceMode=^TKraftForceMode;
        procedure SetBodyAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
        procedure AddBodyAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
 
-       property WorldTransform:TKraftMatrix4x4 read fWorldTransform write fWorldTransform;
-
-       property UserData:pointer read fUserData write fUserData;
-
-       property BodyInertiaTensor:TKraftMatrix3x3 read fBodyInertiaTensor write fBodyInertiaTensor;
-       property BodyInverseInertiaTensor:TKraftMatrix3x3 read fBodyInverseInertiaTensor write fBodyInverseInertiaTensor;
-
-       property WorldInertiaTensor:TKraftMatrix3x3 read fWorldInertiaTensor write fWorldInertiaTensor;
-       property WorldInverseInertiaTensor:TKraftMatrix3x3 read fWorldInverseInertiaTensor write fWorldInverseInertiaTensor;
-
-       property ConstraintEdgeFirst:PKraftConstraintEdge read fConstraintEdgeFirst write fConstraintEdgeFirst;
-       property ConstraintEdgeLast:PKraftConstraintEdge read fConstraintEdgeLast write fConstraintEdgeLast;
-
-       property ContactPairEdgeFirst:PKraftContactPairEdge read fContactPairEdgeFirst write fContactPairEdgeFirst;
-       property ContactPairEdgeLast:PKraftContactPairEdge read fContactPairEdgeLast write fContactPairEdgeLast;
-
-       property WorldDisplacement:TKraftVector3 read fWorldDisplacement write fWorldDisplacement;
-
-       property Sweep:TKraftSweep read fSweep write fSweep;
-
-       property Gravity:TKraftVector3 read fGravity write fGravity;
-
-       property LinearVelocity:TKraftVector3 read fLinearVelocity write fLinearVelocity;
-       property AngularVelocity:TKraftVector3 read fAngularVelocity write fAngularVelocity;
-
-       property AngularMomentum:TKraftVector3 read GetAngularMomentum write SetAngularMomentum;
-
-       property Force:TKraftVector3 read fForce write fForce;
-       property Torque:TKraftVector3 read fTorque write fTorque;
-
-      published
-
        property Physics:TKraft read fPhysics;
 
        property Island:TKraftIsland read fIsland;
@@ -2075,8 +2054,6 @@ type PKraftForceMode=^TKraftForceMode;
        property IslandIndices:TKraftRigidBodyIslandIndices read fIslandIndices;
 
        property ID:uint64 read fID;
-
-       property RigidBodyType:TKraftRigidBodyType read fRigidBodyType write fRigidBodyType;
 
        property RigidBodyPrevious:TKraftRigidBody read fRigidBodyPrevious;
        property RigidBodyNext:TKraftRigidBody read fRigidBodyNext;
@@ -2098,17 +2075,55 @@ type PKraftForceMode=^TKraftForceMode;
 
        property ShapeCount:longint read fShapeCount write fShapeCount;
 
+       property WorldTransform:TKraftMatrix4x4 read fWorldTransform write fWorldTransform;
+
+       property UserData:pointer read fUserData write fUserData;
+
+       property BodyInertiaTensor:TKraftMatrix3x3 read fBodyInertiaTensor write fBodyInertiaTensor;
+       property BodyInverseInertiaTensor:TKraftMatrix3x3 read fBodyInverseInertiaTensor write fBodyInverseInertiaTensor;
+
+       property WorldInertiaTensor:TKraftMatrix3x3 read fWorldInertiaTensor write fWorldInertiaTensor;
+       property WorldInverseInertiaTensor:TKraftMatrix3x3 read fWorldInverseInertiaTensor write fWorldInverseInertiaTensor;
+
+       property ConstraintEdgeFirst:PKraftConstraintEdge read fConstraintEdgeFirst write fConstraintEdgeFirst;
+       property ConstraintEdgeLast:PKraftConstraintEdge read fConstraintEdgeLast write fConstraintEdgeLast;
+
+       property CountConstraints:longint read fCountConstraints;
+
+       property ContactPairEdgeFirst:PKraftContactPairEdge read fContactPairEdgeFirst write fContactPairEdgeFirst;
+       property ContactPairEdgeLast:PKraftContactPairEdge read fContactPairEdgeLast write fContactPairEdgeLast;
+
+       property WorldDisplacement:TKraftVector3 read fWorldDisplacement;
+
+       property Sweep:TKraftSweep read fSweep write fSweep;
+
+       property SleepTime:TKraftScalar read fSleepTime;
+
+       property Mass:TKraftScalar read fMass;
+       property InverseMass:TKraftScalar read fInverseMass;
+
+       property LinearVelocity:TKraftVector3 read fLinearVelocity write fLinearVelocity;
+       property AngularVelocity:TKraftVector3 read fAngularVelocity write fAngularVelocity;
+
+       property AngularMomentum:TKraftVector3 read GetAngularMomentum write SetAngularMomentum;
+
+       property Force:TKraftVector3 read fForce write fForce;
+       property Torque:TKraftVector3 read fTorque write fTorque;
+
+       property NextOnIslandBuildStack:TKraftRigidBody read fNextOnIslandBuildStack;
+       property NextStaticRigidBody:TKraftRigidBody read fNextStaticRigidBody;
+
+      published
+
+       property RigidBodyType:TKraftRigidBodyType read fRigidBodyType write fRigidBodyType;
+
        property Flags:TKraftRigidBodyFlags read fFlags write fFlags;
+
+       property Gravity:TKraftVector3Property read fGravityProperty write fGravityProperty;
 
        property TimeOfImpact:TKraftScalar read fTimeOfImpact write fTimeOfImpact;
 
-       property NextOnIslandBuildStack:TKraftRigidBody read fNextOnIslandBuildStack write fNextOnIslandBuildStack;
-       property NextStaticRigidBody:TKraftRigidBody read fNextStaticRigidBody write fNextStaticRigidBody;
-
        property ForcedMass:TKraftScalar read fForcedMass write fForcedMass;
-
-       property Mass:TKraftScalar read fMass write fMass;
-       property InverseMass:TKraftScalar read fInverseMass write fInverseMass;
 
        property MaximalLinearVelocity:TKraftScalar read fMaximalLinearVelocity write fMaximalLinearVelocity;
        property MaximalAngularVelocity:TKraftScalar read fMaximalAngularVelocity write fMaximalAngularVelocity;
@@ -2122,8 +2137,6 @@ type PKraftForceMode=^TKraftForceMode;
        property LinearVelocityAdditionalDampThresholdSqr:TKraftScalar read fLinearVelocityAdditionalDampThresholdSqr write fLinearVelocityAdditionalDampThresholdSqr;
        property AngularVelocityAdditionalDampThresholdSqr:TKraftScalar read fAngularVelocityAdditionalDampThresholdSqr write fAngularVelocityAdditionalDampThresholdSqr;
 
-       property SleepTime:TKraftScalar read fSleepTime write fSleepTime;
-
        property GravityScale:TKraftScalar read fGravityScale write fGravityScale;
 
        property EnableGyroscopicForce:longbool read fEnableGyroscopicForce write fEnableGyroscopicForce;
@@ -2133,8 +2146,6 @@ type PKraftForceMode=^TKraftForceMode;
        property CollisionGroups:TKraftRigidBodyCollisionGroups read fCollisionGroups write fCollisionGroups;
 
        property CollideWithCollisionGroups:TKraftRigidBodyCollisionGroups read fCollideWithCollisionGroups write fCollideWithCollisionGroups;
-
-       property CountConstraints:longint read fCountConstraints write fCountConstraints;
 
        property OnDamping:TKraftRigidBodyOnDamping read fOnDamping write fOnDamping;
 
@@ -2211,6 +2222,11 @@ type PKraftForceMode=^TKraftForceMode;
        function GetReactionForce(const InverseDeltaTime:TKraftScalar):TKraftVector3; virtual;
        function GetReactionTorque(const InverseDeltaTime:TKraftScalar):TKraftVector3; virtual;
 
+       property Physics:TKraft read fPhysics;
+
+       property Previous:TKraftConstraint read fPrevious;
+       property Next:TKraftConstraint read fNext;
+
        property UserData:pointer read fUserData write fUserData;
 
        property ConstraintEdges:TKraftConstraintEdges read fConstraintEdges write fConstraintEdges;
@@ -2218,11 +2234,6 @@ type PKraftForceMode=^TKraftForceMode;
        property RigidBodies:TKraftConstraintRigidBodies read fRigidBodies write fRigidBodies;
 
       published
-
-       property Physics:TKraft read fPhysics;
-
-       property Previous:TKraftConstraint read fPrevious;
-       property Next:TKraftConstraint read fNext;
 
        property Flags:TKraftConstraintFlags read fFlags write fFlags;
 
@@ -2374,7 +2385,6 @@ type PKraftForceMode=^TKraftForceMode;
        function GetAnchorB:TKraftVector3; override;
        function GetReactionForce(const InverseDeltaTime:TKraftScalar):TKraftVector3; override;
        function GetReactionTorque(const InverseDeltaTime:TKraftScalar):TKraftVector3; override;
-      published
        property LimitState:TKraftConstraintLimitState read fLimitState;
      end;
 
@@ -2746,8 +2756,6 @@ type PKraftForceMode=^TKraftForceMode;
 
        procedure StoreImpulses;
 
-      published
-
        property Physics:TKraft read fPhysics;
 
        property Island:TKraftIsland read fIsland;
@@ -2817,8 +2825,6 @@ type PKraftForceMode=^TKraftForceMode;
        procedure Solve(const TimeStep:TKraftTimeStep);
        procedure SolveTimeOfImpact(const TimeStep:TKraftTimeStep;const IndexA,IndexB:longint);
 
-      published
-      
        property Physics:TKraft read fPhysics;
 
        property IslandIndex:longint read fIslandIndex;
@@ -2860,7 +2866,6 @@ type PKraftForceMode=^TKraftForceMode;
       public
        constructor Create(const APhysics:TKraft;const AJobManager:TKraftJobManager;const AThreadNumber:longint);
        destructor Destroy; override;
-      published
        property Physics:TKraft read fPhysics;
        property JobManager:TKraftJobManager read fJobManager;
        property ThreadNumber:longint read fThreadNumber;
@@ -2885,7 +2890,6 @@ type PKraftForceMode=^TKraftForceMode;
        procedure WakeUp;
        procedure WaitFor;
        procedure ProcessJobs;
-      published
        property Physics:TKraft read fPhysics;
        property Threads:TKraftJobThreads read fThreads;
        property CountThreads:longint read fCountThreads;
@@ -2964,6 +2968,8 @@ type PKraftForceMode=^TKraftForceMode;
        fAllowedPenetration:TKraftScalar;
 
        fGravity:TKraftVector3;
+
+       fGravityProperty:TKraftVector3Property;
 
        fMaximalLinearVelocity:TKraftScalar;
        fLinearVelocityThreshold:TKraftScalar;
@@ -3081,10 +3087,6 @@ type PKraftForceMode=^TKraftForceMode;
 
        function GetDistance(const ShapeA,ShapeB:TKraftShape):TKraftScalar;
 
-       property Gravity:TKraftVector3 read fGravity write fGravity;
-
-      published
-
        property HighResolutionTimer:TKraftHighResolutionTimer read fHighResolutionTimer;
 
        property BroadPhaseTime:int64 read fBroadPhaseTime;
@@ -3094,7 +3096,7 @@ type PKraftForceMode=^TKraftForceMode;
        property ContinuousTime:int64 read fContinuousTime;
        property TotalTime:int64 read fTotalTime;
 
-       property NewShapes:longbool read fNewShapes write fNewShapes;
+       property NewShapes:longbool read fNewShapes;
 
        property ConvexHullFirst:TKraftConvexHull read fConvexHullFirst;
        property ConvexHullLast:TKraftConvexHull read fConvexHullLast;
@@ -3138,17 +3140,25 @@ type PKraftForceMode=^TKraftForceMode;
 
        property ContactManager:TKraftContactManager read fContactManager;
 
-       property WorldFrequency:TKraftScalar read fWorldFrequency write fWorldFrequency;
+       property WorldDeltaTime:TKraftScalar read fWorldDeltaTime;
 
-       property WorldDeltaTime:TKraftScalar read fWorldDeltaTime write fWorldDeltaTime;
+       property WorldInverseDeltaTime:TKraftScalar read fWorldInverseDeltaTime;
 
-       property WorldInverseDeltaTime:TKraftScalar read fWorldInverseDeltaTime write fWorldInverseDeltaTime;
+       property LastInverseDeltaTime:TKraftScalar read fLastInverseDeltaTime;
 
-       property LastInverseDeltaTime:TKraftScalar read fLastInverseDeltaTime write fLastInverseDeltaTime;
+       property CountThreads:longint read fCountThreads;
+
+       property JobManager:TKraftJobManager read fJobManager;
+
+      published
+
+       property WorldFrequency:TKraftScalar read fWorldFrequency write SetFrequency;
 
        property AllowSleep:longbool read fAllowSleep write fAllowSleep;
 
        property AllowedPenetration:TKraftScalar read fAllowedPenetration write fAllowedPenetration;
+
+       property Gravity:TKraftVector3Property read fGravityProperty;
 
        property MaximalLinearVelocity:TKraftScalar read fMaximalLinearVelocity write fMaximalLinearVelocity;
        property LinearVelocityThreshold:TKraftScalar read fLinearVelocityThreshold write fLinearVelocityThreshold;
@@ -3212,10 +3222,6 @@ type PKraftForceMode=^TKraftForceMode;
 
        property ContactBreakingThreshold:TKraftScalar read fContactBreakingThreshold write fContactBreakingThreshold;
 
-       property CountThreads:longint read fCountThreads;
-
-       property JobManager:TKraftJobManager read fJobManager;
-         
      end;
 
 const Vector2Origin:TKraftVector2=(x:0.0;y:0.0);
@@ -12747,6 +12753,57 @@ begin
   QuaternionToAxisAngle(qD,Axis,Angle);
   AngularVelocity:=Vector3ScalarMul(Vector3SafeNorm(Axis),Angle*InverseDeltaTime);
  end;
+end;
+
+constructor TKraftVector3Property.Create(AVector:PKraftVector3);
+begin
+ inherited Create;
+ fVector:=AVector;
+end;
+
+destructor TKraftVector3Property.Destroy;
+begin
+ inherited Destroy;
+end;
+
+function TKraftVector3Property.GetX:TKraftScalar;
+begin
+ result:=fVector^.x;
+end;
+
+function TKraftVector3Property.GetY:TKraftScalar;
+begin
+ result:=fVector^.y;
+end;
+
+function TKraftVector3Property.GetZ:TKraftScalar;
+begin
+ result:=fVector^.z;
+end;
+
+function TKraftVector3Property.GetVector:TKraftVector3;
+begin
+ result:=fVector^;
+end;
+
+procedure TKraftVector3Property.SetX(const NewValue:TKraftScalar);
+begin
+ fVector^.x:=NewValue;
+end;
+
+procedure TKraftVector3Property.SetY(const NewValue:TKraftScalar);
+begin
+ fVector^.y:=NewValue;
+end;
+
+procedure TKraftVector3Property.SetZ(const NewValue:TKraftScalar);
+begin
+ fVector^.z:=NewValue;
+end;
+
+procedure TKraftVector3Property.SetVector(const NewVector:TKraftVector3);
+begin
+ fVector^:=NewVector;
 end;
 
 constructor TKraftDynamicAABBTree.Create;
@@ -23211,7 +23268,7 @@ end;
 
 procedure TKraftContactManager.ProcessContactPair(const ContactPair:PKraftContactPair;const ThreadIndex:longint=0);
 begin
- ContactPair^.DetectCollisions(self,fPhysics.TriangleShapes[ThreadIndex],ThreadIndex,true,fPhysics.fWorldDeltaTime);
+ ContactPair^.DetectCollisions(self,fPhysics.fTriangleShapes[ThreadIndex],ThreadIndex,true,fPhysics.fWorldDeltaTime);
 end;
 
 procedure TKraftContactManager.ProcessContactPairJob(const JobIndex,ThreadIndex:longint);
@@ -24047,6 +24104,8 @@ begin
  fGravity.y:=-9.83;
  fGravity.z:=0.0;
 
+ fGravityProperty:=TKraftVector3Property.Create(@fGravity);
+
  fUserData:=nil;
 
  fNextOnIslandBuildStack:=nil;
@@ -24194,6 +24253,8 @@ begin
 
  fRigidBodyType:=krbtUnknown;
 
+ fGravityProperty.Free;
+ 
  inherited Destroy;
 end;
 
@@ -26606,7 +26667,7 @@ begin
 
   fAccumulatedImpulse:=Vector3ScalarMul(fAccumulatedImpulse,TimeStep.DeltaTimeRatio);
 
-// writeln('BallWarm ',Vector3Length(fAccumulatedImpulse):1:8);
+//writeln('BallWarm ',Vector3Length(fAccumulatedImpulse):1:8);
 
   Vector3DirectSub(vA^,Vector3ScalarMul(fAccumulatedImpulse,fInverseMasses[0]));
   Vector3DirectSub(wA^,Vector3TermMatrixMul(Vector3Cross(fRelativePositions[0],fAccumulatedImpulse),fWorldInverseInertiaTensors[0]));
@@ -26642,7 +26703,7 @@ begin
 
  fAccumulatedImpulse:=Vector3Add(fAccumulatedImpulse,Impulse);
 
-// writeln('BallVelo ',Vector3Length(Impulse):1:8);
+//writeln('BallVelo ',Vector3Length(Impulse):1:8);
 
  Vector3DirectSub(vA^,Vector3ScalarMul(Impulse,fInverseMasses[0]));
  Vector3DirectSub(wA^,Vector3TermMatrixMul(Vector3Cross(fRelativePositions[0],Impulse),fWorldInverseInertiaTensors[0]));
@@ -30031,6 +30092,8 @@ begin
  fGravity.y:=-9.83;
  fGravity.z:=0.0;
 
+ fGravityProperty:=TKraftVector3Property.Create(@fGravity);
+
  fMaximalLinearVelocity:=2.0;
 
  fMaximalAngularVelocity:=pi*0.5;
@@ -30160,6 +30223,8 @@ begin
  fContactManager.Free;
 
  fHighResolutionTimer.Free;
+
+ fGravityProperty.Free;
 
  inherited Destroy;
 end;
@@ -30400,7 +30465,7 @@ end;
 
 procedure TKraft.ProcessSolveIslandJob(const JobIndex,ThreadIndex:longint);
 begin
- fIslands[JobIndex].Solve(JobTimeStep);
+ fIslands[JobIndex].Solve(fJobTimeStep);
 end;
 
 procedure TKraft.SolveIslands(const TimeStep:TKraftTimeStep);
@@ -30414,7 +30479,7 @@ begin
   fJobManager.ProcessJobs;
  end else begin
   for Index:=0 to fCountIslands-1 do begin
-   fIslands[Index].Solve(JobTimeStep);
+   fIslands[Index].Solve(fJobTimeStep);
   end;
  end;
  fIsSolving:=false;
@@ -30443,7 +30508,7 @@ begin
 
  if (ShapeBTriangleIndex>=0) and (ShapeB is TKraftShapeMesh) then begin
   MeshShape:=TKraftShapeMesh(ShapeB);
-  ShapeTriangle:=TKraftShapeTriangle(TriangleShapes[ThreadIndex]);
+  ShapeTriangle:=TKraftShapeTriangle(fTriangleShapes[ThreadIndex]);
   Shapes[1]:=ShapeTriangle;
   MeshTriangle:=@MeshShape.fMesh.fTriangles[ShapeBTriangleIndex];
   ShapeTriangle.fLocalTransform:=MeshShape.fLocalTransform;
@@ -30621,7 +30686,7 @@ begin
 
  if (ShapeBTriangleIndex>=0) and (ShapeB is TKraftShapeMesh) then begin
   MeshShape:=TKraftShapeMesh(ShapeB);
-  ShapeTriangle:=TKraftShapeTriangle(TriangleShapes[ThreadIndex]);
+  ShapeTriangle:=TKraftShapeTriangle(fTriangleShapes[ThreadIndex]);
   Shapes[1]:=ShapeTriangle;
   MeshTriangle:=@MeshShape.fMesh.fTriangles[ShapeBTriangleIndex];
   ShapeTriangle.fLocalTransform:=MeshShape.fLocalTransform;
@@ -31347,7 +31412,7 @@ begin
   RigidBodies[0].Advance(MinimumAlpha);
   RigidBodies[1].Advance(MinimumAlpha);
 
-  MinimumContactPair^.DetectCollisions(fContactManager,TriangleShapes[0],0,false,0.0);
+  MinimumContactPair^.DetectCollisions(fContactManager,fTriangleShapes[0],0,false,0.0);
 
   MinimumContactPair^.Flags:=MinimumContactPair^.Flags-[kcfTimeOfImpact];
   inc(MinimumContactPair^.TimeOfImpactCount);
@@ -31414,7 +31479,7 @@ begin
        OtherRigidBody.Advance(MinimumAlpha);
       end;
 
-      ContactPair^.DetectCollisions(fContactManager,TriangleShapes[0],0,false,0.0);
+      ContactPair^.DetectCollisions(fContactManager,fTriangleShapes[0],0,false,0.0);
 
       if (not (kcfEnabled in ContactPair^.Flags)) or not (kcfColliding in ContactPair^.Flags) then begin
        OtherRigidBody.fSweep:=BackupSweeps[0];
