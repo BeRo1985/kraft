@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2015-10-17-06-34-0000                       *
+ *                        Version 2015-10-17-07-24-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -113,6 +113,7 @@ unit kraft;
 {$openstrings on}
 {$longstrings on}
 {$booleval off}
+{$typeinfo on}
 
 {-$define UseMoreCollisionGroups}
 
@@ -494,7 +495,7 @@ type PKraftForceMode=^TKraftForceMode;
       DeltaTime:TKraftScalar;
       InverseDeltaTime:TKraftScalar;
       DeltaTimeRatio:TKraftScalar;
-      WarmStarting:longbool;
+      WarmStarting:boolean;
      end;
 
      // This class does exist as workaround for FreePascal, which doesn't support TKraftVector3 as published property (but Delphi does it)
@@ -689,27 +690,28 @@ type PKraftForceMode=^TKraftForceMode;
 
      PKraftQuickHullVector3D=^TKraftQuickHullVector3D;
      TKraftQuickHullVector3D=object
-      x:double;
-      y:double;
-      z:double;
-      function Init(const ax:double=0.0;const ay:double=0.0;const az:double=0.0):TKraftQuickHullVector3D;
-      procedure SetValue(i:longint;const v:double);
-      function GetValue(i:longint):double;
-      procedure Add(const v0,v1:TKraftQuickHullVector3D); overload;
-      procedure Add(const v:TKraftQuickHullVector3D); overload;
-      procedure Sub(const v0,v1:TKraftQuickHullVector3D); overload;
-      procedure Sub(const v:TKraftQuickHullVector3D); overload;
-      procedure Scale(const v:TKraftQuickHullVector3D;const s:double); overload;
-      procedure Scale(const s:double); overload;
-      function Length:double;
-      function LengthSquared:double;
-      function Distance(const v:TKraftQuickHullVector3D):double;
-      function DistanceSquared(const v:TKraftQuickHullVector3D):double;
-      procedure Normalize;
-      function Dot(const v:TKraftQuickHullVector3D):double;
-      procedure CrossProduct(const v0,v1:TKraftQuickHullVector3D);
-      procedure SetRandom(Lower,Upper:double);
-      function Equals(const v:TKraftQuickHullVector3D):boolean;
+      public
+       x:double;
+       y:double;
+       z:double;
+       function Init(const ax:double=0.0;const ay:double=0.0;const az:double=0.0):TKraftQuickHullVector3D;
+       procedure SetValue(i:longint;const v:double);
+       function GetValue(i:longint):double;
+       procedure Add(const v0,v1:TKraftQuickHullVector3D); overload;
+       procedure Add(const v:TKraftQuickHullVector3D); overload;
+       procedure Sub(const v0,v1:TKraftQuickHullVector3D); overload;
+       procedure Sub(const v:TKraftQuickHullVector3D); overload;
+       procedure Scale(const v:TKraftQuickHullVector3D;const s:double); overload;
+       procedure Scale(const s:double); overload;
+       function Length:double;
+       function LengthSquared:double;
+       function Distance(const v:TKraftQuickHullVector3D):double;
+       function DistanceSquared(const v:TKraftQuickHullVector3D):double;
+       procedure Normalize;
+       function Dot(const v:TKraftQuickHullVector3D):double;
+       procedure CrossProduct(const v0,v1:TKraftQuickHullVector3D);
+       procedure SetRandom(Lower,Upper:double);
+       function Equals(const v:TKraftQuickHullVector3D):boolean;
      end;
 
      TKraftQuickHullVector3DArray=array of TKraftQuickHullVector3D;
@@ -1207,7 +1209,7 @@ type PKraftForceMode=^TKraftForceMode;
        fDrawDisplayList:glUint;
 {$endif}
 
-       fIsMesh:longbool;
+       fIsMesh:boolean;
 
       public
 
@@ -1294,7 +1296,7 @@ type PKraftForceMode=^TKraftForceMode;
        property DrawDisplayList:glUint read fDrawDisplayList write fDrawDisplayList;
 {$endif}
 
-       property IsMesh:longbool read fIsMesh write fIsMesh;
+       property IsMesh:boolean read fIsMesh write fIsMesh;
 
       published
 
@@ -1503,8 +1505,8 @@ type PKraftForceMode=^TKraftForceMode;
       public
        Distance:TKraftScalar;
        Iterations:longint;
-       UseRadii:longbool;
-       Failed:longbool;
+       UseRadii:boolean;
+       Failed:boolean;
        Normal:TKraftVector3;
        ClosestPoints:TKraftGJKClosestPoints;
        Simplex:TKraftGJKSimplex;
@@ -1572,8 +1574,8 @@ type PKraftForceMode=^TKraftForceMode;
      PKraftContactManifold=^TKraftContactManifold;
      TKraftContactManifold=record
       ContactManifoldType:TKraftContactManifoldType;
-      HaveData:longbool;
-      Persistent:longbool;
+      HaveData:boolean;
+      Persistent:boolean;
       CountContacts:longint;
       LostSpeculativeBounce:single;
       LocalRadius:array[0..1] of TKraftScalar;
@@ -1644,7 +1646,7 @@ type PKraftForceMode=^TKraftForceMode;
        fHashPrevious:TKraftMeshContactPair;
        fHashNext:TKraftMeshContactPair;
 
-       fIsOnFreeList:longbool;
+       fIsOnFreeList:boolean;
 
        fFlags:TKraftContactFlags;
 
@@ -1879,15 +1881,15 @@ type PKraftForceMode=^TKraftForceMode;
        fRigidBodyPrevious:TKraftRigidBody;
        fRigidBodyNext:TKraftRigidBody;
 
-       fStaticRigidBodyIsOnList:longbool;
+       fStaticRigidBodyIsOnList:boolean;
        fStaticRigidBodyPrevious:TKraftRigidBody;
        fStaticRigidBodyNext:TKraftRigidBody;
 
-       fDynamicRigidBodyIsOnList:longbool;
+       fDynamicRigidBodyIsOnList:boolean;
        fDynamicRigidBodyPrevious:TKraftRigidBody;
        fDynamicRigidBodyNext:TKraftRigidBody;
 
-       fKinematicRigidBodyIsOnList:longbool;
+       fKinematicRigidBodyIsOnList:boolean;
        fKinematicRigidBodyPrevious:TKraftRigidBody;
        fKinematicRigidBodyNext:TKraftRigidBody;
 
@@ -1948,7 +1950,7 @@ type PKraftForceMode=^TKraftForceMode;
 
        fGravityScale:TKraftScalar;
 
-       fEnableGyroscopicForce:longbool;
+       fEnableGyroscopicForce:boolean;
 
        fMaximalGyroscopicForce:TKraftScalar;
 
@@ -2058,15 +2060,15 @@ type PKraftForceMode=^TKraftForceMode;
        property RigidBodyPrevious:TKraftRigidBody read fRigidBodyPrevious;
        property RigidBodyNext:TKraftRigidBody read fRigidBodyNext;
 
-       property StaticRigidBodyIsOnList:longbool read fStaticRigidBodyIsOnList;
+       property StaticRigidBodyIsOnList:boolean read fStaticRigidBodyIsOnList;
        property StaticRigidBodyPrevious:TKraftRigidBody read fStaticRigidBodyPrevious;
        property StaticRigidBodyNext:TKraftRigidBody read fStaticRigidBodyNext;
 
-       property DynamicRigidBodyIsOnList:longbool read fDynamicRigidBodyIsOnList write fDynamicRigidBodyIsOnList;
+       property DynamicRigidBodyIsOnList:boolean read fDynamicRigidBodyIsOnList write fDynamicRigidBodyIsOnList;
        property DynamicRigidBodyPrevious:TKraftRigidBody read fDynamicRigidBodyPrevious write fDynamicRigidBodyPrevious;
        property DynamicRigidBodyNext:TKraftRigidBody read fDynamicRigidBodyNext write fDynamicRigidBodyNext;
 
-       property KinematicRigidBodyIsOnList:longbool read fKinematicRigidBodyIsOnList write fKinematicRigidBodyIsOnList;
+       property KinematicRigidBodyIsOnList:boolean read fKinematicRigidBodyIsOnList write fKinematicRigidBodyIsOnList;
        property KinematicRigidBodyPrevious:TKraftRigidBody read fKinematicRigidBodyPrevious write fKinematicRigidBodyPrevious;
        property KinematicRigidBodyNext:TKraftRigidBody read fKinematicRigidBodyNext write fKinematicRigidBodyNext;
 
@@ -2139,7 +2141,7 @@ type PKraftForceMode=^TKraftForceMode;
 
        property GravityScale:TKraftScalar read fGravityScale write fGravityScale;
 
-       property EnableGyroscopicForce:longbool read fEnableGyroscopicForce write fEnableGyroscopicForce;
+       property EnableGyroscopicForce:boolean read fEnableGyroscopicForce write fEnableGyroscopicForce;
 
        property MaximalGyroscopicForce:TKraftScalar read fMaximalGyroscopicForce write fMaximalGyroscopicForce;
 
@@ -2307,9 +2309,9 @@ type PKraftForceMode=^TKraftForceMode;
        fBias:TKraftScalar;
        fMass:TKraftScalar;
        fLimitBehavior:TKraftConstraintLimitBehavior;
-       fDoubleSidedWorldPlane:longbool;
-       fSoftConstraint:longbool;
-       fSkip:longbool;
+       fDoubleSidedWorldPlane:boolean;
+       fSoftConstraint:boolean;
+       fSkip:boolean;
       public
        constructor Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody;const ALocalAnchorPoint:TKraftVector3;const AWorldPlane:TKraftPlane;const ADoubleSidedWorldPlane:boolean=true;const AWorldDistance:single=1.0;const ALimitBehavior:TKraftConstraintLimitBehavior=kclbLimitDistance;const AFrequencyHz:TKraftScalar=0.0;const ADampingRatio:TKraftScalar=0.0;const ACollideConnected:boolean=false); reintroduce;
        destructor Destroy; override;
@@ -2504,14 +2506,14 @@ type PKraftForceMode=^TKraftForceMode;
        fInverseMassMatrixRotation:TKraftMatrix2x2;
        fInverseMassMatrixLimitMotor:TKraftScalar;
        fInverseInitialOrientationDifference:TKraftQuaternion;
-       fLimitState:longbool;
-       fMotorState:longbool;
+       fLimitState:boolean;
+       fMotorState:boolean;
        fLowerLimit:TKraftScalar;
        fUpperLimit:TKraftScalar;
        fBiasLowerLimit:TKraftScalar;
        fBiasUpperLimit:TKraftScalar;
-       fIsLowerLimitViolated:longbool;
-       fIsUpperLimitViolated:longbool;
+       fIsLowerLimitViolated:boolean;
+       fIsUpperLimitViolated:boolean;
        fMotorSpeed:TKraftScalar;
        fMaximalMotorTorque:TKraftScalar;
        function ComputeCurrentHingeAngle(const OrientationA,OrientationB:TKraftQuaternion):TKraftScalar;
@@ -2584,14 +2586,14 @@ type PKraftForceMode=^TKraftForceMode;
        fInverseMassMatrixLimit:TKraftScalar;
        fInverseMassMatrixMotor:TKraftScalar;
        fInverseInitialOrientationDifference:TKraftQuaternion;
-       fLimitState:longbool;
-       fMotorState:longbool;
+       fLimitState:boolean;
+       fMotorState:boolean;
        fLowerLimit:TKraftScalar;
        fUpperLimit:TKraftScalar;
        fBiasLowerLimit:TKraftScalar;
        fBiasUpperLimit:TKraftScalar;
-       fIsLowerLimitViolated:longbool;
-       fIsUpperLimitViolated:longbool;
+       fIsLowerLimitViolated:boolean;
+       fIsUpperLimitViolated:boolean;
        fMotorSpeed:TKraftScalar;
        fMaximalMotorForce:TKraftScalar;
       public
@@ -2729,7 +2731,7 @@ type PKraftForceMode=^TKraftForceMode;
 
        fDeltaTimeRatio:TKraftScalar;
 
-       fEnableFriction:longbool;
+       fEnableFriction:boolean;
 
        fPositionCorrectionMode:TKraftPositionCorrectionMode;
 
@@ -2783,7 +2785,7 @@ type PKraftForceMode=^TKraftForceMode;
 
        property DeltaTimeRatio:TKraftScalar read fDeltaTimeRatio;
 
-       property EnableFriction:longbool read fEnableFriction;
+       property EnableFriction:boolean read fEnableFriction;
 
        property PositionCorrectionMode:TKraftPositionCorrectionMode read fPositionCorrectionMode;
 
@@ -2881,7 +2883,7 @@ type PKraftForceMode=^TKraftForceMode;
        fThreads:TKraftJobThreads;
        fCountThreads:longint;
        fCountAliveThreads:longint;
-       fThreadsTerminated:longbool;
+       fThreadsTerminated:boolean;
        fOnProcessJob:TKraftJobManagerOnProcessJob;
        fCountRemainJobs:longint;
       public
@@ -2894,7 +2896,7 @@ type PKraftForceMode=^TKraftForceMode;
        property Threads:TKraftJobThreads read fThreads;
        property CountThreads:longint read fCountThreads;
        property CountAliveThreads:longint read fCountAliveThreads write fCountAliveThreads;
-       property ThreadsTerminated:longbool read fThreadsTerminated write fThreadsTerminated;
+       property ThreadsTerminated:boolean read fThreadsTerminated write fThreadsTerminated;
        property OnProcessJob:TKraftJobManagerOnProcessJob read fOnProcessJob write fOnProcessJob;
        property CountRemainJobs:longint read fCountRemainJobs write fCountRemainJobs;
      end;
@@ -2911,7 +2913,7 @@ type PKraftForceMode=^TKraftForceMode;
        fContinuousTime:int64;
        fTotalTime:int64;
 
-       fNewShapes:longbool;
+       fNewShapes:boolean;
 
        fConvexHullFirst:TKraftConvexHull;
        fConvexHullLast:TKraftConvexHull;
@@ -2963,7 +2965,7 @@ type PKraftForceMode=^TKraftForceMode;
 
        fLastInverseDeltaTime:TKraftScalar;
 
-       fAllowSleep:longbool;
+       fAllowSleep:boolean;
 
        fAllowedPenetration:TKraftScalar;
 
@@ -2997,11 +2999,11 @@ type PKraftForceMode=^TKraftForceMode;
 
        fMaximalAngularCorrection:TKraftScalar;
 
-       fWarmStarting:longbool;
+       fWarmStarting:boolean;
 
        fContinuousMode:TKraftContinuousMode;
 
-       fContinuousAgainstDynamics:longbool;
+       fContinuousAgainstDynamics:boolean;
 
        fTimeOfImpactAlgorithm:TKraftTimeOfImpactAlgorithm;
 
@@ -3021,15 +3023,15 @@ type PKraftForceMode=^TKraftForceMode;
 
        fPerturbationIterations:longint;
 
-       fPersistentContactManifold:longbool;
+       fPersistentContactManifold:boolean;
 
-       fAlwaysPerturbating:longbool;
+       fAlwaysPerturbating:boolean;
 
-       fEnableFriction:longbool;
+       fEnableFriction:boolean;
 
-       fLinearVelocityRK4Integration:longbool;
+       fLinearVelocityRK4Integration:boolean;
 
-       fAngularVelocityRK4Integration:longbool;
+       fAngularVelocityRK4Integration:boolean;
 
        fContactBreakingThreshold:TKraftScalar;
 
@@ -3037,7 +3039,7 @@ type PKraftForceMode=^TKraftForceMode;
 
        fJobManager:TKraftJobManager;
 
-       fIsSolving:longbool;
+       fIsSolving:boolean;
        fTriangleShapes:TKraftShapes;
 
        fJobTimeStep:TKraftTimeStep;
@@ -3062,7 +3064,7 @@ type PKraftForceMode=^TKraftForceMode;
 
       protected
 
-       property IsSolving:longbool read fIsSolving;
+       property IsSolving:boolean read fIsSolving;
        property TriangleShapes:TKraftShapes read fTriangleShapes;
        property JobTimeStep:TKraftTimeStep read fJobTimeStep;
 
@@ -3096,7 +3098,7 @@ type PKraftForceMode=^TKraftForceMode;
        property ContinuousTime:int64 read fContinuousTime;
        property TotalTime:int64 read fTotalTime;
 
-       property NewShapes:longbool read fNewShapes;
+       property NewShapes:boolean read fNewShapes;
 
        property ConvexHullFirst:TKraftConvexHull read fConvexHullFirst;
        property ConvexHullLast:TKraftConvexHull read fConvexHullLast;
@@ -3154,7 +3156,7 @@ type PKraftForceMode=^TKraftForceMode;
 
        property WorldFrequency:TKraftScalar read fWorldFrequency write SetFrequency;
 
-       property AllowSleep:longbool read fAllowSleep write fAllowSleep;
+       property AllowSleep:boolean read fAllowSleep write fAllowSleep;
 
        property AllowedPenetration:TKraftScalar read fAllowedPenetration write fAllowedPenetration;
 
@@ -3186,11 +3188,11 @@ type PKraftForceMode=^TKraftForceMode;
 
        property MaximalAngularCorrection:TKraftScalar read fMaximalAngularCorrection write fMaximalAngularCorrection;
 
-       property WarmStarting:longbool read fWarmStarting write fWarmStarting;
+       property WarmStarting:boolean read fWarmStarting write fWarmStarting;
 
        property ContinuousMode:TKraftContinuousMode read fContinuousMode write fContinuousMode;
 
-       property ContinuousAgainstDynamics:longbool read fContinuousAgainstDynamics write fContinuousAgainstDynamics;
+       property ContinuousAgainstDynamics:boolean read fContinuousAgainstDynamics write fContinuousAgainstDynamics;
 
        property TimeOfImpactAlgorithm:TKraftTimeOfImpactAlgorithm read fTimeOfImpactAlgorithm write fTimeOfImpactAlgorithm;
 
@@ -3210,15 +3212,15 @@ type PKraftForceMode=^TKraftForceMode;
 
        property PerturbationIterations:longint read fPerturbationIterations write fPerturbationIterations;
 
-       property PersistentContactManifold:longbool read fPersistentContactManifold write fPersistentContactManifold;
+       property PersistentContactManifold:boolean read fPersistentContactManifold write fPersistentContactManifold;
 
-       property AlwaysPerturbating:longbool read fAlwaysPerturbating write fAlwaysPerturbating;
+       property AlwaysPerturbating:boolean read fAlwaysPerturbating write fAlwaysPerturbating;
 
-       property EnableFriction:longbool read fEnableFriction write fEnableFriction;
+       property EnableFriction:boolean read fEnableFriction write fEnableFriction;
 
-       property LinearVelocityRK4Integration:longbool read fLinearVelocityRK4Integration write fLinearVelocityRK4Integration;
+       property LinearVelocityRK4Integration:boolean read fLinearVelocityRK4Integration write fLinearVelocityRK4Integration;
 
-       property AngularVelocityRK4Integration:longbool read fAngularVelocityRK4Integration write fAngularVelocityRK4Integration;
+       property AngularVelocityRK4Integration:boolean read fAngularVelocityRK4Integration write fAngularVelocityRK4Integration;
 
        property ContactBreakingThreshold:TKraftScalar read fContactBreakingThreshold write fContactBreakingThreshold;
 
@@ -17903,7 +17905,7 @@ var SrcPos:longint;
    end;
   end;
  end;
-var OK:longbool;
+var OK:boolean;
 begin
  OK:=false;
  if ASourceSize>SizeOf(TFileSignature) then begin
@@ -31749,7 +31751,7 @@ begin
 end;
 
 function TKraft.RayCast(const Origin,Direction:TKraftVector3;const MaxTime:TKraftScalar;var Shape:TKraftShape;var Time:TKraftScalar;var Point,Normal:TKraftVector3;const CollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)]):boolean;
-var Hit:longbool;
+var Hit:boolean;
  procedure QueryTree(AABBTree:TKraftDynamicAABBTree);
  var LocalStack:PKraftDynamicAABBTreeLongintArray;
      LocalStackPointer,NodeID:longint;
@@ -31809,7 +31811,7 @@ begin
 end;
 
 function TKraft.PushSphere(var Center:TKraftVector3;const Radius:TKraftScalar;const CollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const TryIterations:longint=4):boolean;
-var Hit:longbool;
+var Hit:boolean;
     AABB:TKraftAABB;
     Sphere:TKraftSphere;
     SumMinimumTranslationVector:TKraftVector3;
