@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2015-10-17-07-24-0000                       *
+ *                        Version 2015-10-19-15-36-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -1179,8 +1179,6 @@ type PKraftForceMode=^TKraftForceMode;
 
        fWorldAABB:TKraftAABB;
 
-       fLastWorldAABB:TKraftAABB;
-
        fLocalTransform:TKraftMatrix4x4;
 
        fLocalCenterOfMass:TKraftVector3;
@@ -1210,6 +1208,8 @@ type PKraftForceMode=^TKraftForceMode;
 {$endif}
 
        fIsMesh:boolean;
+
+       function GetProxyFatWorldAABB:PKraftAABB;
 
       public
 
@@ -1268,9 +1268,9 @@ type PKraftForceMode=^TKraftForceMode;
 
        property ShapeSphere:TKraftSphere read fShapeSphere;
 
-       property WorldAABB:TKraftAABB read fWorldAABB write fWorldAABB;
+       property WorldAABB:TKraftAABB read fWorldAABB;
 
-       property LastWorldAABB:TKraftAABB read fLastWorldAABB write fLastWorldAABB;
+       property ProxyFatWorldAABB:PKraftAABB read GetProxyFatWorldAABB;
 
        property LocalTransform:TKraftMatrix4x4 read fLocalTransform write fLocalTransform;
 
@@ -1737,9 +1737,6 @@ type PKraftForceMode=^TKraftForceMode;
        fCountActiveContactPairs:longint;
        fCountRemainActiveContactPairsToDo:longint;
 
-       fMeshTriangleContactQueueItems:TKraftContactManagerMeshTriangleContactQueueItems;
-       fCountMeshTriangleContactQueueItems:longint;
-
        fConvexConvexContactPairHashTable:TKraftContactPairHashTable;
 
        fConvexMeshTriangleContactPairHashTable:TKraftContactPairHashTable;
@@ -1820,20 +1817,28 @@ type PKraftForceMode=^TKraftForceMode;
 
        fPhysics:TKraft;
 
-       fContactPairs:TKraftBroadPhaseContactPairs;
-       fCountContactPairs:longint;
+       fStack:array[0..MAX_THREADS-1] of PKraftDynamicAABBTreeLongintArray;
+       fStackCapacity:array[0..MAX_THREADS-1] of longint;
+
+       fContactPairs:array[0..MAX_THREADS-1] of TKraftBroadPhaseContactPairs;
+       fCountContactPairs:array[0..MAX_THREADS-1] of longint;
 
        fStaticMoveBuffer:array of longint;
        fStaticMoveBufferSize:longint;
-
-       fSleepingMoveBuffer:array of longint;
-       fSleepingMoveBufferSize:longint;
 
        fDynamicMoveBuffer:array of longint;
        fDynamicMoveBufferSize:longint;
 
        fKinematicMoveBuffer:array of longint;
        fKinematicMoveBufferSize:longint;
+
+       fAllMoveBufferSize:longint;
+
+       procedure AddPair(const ThreadIndex:longint;ShapeA,ShapeB:TKraftShape); {$ifdef caninline}inline;{$endif}
+
+       procedure QueryShapeWithTree(const ThreadIndex:longint;const Shape:TKraftShape;const AABBTree:TKraftDynamicAABBTree);
+
+       procedure ProcessMoveBufferItem(const JobIndex,ThreadIndex:longint);
 
       public
 
@@ -1843,7 +1848,6 @@ type PKraftForceMode=^TKraftForceMode;
        procedure UpdatePairs; {$ifdef caninline}inline;{$endif}
 
        procedure StaticBufferMove(ProxyID:longint); {$ifdef caninline}inline;{$endif}
-       procedure SleepingBufferMove(ProxyID:longint); {$ifdef caninline}inline;{$endif}
        procedure DynamicBufferMove(ProxyID:longint); {$ifdef caninline}inline;{$endif}
        procedure KinematicBufferMove(ProxyID:longint); {$ifdef caninline}inline;{$endif}
 
@@ -13110,33 +13114,12 @@ end;
 
 function TKraftDynamicAABBTree.MoveProxy(NodeID:longint;const AABB:TKraftAABB;const Displacement,BoundsExpansion:TKraftVector3):boolean;
 var Node:PKraftDynamicAABBTreeNode;
-    b:TKraftAABB;
-    d:TKraftVector3;
 begin
  Node:=@fNodes^[NodeID];
  result:=not AABBContains(Node^.AABB,AABB);
  if result then begin
   RemoveLeaf(NodeID);
-  d:=Vector3Add(AABBExtensionVector,BoundsExpansion);
-  b.Min:=Vector3Sub(AABB.Min,d);
-  b.Max:=Vector3Add(AABB.Max,d);
-  d:=Vector3ScalarMul(Displacement,AABB_MULTIPLIER);
-  if d.x<0.0 then begin
-   b.Min.x:=b.Min.x+d.x;
-  end else if d.x>0.0 then begin
-   b.Max.x:=b.Max.x+d.x;
-  end;
-  if d.y<0.0 then begin
-   b.Min.y:=b.Min.y+d.y;
-  end else if d.y>0.0 then begin
-   b.Max.y:=b.Max.y+d.y;
-  end;
-  if d.z<0.0 then begin
-   b.Min.z:=b.Min.z+d.z;
-  end else if d.z>0.0 then begin
-   b.Max.z:=b.Max.z+d.z;
-  end;
-  Node^.AABB:=b;//AABBStretch(AABB,Displacement,BoundsExpansions);
+  Node^.AABB:=AABBStretch(AABB,Displacement,BoundsExpansion);
   InsertLeaf(NodeID);
  end;
 end;
@@ -13198,9 +13181,9 @@ begin
    jMin:=-1;
  {}/////////////////TOOPTIMIZE///////////////////
  {}for i:=0 to Count-1 do begin                //
- {} AABBi:=@fNodes^[NewNodes^[i]].AABB;         //
+ {} AABBi:=@fNodes^[NewNodes^[i]].AABB;        //
  {} for j:=i+1 to Count-1 do begin             //
- {}  AABBj:=@fNodes^[NewNodes^[j]].AABB;        //
+ {}  AABBj:=@fNodes^[NewNodes^[j]].AABB;       //
  {}  AABB:=AABBCombine(AABBi^,AABBj^);         //
  {}  Cost:=AABBCost(AABB);                     //
  {}  if First or (Cost<MinCost) then begin     //
@@ -18498,9 +18481,6 @@ begin
  fWorldAABB.Min:=Vector3Origin;
  fWorldAABB.Max:=Vector3Origin;
 
- fLastWorldAABB.Min:=Vector3Origin;
- fLastWorldAABB.Max:=Vector3Origin;
-
  fLocalTransform:=Matrix4x4Identity;
 
  fWorldTransform:=Matrix4x4Identity;
@@ -18593,6 +18573,21 @@ begin
  inherited Destroy;
 end;
 
+function TKraftShape.GetProxyFatWorldAABB:PKraftAABB;
+begin
+ if fStaticAABBTreeProxy>=0 then begin
+  result:=@fPhysics.fStaticAABBTree.fNodes[fStaticAABBTreeProxy].AABB;
+ end else if fSleepingAABBTreeProxy>=0 then begin
+  result:=@fPhysics.fSleepingAABBTree.fNodes[fSleepingAABBTreeProxy].AABB;
+ end else if fDynamicAABBTreeProxy>=0 then begin
+  result:=@fPhysics.fDynamicAABBTree.fNodes[fDynamicAABBTreeProxy].AABB;
+ end else if fKinematicAABBTreeProxy>=0 then begin
+  result:=@fPhysics.fKinematicAABBTree.fNodes[fKinematicAABBTreeProxy].AABB;
+ end else begin
+  result:=@fWorldAABB;
+ end;
+end;
+
 procedure TKraftShape.UpdateShapeAABB;
 begin
 end;
@@ -18611,7 +18606,7 @@ begin
 end;
 
 procedure TKraftShape.SynchronizeProxies;
-var Updated,NeedUpdate:boolean;
+var NeedUpdate:boolean;
     WorldCenterOfMass,WorldDisplacement,WorldBoundsExpansion,TempPoint:TKraftVector3;
     TempAABB:TKraftAABB;
 begin
@@ -18647,24 +18642,20 @@ begin
   WorldDisplacement:=Vector3ScalarMul(fRigidBody.fLinearVelocity,fPhysics.fWorldDeltaTime);
   if Vector3LengthSquared(WorldDisplacement)<Vector3LengthSquared(fRigidBody.fWorldDisplacement) then begin
    WorldDisplacement:=fRigidBody.fWorldDisplacement;
-  end;                                         
-                                                                                                                                               
+  end;
+
   WorldBoundsExpansion:=Vector3ScalarMul(Vector3(fAngularMotionDisc,fAngularMotionDisc,fAngularMotionDisc),Vector3Length(fRigidBody.fAngularVelocity)*fPhysics.fWorldDeltaTime);
-
-  fWorldAABB:=AABBStretch(fWorldAABB,WorldDisplacement,WorldBoundsExpansion);
-
-  Updated:=not (Vector3Compare(fWorldAABB.Min,fLastWorldAABB.Min) and Vector3Compare(fWorldAABB.Max,fLastWorldAABB.Max));
-  fLastWorldAABB:=fWorldAABB;
 
   if (fRigidBody.fRigidBodyType<>krbtStatic) and (fStaticAABBTreeProxy>=0) then begin
    fPhysics.fStaticAABBTree.DestroyProxy(fStaticAABBTreeProxy);
    fStaticAABBTreeProxy:=-1;
   end else if fRigidBody.fRigidBodyType=krbtStatic then begin
-   NeedUpdate:=Updated;
+   NeedUpdate:=false;
    if fStaticAABBTreeProxy<0 then begin
     fStaticAABBTreeProxy:=fPhysics.fStaticAABBTree.CreateProxy(fWorldAABB,self);
     NeedUpdate:=true;
-   end else if fPhysics.fStaticAABBTree.MoveProxy(fStaticAABBTreeProxy,fWorldAABB,Vector3Origin,Vector3Origin) then begin
+   end;
+   if fPhysics.fStaticAABBTree.MoveProxy(fStaticAABBTreeProxy,fWorldAABB,Vector3Origin,Vector3Origin) then begin
     NeedUpdate:=true;
    end;
    if NeedUpdate then begin
@@ -18672,31 +18663,16 @@ begin
    end;
   end;
 
-  if ((fRigidBody.fRigidBodyType<>krbtDynamic) or ((fRigidBody.fFlags*[krbfAwake,krbfActive])=[krbfAwake,krbfActive])) and (fSleepingAABBTreeProxy>=0) then begin
-   fPhysics.fSleepingAABBTree.DestroyProxy(fSleepingAABBTreeProxy);
-   fSleepingAABBTreeProxy:=-1;
-  end else if (fRigidBody.fRigidBodyType=krbtDynamic) and ((fRigidBody.fFlags*[krbfAwake,krbfActive])<>[krbfAwake,krbfActive]) then begin
-   NeedUpdate:=Updated;
-   if fSleepingAABBTreeProxy<0 then begin
-    fSleepingAABBTreeProxy:=fPhysics.fSleepingAABBTree.CreateProxy(fWorldAABB,self);
-    NeedUpdate:=true;
-   end else if fPhysics.fSleepingAABBTree.MoveProxy(fSleepingAABBTreeProxy,fWorldAABB,Vector3Origin,Vector3Origin) then begin
-    NeedUpdate:=true;
-   end;
-   if NeedUpdate then begin
-    fPhysics.fBroadPhase.SleepingBufferMove(fSleepingAABBTreeProxy);
-   end;
-  end;
-
-  if ((fRigidBody.fRigidBodyType<>krbtDynamic) or ((fRigidBody.fFlags*[krbfAwake,krbfActive])<>[krbfAwake,krbfActive])) and (fDynamicAABBTreeProxy>=0) then begin
+  if (fRigidBody.fRigidBodyType<>krbtDynamic) and (fDynamicAABBTreeProxy>=0) then begin
    fPhysics.fDynamicAABBTree.DestroyProxy(fDynamicAABBTreeProxy);
    fDynamicAABBTreeProxy:=-1;
-  end else if (fRigidBody.fRigidBodyType=krbtDynamic) and ((fRigidBody.fFlags*[krbfAwake,krbfActive])=[krbfAwake,krbfActive]) then begin
-   NeedUpdate:=Updated;
+  end else if fRigidBody.fRigidBodyType=krbtDynamic then begin
+   NeedUpdate:=false;
    if fDynamicAABBTreeProxy<0 then begin
     fDynamicAABBTreeProxy:=fPhysics.fDynamicAABBTree.CreateProxy(fWorldAABB,self);
     NeedUpdate:=true;
-   end else if fPhysics.fDynamicAABBTree.MoveProxy(fDynamicAABBTreeProxy,fWorldAABB,WorldDisplacement,WorldBoundsExpansion) then begin
+   end;
+   if fPhysics.fDynamicAABBTree.MoveProxy(fDynamicAABBTreeProxy,fWorldAABB,WorldDisplacement,WorldBoundsExpansion) then begin
     NeedUpdate:=true;
    end;
    if NeedUpdate then begin
@@ -18708,11 +18684,12 @@ begin
    fPhysics.fKinematicAABBTree.DestroyProxy(fKinematicAABBTreeProxy);
    fKinematicAABBTreeProxy:=-1;
   end else if fRigidBody.fRigidBodyType=krbtKinematic then begin
-   NeedUpdate:=Updated;
+   NeedUpdate:=false;
    if fKinematicAABBTreeProxy<0 then begin
     fKinematicAABBTreeProxy:=fPhysics.fKinematicAABBTree.CreateProxy(fWorldAABB,self);
     NeedUpdate:=true;
-   end else if fPhysics.fKinematicAABBTree.MoveProxy(fKinematicAABBTreeProxy,fWorldAABB,fRigidBody.fWorldDisplacement,Vector3Origin) then begin
+   end;
+   if fPhysics.fKinematicAABBTree.MoveProxy(fKinematicAABBTreeProxy,fWorldAABB,fRigidBody.fWorldDisplacement,Vector3Origin) then begin
     NeedUpdate:=true;
    end;
    if NeedUpdate then begin
@@ -22752,10 +22729,9 @@ begin
 end;
 
 procedure TKraftMeshContactPair.Query;
-var SkipListNodeIndex,TriangleIndex{,Index{}:longint;
+var SkipListNodeIndex,TriangleIndex:longint;
     SkipListNode:PKraftMeshSkipListNode;
     Triangle:PKraftMeshTriangle;
-//  MeshTriangleContactQueueItem:PKraftContactManagerMeshTriangleContactQueueItem;
 begin
  SkipListNodeIndex:=0;
  while SkipListNodeIndex<TKraftShapeMesh(fShapeMesh).fMesh.fCountSkipListNodes do begin
@@ -22764,19 +22740,9 @@ begin
    TriangleIndex:=SkipListNode^.TriangleIndex;
    while TriangleIndex>=0 do begin
     Triangle:=@TKraftShapeMesh(fShapeMesh).fMesh.fTriangles[TriangleIndex];
-{   if AABBIntersect(Triangle^.AABB,fConvexAABBInMeshLocalSpace) then begin
-     Index:=fContactManager.fCountMeshTriangleContactQueueItems;
-     inc(fContactManager.fCountMeshTriangleContactQueueItems);
-     if fContactManager.fCountMeshTriangleContactQueueItems>length(fContactManager.fMeshTriangleContactQueueItems) then begin
-      SetLength(fContactManager.fMeshTriangleContactQueueItems,fContactManager.fCountMeshTriangleContactQueueItems*2);
-     end;
-     MeshTriangleContactQueueItem:=@fContactManager.fMeshTriangleContactQueueItems[Index];
-     MeshTriangleContactQueueItem^.MeshContactPair:=self;
-     MeshTriangleContactQueueItem^.TriangleIndex:=TriangleIndex;
-    end;
-(*} if AABBIntersect(Triangle^.AABB,fConvexAABBInMeshLocalSpace) and not fContactManager.HasDuplicateContact(fRigidBodyConvex,fRigidBodyMesh,fShapeConvex,fShapeMesh,TriangleIndex) then begin
+    if AABBIntersect(Triangle^.AABB,fConvexAABBInMeshLocalSpace) and not fContactManager.HasDuplicateContact(fRigidBodyConvex,fRigidBodyMesh,fShapeConvex,fShapeMesh,TriangleIndex) then begin
      fContactManager.AddConvexContact(fRigidBodyConvex,fRigidBodyMesh,fShapeConvex,fShapeMesh,TriangleIndex,self);
-    end;(**)
+    end;
     TriangleIndex:=Triangle^.Next;
    end;
    inc(SkipListNodeIndex);
@@ -22845,10 +22811,6 @@ begin
  SetLength(fActiveContactPairs,256);
  fCountActiveContactPairs:=0;
 
- fMeshTriangleContactQueueItems:=nil;
- SetLength(fMeshTriangleContactQueueItems,65536);
- fCountMeshTriangleContactQueueItems:=0;
-
  FillChar(fConvexConvexContactPairHashTable,SizeOf(TKraftContactPairHashTable),AnsiChar(#0));
 
  FillChar(fConvexMeshTriangleContactPairHashTable,SizeOf(TKraftContactPairHashTable),AnsiChar(#0));
@@ -22863,8 +22825,6 @@ var ThreadIndex:longint;
 begin
 
  SetLength(fActiveContactPairs,0);
-
- SetLength(fMeshTriangleContactQueueItems,0);
 
  while assigned(fContactPairFirst) do begin
   RemoveContact(fContactPairFirst);
@@ -23040,13 +23000,15 @@ begin
   ARigidBodyB.fContactPairEdgeLast^.Next:=@ContactPair^.Edges[1];
  end else begin
   ContactPair^.Edges[1].Previous:=nil;
-  ARigidBodyB.fContactPairEdgeFirst:=@ContactPair^.Edges[1];
+  ARigidBodyB.fContactPairEdgeFirst:=@ContactPair^.Edges[1];                                  
  end;
  ContactPair^.Edges[1].Next:=nil;
  ARigidBodyB.fContactPairEdgeLast:=@ContactPair^.Edges[1];
 
- ARigidBodyB.SetToAwake;
- ARigidBodyA.SetToAwake;
+ if not ((ksfSensor in AShapeA.Flags) or (ksfSensor in AShapeB.Flags)) then begin
+  ARigidBodyB.SetToAwake;
+  ARigidBodyA.SetToAwake;
+ end;
 
  inc(fCountContactPairs);
 
@@ -23232,40 +23194,16 @@ begin
 end;
 
 procedure TKraftContactManager.DoMidPhase;
-var Index:longint;
-    MeshContactPair:TKraftMeshContactPair;
-    MeshTriangleContactQueueItem:PKraftContactManagerMeshTriangleContactQueueItem;
+var MeshContactPair:TKraftMeshContactPair;
     StartTime:int64;
 begin
  StartTime:=fPhysics.fHighResolutionTimer.GetTime;
-
  MeshContactPair:=fMeshContactPairFirst;
  while assigned(MeshContactPair) do begin
   MeshContactPair.Update;
   MeshContactPair:=MeshContactPair.fNext;
  end;
-
- if fCountMeshTriangleContactQueueItems>0 then begin
-  for Index:=0 to fCountMeshTriangleContactQueueItems-1 do begin
-   MeshTriangleContactQueueItem:=@fMeshTriangleContactQueueItems[Index];
-   if not HasDuplicateContact(MeshTriangleContactQueueItem^.MeshContactPair.fRigidBodyConvex,
-                              MeshTriangleContactQueueItem^.MeshContactPair.fRigidBodyMesh,
-                              MeshTriangleContactQueueItem^.MeshContactPair.fShapeConvex,
-                              MeshTriangleContactQueueItem^.MeshContactPair.fShapeMesh,
-                              MeshTriangleContactQueueItem^.TriangleIndex) then begin
-    AddConvexContact(MeshTriangleContactQueueItem^.MeshContactPair.fRigidBodyConvex,
-                     MeshTriangleContactQueueItem^.MeshContactPair.fRigidBodyMesh,
-                     MeshTriangleContactQueueItem^.MeshContactPair.fShapeConvex,
-                     MeshTriangleContactQueueItem^.MeshContactPair.fShapeMesh,
-                     MeshTriangleContactQueueItem^.TriangleIndex,
-                     MeshTriangleContactQueueItem^.MeshContactPair);
-   end;
-  end;
-  fCountMeshTriangleContactQueueItems:=0;
- end;
-
  inc(fPhysics.fMidPhaseTime,fPhysics.fHighResolutionTimer.GetTime-StartTime);
-
 end;
 
 procedure TKraftContactManager.ProcessContactPair(const ContactPair:PKraftContactPair;const ThreadIndex:longint=0);
@@ -23340,7 +23278,7 @@ begin
    continue;
   end;
 
-  if not AABBIntersect(ShapeA.fWorldAABB,ShapeB.fWorldAABB) then begin
+  if not AABBIntersect(ShapeA.ProxyFatWorldAABB^,ShapeB.ProxyFatWorldAABB^) then begin
    if (ContactPair^.Flags*[kcfColliding,kcfWasColliding])<>[] then begin
     if (ContactPair^.Flags*[kcfColliding,kcfWasColliding])=[kcfColliding] then begin
      if assigned(fOnContactBegin) then begin
@@ -23414,7 +23352,7 @@ begin
 
  fCountRemainActiveContactPairsToDo:=fCountActiveContactPairs;
 
- if assigned(fPhysics.fJobManager) then begin
+ if assigned(fPhysics.fJobManager) and (fCountActiveContactPairs>64) then begin
   fPhysics.fJobManager.fOnProcessJob:=ProcessContactPairJob;
   fPhysics.fJobManager.fCountRemainJobs:=fCountActiveContactPairs;
   fPhysics.fJobManager.ProcessJobs;
@@ -23485,7 +23423,7 @@ begin
    continue;
   end;
 
-  if not AABBIntersect(ShapeA.fWorldAABB,ShapeB.fWorldAABB) then begin
+  if not AABBIntersect(ShapeA.ProxyFatWorldAABB^,ShapeB.ProxyFatWorldAABB^) then begin
    NextMeshContactPair:=MeshContactPair.fNext;
    RemoveMeshContact(MeshContactPair);
    MeshContactPair:=NextMeshContactPair;
@@ -23805,22 +23743,37 @@ begin
 end;
 
 constructor TKraftBroadPhase.Create(const APhysics:TKraft);
+var ThreadIndex,CountThreads:longint;
 begin
  inherited Create;
 
  fPhysics:=APhysics;
 
- fContactPairs:=nil;
- SetLength(fContactPairs,4096);
- fCountContactPairs:=0;
+ CountThreads:=Max(1,fPhysics.fCountThreads);
+
+ for ThreadIndex:=0 to MAX_THREADS-1 do begin
+
+  if ThreadIndex<CountThreads then begin
+   fStackCapacity[ThreadIndex]:=16;
+   GetMem(fStack[ThreadIndex],fStackCapacity[ThreadIndex]*SizeOf(longint));
+  end else begin
+   fStack[ThreadIndex]:=nil;
+   fStackCapacity[ThreadIndex]:=0;
+  end;
+
+  fContactPairs[ThreadIndex]:=nil;
+  if ThreadIndex<CountThreads then begin
+   SetLength(fContactPairs[ThreadIndex],4096);
+  end else begin
+   SetLength(fContactPairs[ThreadIndex],0);
+  end;
+  fCountContactPairs[ThreadIndex]:=0;
+  
+ end;
 
  fStaticMoveBuffer:=nil;
  SetLength(fStaticMoveBuffer,64);
  fStaticMoveBufferSize:=0;
-
- fSleepingMoveBuffer:=nil;
- SetLength(fSleepingMoveBuffer,64);
- fSleepingMoveBufferSize:=0;
 
  fDynamicMoveBuffer:=nil;
  SetLength(fDynamicMoveBuffer,64);
@@ -23833,10 +23786,16 @@ begin
 end;
 
 destructor TKraftBroadPhase.Destroy;
+var ThreadIndex:longint;
 begin
- SetLength(fContactPairs,0);
+ for ThreadIndex:=0 to MAX_THREADS-1 do begin
+  if assigned(fStack[ThreadIndex]) then begin
+   FreeMem(fStack[ThreadIndex]);
+   fStack[ThreadIndex]:=nil;
+  end;
+  SetLength(fContactPairs[ThreadIndex],0);
+ end;
  SetLength(fStaticMoveBuffer,0);
- SetLength(fSleepingMoveBuffer,0);
  SetLength(fDynamicMoveBuffer,0);
  SetLength(fKinematicMoveBuffer,0);
  inherited Destroy;
@@ -23850,145 +23809,167 @@ begin
  end;
 end;
 
-procedure TKraftBroadPhase.UpdatePairs;
- procedure AddPair(ShapeA,ShapeB:TKraftShape); {$ifdef caninline}inline;{$endif}
- var TempShape:TKraftShape;
-     Index:longint;
-     ContactPair:PKraftBroadPhaseContactPair;
- begin
-  if ShapeA<>ShapeB then begin
-   if (ShapeA.fShapeType>ShapeB.fShapeType) or ((ShapeA.fShapeType=ShapeB.fShapeType) and (ptruint(ShapeA)>ptruint(ShapeB))) then begin
-    TempShape:=ShapeA;
-    ShapeA:=ShapeB;
-    ShapeB:=TempShape;
-   end;
-   Index:=fCountContactPairs;
-   inc(fCountContactPairs);
-   if fCountContactPairs>length(fContactPairs) then begin
-    SetLength(fContactPairs,fCountContactPairs*2);
-   end;
-   ContactPair:=@fContactPairs[Index];
-   ContactPair[0]:=ShapeA;
-   ContactPair[1]:=ShapeB;
+procedure TKraftBroadPhase.AddPair(const ThreadIndex:longint;ShapeA,ShapeB:TKraftShape); {$ifdef caninline}inline;{$endif}
+var TempShape:TKraftShape;
+    Index:longint;
+    ContactPair:PKraftBroadPhaseContactPair;
+begin
+ if ShapeA<>ShapeB then begin
+  if (ShapeA.fShapeType>ShapeB.fShapeType) or ((ShapeA.fShapeType=ShapeB.fShapeType) and (ptruint(ShapeA)>ptruint(ShapeB))) then begin
+   TempShape:=ShapeA;
+   ShapeA:=ShapeB;
+   ShapeB:=TempShape;
   end;
+  Index:=fCountContactPairs[ThreadIndex];
+  inc(fCountContactPairs[ThreadIndex]);
+  if fCountContactPairs[ThreadIndex]>length(fContactPairs[ThreadIndex]) then begin
+   SetLength(fContactPairs[ThreadIndex],fCountContactPairs[ThreadIndex]*2);
+  end;
+  ContactPair:=@fContactPairs[ThreadIndex,Index];
+  ContactPair[0]:=ShapeA;
+  ContactPair[1]:=ShapeB;
  end;
- procedure QueryShapeWithTree(Shape:TKraftShape;AABBTree:TKraftDynamicAABBTree);
- var ShapeAABB:PKraftAABB;
-     LocalStack:PKraftDynamicAABBTreeLongintArray;
-     LocalStackPointer,NodeID:longint;
-     Node:PKraftDynamicAABBTreeNode;
-     OtherShape:TKraftShape;
- begin
-  if assigned(Shape) and assigned(AABBTree) then begin
-   ShapeAABB:=@Shape.fWorldAABB;
-   if AABBTree.fRoot>=0 then begin
-    LocalStack:=AABBTree.fStack;
-    LocalStack^[0]:=AABBTree.fRoot;
-    LocalStackPointer:=1;
-    while LocalStackPointer>0 do begin
-     dec(LocalStackPointer);
-     NodeID:=LocalStack^[LocalStackPointer];
-     if NodeID>=0 then begin
-      Node:=@AABBTree.fNodes[NodeID];
-      if AABBIntersect(Node^.AABB,ShapeAABB^) then begin
-       if Node^.Children[0]<0 then begin
-        OtherShape:=Node^.UserData;
-        if assigned(OtherShape) and (Shape<>OtherShape) then begin
-         AddPair(Shape,OtherShape);
-        end;
-       end else begin
-        if AABBTree.fStackCapacity<=(LocalStackPointer+2) then begin
-         AABBTree.fStackCapacity:=RoundUpToPowerOfTwo(LocalStackPointer+2);
-         ReallocMem(AABBTree.fStack,AABBTree.fStackCapacity*SizeOf(longint));
-         LocalStack:=AABBTree.fStack;
-        end;
-        LocalStack^[LocalStackPointer+0]:=Node^.Children[0];
-        LocalStack^[LocalStackPointer+1]:=Node^.Children[1];
-        inc(LocalStackPointer,2);
+end;
+
+procedure TKraftBroadPhase.QueryShapeWithTree(const ThreadIndex:longint;const Shape:TKraftShape;const AABBTree:TKraftDynamicAABBTree);
+var ShapeAABB:PKraftAABB;
+    LocalStack:PKraftDynamicAABBTreeLongintArray;
+    LocalStackPointer,NodeID:longint;
+    Node:PKraftDynamicAABBTreeNode;
+    OtherShape:TKraftShape;
+begin
+ if assigned(Shape) and assigned(AABBTree) then begin
+  ShapeAABB:=Shape.ProxyFatWorldAABB;
+  if AABBTree.fRoot>=0 then begin
+   LocalStack:=fStack[ThreadIndex];
+   LocalStack^[0]:=AABBTree.fRoot;
+   LocalStackPointer:=1;
+   while LocalStackPointer>0 do begin
+    dec(LocalStackPointer);
+    NodeID:=LocalStack^[LocalStackPointer];
+    if NodeID>=0 then begin
+     Node:=@AABBTree.fNodes[NodeID];
+     if AABBIntersect(Node^.AABB,ShapeAABB^) then begin
+      if Node^.Children[0]<0 then begin
+       OtherShape:=Node^.UserData;
+       if assigned(OtherShape) and (Shape<>OtherShape) then begin
+        AddPair(ThreadIndex,Shape,OtherShape);
        end;
+      end else begin
+       if fStackCapacity[ThreadIndex]<=(LocalStackPointer+2) then begin
+        fStackCapacity[ThreadIndex]:=RoundUpToPowerOfTwo(LocalStackPointer+2);
+        ReallocMem(fStack[ThreadIndex],fStackCapacity[ThreadIndex]*SizeOf(longint));
+        LocalStack:=fStack[ThreadIndex];
+       end;
+       LocalStack^[LocalStackPointer+0]:=Node^.Children[0];
+       LocalStack^[LocalStackPointer+1]:=Node^.Children[1];
+       inc(LocalStackPointer,2);
       end;
      end;
     end;
    end;
   end;
  end;
-var i:longint;
+end;
+
+procedure TKraftBroadPhase.ProcessMoveBufferItem(const JobIndex,ThreadIndex:longint);
+var Index:longint;
     Shape:TKraftShape;
+begin
+ Index:=JobIndex;
+ if Index<fStaticMoveBufferSize then begin
+  // Static shapes against dynamic shapes
+  if fStaticMoveBuffer[Index]>=0 then begin
+   Shape:=fPhysics.fStaticAABBTree.fNodes[fStaticMoveBuffer[Index]].UserData;
+   if assigned(Shape) then begin
+    QueryShapeWithTree(ThreadIndex,Shape,fPhysics.fDynamicAABBTree);
+   end;
+  end;
+ end else if Index<(fStaticMoveBufferSize+fDynamicMoveBufferSize) then begin
+  // Dynamic shapes against static, dynamic and kinematic shapes
+  dec(Index,fStaticMoveBufferSize);
+  if fDynamicMoveBuffer[Index]>=0 then begin
+   Shape:=fPhysics.fDynamicAABBTree.fNodes[fDynamicMoveBuffer[Index]].UserData;
+   if assigned(Shape) then begin
+    QueryShapeWithTree(ThreadIndex,Shape,fPhysics.fStaticAABBTree);
+    QueryShapeWithTree(ThreadIndex,Shape,fPhysics.fDynamicAABBTree);
+    QueryShapeWithTree(ThreadIndex,Shape,fPhysics.fKinematicAABBTree);
+   end;
+  end;
+ end else if Index<(fStaticMoveBufferSize+fDynamicMoveBufferSize+fKinematicMoveBufferSize) then begin
+  // Kinematic shapes against dynamic shapes
+  dec(Index,fStaticMoveBufferSize+fDynamicMoveBufferSize);
+  if fKinematicMoveBuffer[Index]>=0 then begin
+   Shape:=fPhysics.fKinematicAABBTree.fNodes[fKinematicMoveBuffer[Index]].UserData;
+   if assigned(Shape) then begin
+    QueryShapeWithTree(ThreadIndex,Shape,fPhysics.fDynamicAABBTree);
+   end;
+  end;
+ end;
+end;
+
+procedure TKraftBroadPhase.UpdatePairs;
+var ThreadIndex,Count,Index:longint;
     ContactPair,OtherContactPair:PKraftBroadPhaseContactPair;
 begin
 
- fCountContactPairs:=0;
+ // Reset found thread contact pair arrays
+ for ThreadIndex:=0 to Max(1,fPhysics.CountThreads)-1 do begin
+  fCountContactPairs[ThreadIndex]:=0;
+ end;
 
- for i:=0 to fStaticMoveBufferSize-1 do begin
-  if fStaticMoveBuffer[i]>=0 then begin
-   Shape:=fPhysics.fStaticAABBTree.fNodes[fStaticMoveBuffer[i]].UserData;
-   if assigned(Shape) then begin
-    QueryShapeWithTree(Shape,fPhysics.fSleepingAABBTree);
-    QueryShapeWithTree(Shape,fPhysics.fDynamicAABBTree);
-   end;
+ // Run the thread jobs
+ fAllMoveBufferSize:=fStaticMoveBufferSize+fDynamicMoveBufferSize+fKinematicMoveBufferSize;
+ if assigned(fPhysics.fJobManager) and (fAllMoveBufferSize>1024) then begin
+  fPhysics.fJobManager.fOnProcessJob:=ProcessMoveBufferItem;
+  fPhysics.fJobManager.fCountRemainJobs:=fAllMoveBufferSize;
+  fPhysics.fJobManager.ProcessJobs;
+ end else begin
+  for Index:=0 to fAllMoveBufferSize-1 do begin
+   ProcessMoveBufferItem(Index,0);
   end;
  end;
+
+ // Reset move buffer sizes
  fStaticMoveBufferSize:=0;
-
- for i:=0 to fSleepingMoveBufferSize-1 do begin
-  if fSleepingMoveBuffer[i]>=0 then begin
-   Shape:=fPhysics.fSleepingAABBTree.fNodes[fSleepingMoveBuffer[i]].UserData;
-   if assigned(Shape) then begin
-    QueryShapeWithTree(Shape,fPhysics.fStaticAABBTree);
-    QueryShapeWithTree(Shape,fPhysics.fSleepingAABBTree);
-    QueryShapeWithTree(Shape,fPhysics.fSleepingAABBTree);
-    QueryShapeWithTree(Shape,fPhysics.fKinematicAABBTree);
-   end;
-  end;
- end;
- fSleepingMoveBufferSize:=0;
-
- for i:=0 to fDynamicMoveBufferSize-1 do begin
-  if fDynamicMoveBuffer[i]>=0 then begin
-   Shape:=fPhysics.fDynamicAABBTree.fNodes[fDynamicMoveBuffer[i]].UserData;
-   if assigned(Shape) then begin
-    QueryShapeWithTree(Shape,fPhysics.fStaticAABBTree);
-    QueryShapeWithTree(Shape,fPhysics.fSleepingAABBTree);
-    QueryShapeWithTree(Shape,fPhysics.fDynamicAABBTree);
-    QueryShapeWithTree(Shape,fPhysics.fKinematicAABBTree);
-   end;
-  end;
- end;
  fDynamicMoveBufferSize:=0;
-
- for i:=0 to fKinematicMoveBufferSize-1 do begin
-  if fKinematicMoveBuffer[i]>=0 then begin
-   Shape:=fPhysics.fKinematicAABBTree.fNodes[fKinematicMoveBuffer[i]].UserData;
-   if assigned(Shape) then begin
-    QueryShapeWithTree(Shape,fPhysics.fSleepingAABBTree);
-    QueryShapeWithTree(Shape,fPhysics.fDynamicAABBTree);
-   end;
-  end;
- end;
  fKinematicMoveBufferSize:=0;
 
- if fCountContactPairs>0 then begin
+ // Merge thread contact pair lists into the first single contact pair list
+ for ThreadIndex:=1 to fPhysics.CountThreads-1 do begin
+  if fCountContactPairs[ThreadIndex]>0 then begin
+   Count:=fCountContactPairs[0]+fCountContactPairs[ThreadIndex];
+   if Count>length(fContactPairs[0]) then begin
+    SetLength(fContactPairs[0],RoundUpToPowerOfTwo(Count+1));
+   end;
+   Move(fContactPairs[ThreadIndex,0],fContactPairs[0,fCountContactPairs[0]],fCountContactPairs[ThreadIndex]*SizeOf(TKraftBroadPhaseContactPair));
+   fCountContactPairs[0]:=Count;
+  end;
+ end;
+
+ // Process the found contact pairs, when there are any...
+ if fCountContactPairs[0]>0 then begin
 
   // Sort pairs to expose duplicates
-  DirectIntroSort(@fContactPairs[0],0,fCountContactPairs-1,SizeOf(TKraftBroadPhaseContactPair),CompareContactPairs);
+  DirectIntroSort(@fContactPairs[0,0],0,fCountContactPairs[0]-1,SizeOf(TKraftBroadPhaseContactPair),CompareContactPairs);
 
   // Queue manifolds for solving
-  i:=0;
-  while i<fCountContactPairs do begin
+  Index:=0;
+  while Index<fCountContactPairs[0] do begin
 
-   ContactPair:=@fContactPairs[i];
-   inc(i);
+   ContactPair:=@fContactPairs[0,Index];
+   inc(Index);
 
    // Add contact pair to contact manager
    fPhysics.fContactManager.AddContact(ContactPair^[0],ContactPair^[1]);
 
    // Skip duplicate pairs until we find a unique pair
-   while i<fCountContactPairs do begin
-    OtherContactPair:=@fContactPairs[i];
+   while Index<fCountContactPairs[0] do begin
+    OtherContactPair:=@fContactPairs[0,Index];
     if (ContactPair^[0]<>OtherContactPair^[0]) or (ContactPair^[1]<>OtherContactPair^[1]) then begin
      break;
     end;
-    inc(i);
+    inc(Index);
    end;
 
   end;
@@ -24006,17 +23987,6 @@ begin
   SetLength(fStaticMoveBuffer,fStaticMoveBufferSize*2);
  end;
  fStaticMoveBuffer[Index]:=ProxyID;
-end;
-
-procedure TKraftBroadPhase.SleepingBufferMove(ProxyID:longint);
-var Index:longint;
-begin
- Index:=fSleepingMoveBufferSize;
- inc(fSleepingMoveBufferSize);
- if fSleepingMoveBufferSize>length(fSleepingMoveBuffer) then begin
-  SetLength(fSleepingMoveBuffer,fSleepingMoveBufferSize*2);
- end;
- fSleepingMoveBuffer[Index]:=ProxyID;
 end;
 
 procedure TKraftBroadPhase.DynamicBufferMove(ProxyID:longint);
@@ -24087,9 +24057,6 @@ begin
  fShapeCount:=0;
 
  fFlags:=[krbfContinuous,krbfAllowSleep,krbfAwake,krbfActive];
-
-{fWorldAABB.Min:=Vector3Origin;
- fWorldAABB.Max:=Vector3Origin;{}
 
  fWorldDisplacement:=Vector3Origin;
 
@@ -30141,11 +30108,11 @@ begin
 
  fConstraintPositionCorrectionMode:=kpcmNonLinearGaussSeidel;
 
- fVelocityIterations:=10;
+ fVelocityIterations:=8;
 
- fPositionIterations:=4;
+ fPositionIterations:=3;
 
- fSpeculativeIterations:=16;
+ fSpeculativeIterations:=8;
 
  fTimeOfImpactIterations:=20;
 
@@ -30475,7 +30442,7 @@ var Index:longint;
 begin
  fJobTimeStep:=TimeStep;
  fIsSolving:=true;
- if assigned(fJobManager) then begin
+ if assigned(fJobManager) and (fCountIslands>1) then begin
   fJobManager.fOnProcessJob:=ProcessSolveIslandJob;
   fJobManager.fCountRemainJobs:=fCountIslands;
   fJobManager.ProcessJobs;
@@ -31152,8 +31119,6 @@ begin
   RigidBody:=RigidBody.fRigidBodyNext;
  end;
 
- fContactManager.fCountMeshTriangleContactQueueItems:=0;
-
  fContactManager.DoBroadPhase;
 
  fContactManager.DoMidPhase;
@@ -31253,7 +31218,6 @@ begin
  end;
 
  if NeedUpdate then begin
-  fContactManager.fCountMeshTriangleContactQueueItems:=0;
   fContactManager.DoBroadPhase;
   fContactManager.DoMidPhase;
   fContactManager.DoNarrowPhase;
@@ -31532,7 +31496,6 @@ begin
    end;
   end;
 
-  fContactManager.fCountMeshTriangleContactQueueItems:=0;
   fContactManager.DoBroadPhase;
   fContactManager.DoMidPhase;
   NeedUpdate:=true;
