@@ -37,7 +37,7 @@ type TDemoSceneSandBox=class(TDemoScene)
        RagdollShape:array[0..1+2+2+5] of TKraftShape;
        RagdollConstraints:array[0..9] of TKraftConstraint;
 
-       constructor Create; override;
+       constructor Create(const AKraftPhysics:TKraft); override;
        destructor Destroy; override;
        procedure Step(const DeltaTime:double); override;
      end;
@@ -53,7 +53,7 @@ const ConvexHullPoints:array[0..5] of TKraftVector3=((x:-2.0;y:1.0;z:1.0),
                                                 (x:1.0;y:1.0;z:-2.0),
                                                 (x:0.0;y:0.0;z:2.0));{}
 
-constructor TDemoSceneSandBox.Create;
+constructor TDemoSceneSandBox.Create(const AKraftPhysics:TKraft);
 const ScaleRagDoll=4.0;
       BODYPART_PELVIS=0;
       BODYPART_SPINE=1;
@@ -70,11 +70,7 @@ const ScaleRagDoll=4.0;
       BODY_BASE_Y=6.0;
       BODY_BASE_Z=2.0;
 begin
- inherited Create;
-
- KraftPhysics.SetFrequency(120.0);
-
- KraftPhysics.Gravity.y:=-20.0;
+ inherited Create(AKraftPhysics);
 
  RigidBodyFloor:=TKraftRigidBody.Create(KraftPhysics);
  RigidBodyFloor.SetRigidBodyType(krbtSTATIC);
@@ -100,6 +96,7 @@ begin
  RigidBodyMesh:=TKraftRigidBody.Create(KraftPhysics);
  RigidBodyMesh.SetRigidBodyType(krbtSTATIC);
  Mesh:=TKraftMesh.Create(KraftPhysics);
+ MeshGarbageCollector.Add(Mesh);
  Mesh.Load(@sandboxData,sandboxSize);
  Mesh.Scale(0.1);
  Mesh.Finish;
@@ -252,6 +249,7 @@ begin
  ObjectRigidBody[8].SetRigidBodyType(krbtDYNAMIC);
 // ObjectShape[8]:=TKraftShapeSphere.Create(KraftPhysics,ObjectRigidBody[8],1.0);
  ConvexHull:=TKraftConvexHull.Create(KraftPhysics);
+ ConvexHullGarbageCollector.Add(ConvexHull);
  ConvexHull.Load(pointer(@ConvexHullPoints),length(ConvexHullPoints));
  ConvexHull.Build;
  ConvexHull.Finish;

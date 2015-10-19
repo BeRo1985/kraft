@@ -13,7 +13,9 @@ type TDemoScene=class;
       public
        fKraftPhysics:TKraft;
        GarbageCollector:TList;
-       constructor Create; virtual;
+       MeshGarbageCollector:TList;
+       ConvexHullGarbageCollector:TList;
+       constructor Create(const AKraftPhysics:TKraft); virtual;
        destructor Destroy; override;
        procedure Step(const DeltaTime:double); virtual;
        property KraftPhysics:TKraft read fKraftPhysics;
@@ -23,34 +25,45 @@ implementation
 
 uses UnitFormMain,UnitFormGL;
 
-constructor TDemoScene.Create;
+constructor TDemoScene.Create(const AKraftPhysics:TKraft);
 begin
  inherited Create;
- fKraftPhysics:=TKraft.Create(1);
+ fKraftPhysics:=AKraftPhysics;
  GarbageCollector:=TList.Create;
+ MeshGarbageCollector:=TList.Create;
+ ConvexHullGarbageCollector:=TList.Create;
 end;
 
 destructor TDemoScene.Destroy;
 var Index:longint;
-    ConvexHull,NextConvexHull:TKraftConvexHull;
 begin
  wglMakeCurrent(FormGL.hDCGL,FormGL.hGL);
+
  for Index:=0 to GarbageCollector.Count-1 do begin
   TObject(GarbageCollector[Index]).Free;
  end;
  GarbageCollector.Free;
+
  while assigned(fKraftPhysics.RigidBodyFirst) do begin
   fKraftPhysics.RigidBodyFirst.Free;
  end;
- while assigned(fKraftPhysics.MeshFirst) do begin
-  fKraftPhysics.MeshFirst.Free;
- end;
+
  while assigned(fKraftPhysics.ConstraintFirst) do begin
   fKraftPhysics.ConstraintFirst.Free;
  end;
- ConvexHull:=fKraftPhysics.ConvexHullFirst;
+
+ for Index:=0 to MeshGarbageCollector.Count-1 do begin
+  TObject(MeshGarbageCollector[Index]).Free;
+ end;
+ MeshGarbageCollector.Free;
+
+ for Index:=0 to ConvexHullGarbageCollector.Count-1 do begin
+  TObject(ConvexHullGarbageCollector[Index]).Free;
+ end;
+ ConvexHullGarbageCollector.Free;
+
  wglMakeCurrent(0,0);
- FreeAndNil(fKraftPhysics);
+
  inherited Destroy;
 end;
 

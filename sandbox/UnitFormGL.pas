@@ -5,7 +5,8 @@ interface
 
 uses
   Windows, Messages, SysUtils, Variants, Classes, Graphics, Controls, Forms,
-  Dialogs, OpenGL, sSkinProvider, kraft, ExtCtrls, Math, mmsystem;
+  Dialogs, OpenGL, sSkinProvider, kraft, ExtCtrls, Math, mmsystem,
+  JvComponentBase, JvThreadTimer, AppEvnts;
 
 type TCamera=object
       public
@@ -26,8 +27,8 @@ type TCamera=object
 
   TFormGL = class(TForm)
     sSkinProvider1: TsSkinProvider;
-    TimerDraw: TTimer;
     TimerFPS: TTimer;
+    ApplicationEvents1: TApplicationEvents;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure FormPaint(Sender: TObject);
@@ -50,6 +51,8 @@ type TCamera=object
     procedure FormMouseWheel(Sender: TObject; Shift: TShiftState;
       WheelDelta: Integer; MousePos: TPoint; var Handled: Boolean);
     procedure TimerFPSTimer(Sender: TObject);
+    procedure JvThreadTimerDrawTimer(Sender: TObject);
+    procedure ApplicationEvents1Idle(Sender: TObject; var Done: Boolean);
   private
     { Private declarations }
   protected
@@ -90,8 +93,8 @@ var GrabRigidBody:TKraftRigidBody;
     GrabShape:TKraftShape;
     GrabDelta:TKraftVector3;
     GrabDistance:single;
-    GrabRigidBodyTransform:TKraftMatrix4x4;
-    GrabCameraTransform:TKraftMatrix4x4;
+//  GrabRigidBodyTransform:TKraftMatrix4x4;
+//  GrabCameraTransform:TKraftMatrix4x4;
     GrabConstraint:TKraftConstraintJointGrab;
 
 procedure StartGrab;
@@ -132,6 +135,23 @@ begin
   GrabConstraint.SetWorldPoint(Vector3Add(FormGL.CurrentCamera.Position,Vector3ScalarMul(PKraftVector3(pointer(@FormGL.CurrentCamera.Matrix[2,0]))^,GrabDistance)));
   GrabRigidBody.SetToAwake;
  end;
+end;
+                    
+procedure FireSphere;
+var RigidBody:TKraftRigidBody;
+    Shape:TKraftShape;
+begin
+ RigidBody:=TKraftRigidBody.Create(FormMain.KraftPhysics);
+ RigidBody.SetRigidBodyType(krbtDYNAMIC);
+ Shape:=TKraftShapeSphere.Create(FormMain.KraftPhysics,RigidBody,0.5);
+ Shape.Friction:=0.4;
+ Shape.Restitution:=0.2;
+ Shape.Density:=20.0;
+ RigidBody.Finish;
+ RigidBody.SetWorldTransformation(Matrix4x4Translate(Vector3Add(FormGL.CurrentCamera.Position,Vector3ScalarMul(PKraftVector3(pointer(@FormGL.CurrentCamera.Matrix[2,0]))^,1.0))));
+ RigidBody.AngularVelocity:=Vector3Origin;
+ RigidBody.LinearVelocity:=Vector3ScalarMul(PKraftVector3(pointer(@FormGL.CurrentCamera.Matrix[2,0]))^,3.0*RigidBody.Mass);
+ RigidBody.SetToAwake;
 end;
 
 procedure TCamera.Reset;
@@ -390,336 +410,346 @@ begin
 
   NowTime:=HighResolutionTimer.GetTime;
   DeltaTime:=NowTime-LastTime;
-  LastTime:=NowTime;
 
-  FloatDeltaTime:=Min(Max(HighResolutionTimer.ToFloatSeconds(DeltaTime),0.0),1.0);
+{ if DeltaTime>=HighResolutionTimer.FrameInterval then}begin
 
-  PhysicsTimeStep:=1.0/FormMain.KraftPhysics.WorldFrequency;
+   LastTime:=NowTime;
 
-  TimeAccumulator:=TimeAccumulator+FloatDeltaTime;
-  while TimeAccumulator>=PhysicsTimeStep do begin
-   TimeAccumulator:=TimeAccumulator-PhysicsTimeStep;
-   LastCamera:=CurrentCamera;
-   if Grabbing then begin
-    ProcessGrab;
-   end;
-   FormMain.KraftPhysics.StoreWorldTransforms;
-   FormMain.KraftPhysics.Step(PhysicsTimeStep);
-   CurrentCamera.TestCamera;
-   if KeyLeft then begin
-    CurrentCamera.MoveSidewards(PhysicsTimeStep*10.0);
-   end;
-   if KeyRight then begin
-    CurrentCamera.MoveSidewards(-(PhysicsTimeStep*10.0));
-   end;
-   if KeyForwards then begin
-    CurrentCamera.MoveForwards(PhysicsTimeStep*10.0);
-   end;
-   if KeyBackwards then begin
-    CurrentCamera.MoveForwards(-(PhysicsTimeStep*10.0));
-   end;
-   if KeyUp then begin
-    CurrentCamera.MoveUpwards(PhysicsTimeStep*10.0);
-   end;
-   if KeyDown then begin
-    CurrentCamera.MoveUpwards(-(PhysicsTimeStep*10.0));
-   end;
-   CurrentCamera.TestCamera;
-  end;
-  FormMain.KraftPhysics.InterpolateWorldTransforms(TimeAccumulator/PhysicsTimeStep);
-  InterpolatedCamera.Interpolate(LastCamera,CurrentCamera,TimeAccumulator/PhysicsTimeStep);
+   FloatDeltaTime:=Min(Max(HighResolutionTimer.ToFloatSeconds(DeltaTime),0.0),1.0);
 
-  inc(Frames);
-  if abs(FST2-NowTime)>=HighResolutionTimer.Frequency then begin
-   FET2:=FST2;
-   FST2:=NowTime;
-   if (FST2-FET2)<>0 then begin
-    FPS:=(Frames*HighResolutionTimer.Frequency)/(FST2-FET2);
-   end;
-   Frames:=0;
-  end;
+   PhysicsTimeStep:=1.0/FormMain.KraftPhysics.WorldFrequency;
 
-  wglMakeCurrent(hDCGL,hGL);
-  glViewPort(0,0,ClientWidth,ClientHeight);
-  glClearDepth(1.0);
-  glClearColor(0.0,0.0,0.0,0.0);
-  glClear(GL_COLOR_BUFFER_BIT or GL_STENCIL_BUFFER_BIT or GL_DEPTH_BUFFER_BIT);
-  glMatrixMode(GL_PROJECTION);
-  glLoadIdentity();
-  glMatrixMode(GL_MODELVIEW);
-  glLoadIdentity();
-
- (**)
-  glColor4f(0.0,0.0,0.0,0.0);//0.1725,0.3275,0.6275,1.0);
-  glDisable(GL_DEPTH_TEST);
-  glDisable(GL_LIGHTING);
-  glDisable(GL_CULL_FACE);
-  glDepthMask(GL_FALSE);
-  glPolygonMode(GL_FRONT_AND_BACK,GL_FILL);
- {}glBegin(GL_QUADS);
-  glVertex3f(1.0,-1.0,0.0);
-  glVertex3f(1.0,1.0,0.0);
-  glVertex3f(-1.0,1.0,0.0);
-  glVertex3f(-1.0,-1.0,0.0);
-  glEnd;{}
-  glDepthMask(GL_TRUE);
-  glMatrixMode(GL_PROJECTION);
-  m:=Matrix4x4Perspective(InterpolatedCamera.FOV,ClientWidth/ClientHeight,0.1,1024.0);
-  glLoadMatrixf(pointer(@m));
-  glMatrixMode(GL_MODELVIEW);
-  glLoadIdentity();
-  glEnable(GL_DEPTH_TEST);
-  glDepthFunc(GL_LEQUAL);
-  glCullFace(GL_BACK);
-  glDisable(GL_BLEND);
-  glEnable(GL_COLOR_MATERIAL);
-  glEnable(GL_LIGHTING);
-  glEnable(GL_LIGHT0);
-  glLightModelfv(GL_LIGHT_MODEL_AMBIENT,@LModellAmbient);
-  glLightModelfv(GL_LIGHT_MODEL_AMBIENT,@GlobalAmbient);
-  m:=Matrix4x4LookAt(InterpolatedCamera.Position,Vector3Add(InterpolatedCamera.Position,PKraftVector3(pointer(@InterpolatedCamera.Matrix[2,0]))^),PKraftVector3(pointer(@InterpolatedCamera.Matrix[1,0]))^);
-  v:=PKraftVector4(pointer(@Licht0Pos))^;
-  Vector4MatrixMul(v,m);
-  glLightfv(GL_LIGHT0,GL_POSITION,@v);
-  glLightfv(GL_LIGHT0,GL_AMBIENT,@Licht0Ambient);
-  glLightfv(GL_LIGHT0,GL_DIFFUSE,@Licht0Diffuse);
-  glLightfv(GL_LIGHT0,GL_SPECULAR,@Licht0Specular);
-
-  glMaterialfv(GL_FRONT_AND_BACK,GL_DIFFUSE,@MaterialDiffuse);
-  glMaterialfv(GL_FRONT_AND_BACK,GL_SPECULAR,@MaterialSpecular);
-  glMaterialfv(GL_FRONT_AND_BACK,GL_AMBIENT,@MaterialAmbient);
-  glMaterialfv(GL_FRONT_AND_BACK,GL_SHININESS,@MaterialShininess);
-
-  glShadeModel(GL_SMOOTH);
-
-  glDepthFunc(GL_LEQUAL);
-  glCullFace(GL_BACK);
-
-  glEnable(GL_LIGHTING);
-
-  glMatrixMode(GL_MODELVIEW);
-  glLoadIdentity();
-  glLoadMatrixf(@m);
-
-  i:=0;
-  glEnable(GL_CULL_FACE);
-  glPolygonMode(GL_FRONT_AND_BACK,GL_FILL);
-  if FormMain.sCheckBoxDrawSolid.Checked then begin
-   RigidBody:=FormMain.KraftPhysics.RigidBodyFirst;
-   while assigned(RigidBody) do begin
-    if RigidBody.IsStatic then begin
-     glColor4f(0.75,0.5,0.125,1);
-    end else if krbfAwake in RigidBody.Flags then begin
-     glColor4f(1.0,0.0,1.0,1.0);
-    end else begin
-     glColor4f(1.0,0.0,0.0,1.0);
+   TimeAccumulator:=TimeAccumulator+FloatDeltaTime;
+   while TimeAccumulator>=PhysicsTimeStep do begin
+    TimeAccumulator:=TimeAccumulator-PhysicsTimeStep;
+    LastCamera:=CurrentCamera;
+    if Grabbing then begin
+     ProcessGrab;
     end;
-    Shape:=RigidBody.ShapeFirst;
-    while assigned(Shape) do begin
-     Shape.Draw(m);
-     Shape:=Shape.ShapeNext;
+    FormMain.KraftPhysics.StoreWorldTransforms;
+    FormMain.KraftPhysics.Step(PhysicsTimeStep);
+    CurrentCamera.TestCamera;
+    if KeyLeft then begin
+     CurrentCamera.MoveSidewards(PhysicsTimeStep*10.0);
     end;
-    RigidBody:=RigidBody.RigidBodyNext;
-   end;
-  end;
-
-  glEnable(GL_BLEND);
-  glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
-  glDisable(GL_LIGHTING);
-  glMatrixMode(GL_MODELVIEW);
-  glLoadIdentity();
-  glLoadMatrixf(@m);
-  glLineWidth(2);
-  glPolygonOffset(-1,1);
-  if FormMain.sCheckBoxDrawDynamicAABBTree.Checked then begin
-   if FormMain.KraftPhysics.StaticAABBTree.Root>=0 then begin
-    glColor4f(0.5,0.5,1.0,0.75);
-    DrawObjectTreeNode(FormMain.KraftPhysics.StaticAABBTree,@FormMain.KraftPhysics.StaticAABBTree.Nodes[FormMain.KraftPhysics.StaticAABBTree.Root]);
-   end;
-   glPolygonOffset(-2,2);
-   if FormMain.KraftPhysics.SleepingAABBTree.Root>=0 then begin
-    glColor4f(1.0,0.5,0.5,0.75);
-    DrawObjectTreeNode(FormMain.KraftPhysics.SleepingAABBTree,@FormMain.KraftPhysics.SleepingAABBTree.Nodes[FormMain.KraftPhysics.SleepingAABBTree.Root]);
-   end;
-   glPolygonOffset(-3,3);
-   if FormMain.KraftPhysics.DynamicAABBTree.Root>=0 then begin
-    glColor4f(0.5,1.0,0.5,0.75);
-    DrawObjectTreeNode(FormMain.KraftPhysics.DynamicAABBTree,@FormMain.KraftPhysics.DynamicAABBTree.Nodes[FormMain.KraftPhysics.DynamicAABBTree.Root]);
-   end;
-   glPolygonOffset(-4,4);
-   if FormMain.KraftPhysics.KinematicAABBTree.Root>=0 then begin
-    glColor4f(1.0,0.5,1.0,0.75);
-    DrawObjectTreeNode(FormMain.KraftPhysics.KinematicAABBTree,@FormMain.KraftPhysics.KinematicAABBTree.Nodes[FormMain.KraftPhysics.KinematicAABBTree.Root]);
-   end;
-   glPolygonOffset(-5,5);
- //  DrawObjectAABB(ShapeMesh.WorldAABB);
-   glLineWidth(1);
-   RigidBody:=FormMain.KraftPhysics.RigidBodyFirst;
-   while assigned(RigidBody) do begin
-    Shape:=RigidBody.ShapeFirst;
-    while assigned(Shape) do begin
-     if krbfAwake in Shape.RigidBody.Flags then begin
-      glColor4f(1.0,1.0,1.0,0.75);
-      DrawObjectAABB(Shape.WorldAABB);
- {   end else begin
-      glColor4f(1.0,0.75,0.75,0.75);{}
-     end;
-     Shape:=Shape.ShapeNext;
+    if KeyRight then begin
+     CurrentCamera.MoveSidewards(-(PhysicsTimeStep*10.0));
     end;
-    RigidBody:=RigidBody.RigidBodyNext;
-   end;
-  end;
-  glPolygonOffset(-1,1);
-  glLineWidth(1);
-
-  glEnable(GL_CULL_FACE);
-  glDisable(GL_LIGHTING);
-  glPolygonMode(GL_FRONT_AND_BACK,GL_LINE);
-  glEnable(GL_POLYGON_OFFSET_LINE);
-  glEnable(GL_POLYGON_OFFSET_POINT);
-  glPolygonOffset(-8,8);
-  glPointSize(1);
-  glLineWidth(1);
-  if FormMain.sCheckBoxDrawWireFrame.Checked then begin
-   RigidBody:=FormMain.KraftPhysics.RigidBodyFirst;
-   while assigned(RigidBody) do begin
-    Shape:=RigidBody.ShapeFirst;
-    while assigned(Shape) do begin
-     glColor4f(1.0,1.0,1.0,1.0);
-     Shape.Draw(m);
-     Shape:=Shape.ShapeNext;
+    if KeyForwards then begin
+     CurrentCamera.MoveForwards(PhysicsTimeStep*10.0);
     end;
-    RigidBody:=RigidBody.RigidBodyNext;
-   end;
-  end;
-  glDisable(GL_POLYGON_OFFSET_LINE);
-  glDisable(GL_POLYGON_OFFSET_POINT);
-
-  glDisable(GL_LIGHTING);
-  glEnable(GL_POLYGON_OFFSET_LINE);
-  glEnable(GL_POLYGON_OFFSET_POINT);
-  glPolygonOffset(-8,8);
-  glPointSize(8);
-  glLineWidth(4);
-  glDisable(GL_DEPTH_TEST);
-  if FormMain.sCheckBoxDrawContacts.Checked then begin
-   FormMain.KraftPhysics.ContactManager.DebugDraw(m);
-  end;
-  glDisable(GL_POLYGON_OFFSET_LINE);
-  glDisable(GL_POLYGON_OFFSET_POINT);
-
-  glMatrixMode(GL_MODELVIEW);
-  glLoadIdentity();
-
-  glEnable(GL_DEPTH_TEST);
-  if FormMain.sCheckBoxDrawConstraints.Checked then begin
-   Constraint:=FormMain.KraftPhysics.ConstraintFirst;
-   while assigned(Constraint) do begin
-    if assigned(Constraint.RigidBodies[0]) and
-       assigned(Constraint.RigidBodies[1]) then begin
-     glLineWidth(5);
-     glColor4f(1.0,1.0,0.125,1.0);
-     glBegin(GL_LINE_STRIP);
-     vv:=Vector3TermMatrixMul(PKraftVector3(pointer(@Constraint.RigidBodies[0].ShapeFirst.InterpolatedWorldTransform[3,0]))^,m);
-     glVertex3fv(@vv);
-     vv:=Vector3TermMatrixMul(PKraftVector3(pointer(@Constraint.RigidBodies[1].ShapeFirst.InterpolatedWorldTransform[3,0]))^,m);
-     glVertex3fv(@vv);
-     glEnd;
+    if KeyBackwards then begin
+     CurrentCamera.MoveForwards(-(PhysicsTimeStep*10.0));
     end;
-    Constraint:=Constraint.Next;
+    if KeyUp then begin
+     CurrentCamera.MoveUpwards(PhysicsTimeStep*10.0);
+    end;
+    if KeyDown then begin
+     CurrentCamera.MoveUpwards(-(PhysicsTimeStep*10.0));
+    end;
+    CurrentCamera.TestCamera;
    end;
-  end;
-  glDisable(GL_DEPTH_TEST);
+   FormMain.KraftPhysics.InterpolateWorldTransforms(TimeAccumulator/PhysicsTimeStep);
+   InterpolatedCamera.Interpolate(LastCamera,CurrentCamera,TimeAccumulator/PhysicsTimeStep);
 
-  if FormMain.sCheckBoxDrawConstraints.Checked then begin
-   if assigned(GrabRigidBody) then begin
-    glLineWidth(10);
-    glColor4f(1.0,1.0,0.125,1.0);
-    glBegin(GL_LINE_STRIP);
-    vv:=Vector3TermMatrixMul(GrabConstraint.GetWorldPoint,m);
-    glVertex3fv(@vv);
-    vv:=Vector3TermMatrixMul(GrabConstraint.GetAnchor,m);
-    glVertex3fv(@vv);
-    glEnd;
+   inc(Frames);
+   if abs(FST2-NowTime)>=HighResolutionTimer.Frequency then begin
+    FET2:=FST2;
+    FST2:=NowTime;
+    if (FST2-FET2)<>0 then begin
+     FPS:=(Frames*HighResolutionTimer.Frequency)/(FST2-FET2);
+    end;
+    Frames:=0;
    end;
-  end;
 
-  glMatrixMode(GL_PROJECTION);
-  glClear(GL_STENCIL_BUFFER_BIT or GL_DEPTH_BUFFER_BIT);
-  glLoadIdentity();
-  glFrustum(-0.01,0.01,-0.0075,0.0075,0.01,1000.0);
-  glMatrixMode(GL_MODELVIEW);
-  glLoadIdentity();
-  glDisable(GL_DEPTH_TEST);
-  glDisable(GL_LIGHTING);
-  glColor4f(1,1,1,1);
-  glPointSize(2);
-  glLineWidth(2);
-  glTranslatef(0,0,-4);
-  glBegin(GL_LINES);
-  glVertex3f(-0.25,0,0);
-  glVertex3f(0.25,0,0);
-  glVertex3f(0,-0.25,0);
-  glVertex3f(0,0.25,0);
-  glEnd;
-  glBegin(GL_LINE_STRIP);
-  for i:=0 to 16 do begin
-   glVertex3f(cos(i*pi/8)*0.125,sin(i*pi/8)*0.125,0);
-  end;
-  glEnd;
-  glBegin(GL_LINE_STRIP);
-  for i:=0 to 16 do begin
-   glVertex3f(cos(i*pi/8)*0.06125*0.5,sin(i*pi/8)*0.06125*0.5,0);
-  end;
-  glEnd;
-  glPointSize(1);
-  glLineWidth(1);
-
-  if Focused then begin
-   glClear(GL_DEPTH_BUFFER_BIT);
+   wglMakeCurrent(hDCGL,hGL);
+   glViewPort(0,0,ClientWidth,ClientHeight);
+   glClearDepth(1.0);
+   glClearColor(0.0,0.0,0.0,0.0);
+   glClear(GL_COLOR_BUFFER_BIT or GL_STENCIL_BUFFER_BIT or GL_DEPTH_BUFFER_BIT);
    glMatrixMode(GL_PROJECTION);
    glLoadIdentity();
    glMatrixMode(GL_MODELVIEW);
    glLoadIdentity();
-   glDisable(GL_BLEND);
-   glColor4f(0.5,0.5,1.0,1.0);
-   glLineWidth(3);
-   glDisable(GL_DEPTH_TEST);
-   glDisable(GL_LIGHTING);
-   glDisable(GL_CULL_FACE);
-   glDepthMask(GL_FALSE);
-   glPolygonMode(GL_FRONT_AND_BACK,GL_LINE);
-   glBegin(GL_QUADS);
-   glVertex3f(1.0,-1.0,0.0);
-   glVertex3f(1.0,1.0,0.0);
-   glVertex3f(-1.0,1.0,0.0);
-   glVertex3f(-1.0,-1.0,0.0);
-   glEnd;
-   glDisable(GL_BLEND);
-  end else begin
-   glClear(GL_DEPTH_BUFFER_BIT);
-   glMatrixMode(GL_PROJECTION);
-   glLoadIdentity();
-   glMatrixMode(GL_MODELVIEW);
-   glLoadIdentity();
-   glEnable(GL_BLEND);
-   glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
-   glColor4f(0.0,0.0,0.0,0.25);
+
+  (**)
+   glColor4f(0.0,0.0,0.0,0.0);//0.1725,0.3275,0.6275,1.0);
    glDisable(GL_DEPTH_TEST);
    glDisable(GL_LIGHTING);
    glDisable(GL_CULL_FACE);
    glDepthMask(GL_FALSE);
    glPolygonMode(GL_FRONT_AND_BACK,GL_FILL);
-   glBegin(GL_QUADS);
+  {}glBegin(GL_QUADS);
    glVertex3f(1.0,-1.0,0.0);
    glVertex3f(1.0,1.0,0.0);
    glVertex3f(-1.0,1.0,0.0);
    glVertex3f(-1.0,-1.0,0.0);
-   glEnd;
+   glEnd;{}
+   glDepthMask(GL_TRUE);
+   glMatrixMode(GL_PROJECTION);
+   m:=Matrix4x4Perspective(InterpolatedCamera.FOV,ClientWidth/ClientHeight,0.1,1024.0);
+   glLoadMatrixf(pointer(@m));
+   glMatrixMode(GL_MODELVIEW);
+   glLoadIdentity();
+   glEnable(GL_DEPTH_TEST);
+   glDepthFunc(GL_LEQUAL);
+   glCullFace(GL_BACK);
    glDisable(GL_BLEND);
-  end;
+   glEnable(GL_COLOR_MATERIAL);
+   glEnable(GL_LIGHTING);
+   glEnable(GL_LIGHT0);
+   glLightModelfv(GL_LIGHT_MODEL_AMBIENT,@LModellAmbient);
+   glLightModelfv(GL_LIGHT_MODEL_AMBIENT,@GlobalAmbient);
+   m:=Matrix4x4LookAt(InterpolatedCamera.Position,Vector3Add(InterpolatedCamera.Position,PKraftVector3(pointer(@InterpolatedCamera.Matrix[2,0]))^),PKraftVector3(pointer(@InterpolatedCamera.Matrix[1,0]))^);
+   v:=PKraftVector4(pointer(@Licht0Pos))^;
+   Vector4MatrixMul(v,m);
+   glLightfv(GL_LIGHT0,GL_POSITION,@v);
+   glLightfv(GL_LIGHT0,GL_AMBIENT,@Licht0Ambient);
+   glLightfv(GL_LIGHT0,GL_DIFFUSE,@Licht0Diffuse);
+   glLightfv(GL_LIGHT0,GL_SPECULAR,@Licht0Specular);
 
-  SwapBuffers(hDCGL);
+   glMaterialfv(GL_FRONT_AND_BACK,GL_DIFFUSE,@MaterialDiffuse);
+   glMaterialfv(GL_FRONT_AND_BACK,GL_SPECULAR,@MaterialSpecular);
+   glMaterialfv(GL_FRONT_AND_BACK,GL_AMBIENT,@MaterialAmbient);
+   glMaterialfv(GL_FRONT_AND_BACK,GL_SHININESS,@MaterialShininess);
+
+   glShadeModel(GL_SMOOTH);
+
+   glDepthFunc(GL_LEQUAL);
+   glCullFace(GL_BACK);
+
+   glEnable(GL_LIGHTING);
+
+   glMatrixMode(GL_MODELVIEW);
+   glLoadIdentity();
+   glLoadMatrixf(@m);
+
+///   i:=0;
+   glEnable(GL_CULL_FACE);
+   glPolygonMode(GL_FRONT_AND_BACK,GL_FILL);
+   if FormMain.sCheckBoxDrawSolid.Checked then begin
+    RigidBody:=FormMain.KraftPhysics.RigidBodyFirst;
+    while assigned(RigidBody) do begin
+     if RigidBody.IsStatic then begin
+      glColor4f(0.75,0.5,0.125,1);
+     end else if krbfAwake in RigidBody.Flags then begin
+      glColor4f(1.0,0.0,1.0,1.0);
+     end else begin
+      glColor4f(1.0,0.0,0.0,1.0);
+     end;
+     Shape:=RigidBody.ShapeFirst;
+     while assigned(Shape) do begin
+      Shape.Draw(m);
+      Shape:=Shape.ShapeNext;
+     end;
+     RigidBody:=RigidBody.RigidBodyNext;
+    end;
+   end;
+
+   glEnable(GL_BLEND);
+   glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+   glDisable(GL_LIGHTING);
+   glMatrixMode(GL_MODELVIEW);
+   glLoadIdentity();
+   glLoadMatrixf(@m);
+   glLineWidth(2);
+   glPolygonOffset(-1,1);
+   if FormMain.sCheckBoxDrawDynamicAABBTree.Checked then begin
+    if FormMain.KraftPhysics.StaticAABBTree.Root>=0 then begin
+     glColor4f(0.5,0.5,1.0,0.75);
+     DrawObjectTreeNode(FormMain.KraftPhysics.StaticAABBTree,@FormMain.KraftPhysics.StaticAABBTree.Nodes[FormMain.KraftPhysics.StaticAABBTree.Root]);
+    end;
+    glPolygonOffset(-2,2);
+    if FormMain.KraftPhysics.SleepingAABBTree.Root>=0 then begin
+     glColor4f(1.0,0.5,0.5,0.75);
+     DrawObjectTreeNode(FormMain.KraftPhysics.SleepingAABBTree,@FormMain.KraftPhysics.SleepingAABBTree.Nodes[FormMain.KraftPhysics.SleepingAABBTree.Root]);
+    end;
+    glPolygonOffset(-3,3);
+    if FormMain.KraftPhysics.DynamicAABBTree.Root>=0 then begin
+     glColor4f(0.5,1.0,0.5,0.75);
+     DrawObjectTreeNode(FormMain.KraftPhysics.DynamicAABBTree,@FormMain.KraftPhysics.DynamicAABBTree.Nodes[FormMain.KraftPhysics.DynamicAABBTree.Root]);
+    end;
+    glPolygonOffset(-4,4);
+    if FormMain.KraftPhysics.KinematicAABBTree.Root>=0 then begin
+     glColor4f(1.0,0.5,1.0,0.75);
+     DrawObjectTreeNode(FormMain.KraftPhysics.KinematicAABBTree,@FormMain.KraftPhysics.KinematicAABBTree.Nodes[FormMain.KraftPhysics.KinematicAABBTree.Root]);
+    end;
+    glPolygonOffset(-5,5);
+  //  DrawObjectAABB(ShapeMesh.WorldAABB);
+    glLineWidth(1);
+    RigidBody:=FormMain.KraftPhysics.RigidBodyFirst;
+    while assigned(RigidBody) do begin
+     Shape:=RigidBody.ShapeFirst;
+     while assigned(Shape) do begin
+      if krbfAwake in Shape.RigidBody.Flags then begin
+       glColor4f(1.0,1.0,1.0,0.75);
+       DrawObjectAABB(Shape.WorldAABB);
+      end else begin
+       glColor4f(1.0,0.5,0.5,0.75);
+       DrawObjectAABB(Shape.WorldAABB);
+      end;
+      Shape:=Shape.ShapeNext;
+     end;
+     RigidBody:=RigidBody.RigidBodyNext;
+    end;
+   end;
+   glPolygonOffset(-1,1);
+   glLineWidth(1);
+
+   glEnable(GL_CULL_FACE);
+   glDisable(GL_LIGHTING);
+   glPolygonMode(GL_FRONT_AND_BACK,GL_LINE);
+   glEnable(GL_POLYGON_OFFSET_LINE);
+   glEnable(GL_POLYGON_OFFSET_POINT);
+   glPolygonOffset(-8,8);
+   glPointSize(1);
+   glLineWidth(1);
+   if FormMain.sCheckBoxDrawWireFrame.Checked then begin
+    RigidBody:=FormMain.KraftPhysics.RigidBodyFirst;
+    while assigned(RigidBody) do begin
+     Shape:=RigidBody.ShapeFirst;
+     while assigned(Shape) do begin
+      glColor4f(1.0,1.0,1.0,1.0);
+      Shape.Draw(m);
+      Shape:=Shape.ShapeNext;
+     end;
+     RigidBody:=RigidBody.RigidBodyNext;
+    end;
+   end;
+   glDisable(GL_POLYGON_OFFSET_LINE);
+   glDisable(GL_POLYGON_OFFSET_POINT);
+
+   glDisable(GL_LIGHTING);
+   glEnable(GL_POLYGON_OFFSET_LINE);
+   glEnable(GL_POLYGON_OFFSET_POINT);
+   glPolygonOffset(-8,8);
+   glPointSize(8);
+   glLineWidth(4);
+   glDisable(GL_DEPTH_TEST);
+   if FormMain.sCheckBoxDrawContacts.Checked then begin
+    FormMain.KraftPhysics.ContactManager.DebugDraw(m);
+   end;
+   glDisable(GL_POLYGON_OFFSET_LINE);
+   glDisable(GL_POLYGON_OFFSET_POINT);
+
+   glMatrixMode(GL_MODELVIEW);
+   glLoadIdentity();
+
+   glEnable(GL_DEPTH_TEST);
+   if FormMain.sCheckBoxDrawConstraints.Checked then begin
+    Constraint:=FormMain.KraftPhysics.ConstraintFirst;
+    while assigned(Constraint) do begin
+     if assigned(Constraint.RigidBodies[0]) and
+        assigned(Constraint.RigidBodies[1]) then begin
+      glLineWidth(5);
+      glColor4f(1.0,1.0,0.125,1.0);
+      glBegin(GL_LINE_STRIP);
+      vv:=Vector3TermMatrixMul(PKraftVector3(pointer(@Constraint.RigidBodies[0].ShapeFirst.InterpolatedWorldTransform[3,0]))^,m);
+      glVertex3fv(@vv);
+      vv:=Vector3TermMatrixMul(PKraftVector3(pointer(@Constraint.RigidBodies[1].ShapeFirst.InterpolatedWorldTransform[3,0]))^,m);
+      glVertex3fv(@vv);
+      glEnd;
+     end;
+     Constraint:=Constraint.Next;
+    end;
+   end;
+   glDisable(GL_DEPTH_TEST);
+
+   if FormMain.sCheckBoxDrawConstraints.Checked then begin
+    if assigned(GrabRigidBody) then begin
+     glLineWidth(10);
+     glColor4f(1.0,1.0,0.125,1.0);
+     glBegin(GL_LINE_STRIP);
+     vv:=Vector3TermMatrixMul(GrabConstraint.GetWorldPoint,m);
+     glVertex3fv(@vv);
+     vv:=Vector3TermMatrixMul(GrabConstraint.GetAnchor,m);
+     glVertex3fv(@vv);
+     glEnd;
+    end;
+   end;
+
+   glMatrixMode(GL_PROJECTION);
+   glClear(GL_STENCIL_BUFFER_BIT or GL_DEPTH_BUFFER_BIT);
+   glLoadIdentity();
+   glFrustum(-0.01,0.01,-0.0075,0.0075,0.01,1000.0);
+   glMatrixMode(GL_MODELVIEW);
+   glLoadIdentity();
+   glDisable(GL_DEPTH_TEST);
+   glDisable(GL_LIGHTING);
+   glColor4f(1,1,1,1);
+   glPointSize(2);
+   glLineWidth(2);
+   glTranslatef(0,0,-4);
+   glBegin(GL_LINES);
+   glVertex3f(-0.25,0,0);
+   glVertex3f(0.25,0,0);
+   glVertex3f(0,-0.25,0);
+   glVertex3f(0,0.25,0);
+   glEnd;
+   glBegin(GL_LINE_STRIP);
+   for i:=0 to 16 do begin
+    glVertex3f(cos(i*pi/8)*0.125,sin(i*pi/8)*0.125,0);
+   end;
+   glEnd;
+   glBegin(GL_LINE_STRIP);
+   for i:=0 to 16 do begin
+    glVertex3f(cos(i*pi/8)*0.06125*0.5,sin(i*pi/8)*0.06125*0.5,0);
+   end;
+   glEnd;
+   glPointSize(1);
+   glLineWidth(1);
+
+   if Focused then begin
+    glClear(GL_DEPTH_BUFFER_BIT);
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+    glDisable(GL_BLEND);
+    glColor4f(0.5,0.5,1.0,1.0);
+    glLineWidth(3);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_LIGHTING);
+    glDisable(GL_CULL_FACE);
+    glDepthMask(GL_FALSE);
+    glPolygonMode(GL_FRONT_AND_BACK,GL_LINE);
+    glBegin(GL_QUADS);
+    glVertex3f(1.0,-1.0,0.0);
+    glVertex3f(1.0,1.0,0.0);
+    glVertex3f(-1.0,1.0,0.0);
+    glVertex3f(-1.0,-1.0,0.0);
+    glEnd;
+    glDisable(GL_BLEND);
+   end else begin
+ {  glClear(GL_DEPTH_BUFFER_BIT);
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+    glColor4f(0.0,0.0,0.0,0.25);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_LIGHTING);
+    glDisable(GL_CULL_FACE);
+    glDepthMask(GL_FALSE);
+    glPolygonMode(GL_FRONT_AND_BACK,GL_FILL);
+    glBegin(GL_QUADS);
+    glVertex3f(1.0,-1.0,0.0);
+    glVertex3f(1.0,1.0,0.0);
+    glVertex3f(-1.0,1.0,0.0);
+    glVertex3f(-1.0,-1.0,0.0);
+    glEnd;
+    glDisable(GL_BLEND);{}
+   end;
+
+   SwapBuffers(hDCGL);
+
+{ end else begin
+
+   Sleep(0);{}
+
+  end;
 
  end else begin
 
@@ -756,12 +786,12 @@ begin
  CurrentCamera.Reset;
  LastCamera:=CurrentCamera;
 
- HighResolutionTimer:=TKraftHighResolutionTimer.Create;
+ HighResolutionTimer:=TKraftHighResolutionTimer.Create(60);
 
  LastTime:=HighResolutionTimer.GetTime;
 
  FPS:=0.0;
- 
+
  FST2:=LastTime;
  FET2:=LastTime;
  Frames:=0;
@@ -778,7 +808,7 @@ end;
 
 procedure TFormGL.FormPaint(Sender: TObject);
 begin
- Draw;
+//Draw;
 end;
 
 procedure TFormGL.FormResize(Sender: TObject);
@@ -789,11 +819,15 @@ end;
 procedure TFormGL.FormShow(Sender: TObject);
 begin
  InitGL;
+ LastTime:=HighResolutionTimer.GetTime;
+ FST2:=LastTime;
+ FET2:=LastTime;
+ Frames:=0;
 end;
 
 procedure TFormGL.TimerDrawTimer(Sender: TObject);
 begin
- Draw;
+// Draw;
 end;
 
 procedure TFormGL.FormMouseMove(Sender: TObject; Shift: TShiftState; X,
@@ -868,6 +902,9 @@ procedure TFormGL.FormKeyDown(Sender: TObject; var Key: Word;
 begin
 {if Rotating then}begin
   case Key of
+   VK_SPACE:begin
+    FireSphere;
+   end;
    VK_LEFT,ord('A'):begin
     KeyLeft:=true;
    end;
@@ -895,6 +932,14 @@ procedure TFormGL.FormKeyUp(Sender: TObject; var Key: Word;
 begin
 {if Rotating then{}begin
   case Key of
+   VK_SPACE:begin
+{   FormMain.sTreeViewMain.Items.BeginUpdate;
+    try
+     FormMain.AddRigidBody(RigidBody);
+    finally
+     FormMain.sTreeViewMain.Items.EndUpdate;
+    end;{}
+   end;
    VK_LEFT,ord('A'):begin
     KeyLeft:=false;
    end;
@@ -953,6 +998,18 @@ end;
 procedure TFormGL.TimerFPSTimer(Sender: TObject);
 begin
  FormMain.sTabSheetWorld.Caption:='World ('+IntToStr(round(FPS))+' FPS)';
+end;
+
+procedure TFormGL.JvThreadTimerDrawTimer(Sender: TObject);
+begin
+ Draw;
+end;
+
+procedure TFormGL.ApplicationEvents1Idle(Sender: TObject;
+  var Done: Boolean);
+begin
+ Done:=false;
+ Draw;
 end;
 
 initialization

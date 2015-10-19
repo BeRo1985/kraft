@@ -1,6 +1,6 @@
 object FormMain: TFormMain
-  Left = 215
-  Top = 257
+  Left = 203
+  Top = 278
   Width = 1305
   Height = 675
   Caption = 
@@ -129,7 +129,6 @@ object FormMain: TFormMain
           Width = 301
           Height = 296
           DotNetHighlighting = True
-          Style = isDotNet
           Align = alClient
           BevelOuter = bvSpace
           Divider = 129
@@ -1558,7 +1557,7 @@ object FormMain: TFormMain
     Top = 176
   end
   object TimerPerformance: TTimer
-    Interval = 50
+    Interval = 20
     OnTimer = TimerPerformanceTimer
     Left = 547
     Top = 424

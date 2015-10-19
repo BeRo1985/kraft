@@ -41,15 +41,14 @@ object FormGL: TFormGL
     Left = 216
     Top = 64
   end
-  object TimerDraw: TTimer
-    Interval = 10
-    OnTimer = TimerDrawTimer
-    Left = 56
-    Top = 32
-  end
   object TimerFPS: TTimer
     OnTimer = TimerFPSTimer
     Left = 64
     Top = 96
+  end
+  object ApplicationEvents1: TApplicationEvents
+    OnIdle = ApplicationEvents1Idle
+    Left = 200
+    Top = 120
   end
 end

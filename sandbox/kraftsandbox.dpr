@@ -7,7 +7,9 @@ uses
   UnitFormGL in 'UnitFormGL.pas' {FormGL},
   UnitDemoScene in 'UnitDemoScene.pas',
   UnitDemoSceneBoxOnPlane in 'UnitDemoSceneBoxOnPlane.pas',
-  UnitDemoSceneSandBox in 'UnitDemoSceneSandBox.pas';
+  UnitDemoSceneSandBox in 'UnitDemoSceneSandBox.pas',
+  UnitDemoSceneBoxStacking in 'UnitDemoSceneBoxStacking.pas',
+  UnitDemoSceneBoxPyramidStacking in 'UnitDemoSceneBoxPyramidStacking.pas';
 
 {$R *.res}
 

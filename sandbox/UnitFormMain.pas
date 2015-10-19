@@ -91,7 +91,7 @@ implementation
 
 {$R *.dfm}
 
-uses UnitFormGL, UnitDemoSceneBoxOnPlane, UnitDemoSceneSandBox;
+uses UnitFormGL, UnitDemoSceneBoxOnPlane, UnitDemoSceneSandBox, UnitDemoSceneBoxStacking, UnitDemoSceneBoxPyramidStacking;
 
 procedure TFormMain.AddRigidBody(RigidBody:TKraftRigidBody);
 var TreeNodeRigidBody,TreeNodeRigidBodyShape:TTreeNode;
@@ -109,8 +109,7 @@ end;
 
 procedure TFormMain.AddConstraint(Constraint:TKraftConstraint);
 var Index:longint;
-    TreeNodeConstraint,TreeNodeConstraintShape:TTreeNode;
-    TreeNodeRigidBody,TreeNodeRigidBodyShape:TTreeNode;
+    TreeNodeConstraint,TreeNodeRigidBody,TreeNodeRigidBodyShape:TTreeNode;
     RigidBody:TKraftRigidBody;
     Shape:TKraftShape;
 begin
@@ -135,39 +134,47 @@ var RigidBody:TKraftRigidBody;
     Constraint:TKraftConstraint;
 begin
 
- TreeNodeKraftPhysics:=nil;
+ sTreeViewMain.Items.BeginUpdate;
+ try
 
- JvInspectorMain.InspectObject:=nil;
- sTreeViewMain.Items.Clear;
+  TreeNodeKraftPhysics:=nil;
 
- KraftPhysics:=nil;
+  JvInspectorMain.InspectObject:=nil;
+  sTreeViewMain.Items.Clear;
 
- FreeAndNil(DemoScene);
+  FreeAndNil(DemoScene);
 
- DemoScene:=DemoSceneClass.Create;
+  DemoScene:=DemoSceneClass.Create(KraftPhysics);
 
- KraftPhysics:=DemoScene.KraftPhysics;
+  TreeNodeKraftPhysics:=sTreeViewMain.Items.AddObjectFirst(nil,'TKraft',KraftPhysics);
 
- TreeNodeKraftPhysics:=sTreeViewMain.Items.AddObjectFirst(nil,'TKraft',KraftPhysics);
+  RigidBody:=KraftPhysics.RigidBodyFirst;
+  while assigned(RigidBody) do begin
+   AddRigidBody(RigidBody);
+   RigidBody:=RigidBody.RigidBodyNext;
+  end;
 
- RigidBody:=KraftPhysics.RigidBodyFirst;
- while assigned(RigidBody) do begin
-  AddRigidBody(RigidBody);
-  RigidBody:=RigidBody.RigidBodyNext;
+  Constraint:=KraftPhysics.ConstraintFirst;
+  while assigned(Constraint) do begin
+   AddConstraint(Constraint);
+   Constraint:=Constraint.Next;
+  end;
+
+  sTreeViewMain.Selected:=TreeNodeKraftPhysics;
+  TreeNodeKraftPhysics.Expand(true);
+  JvInspectorMain.InspectObject:=KraftPhysics;
+
+  FormGL.CurrentCamera.Reset;
+  FormGL.LastCamera:=FormGL.CurrentCamera;
+
+ finally
+  sTreeViewMain.Items.EndUpdate;
  end;
 
- Constraint:=KraftPhysics.ConstraintFirst;
- while assigned(Constraint) do begin
-  AddConstraint(Constraint);
-  Constraint:=Constraint.Next;
- end;
+ KraftPhysics.StoreWorldTransforms;
+ KraftPhysics.InterpolateWorldTransforms(0.0);
 
- sTreeViewMain.Selected:=TreeNodeKraftPhysics;
- TreeNodeKraftPhysics.Expand(true);
- JvInspectorMain.InspectObject:=KraftPhysics;
-
- FormGL.CurrentCamera.Reset;
- FormGL.LastCamera:=FormGL.CurrentCamera;
+ FormGL.LastTime:=FormGL.HighResolutionTimer.GetTime;
 
 end;
 
@@ -176,17 +183,36 @@ begin
 
  DemoScene:=nil;
 
- KraftPhysics:=nil;
+ KraftPhysics:=TKraft.Create(-1);
 
+ KraftPhysics.SetFrequency(60.0);
+
+ KraftPhysics.VelocityIterations:=8;
+
+ KraftPhysics.PositionIterations:=3;
+
+ KraftPhysics.SpeculativeIterations:=8;
+
+ KraftPhysics.TimeOfImpactIterations:=20;
+
+ KraftPhysics.Gravity.y:=-9.81;
+ 
  FormGL:=TFormGL.Create(sPanelOpenGL);
  FormGL.BorderStyle:=bsNone;
  FormGL.Align:=alClient;
  FormGL.Parent:=sPanelOpenGL;
  FormGL.Visible:=true;
 
- TreeNodeDemos:=sTreeViewDemos.Items.AddChildFirst(nil,'Demos');
- TreeNodeDemoDefault:=sTreeViewDemos.Items.AddChildObject(TreeNodeDemos,'Box on plane',pointer(TDemoSceneBoxOnPlane));
- sTreeViewDemos.Items.AddChildObject(TreeNodeDemos,'Sand box',pointer(TDemoSceneSandBox));
+ sTreeViewDemos.Items.BeginUpdate;
+ try
+  TreeNodeDemos:=sTreeViewDemos.Items.AddChildFirst(nil,'Demos');
+  sTreeViewDemos.Items.AddChildObject(TreeNodeDemos,'Box on plane',pointer(TDemoSceneBoxOnPlane));
+  sTreeViewDemos.Items.AddChildObject(TreeNodeDemos,'Box stacking',pointer(TDemoSceneBoxStacking));
+  TreeNodeDemoDefault:=sTreeViewDemos.Items.AddChildObject(TreeNodeDemos,'Box pyramid stacking',pointer(TDemoSceneBoxPyramidStacking));
+  sTreeViewDemos.Items.AddChildObject(TreeNodeDemos,'Sand box',pointer(TDemoSceneSandBox));
+ finally
+  sTreeViewDemos.Items.EndUpdate;
+ end;
  TreeNodeDemos.Expand(true);
 
 // LoadScene(TDemoSceneBoxOnPlane);
@@ -196,7 +222,7 @@ end;
 procedure TFormMain.FormDestroy(Sender: TObject);
 begin
  FreeAndNil(DemoScene);
- KraftPhysics:=nil;
+ FreeAndNil(KraftPhysics);
  FormGL.Free;
 end;
 

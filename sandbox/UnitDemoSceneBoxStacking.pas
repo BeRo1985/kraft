@@ -1,10 +1,10 @@
-unit UnitDemoSceneBoxOnPlane;
+unit UnitDemoSceneBoxStacking;
 
 interface
 
 uses Kraft,UnitDemoScene;
 
-type TDemoSceneBoxOnPlane=class(TDemoScene)
+type TDemoSceneBoxStacking=class(TDemoScene)
       public
        RigidBodyFloor:TKraftRigidBody;
        ShapeFloorPlane:TKraftShapePlane;
@@ -19,35 +19,38 @@ implementation
 
 uses UnitFormMain,UnitFormGL;
 
-constructor TDemoSceneBoxOnPlane.Create(const AKraftPhysics:TKraft); 
+constructor TDemoSceneBoxStacking.Create(const AKraftPhysics:TKraft);
+var i:longint;
 begin
  inherited Create(AKraftPhysics);
 
  RigidBodyFloor:=TKraftRigidBody.Create(KraftPhysics);
  RigidBodyFloor.SetRigidBodyType(krbtSTATIC);
  ShapeFloorPlane:=TKraftShapePlane.Create(KraftPhysics,RigidBodyFloor,Plane(Vector3Norm(Vector3(0.0,1.0,0.0)),0.0));
- ShapeFloorPlane.Restitution:=0.3;
+ ShapeFloorPlane.Restitution:=0.4;
  RigidBodyFloor.Finish;
  RigidBodyFloor.SetWorldTransformation(Matrix4x4Translate(0.0,0.0,0.0));
  RigidBodyFloor.CollisionGroups:=[0];
 
- RigidBodyBox:=TKraftRigidBody.Create(KraftPhysics);
- RigidBodyBox.SetRigidBodyType(krbtDYNAMIC);
- ShapeBox:=TKraftShapeBox.Create(KraftPhysics,RigidBodyBox,Vector3(1.0,1.0,1.0));
- ShapeBox.Restitution:=0.3;
- ShapeBox.Density:=100.0;
- RigidBodyBox.Finish;
- RigidBodyBox.SetWorldTransformation(Matrix4x4Translate(0.0,8.0,0.0));
- RigidBodyBox.CollisionGroups:=[0];
+ for i:=0 to 9 do begin
+  RigidBodyBox:=TKraftRigidBody.Create(KraftPhysics);
+  RigidBodyBox.SetRigidBodyType(krbtDYNAMIC);
+  ShapeBox:=TKraftShapeBox.Create(KraftPhysics,RigidBodyBox,Vector3(0.25,0.25,0.25));
+  ShapeBox.Restitution:=0.4;
+  ShapeBox.Density:=100.0;
+  RigidBodyBox.Finish;
+  RigidBodyBox.SetWorldTransformation(Matrix4x4Translate(0.0,ShapeBox.Extents.y+(i*(ShapeBox.Extents.y*2.0)),0.0));
+  RigidBodyBox.CollisionGroups:=[0];
+ end;
 
 end;
 
-destructor TDemoSceneBoxOnPlane.Destroy;
+destructor TDemoSceneBoxStacking.Destroy;
 begin
  inherited Destroy;
 end;
 
-procedure TDemoSceneBoxOnPlane.Step(const DeltaTime:double);
+procedure TDemoSceneBoxStacking.Step(const DeltaTime:double);
 begin
 end;
 
