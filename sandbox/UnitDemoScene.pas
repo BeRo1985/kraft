@@ -21,6 +21,10 @@ type TDemoScene=class;
        property KraftPhysics:TKraft read fKraftPhysics;
      end;
 
+var DemoScenes:TStringList;
+
+procedure RegisterDemoScene(const Name:string;const DemoSceneClass:TDemoSceneClass);
+
 implementation
 
 uses UnitFormMain,UnitFormGL;
@@ -71,4 +75,13 @@ procedure TDemoScene.Step(const DeltaTime:double);
 begin
 end;
 
+procedure RegisterDemoScene(const Name:string;const DemoSceneClass:TDemoSceneClass);
+begin
+ DemoScenes.AddObject(Name,pointer(DemoSceneClass));
+end;
+
+initialization
+ DemoScenes:=TStringList.Create;
+finalization
+ DemoScenes.Free;
 end.

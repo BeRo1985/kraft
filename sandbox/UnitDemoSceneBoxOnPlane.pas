@@ -51,4 +51,6 @@ procedure TDemoSceneBoxOnPlane.Step(const DeltaTime:double);
 begin
 end;
 
+initialization
+ RegisterDemoScene('Box on plane',TDemoSceneBoxOnPlane);
 end.

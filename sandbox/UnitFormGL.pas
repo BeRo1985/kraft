@@ -427,6 +427,9 @@ begin
      ProcessGrab;
     end;
     FormMain.KraftPhysics.StoreWorldTransforms;
+    if assigned(FormMain.DemoScene) then begin
+     FormMain.DemoScene.Step(PhysicsTimeStep);
+    end;
     FormMain.KraftPhysics.Step(PhysicsTimeStep);
     CurrentCamera.TestCamera;
     if KeyLeft then begin
@@ -647,6 +650,46 @@ begin
       vv:=Vector3TermMatrixMul(PKraftVector3(pointer(@Constraint.RigidBodies[0].ShapeFirst.InterpolatedWorldTransform[3,0]))^,m);
       glVertex3fv(@vv);
       vv:=Vector3TermMatrixMul(PKraftVector3(pointer(@Constraint.RigidBodies[1].ShapeFirst.InterpolatedWorldTransform[3,0]))^,m);
+      glVertex3fv(@vv);
+      glEnd;
+     end;
+     if Constraint is TKraftConstraintJointRope then begin
+      glLineWidth(5);
+      glColor4f(0.125,1.0,1.0,1.0);
+      glBegin(GL_LINE_STRIP);
+      vv:=Vector3TermMatrixMul(TKraftConstraintJointRope(Constraint).GetAnchorA,m);
+      glVertex3fv(@vv);
+      vv:=Vector3TermMatrixMul(TKraftConstraintJointRope(Constraint).GetAnchorB,m);
+      glVertex3fv(@vv);
+      glEnd;
+     end;
+     if Constraint is TKraftConstraintJointBallSocket then begin
+      glLineWidth(5);
+      glColor4f(0.125,1.0,1.0,1.0);
+      glBegin(GL_LINE_STRIP);
+      vv:=Vector3TermMatrixMul(TKraftConstraintJointBallSocket(Constraint).GetAnchorA,m);
+      glVertex3fv(@vv);
+      vv:=Vector3TermMatrixMul(TKraftConstraintJointBallSocket(Constraint).GetAnchorB,m);
+      glVertex3fv(@vv);
+      glEnd;
+     end;
+     if Constraint is TKraftConstraintJointDistance then begin
+      glLineWidth(5);
+      glColor4f(0.125,1.0,1.0,1.0);
+      glBegin(GL_LINE_STRIP);
+      vv:=Vector3TermMatrixMul(TKraftConstraintJointDistance(Constraint).GetAnchorA,m);
+      glVertex3fv(@vv);
+      vv:=Vector3TermMatrixMul(TKraftConstraintJointDistance(Constraint).GetAnchorB,m);
+      glVertex3fv(@vv);
+      glEnd;
+     end;
+     if Constraint is TKraftConstraintJointHinge then begin
+      glLineWidth(5);
+      glColor4f(0.125,1.0,1.0,1.0);
+      glBegin(GL_LINE_STRIP);
+      vv:=Vector3TermMatrixMul(TKraftConstraintJointHinge(Constraint).GetAnchorA,m);
+      glVertex3fv(@vv);
+      vv:=Vector3TermMatrixMul(TKraftConstraintJointHinge(Constraint).GetAnchorB,m);
       glVertex3fv(@vv);
       glEnd;
      end;

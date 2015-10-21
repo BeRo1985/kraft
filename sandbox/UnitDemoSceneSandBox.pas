@@ -613,6 +613,8 @@ procedure TDemoSceneSandBox.Step(const DeltaTime:double);
 begin
 end;
 
+initialization
+ RegisterDemoScene('Sand box',TDemoSceneSandBox);
 end.
 
 

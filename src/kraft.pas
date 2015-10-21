@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2015-10-19-15-36-0000                       *
+ *                        Version 2015-10-21-16-35-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -2541,6 +2541,8 @@ type PKraftForceMode=^TKraftForceMode;
        function GetAnchorB:TKraftVector3; override;
        function GetReactionForce(const InverseDeltaTime:TKraftScalar):TKraftVector3; override;
        function GetReactionTorque(const InverseDeltaTime:TKraftScalar):TKraftVector3; override;
+       function GetWorldRotationAxis:TKraftVector3; virtual;
+       procedure SetWorldRotationAxis(AWorldRotationAxis:TKraftVector3); virtual;
        function IsLimitEnabled:boolean; virtual;
        function IsMotorEnabled:boolean; virtual;
        function GetMinimumAngleLimit:TKraftScalar; virtual;
@@ -23814,7 +23816,7 @@ var TempShape:TKraftShape;
     Index:longint;
     ContactPair:PKraftBroadPhaseContactPair;
 begin
- if ShapeA<>ShapeB then begin
+ if (ShapeA<>ShapeB) and (ShapeA.RigidBody<>ShapeB.RigidBody) then begin
   if (ShapeA.fShapeType>ShapeB.fShapeType) or ((ShapeA.fShapeType=ShapeB.fShapeType) and (ptruint(ShapeA)>ptruint(ShapeB))) then begin
    TempShape:=ShapeA;
    ShapeA:=ShapeB;
@@ -26073,9 +26075,9 @@ begin
   crBu:=Vector3Cross(fRelativePositions[1],fmU);
 
   fInverseMass:=fRigidBodies[0].fInverseMass+
-               fRigidBodies[1].fInverseMass+
-               Vector3Dot(Vector3TermMatrixMul(crAu,fWorldInverseInertiaTensors[0]),crAu)+
-               Vector3Dot(Vector3TermMatrixMul(crBu,fWorldInverseInertiaTensors[1]),crBu);
+                fRigidBodies[1].fInverseMass+
+                Vector3Dot(Vector3TermMatrixMul(crAu,fWorldInverseInertiaTensors[0]),crAu)+
+                Vector3Dot(Vector3TermMatrixMul(crBu,fWorldInverseInertiaTensors[1]),crBu);
 
   // Compute the effective mass matrix
   if fInverseMass<>0.0 then begin
@@ -27581,7 +27583,7 @@ begin
   result:=true;
   
  end;
- 
+
 end;
 
 function TKraftConstraintJointHinge.GetAnchorA:TKraftVector3;
@@ -27607,6 +27609,17 @@ begin
  LimitsImpulse:=Vector3ScalarMul(fA1,fAccumulatedImpulseLowerLimit-fAccumulatedImpulseUpperLimit);
  MotorImpulse:=Vector3ScalarMul(fA1,fAccumulatedImpulseMotor);
  result:=Vector3ScalarMul(Vector3Add(Vector3Add(RotationImpulse,LimitsImpulse),MotorImpulse),InverseDeltaTime);
+end;
+
+function TKraftConstraintJointHinge.GetWorldRotationAxis:TKraftVector3;
+begin
+ result:=Vector3TermMatrixMulBasis(fLocalAxes[0],fRigidBodies[0].fWorldTransform);
+end;
+
+procedure TKraftConstraintJointHinge.SetWorldRotationAxis(AWorldRotationAxis:TKraftVector3);
+begin
+ fLocalAxes[0]:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(AWorldRotationAxis,fRigidBodies[0].fWorldTransform));
+ fLocalAxes[1]:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(AWorldRotationAxis,fRigidBodies[1].fWorldTransform));
 end;
 
 function TKraftConstraintJointHinge.IsLimitEnabled:boolean;

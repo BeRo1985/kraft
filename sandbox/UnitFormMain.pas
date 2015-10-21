@@ -70,6 +70,7 @@ type
     procedure sTreeViewDemosDblClick(Sender: TObject);
     procedure JvSimScope1Update(Sender: TObject);
     procedure TimerPerformanceTimer(Sender: TObject);
+    procedure sTreeViewDemosKeyPress(Sender: TObject; var Key: Char);
   private
     { Private declarations }
   public
@@ -91,7 +92,7 @@ implementation
 
 {$R *.dfm}
 
-uses UnitFormGL, UnitDemoSceneBoxOnPlane, UnitDemoSceneSandBox, UnitDemoSceneBoxStacking, UnitDemoSceneBoxPyramidStacking;
+uses UnitFormGL;
 
 procedure TFormMain.AddRigidBody(RigidBody:TKraftRigidBody);
 var TreeNodeRigidBody,TreeNodeRigidBodyShape:TTreeNode;
@@ -179,13 +180,14 @@ begin
 end;
 
 procedure TFormMain.FormCreate(Sender: TObject);
+var Index:longint;
 begin
 
  DemoScene:=nil;
 
  KraftPhysics:=TKraft.Create(-1);
 
- KraftPhysics.SetFrequency(60.0);
+ KraftPhysics.SetFrequency(120.0);
 
  KraftPhysics.VelocityIterations:=8;
 
@@ -205,11 +207,12 @@ begin
 
  sTreeViewDemos.Items.BeginUpdate;
  try
+  DemoScenes.Sort;
   TreeNodeDemos:=sTreeViewDemos.Items.AddChildFirst(nil,'Demos');
-  sTreeViewDemos.Items.AddChildObject(TreeNodeDemos,'Box on plane',pointer(TDemoSceneBoxOnPlane));
-  sTreeViewDemos.Items.AddChildObject(TreeNodeDemos,'Box stacking',pointer(TDemoSceneBoxStacking));
-  TreeNodeDemoDefault:=sTreeViewDemos.Items.AddChildObject(TreeNodeDemos,'Box pyramid stacking',pointer(TDemoSceneBoxPyramidStacking));
-  sTreeViewDemos.Items.AddChildObject(TreeNodeDemos,'Sand box',pointer(TDemoSceneSandBox));
+  for Index:=0 to DemoScenes.Count-1 do begin
+   sTreeViewDemos.Items.AddChildObject(TreeNodeDemos,DemoScenes.Strings[Index],DemoScenes.Objects[Index]);
+  end;
+  TreeNodeDemoDefault:=TreeNodeDemos.GetFirstChild;
  finally
   sTreeViewDemos.Items.EndUpdate;
  end;
@@ -317,6 +320,13 @@ begin
  Str(KraftPhysics.HighResolutionTimer.ToNanoseconds(KraftPhysics.TotalTime)/1000000.0:1:5,s);
  sLabelTotalTime.Caption:='Total: '+s+' ms';
 
+end;
+
+procedure TFormMain.sTreeViewDemosKeyPress(Sender: TObject; var Key: Char);
+begin
+ if Key=#13 then begin
+  sTreeViewDemosDblClick(Sender);
+ end;
 end;
 
 end.

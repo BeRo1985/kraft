@@ -9,7 +9,16 @@ uses
   UnitDemoSceneBoxOnPlane in 'UnitDemoSceneBoxOnPlane.pas',
   UnitDemoSceneSandBox in 'UnitDemoSceneSandBox.pas',
   UnitDemoSceneBoxStacking in 'UnitDemoSceneBoxStacking.pas',
-  UnitDemoSceneBoxPyramidStacking in 'UnitDemoSceneBoxPyramidStacking.pas';
+  UnitDemoSceneBoxPyramidStacking in 'UnitDemoSceneBoxPyramidStacking.pas',
+  UnitDemoSceneBridge in 'UnitDemoSceneBridge.pas',
+  UnitDemoSceneCombinedShapes in 'UnitDemoSceneCombinedShapes.pas',
+  UnitDemoSceneChain in 'UnitDemoSceneChain.pas',
+  UnitDemoSceneStrainedChain in 'UnitDemoSceneStrainedChain.pas',
+  UnitDemoSceneBrickWall in 'UnitDemoSceneBrickWall.pas',
+  UnitDemoSceneDomino in 'UnitDemoSceneDomino.pas',
+  UnitDemoSceneChairAndTable in 'UnitDemoSceneChairAndTable.pas',
+  UnitDemoSceneConvexHull in 'UnitDemoSceneConvexHull.pas',
+  UnitDemoSceneCar in 'UnitDemoSceneCar.pas';
 
 {$R *.res}
 

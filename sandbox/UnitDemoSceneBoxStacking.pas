@@ -54,4 +54,6 @@ procedure TDemoSceneBoxStacking.Step(const DeltaTime:double);
 begin
 end;
 
+initialization
+ RegisterDemoScene('Box stacking',TDemoSceneBoxStacking);
 end.

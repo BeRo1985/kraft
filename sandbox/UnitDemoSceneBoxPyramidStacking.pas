@@ -58,4 +58,6 @@ procedure TDemoSceneBoxPyramidStacking.Step(const DeltaTime:double);
 begin
 end;
 
+initialization
+ RegisterDemoScene('Box pyramid stacking',TDemoSceneBoxPyramidStacking);
 end.

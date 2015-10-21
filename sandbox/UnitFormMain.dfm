@@ -1,7 +1,7 @@
 object FormMain: TFormMain
   Left = 203
   Top = 278
-  Width = 1305
+  Width = 1324
   Height = 675
   Caption = 
     'Kraft physics engine sandbox - Copyright (C) 2015, Benjamin '#39'BeR' +
@@ -30,7 +30,7 @@ object FormMain: TFormMain
     SkinData.SkinSection = 'SPLITTER'
   end
   object sSplitter3: TsSplitter
-    Left = 1098
+    Left = 1117
     Top = 0
     Height = 616
     Align = alRight
@@ -142,7 +142,7 @@ object FormMain: TFormMain
     end
   end
   object sPanelRight: TsPanel
-    Left = 1104
+    Left = 1123
     Top = 0
     Width = 185
     Height = 616
@@ -178,6 +178,7 @@ object FormMain: TFormMain
         ReadOnly = True
         TabOrder = 0
         OnDblClick = sTreeViewDemosDblClick
+        OnKeyPress = sTreeViewDemosKeyPress
         BoundLabel.Indent = 0
         BoundLabel.Font.Charset = DEFAULT_CHARSET
         BoundLabel.Font.Color = clWindowText
@@ -194,7 +195,7 @@ object FormMain: TFormMain
   object sPanelMiddle: TsPanel
     Left = 311
     Top = 0
-    Width = 787
+    Width = 806
     Height = 616
     Align = alClient
     BevelOuter = bvNone
@@ -204,7 +205,7 @@ object FormMain: TFormMain
     object sSplitter4: TsSplitter
       Left = 0
       Top = 442
-      Width = 787
+      Width = 806
       Height = 6
       Cursor = crVSplit
       Align = alBottom
@@ -213,7 +214,7 @@ object FormMain: TFormMain
     object sPanelMiddleBottom: TsPanel
       Left = 0
       Top = 448
-      Width = 787
+      Width = 806
       Height = 168
       Align = alBottom
       BevelOuter = bvNone
@@ -222,7 +223,7 @@ object FormMain: TFormMain
       object sPageControl1: TsPageControl
         Left = 0
         Top = 0
-        Width = 787
+        Width = 806
         Height = 168
         ActivePage = sTabSheetInfo
         Align = alClient
@@ -235,7 +236,7 @@ object FormMain: TFormMain
           object sMemoInfo: TsMemo
             Left = 0
             Top = 0
-            Width = 779
+            Width = 798
             Height = 140
             Align = alClient
             Color = clWhite
@@ -249,7 +250,13 @@ object FormMain: TFormMain
                 'Left button = rotate, OR (due to Delphi'#39's OnMouseDown limitation' +
                 's), right button = Grab and rotate'
               'Cursor keys / WASD = Move forwards, backwards and sidewars '
-              'PageUp/PageDown R/F = Move upwards and downwards')
+              'PageUp/PageDown R/F = Move upwards and downwards'
+              'Space = Fire a sphere'
+              ''
+              
+                'Attention: Some demo scenes needs higher count of velocity itera' +
+                'tions and/or position iterations and/or a higher world update fr' +
+                'equency, for to being (more) stable.')
             ParentFont = False
             ReadOnly = True
             TabOrder = 0
@@ -257,7 +264,10 @@ object FormMain: TFormMain
               'Left button = rotate, OR (due to Delphi'#39's OnMouseDown limitation' +
               's), right button = Grab and rotate'#13#10'Cursor keys / WASD = Move fo' +
               'rwards, backwards and sidewars '#13#10'PageUp/PageDown R/F = Move upwa' +
-              'rds and downwards'#13#10
+              'rds and downwards'#13#10'Space = Fire a sphere'#13#10#13#10'Attention: Some demo' +
+              ' scenes needs higher count of velocity iterations and/or positio' +
+              'n iterations and/or a higher world update frequency, for to bein' +
+              'g (more) stable.'#13#10
             BoundLabel.Indent = 0
             BoundLabel.Font.Charset = DEFAULT_CHARSET
             BoundLabel.Font.Color = clWindowText
@@ -389,7 +399,7 @@ object FormMain: TFormMain
     object sPageControl2: TsPageControl
       Left = 0
       Top = 0
-      Width = 787
+      Width = 806
       Height = 442
       ActivePage = sTabSheetWorld
       Align = alClient
@@ -402,7 +412,7 @@ object FormMain: TFormMain
         object sPanelOpenGL: TsPanel
           Left = 0
           Top = 0
-          Width = 779
+          Width = 798
           Height = 414
           Align = alClient
           BevelOuter = bvNone

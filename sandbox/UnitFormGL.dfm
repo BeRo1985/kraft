@@ -1,6 +1,6 @@
 object FormGL: TFormGL
-  Left = 239
-  Top = 172
+  Left = 360
+  Top = 173
   Width = 1305
   Height = 675
   Color = clBlack
