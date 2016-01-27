@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2015-10-21-16-35-0000                       *
+ *                        Version 2016-01-27-05-01-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -13220,6 +13220,7 @@ begin
 end;
 
 function TKraftDynamicAABBTree.ComputeHeight:longint;
+{$ifdef KraftSingleThreadedUsage}
 var LocalStack:PKraftDynamicAABBTreeLongintArray;
     LocalStackPointer,NodeID,Height:longint;
     Node:PKraftDynamicAABBTreeNode;
@@ -13255,6 +13256,26 @@ begin
   end;
  end;
 end;
+{$else}
+var MaximalHeight:longint;
+ procedure ProcessNode(const NodeID,Height:longint);
+ var Node:PKraftDynamicAABBTreeNode;
+ begin
+  if result<Height then begin
+   result:=Height;
+  end;
+  if NodeID>=0 then begin
+   Node:=@fNodes^[NodeID];
+   ProcessNode(Node^.Children[0],Height+1);
+   ProcessNode(Node^.Children[1],Height+1);
+  end;
+ end;
+begin
+ MaximalHeight:=0;
+ ProcessNode(fRoot,1);
+ result:=MaximalHeight;
+end;
+{$endif}
 
 function TKraftDynamicAABBTree.GetHeight:longint;
 begin
@@ -13298,6 +13319,7 @@ begin
 end;
 
 function TKraftDynamicAABBTree.ValidateStructure:boolean;
+{$ifdef KraftSingleThreadedUsage}
 var LocalStack:PKraftDynamicAABBTreeLongintArray;
     LocalStackPointer,NodeID,Parent:longint;
     Node:PKraftDynamicAABBTreeNode;
@@ -13342,8 +13364,30 @@ begin
   end;
  end;
 end;
+{$else}
+var OK:boolean;
+ procedure ProcessNode(const NodeID,Parent:longint);
+ var Node:PKraftDynamicAABBTreeNode;
+ begin
+  if (NodeID>=0) and (NodeID<fNodeCount) and OK then begin
+   Node:=@fNodes^[NodeID];
+   if Node^.Parent<>Parent then begin
+    OK:=false;
+   end else begin
+    ProcessNode(Node^.Children[0],NodeID);
+    ProcessNode(Node^.Children[1],NodeID);
+   end;
+  end;
+ end;
+begin
+ OK:=true;
+ ProcessNode(fRoot,-1);
+ result:=OK;
+end;
+{$endif}
 
 function TKraftDynamicAABBTree.ValidateMetrics:boolean;
+{$ifdef KraftSingleThreadedUsage}
 var LocalStack:PKraftDynamicAABBTreeLongintArray;
     LocalStackPointer,NodeID{,Height}:longint;
     Node:PKraftDynamicAABBTreeNode;
@@ -13387,6 +13431,29 @@ begin
   end;
  end;
 end;
+{$else}
+var OK:boolean;
+ procedure ProcessNode(const NodeID:longint);
+ var Node:PKraftDynamicAABBTreeNode;
+ begin
+  if (NodeID>=0) and OK then begin
+   Node:=@fNodes^[NodeID];
+   if (((Node^.Children[0]<0) or (Node^.Children[0]>=fNodeCount)) or
+       ((Node^.Children[1]<0) or (Node^.Children[1]>=fNodeCount))) or
+      (Node^.Height<>(1+Max(fNodes[Node^.Children[0]].Height,fNodes[Node^.Children[1]].Height))) then begin
+    OK:=false;
+   end else begin
+    ProcessNode(Node^.Children[0]);
+    ProcessNode(Node^.Children[1]);
+   end;
+  end;
+ end;
+begin
+ OK:=true;
+ ProcessNode(fRoot);
+ result:=OK;
+end;
+{$endif}
 
 function TKraftDynamicAABBTree.Validate:boolean;
 var NodeID,FreeCount:longint;
@@ -13410,6 +13477,7 @@ begin
 end;
 
 function TKraftDynamicAABBTree.GetIntersectionProxy(const AABB:TKraftAABB):pointer;
+{$ifdef KraftSingleThreadedUsage}
 var LocalStack:PKraftDynamicAABBTreeLongintArray;
     LocalStackPointer,NodeID:longint;
     Node:PKraftDynamicAABBTreeNode;
@@ -13443,6 +13511,32 @@ begin
   end;
  end;
 end;
+{$else}
+var Data:pointer;
+    Done:boolean;
+ procedure ProcessNode(const NodeID:longint);
+ var Node:PKraftDynamicAABBTreeNode;
+ begin
+  if (NodeID>=0) and not Done then begin
+   Node:=@fNodes^[NodeID];
+   if AABBIntersect(Node^.AABB,AABB) then begin
+    if Node^.Children[0]<0 then begin
+     Data:=Node^.UserData;
+     Done:=true;
+    end else begin
+     ProcessNode(Node^.Children[0]);
+     ProcessNode(Node^.Children[1]);
+    end;
+   end;
+  end;
+ end;
+begin
+ Data:=nil;
+ Done:=false;
+ ProcessNode(fRoot);
+ result:=Data;
+end;
+{$endif}
 
 type PConvexHullVector=^TConvexHullVector;
      TConvexHullVector=record
@@ -18323,6 +18417,7 @@ begin
 end;
 
 function TKraftMesh.GetSignedDistance(const Position:TKraftVector3):TKraftScalar;
+{$ifdef KraftSingleThreadedUsage}
 type PStackItem=^TStackItem;
      TStackItem=record
       NodeIndex:longint;
@@ -18432,7 +18527,84 @@ begin
   result:=0;
  end;
 end;
-
+{$else}
+var TriangleIndex:longint;
+    Triangle,BestTriangle:PKraftMeshTriangle;
+    SquaredDistances:array[0..1] of TKraftScalar;
+    SquaredThickness,SquaredThicknessEpsilon:TKraftScalar;
+ procedure ProcessNode(const NodeIndex:longint;SquaredDistance:TKraftScalar);
+ var Node:PKraftMeshNode;
+ begin
+  if (NodeIndex>=0) and ((SquaredDistance-SquaredThicknessEpsilon)<result) then begin
+   Node:=@fNodes[NodeIndex];
+   TriangleIndex:=Node^.TriangleIndex;
+   while TriangleIndex>=0 do begin
+    Triangle:=@fTriangles[TriangleIndex];
+    SquaredDistance:=SquaredDistanceFromPointToTriangle(Position,fVertices[Triangle^.Vertices[0]],fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[2]]);
+    if result>SquaredDistance then begin
+     result:=SquaredDistance;
+     BestTriangle:=Triangle;
+    end;
+    TriangleIndex:=Triangle^.Next;
+   end;
+   if (Node^.Children[0]>=0) and (Node^.Children[1]>=0) then begin
+    SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[0]].AABB,Position);
+    SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[1]].AABB,Position);
+    if SquaredDistances[0]<SquaredDistances[1] then begin
+     if (SquaredDistances[0]-SquaredThicknessEpsilon)<result then begin
+      ProcessNode(Node^.Children[0],SquaredDistances[0]);
+     end;
+     if (SquaredDistances[1]-SquaredThicknessEpsilon)<result then begin
+      ProcessNode(Node^.Children[1],SquaredDistances[1]);
+     end;
+    end else begin
+     if (SquaredDistances[1]-SquaredThicknessEpsilon)<result then begin
+      ProcessNode(Node^.Children[1],SquaredDistances[1]);
+     end;
+     if (SquaredDistances[0]-SquaredThicknessEpsilon)<result then begin
+      ProcessNode(Node^.Children[0],SquaredDistances[0]);
+     end;
+    end;
+   end else begin
+    if Node^.Children[0]>=0 then begin
+     SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[0]].AABB,Position);
+     if (SquaredDistances[0]-SquaredThicknessEpsilon)<result then begin
+      ProcessNode(Node^.Children[0],SquaredDistances[0]);
+     end;
+    end;
+    if Node^.Children[1]>=0 then begin
+     SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[1]].AABB,Position);
+     if (SquaredDistances[1]-SquaredThicknessEpsilon)<result then begin
+      ProcessNode(Node^.Children[0],SquaredDistances[1]);
+     end;
+    end;
+   end;
+  end;
+ end;
+begin
+ if fCountNodes>0 then begin
+  result:=MAX_SCALAR;
+  BestTriangle:=nil;
+  if fDoubleSided then begin
+   SquaredThickness:=sqr(2.0*Physics.fLinearSlop);
+  end else begin
+   SquaredThickness:=0.0;
+  end;
+  SquaredThicknessEpsilon:=SquaredThickness+sqr(EPSILON);
+  ProcessNode(0,SquaredDistanceFromPointToAABB(fNodes[0].AABB,Position));
+  result:=sqrt(result);
+  if fDoubleSided then begin
+   result:=result-(2.0*Physics.fLinearSlop);
+  end else begin
+   if assigned(BestTriangle) and (PlaneVectorDistance(BestTriangle^.Plane,Position)<0.0) then begin
+    result:=-result;
+   end;
+  end;
+ end else begin
+  result:=0;
+ end;
+end;
+{$endif}
 
 constructor TKraftShape.Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody);
 begin
@@ -23834,6 +24006,7 @@ begin
 end;
 
 procedure TKraftBroadPhase.QueryShapeWithTree(const ThreadIndex:longint;const Shape:TKraftShape;const AABBTree:TKraftDynamicAABBTree);
+{$ifdef KraftSingleThreadedUsage}
 var ShapeAABB:PKraftAABB;
     LocalStack:PKraftDynamicAABBTreeLongintArray;
     LocalStackPointer,NodeID:longint;
@@ -23873,6 +24046,36 @@ begin
   end;
  end;
 end;
+{$else}
+var ShapeAABB:PKraftAABB;
+ procedure ProcessNode(const NodeID:longint);
+ var Node:PKraftDynamicAABBTreeNode;
+     OtherShape:TKraftShape;
+ begin
+  if NodeID>=0 then begin
+   Node:=@AABBTree.fNodes[NodeID];
+   if AABBIntersect(Node^.AABB,ShapeAABB^) then begin
+    if Node^.Children[0]<0 then begin
+     OtherShape:=Node^.UserData;
+     if assigned(OtherShape) and (Shape<>OtherShape) then begin
+      AddPair(ThreadIndex,Shape,OtherShape);
+     end;
+    end else begin
+     ProcessNode(Node^.Children[0]);
+     ProcessNode(Node^.Children[1]);
+    end;
+   end;
+  end;
+ end;
+begin
+ if assigned(Shape) and assigned(AABBTree) then begin
+  ShapeAABB:=Shape.ProxyFatWorldAABB;
+  if AABBTree.fRoot>=0 then begin
+   ProcessNode(AABBTree.fRoot);
+  end;
+ end;
+end;
+{$endif}
 
 procedure TKraftBroadPhase.ProcessMoveBufferItem(const JobIndex,ThreadIndex:longint);
 var Index:longint;
@@ -31672,6 +31875,7 @@ end;
 
 function TKraft.TestPoint(const Point:TKraftVector3):TKraftShape;
 var Hit:TKraftShape;
+{$ifdef KraftSingleThreadedUsage}
  procedure QueryTree(AABBTree:TKraftDynamicAABBTree);
  var LocalStack:PKraftDynamicAABBTreeLongintArray;
      LocalStackPointer,NodeID:longint;
@@ -31711,6 +31915,32 @@ var Hit:TKraftShape;
    end;
   end;
  end;
+{$else}
+ procedure QueryTree(AABBTree:TKraftDynamicAABBTree);
+  procedure ProcessNode(NodeID:longint);
+  var Node:PKraftDynamicAABBTreeNode;
+      CurrentShape:TKraftShape;
+  begin
+   if (NodeID>=0) and not assigned(Hit) then begin
+    Node:=@AABBTree.fNodes[NodeID];
+    if AABBContains(Node^.AABB,Point) then begin
+     if Node^.Children[0]<0 then begin
+      CurrentShape:=Node^.UserData;
+      if assigned(CurrentShape) and CurrentShape.TestPoint(Point) then begin
+       Hit:=CurrentShape;
+       exit;
+      end;
+     end else begin
+      ProcessNode(Node^.Children[0]);
+      ProcessNode(Node^.Children[1]);
+     end;
+    end;
+   end;
+  end;
+ begin
+  ProcessNode(AABBTree.fRoot);
+ end;
+{$endif}
 begin
  Hit:=nil;
  QueryTree(fStaticAABBTree);
@@ -31728,6 +31958,7 @@ end;
 
 function TKraft.RayCast(const Origin,Direction:TKraftVector3;const MaxTime:TKraftScalar;var Shape:TKraftShape;var Time:TKraftScalar;var Point,Normal:TKraftVector3;const CollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)]):boolean;
 var Hit:boolean;
+{$ifdef KraftSingleThreadedUsage}
  procedure QueryTree(AABBTree:TKraftDynamicAABBTree);
  var LocalStack:PKraftDynamicAABBTreeLongintArray;
      LocalStackPointer,NodeID:longint;
@@ -31776,6 +32007,41 @@ var Hit:boolean;
    end;
   end;
  end;
+{$else}
+ procedure QueryTree(AABBTree:TKraftDynamicAABBTree);
+  procedure ProcessNode(NodeID:longint);
+  var Node:PKraftDynamicAABBTreeNode;
+      CurrentShape:TKraftShape;
+      RayCastData:TKraftRaycastData;
+  begin
+   if NodeID>=0 then begin
+    Node:=@AABBTree.fNodes[NodeID];
+    if AABBRayIntersect(Node^.AABB,Origin,Direction) then begin
+     if Node^.Children[0]<0 then begin
+      CurrentShape:=Node^.UserData;
+      RayCastData.Origin:=Origin;
+      RayCastData.Direction:=Direction;
+      RayCastData.MaxTime:=MaxTime;
+      if (assigned(CurrentShape) and (assigned(CurrentShape.fRigidBody) and ((CurrentShape.fRigidBody.fCollisionGroups*CollisionGroups)<>[]))) and CurrentShape.RayCast(RayCastData) then begin
+       if (Hit and (RayCastData.TimeOfImpact<Time)) or not Hit then begin
+        Hit:=true;
+        Time:=RayCastData.TimeOfImpact;
+        Point:=RayCastData.Point;
+        Normal:=RayCastData.Normal;
+        Shape:=CurrentShape;
+       end;
+      end;
+     end else begin
+      ProcessNode(Node^.Children[0]);
+      ProcessNode(Node^.Children[1]);
+     end;
+    end;
+   end;
+  end;
+ begin
+  ProcessNode(AABBTree.fRoot);
+ end;
+{$endif}
 begin
  Hit:=false;
  Time:=MaxTime;
@@ -32143,6 +32409,7 @@ var Hit:boolean;
    end;
   end;
  end;
+{$ifdef KraftSingleThreadedUsage}
  procedure QueryTree(AABBTree:TKraftDynamicAABBTree);
  var LocalStack:PKraftDynamicAABBTreeLongintArray;
      LocalStackPointer,NodeID:longint;
@@ -32203,6 +32470,53 @@ var Hit:boolean;
    end;
   end;
  end;
+{$else}
+ procedure QueryTree(AABBTree:TKraftDynamicAABBTree);
+  procedure ProcessNode(NodeID:longint);
+  var Node:PKraftDynamicAABBTreeNode;
+      CurrentShape:TKraftShape;
+  begin
+   if NodeID>=0 then begin
+    Node:=@AABBTree.fNodes[NodeID];
+    if AABBIntersect(Node^.AABB,AABB) then begin
+     if Node^.Children[0]<0 then begin
+      CurrentShape:=Node^.UserData;
+      if assigned(CurrentShape) and (assigned(CurrentShape.fRigidBody) and ((CurrentShape.fRigidBody.fCollisionGroups*CollisionGroups)<>[])) then begin
+       case CurrentShape.fShapeType of
+        kstSphere:begin
+         CollideSphereWithSphere(TKraftShapeSphere(CurrentShape));
+        end;
+        kstCapsule:begin
+         CollideSphereWithCapsule(TKraftShapeCapsule(CurrentShape));
+        end;
+        kstConvexHull:begin
+         CollideSphereWithConvexHull(TKraftShapeConvexHull(CurrentShape));
+        end;
+        kstBox:begin
+         CollideSphereWithBox(TKraftShapeBox(CurrentShape));
+        end;
+        kstPlane:begin
+         CollideSphereWithPlane(TKraftShapePlane(CurrentShape));
+        end;
+        kstTriangle:begin
+         CollideSphereWithTriangle(TKraftShapeTriangle(CurrentShape));
+        end;
+        kstMesh:begin
+         CollideSphereWithMesh(TKraftShapeMesh(CurrentShape));
+        end;
+       end;
+      end;
+     end else begin
+      ProcessNode(Node^.Children[0]);
+      ProcessNode(Node^.Children[1]);
+     end;
+    end;
+   end;
+  end;
+ begin
+  ProcessNode(AABBTree.fRoot);
+ end;
+{$endif}
 var TryCounter:longint;
 begin
  result:=false;
