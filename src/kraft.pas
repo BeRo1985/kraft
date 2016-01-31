@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2016-01-27-05-01-0000                       *
+ *                        Version 2016-01-31-04-37-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -24697,6 +24697,12 @@ procedure TKraftRigidBody.Finish;
     fBodyInertiaTensor[2,0]:=fBodyInertiaTensor[0,2];
     fBodyInertiaTensor[2,1]:=fBodyInertiaTensor[1,2];{}
 
+    if fForcedMass>EPSILON then begin
+     Matrix3x3ScalarMul(fBodyInertiaTensor,fForcedMass/fMass);
+     fMass:=fForcedMass;
+     fInverseMass:=1.0/fMass;
+    end;
+
     Matrix3x3Inverse(fBodyInverseInertiaTensor,fBodyInertiaTensor);
 
     if (fFlags*[krbfLockAxisX,krbfLockAxisY,krbfLockAxisZ])<>[] then begin
@@ -24721,12 +24727,6 @@ procedure TKraftRigidBody.Finish;
 
      Matrix3x3Inverse(fBodyInertiaTensor,fBodyInverseInertiaTensor);
 
-    end;
-
-    if fForcedMass>EPSILON then begin
-     Matrix3x3ScalarMul(fBodyInertiaTensor,fForcedMass/fMass);
-     fMass:=fForcedMass;
-     fInverseMass:=1.0/fMass;
     end;
 
    end else begin
