@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2016-01-31-04-37-0000                       *
+ *                        Version 2016-02-01-23-04-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -170,6 +170,9 @@ uses {$ifdef windows}
      SysUtils,
      Classes,
      SyncObjs,
+{$ifdef KraftPasMP}
+     PasMP,
+{$endif}
      Math;
 
 const EPSILON={$ifdef UseDouble}1e-14{$else}1e-5{$endif}; // actually {$ifdef UseDouble}1e-16{$else}1e-7{$endif}; but we are conservative here
@@ -2308,6 +2311,7 @@ type PKraftForceMode=^TKraftForceMode;
        fWorldDistance:TKraftScalar;
        fFrequencyHz:TKraftScalar;
        fDampingRatio:TKraftScalar;
+       fInverseInertiaTensorRatio:TKraftScalar;
        fAccumulatedImpulse:TKraftScalar;
        fGamma:TKraftScalar;
        fBias:TKraftScalar;
@@ -2317,7 +2321,7 @@ type PKraftForceMode=^TKraftForceMode;
        fSoftConstraint:boolean;
        fSkip:boolean;
       public
-       constructor Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody;const ALocalAnchorPoint:TKraftVector3;const AWorldPlane:TKraftPlane;const ADoubleSidedWorldPlane:boolean=true;const AWorldDistance:single=1.0;const ALimitBehavior:TKraftConstraintLimitBehavior=kclbLimitDistance;const AFrequencyHz:TKraftScalar=0.0;const ADampingRatio:TKraftScalar=0.0;const ACollideConnected:boolean=false); reintroduce;
+       constructor Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody;const ALocalAnchorPoint:TKraftVector3;const AWorldPlane:TKraftPlane;const ADoubleSidedWorldPlane:boolean=true;const AWorldDistance:single=1.0;const ALimitBehavior:TKraftConstraintLimitBehavior=kclbLimitDistance;const AFrequencyHz:TKraftScalar=0.0;const ADampingRatio:TKraftScalar=0.0;const AInverseInertiaTensorRatio:TKraftScalar=1.0;const ACollideConnected:boolean=false); reintroduce;
        destructor Destroy; override;
        procedure InitializeConstraintsAndWarmStart(const Island:TKraftIsland;const TimeStep:TKraftTimeStep); override;
        procedure SolveVelocityConstraint(const Island:TKraftIsland;const TimeStep:TKraftTimeStep); override;
@@ -2862,6 +2866,7 @@ type PKraftForceMode=^TKraftForceMode;
 
      TKraftJobManagerOnProcessJob=procedure(const JobIndex,ThreadIndex:longint) of object;
 
+{$ifndef KraftPasMP}
      TKraftJobThread=class(TThread)
       private
        fPhysics:TKraft;
@@ -2882,33 +2887,52 @@ type PKraftForceMode=^TKraftForceMode;
      end;
 
      TKraftJobThreads=array of TKraftJobThread;
+{$endif}
 
      TKraftJobManager=class
       private
        fPhysics:TKraft;
+{$ifdef KraftPasMP}
+       fPasMP:TPasMP;
+{$else}
        fThreads:TKraftJobThreads;
        fCountThreads:longint;
        fCountAliveThreads:longint;
        fThreadsTerminated:boolean;
+{$endif}
        fOnProcessJob:TKraftJobManagerOnProcessJob;
        fCountRemainJobs:longint;
+       fGranularity:longint;
+{$ifdef KraftPasMP}
+      private
+       procedure ParallelForJobFunction(const Job:PPasMPJob;const ThreadIndex:longint;const Data:pointer;const Index:longint);
+{$endif}
       public
        constructor Create(const APhysics:TKraft);
        destructor Destroy; override;
+{$ifndef KraftPasMP}
        procedure WakeUp;
        procedure WaitFor;
+{$endif}
        procedure ProcessJobs;
        property Physics:TKraft read fPhysics;
+{$ifndef KraftPasMP}
        property Threads:TKraftJobThreads read fThreads;
        property CountThreads:longint read fCountThreads;
        property CountAliveThreads:longint read fCountAliveThreads write fCountAliveThreads;
        property ThreadsTerminated:boolean read fThreadsTerminated write fThreadsTerminated;
+{$endif}
        property OnProcessJob:TKraftJobManagerOnProcessJob read fOnProcessJob write fOnProcessJob;
        property CountRemainJobs:longint read fCountRemainJobs write fCountRemainJobs;
+       property Granularity:longint read fGranularity write fGranularity;
      end;
 
      TKraft=class
       private
+
+{$ifdef KraftPasMP}
+       fPasMP:TPasMP;
+{$endif}
 
        fHighResolutionTimer:TKraftHighResolutionTimer;
 
@@ -3076,7 +3100,11 @@ type PKraftForceMode=^TKraftForceMode;
 
       public
 
+{$ifdef KraftPasMP}
+       constructor Create(const APasMP:TPasMP);
+{$else}
        constructor Create(const ACountThreads:longint=-1);
+{$endif}
        destructor Destroy; override;
 
        procedure SetFrequency(const AFrequency:TKraftScalar);
@@ -23529,6 +23557,7 @@ begin
  if assigned(fPhysics.fJobManager) and (fCountActiveContactPairs>64) then begin
   fPhysics.fJobManager.fOnProcessJob:=ProcessContactPairJob;
   fPhysics.fJobManager.fCountRemainJobs:=fCountActiveContactPairs;
+  fPhysics.fJobManager.fGranularity:=Max(64,fCountActiveContactPairs div (fPhysics.fCountThreads*16));
   fPhysics.fJobManager.ProcessJobs;
  end else begin
   for ActiveContactPairIndex:=0 to fCountActiveContactPairs-1 do begin
@@ -24128,6 +24157,7 @@ begin
  if assigned(fPhysics.fJobManager) and (fAllMoveBufferSize>1024) then begin
   fPhysics.fJobManager.fOnProcessJob:=ProcessMoveBufferItem;
   fPhysics.fJobManager.fCountRemainJobs:=fAllMoveBufferSize;
+  fPhysics.fJobManager.fGranularity:=Max(64,fAllMoveBufferSize div (fPhysics.fCountThreads*16));
   fPhysics.fJobManager.ProcessJobs;
  end else begin
   for Index:=0 to fAllMoveBufferSize-1 do begin
@@ -24685,8 +24715,6 @@ procedure TKraftRigidBody.Finish;
 
    if fMass>EPSILON then begin
 
-    fInverseMass:=1.0/fMass;
-
     TempLocalCenter.x:=TempLocalCenter.x/fMass;
     TempLocalCenter.y:=TempLocalCenter.y/fMass;
     TempLocalCenter.z:=TempLocalCenter.z/fMass;
@@ -24700,8 +24728,9 @@ procedure TKraftRigidBody.Finish;
     if fForcedMass>EPSILON then begin
      Matrix3x3ScalarMul(fBodyInertiaTensor,fForcedMass/fMass);
      fMass:=fForcedMass;
-     fInverseMass:=1.0/fMass;
     end;
+
+    fInverseMass:=1.0/fMass;
 
     Matrix3x3Inverse(fBodyInverseInertiaTensor,fBodyInertiaTensor);
 
@@ -25596,7 +25625,7 @@ begin
  fMaximalForce:=AMaximalForce;
 end;
 
-constructor TKraftConstraintJointWorldPlaneDistance.Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody;const ALocalAnchorPoint:TKraftVector3;const AWorldPlane:TKraftPlane;const ADoubleSidedWorldPlane:boolean=true;const AWorldDistance:single=1.0;const ALimitBehavior:TKraftConstraintLimitBehavior=kclbLimitDistance;const AFrequencyHz:TKraftScalar=0.0;const ADampingRatio:TKraftScalar=0.0;const ACollideConnected:boolean=false);
+constructor TKraftConstraintJointWorldPlaneDistance.Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody;const ALocalAnchorPoint:TKraftVector3;const AWorldPlane:TKraftPlane;const ADoubleSidedWorldPlane:boolean=true;const AWorldDistance:single=1.0;const ALimitBehavior:TKraftConstraintLimitBehavior=kclbLimitDistance;const AFrequencyHz:TKraftScalar=0.0;const ADampingRatio:TKraftScalar=0.0;const AInverseInertiaTensorRatio:TKraftScalar=1.0;const ACollideConnected:boolean=false);
 begin
 
  fLocalAnchor:=ALocalAnchorPoint;
@@ -25615,6 +25644,7 @@ begin
 
  fFrequencyHz:=AFrequencyHz;
  fDampingRatio:=ADampingRatio;
+ fInverseInertiaTensorRatio:=AInverseInertiaTensorRatio;
  fAccumulatedImpulse:=0.0;
  fGamma:=0.0;
  fBias:=0.0;
@@ -25650,7 +25680,7 @@ begin
 
  fInverseMass:=fRigidBodies[0].fInverseMass;
 
- fWorldInverseInertiaTensor:=fRigidBodies[0].fWorldInverseInertiaTensor;
+ fWorldInverseInertiaTensor:=Matrix3x3TermScalarMul(fRigidBodies[0].fWorldInverseInertiaTensor,fInverseInertiaTensorRatio);
 
  fSolverVelocity:=@Island.fSolver.fVelocities[fIslandIndex];
 
@@ -25865,7 +25895,7 @@ begin
 
   rA:=Vector3TermQuaternionRotate(Vector3Sub(fLocalAnchor,fLocalCenter),qA^);
 
-  AbsolutePosition:=Vector3Add(cA^,fRelativePosition);
+  AbsolutePosition:=Vector3Add(cA^,rA);
 
   if fDoubleSidedWorldPlane then begin
 
@@ -29995,6 +30025,7 @@ begin
 
 end;
 
+{$ifndef KraftPasMP}
 constructor TKraftJobThread.Create(const APhysics:TKraft;const AJobManager:TKraftJobManager;const AThreadNumber:longint);
 begin
 //{$ifdef memdebug}ScanMemoryPoolForCorruptions;{$endif}
@@ -30028,7 +30059,7 @@ begin
   if Terminated or fJobManager.fThreadsTerminated then begin
    break;
   end else begin
-   repeat                       
+   repeat
     JobIndex:=InterlockedDecrement(fJobManager.fCountRemainJobs);
     if JobIndex>=0 then begin
      if assigned(fJobManager.fOnProcessJob) then begin
@@ -30053,6 +30084,7 @@ begin
  fCountThreads:=APhysics.fCountThreads;
  SetLength(fThreads,fCountThreads);
  fCountAliveThreads:=0;
+ fGranularity:=1;
  fThreadsTerminated:=false;
  fOnProcessJob:=nil;
  for Index:=0 to fCountThreads-1 do begin
@@ -30096,12 +30128,54 @@ begin
  WakeUp;
  WaitFor;
 end;
+{$else}
+constructor TKraftJobManager.Create(const APhysics:TKraft);
+begin
+ inherited Create;
+ fPhysics:=APhysics;
+ fPasMP:=fPhysics.fPasMP;
+ fOnProcessJob:=nil;
+ fCountRemainJobs:=0;
+ fGranularity:=1;
+end;
 
+destructor TKraftJobManager.Destroy;
+begin
+ inherited Destroy;
+end;
+
+procedure TKraftJobManager.ParallelForJobFunction(const Job:PPasMPJob;const ThreadIndex:longint;const Data:pointer;const Index:longint);
+begin
+ fOnProcessJob(Index,ThreadIndex);
+end;
+
+procedure TKraftJobManager.ProcessJobs;
+var Job:PPasMPJob;
+    Index:longint;
+begin
+ if assigned(fOnProcessJob) and (fCountRemainJobs>0) then begin
+  if fCountRemainJobs<=fGranularity then begin
+   for Index:=0 to fCountRemainJobs-1 do begin
+    fOnProcessJob(Index,0);
+   end;
+  end else begin
+   Job:=fPasMP.ParallelFor(nil,0,fCountRemainJobs-1,ParallelForJobFunction,Max(fGranularity,1),nil);
+   fPasMP.Invoke(Job);
+  end;
+ end;
+end;
+{$endif}
+
+{$ifdef KraftPasMP}
+constructor TKraft.Create(const APasMP:TPasMP);
+{$else}
 constructor TKraft.Create(const ACountThreads:longint=-1);
+{$endif}
 const TriangleVertex0:TKraftVector3=(x:0.0;y:0.0;z:0.0);
       TriangleVertex1:TKraftVector3=(x:1.0;y:0.0;z:0.01);
       TriangleVertex2:TKraftVector3=(x:0.0;y:1.0;z:0.02);
 var Index:longint;
+{$ifndef KraftPasMP}
 {$ifdef win32}
     i,j:longint;
     sinfo:SYSTEM_INFO;
@@ -30182,12 +30256,19 @@ var Index:longint;
   end;
  end;
 {$endif}
+{$endif}
 begin
  inherited Create;
 
  fHighResolutionTimer:=TKraftHighResolutionTimer.Create;
 
  fIsSolving:=false;
+
+{$ifdef KraftPasMP}
+ fPasMP:=APasMP;
+
+ fCountThreads:=fPasMP.CountWorkerThreads;
+{$else}
 
  fCountThreads:=ACountThreads;
 
@@ -30209,9 +30290,11 @@ begin
    fCountThreads:=j;
   end;
  end;
+//SetThreadIdealProcessor(GetCurrentThread,0);
 {$endif}
 
  fCountThreads:=Min(Max(fCountThreads,0),MAX_THREADS);
+{$endif}
 
  fNewShapes:=false;
 
@@ -30661,6 +30744,7 @@ begin
  if assigned(fJobManager) and (fCountIslands>1) then begin
   fJobManager.fOnProcessJob:=ProcessSolveIslandJob;
   fJobManager.fCountRemainJobs:=fCountIslands;
+  fJobManager.fGranularity:=1;
   fJobManager.ProcessJobs;
  end else begin
   for Index:=0 to fCountIslands-1 do begin
