@@ -42,6 +42,10 @@ Kraft Physics Engine has the following features:
 
 The Kraft Physics Engine is released under the open-source [ZLib license](http://opensource.org/licenses/zlib).
 
+## PasMP
+
+For to use Kraft with PasMP, you must set a project global define called KraftPasMP (or use -dKraftPasMP as compiler command line parameter)
+
 ## Documentation
 
 Later . . .
