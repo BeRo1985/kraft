@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2016-02-01-23-04-0000                       *
+ *                        Version 2016-02-01-23-52-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -1771,7 +1771,11 @@ type PKraftForceMode=^TKraftForceMode;
 
        procedure ProcessContactPair(const ContactPair:PKraftContactPair;const ThreadIndex:longint=0);
 
+{$ifdef KraftPasMP}
+       procedure ProcessContactPairParallelForFunction(const Job:PPasMPJob;const ThreadIndex:longint;const Data:pointer;const Index:longint);
+{$else}
        procedure ProcessContactPairJob(const JobIndex,ThreadIndex:longint);
+{$endif}
 
        procedure DoNarrowPhase;
 
@@ -1841,7 +1845,12 @@ type PKraftForceMode=^TKraftForceMode;
 
        procedure QueryShapeWithTree(const ThreadIndex:longint;const Shape:TKraftShape;const AABBTree:TKraftDynamicAABBTree);
 
+{$ifdef KraftPasMP}
+       procedure ProcessMoveBufferItemParallelForFunction(const Job:PPasMPJob;const ThreadIndex:longint;const Data:pointer;const JobIndex:longint);
+{$else}
        procedure ProcessMoveBufferItem(const JobIndex,ThreadIndex:longint);
+{$endif}
+
 
       public
 
@@ -2862,11 +2871,11 @@ type PKraftForceMode=^TKraftForceMode;
 
      TKraftIslands=array of TKraftIsland;
 
+{$ifndef KraftPasMP}
      TKraftJobManager=class;
 
      TKraftJobManagerOnProcessJob=procedure(const JobIndex,ThreadIndex:longint) of object;
 
-{$ifndef KraftPasMP}
      TKraftJobThread=class(TThread)
       private
        fPhysics:TKraft;
@@ -2887,45 +2896,33 @@ type PKraftForceMode=^TKraftForceMode;
      end;
 
      TKraftJobThreads=array of TKraftJobThread;
-{$endif}
 
      TKraftJobManager=class
       private
        fPhysics:TKraft;
-{$ifdef KraftPasMP}
-       fPasMP:TPasMP;
-{$else}
        fThreads:TKraftJobThreads;
        fCountThreads:longint;
        fCountAliveThreads:longint;
        fThreadsTerminated:boolean;
-{$endif}
        fOnProcessJob:TKraftJobManagerOnProcessJob;
        fCountRemainJobs:longint;
        fGranularity:longint;
-{$ifdef KraftPasMP}
-      private
-       procedure ParallelForJobFunction(const Job:PPasMPJob;const ThreadIndex:longint;const Data:pointer;const Index:longint);
-{$endif}
       public
        constructor Create(const APhysics:TKraft);
        destructor Destroy; override;
-{$ifndef KraftPasMP}
        procedure WakeUp;
        procedure WaitFor;
-{$endif}
        procedure ProcessJobs;
        property Physics:TKraft read fPhysics;
-{$ifndef KraftPasMP}
        property Threads:TKraftJobThreads read fThreads;
        property CountThreads:longint read fCountThreads;
        property CountAliveThreads:longint read fCountAliveThreads write fCountAliveThreads;
        property ThreadsTerminated:boolean read fThreadsTerminated write fThreadsTerminated;
-{$endif}
        property OnProcessJob:TKraftJobManagerOnProcessJob read fOnProcessJob write fOnProcessJob;
        property CountRemainJobs:longint read fCountRemainJobs write fCountRemainJobs;
        property Granularity:longint read fGranularity write fGranularity;
      end;
+{$endif}
 
      TKraft=class
       private
@@ -3067,7 +3064,9 @@ type PKraftForceMode=^TKraftForceMode;
 
        fCountThreads:longint;
 
+{$ifndef KraftPasMP}
        fJobManager:TKraftJobManager;
+{$endif}
 
        fIsSolving:boolean;
        fTriangleShapes:TKraftShapes;
@@ -3077,7 +3076,11 @@ type PKraftForceMode=^TKraftForceMode;
        procedure Integrate(var Position:TKraftVector3;var Orientation:TKraftQuaternion;const LinearVelocity,AngularVelocity:TKraftVector3;const DeltaTime:TKraftScalar);
 
        procedure BuildIslands;
+{$ifdef KraftPasMP}
+       procedure ProcessSolveIslandParallelForFunction(const Job:PPasMPJob;const ThreadIndex:longint;const Data:pointer;const Index:longint);
+{$else}
        procedure ProcessSolveIslandJob(const JobIndex,ThreadIndex:longint);
+{$endif}
        procedure SolveIslands(const TimeStep:TKraftTimeStep);
 
        function GetConservativeAdvancementTimeOfImpact(const ShapeA:TKraftShape;const SweepA:TKraftSweep;const ShapeB:TKraftShape;const ShapeBTriangleIndex:longint;const SweepB:TKraftSweep;const TimeStep:TKraftTimeStep;const ThreadIndex:longint;var Beta:TKraftScalar):boolean;
@@ -3184,7 +3187,9 @@ type PKraftForceMode=^TKraftForceMode;
 
        property CountThreads:longint read fCountThreads;
 
+{$ifndef KraftPasMP}
        property JobManager:TKraftJobManager read fJobManager;
+{$endif}
 
       published
 
@@ -23413,10 +23418,17 @@ begin
  ContactPair^.DetectCollisions(self,fPhysics.fTriangleShapes[ThreadIndex],ThreadIndex,true,fPhysics.fWorldDeltaTime);
 end;
 
+{$ifdef KraftPasMP}
+procedure TKraftContactManager.ProcessContactPairParallelForFunction(const Job:PPasMPJob;const ThreadIndex:longint;const Data:pointer;const Index:longint);
+begin
+ ProcessContactPair(fActiveContactPairs[Index],ThreadIndex);
+end;
+{$else}
 procedure TKraftContactManager.ProcessContactPairJob(const JobIndex,ThreadIndex:longint);
 begin
  ProcessContactPair(fActiveContactPairs[JobIndex],ThreadIndex);
 end;
+{$endif}
 
 procedure TKraftContactManager.DoNarrowPhase;
 var ActiveContactPairIndex:longint;
@@ -23554,11 +23566,16 @@ begin
 
  fCountRemainActiveContactPairsToDo:=fCountActiveContactPairs;
 
+{$ifdef KraftPasMP}
+ if assigned(fPhysics.fPasMP) and (fCountActiveContactPairs>64) then begin
+  fPhysics.fPasMP.Invoke(fPhysics.fPasMP.ParallelFor(nil,0,fCountActiveContactPairs-1,ProcessContactPairParallelForFunction,Max(64,fCountActiveContactPairs div (fPhysics.fCountThreads*16)),nil));
+{$else}
  if assigned(fPhysics.fJobManager) and (fCountActiveContactPairs>64) then begin
   fPhysics.fJobManager.fOnProcessJob:=ProcessContactPairJob;
   fPhysics.fJobManager.fCountRemainJobs:=fCountActiveContactPairs;
   fPhysics.fJobManager.fGranularity:=Max(64,fCountActiveContactPairs div (fPhysics.fCountThreads*16));
   fPhysics.fJobManager.ProcessJobs;
+{$endif}
  end else begin
   for ActiveContactPairIndex:=0 to fCountActiveContactPairs-1 do begin
    ProcessContactPair(fActiveContactPairs[ActiveContactPairIndex],0);
@@ -24106,7 +24123,11 @@ begin
 end;
 {$endif}
 
+{$ifdef KraftPasMP}
+procedure TKraftBroadPhase.ProcessMoveBufferItemParallelForFunction(const Job:PPasMPJob;const ThreadIndex:longint;const Data:pointer;const JobIndex:longint);
+{$else}
 procedure TKraftBroadPhase.ProcessMoveBufferItem(const JobIndex,ThreadIndex:longint);
+{$endif}
 var Index:longint;
     Shape:TKraftShape;
 begin
@@ -24154,6 +24175,15 @@ begin
 
  // Run the thread jobs
  fAllMoveBufferSize:=fStaticMoveBufferSize+fDynamicMoveBufferSize+fKinematicMoveBufferSize;
+{$ifdef KraftPasMP}
+ if assigned(fPhysics.fPasMP) and (fAllMoveBufferSize>1024) then begin
+  fPhysics.fPasMP.Invoke(fPhysics.fPasMP.ParallelFor(nil,0,fAllMoveBufferSize-1,ProcessMoveBufferItemParallelForFunction,Max(64,fAllMoveBufferSize div (fPhysics.fCountThreads*16)),nil));
+ end else begin
+  for Index:=0 to fAllMoveBufferSize-1 do begin
+   ProcessMoveBufferItemParallelForFunction(nil,0,nil,Index);
+  end;
+ end;
+{$else}
  if assigned(fPhysics.fJobManager) and (fAllMoveBufferSize>1024) then begin
   fPhysics.fJobManager.fOnProcessJob:=ProcessMoveBufferItem;
   fPhysics.fJobManager.fCountRemainJobs:=fAllMoveBufferSize;
@@ -24164,6 +24194,7 @@ begin
    ProcessMoveBufferItem(Index,0);
   end;
  end;
+{$endif}
 
  // Reset move buffer sizes
  fStaticMoveBufferSize:=0;
@@ -30128,42 +30159,6 @@ begin
  WakeUp;
  WaitFor;
 end;
-{$else}
-constructor TKraftJobManager.Create(const APhysics:TKraft);
-begin
- inherited Create;
- fPhysics:=APhysics;
- fPasMP:=fPhysics.fPasMP;
- fOnProcessJob:=nil;
- fCountRemainJobs:=0;
- fGranularity:=1;
-end;
-
-destructor TKraftJobManager.Destroy;
-begin
- inherited Destroy;
-end;
-
-procedure TKraftJobManager.ParallelForJobFunction(const Job:PPasMPJob;const ThreadIndex:longint;const Data:pointer;const Index:longint);
-begin
- fOnProcessJob(Index,ThreadIndex);
-end;
-
-procedure TKraftJobManager.ProcessJobs;
-var Job:PPasMPJob;
-    Index:longint;
-begin
- if assigned(fOnProcessJob) and (fCountRemainJobs>0) then begin
-  if fCountRemainJobs<=fGranularity then begin
-   for Index:=0 to fCountRemainJobs-1 do begin
-    fOnProcessJob(Index,0);
-   end;
-  end else begin
-   Job:=fPasMP.ParallelFor(nil,0,fCountRemainJobs-1,ParallelForJobFunction,Max(fGranularity,1),nil);
-   fPasMP.Invoke(Job);
-  end;
- end;
-end;
 {$endif}
 
 {$ifdef KraftPasMP}
@@ -30437,11 +30432,13 @@ begin
   fTriangleShapes[Index].CalculateMassData;
  end;
 
+{$ifndef KraftPasMP}
  if fCountThreads>1 then begin
   fJobManager:=TKraftJobManager.Create(self);
  end else begin
   fJobManager:=nil;
  end;
+{$endif}
 
  SIMDSetOurFlags;
 
@@ -30451,9 +30448,11 @@ destructor TKraft.Destroy;
 var Index:longint;
 begin
 
+{$ifndef KraftPasMP}
  if assigned(fJobManager) then begin
   FreeAndNil(fJobManager);
  end;
+{$endif}
 
  for Index:=0 to length(fTriangleShapes)-1 do begin
   fTriangleShapes[Index].Free;
@@ -30731,21 +30730,33 @@ begin
 
 end;
 
+{$ifdef KraftPasMP}
+procedure TKraft.ProcessSolveIslandParallelForFunction(const Job:PPasMPJob;const ThreadIndex:longint;const Data:pointer;const Index:longint);
+begin
+ fIslands[Index].Solve(fJobTimeStep);
+end;
+{$else}
 procedure TKraft.ProcessSolveIslandJob(const JobIndex,ThreadIndex:longint);
 begin
  fIslands[JobIndex].Solve(fJobTimeStep);
 end;
+{$endif}
 
 procedure TKraft.SolveIslands(const TimeStep:TKraftTimeStep);
 var Index:longint;
 begin
  fJobTimeStep:=TimeStep;
  fIsSolving:=true;
+{$ifdef KraftPasMP}
+ if assigned(fPasMP) and (fCountIslands>1) then begin
+  fPasMP.Invoke(fPasMP.ParallelFor(nil,0,fCountIslands-1,ProcessSolveIslandParallelForFunction,Max(1,fCountIslands div (fCountThreads*16)),nil));
+{$else}
  if assigned(fJobManager) and (fCountIslands>1) then begin
   fJobManager.fOnProcessJob:=ProcessSolveIslandJob;
   fJobManager.fCountRemainJobs:=fCountIslands;
-  fJobManager.fGranularity:=1;
+  fJobManager.fGranularity:=Max(1,fCountIslands div (fCountThreads*16));
   fJobManager.ProcessJobs;
+{$endif}
  end else begin
   for Index:=0 to fCountIslands-1 do begin
    fIslands[Index].Solve(fJobTimeStep);
