@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2016-02-01-23-52-0000                       *
+ *                        Version 2016-02-02-23-06-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -291,7 +291,9 @@ type PKraftForceMode=^TKraftForceMode;
                       kstMesh);        // Static only
 
      PKraftShapeFlag=^TKraftShapeFlag;
-     TKraftShapeFlag=(ksfSensor);
+     TKraftShapeFlag=(ksfCollision,
+                      ksfMass,
+                      ksfSensor);
 
      PKraftShapeFlags=^TKraftShapeFlags;
      TKraftShapeFlags=set of TKraftShapeFlag;
@@ -18665,7 +18667,7 @@ begin
   inc(fRigidBody.fShapeCount);
  end;
 
- fFlags:=[];
+ fFlags:=[ksfCollision,ksfMass];
 
  fIsMesh:=false;
 
@@ -22616,7 +22618,10 @@ begin
 
  HasContact:=false;
 
- if (Shapes[0]<>Shapes[1]) and (Shapes[0].fRigidBody<>Shapes[1].fRigidBody) then begin
+ if (Shapes[0]<>Shapes[1]) and
+    (Shapes[0].fRigidBody<>Shapes[1].fRigidBody) and
+    (ksfCollision in Shapes[0].fFlags) and
+    (ksfCollision in Shapes[1].fFlags) then begin
 
   if ContactManager.fPhysics.fPersistentContactManifold then begin
 
@@ -23267,23 +23272,29 @@ begin
 
  RigidBodyA:=AShapeA.fRigidBody;
  RigidBodyB:=AShapeB.fRigidBody;
-                                                                        
- if (not RigidBodyA.CanCollideWith(RigidBodyB)) or (assigned(fOnCanCollide) and not fOnCanCollide(AShapeA,AShapeB)) then begin
+
+ if (not RigidBodyA.CanCollideWith(RigidBodyB)) or
+    (assigned(fOnCanCollide) and not fOnCanCollide(AShapeA,AShapeB)) then begin
   exit;
  end;
 
- if AShapeA.fIsMesh then begin
+ if (ksfCollision in AShapeA.fFlags) and
+    (ksfCollision in AShapeB.fFlags) then begin
 
-  AddMeshContact(RigidBodyB,RigidBodyA,AShapeB,AShapeA);
+  if AShapeA.fIsMesh then begin
 
- end else if AShapeB.fIsMesh then begin
+   AddMeshContact(RigidBodyB,RigidBodyA,AShapeB,AShapeA);
 
-  AddMeshContact(RigidBodyA,RigidBodyB,AShapeA,AShapeB);
+  end else if AShapeB.fIsMesh then begin
 
- end else begin
+   AddMeshContact(RigidBodyA,RigidBodyB,AShapeA,AShapeB);
 
-  if not HasDuplicateContact(RigidBodyA,RigidBodyB,AShapeA,AShapeB,-1) then begin
-   AddConvexContact(RigidBodyA,RigidBodyB,AShapeA,AShapeB,-1);
+  end else begin
+
+   if not HasDuplicateContact(RigidBodyA,RigidBodyB,AShapeA,AShapeB,-1) then begin
+    AddConvexContact(RigidBodyA,RigidBodyB,AShapeA,AShapeB,-1);
+   end;
+
   end;
 
  end;
@@ -24734,9 +24745,9 @@ procedure TKraftRigidBody.Finish;
     end else if Shape is TKraftShapeTriangle then begin
      raise EKraftShapeTypeOnlyForStaticRigidBody.Create('Triangle shapes are allowed only at static rigidbodies');
     end else if Shape is TKraftShapeMesh then begin
-     raise EKraftShapeTypeOnlyForStaticRigidBody.Create('Mesh shapes are allowed only at static rigidbodies');
+    raise EKraftShapeTypeOnlyForStaticRigidBody.Create('Mesh shapes are allowed only at static rigidbodies');
     end;
-    if Shape.fDensity>EPSILON then begin
+    if (ksfMass in Shape.fFlags) and (Shape.fDensity>EPSILON) then begin
      fMass:=fMass+Shape.fMassData.Mass;
      Matrix3x3Add(fBodyInertiaTensor,Shape.fMassData.Inertia);
      TempLocalCenter:=Vector3Add(TempLocalCenter,Vector3ScalarMul(Shape.fMassData.Center,Shape.fMassData.Mass));
