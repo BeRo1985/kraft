@@ -25,6 +25,16 @@ type TCamera=object
        procedure Interpolate(const a,b:TCamera;const t:TKraftScalar);
      end;
 
+     TThreadTimer=class(TThread)
+      private
+       procedure Draw;
+      protected
+       procedure Execute; override;
+      public
+       constructor Create;
+       destructor Destroy; override;
+     end;
+
   TFormGL = class(TForm)
     sSkinProvider1: TsSkinProvider;
     TimerFPS: TTimer;
@@ -73,6 +83,7 @@ type TCamera=object
     Grabbing,Rotating:boolean;
     KeyLeft,KeyRight,KeyBackwards,KeyForwards,KeyUp,KeyDown:boolean;
     HighResolutionTimer:TKraftHighResolutionTimer;
+    ThreadTimer:TThreadTimer;
     procedure InitGL;
     procedure DoneGL;
     procedure Draw;
@@ -88,6 +99,33 @@ implementation
 {$R *.dfm}
 
 uses UnitFormMain;
+
+constructor TThreadTimer.Create;
+begin
+ FreeOnTerminate:=false;
+ inherited Create(true);
+end;
+
+destructor TThreadTimer.Destroy;
+begin
+ inherited Destroy;
+end;
+
+procedure TThreadTimer.Draw;
+begin
+ if assigned(FormMain.KraftPhysics) then begin
+  FormGL.Draw;
+  Application.ProcessMessages;
+ end;
+end;
+
+procedure TThreadTimer.Execute;
+begin
+ while not Terminated do begin
+  Synchronize(Draw);
+  Sleep(0);
+ end;
+end;
 
 var GrabRigidBody:TKraftRigidBody;
     GrabShape:TKraftShape;
@@ -363,6 +401,9 @@ begin
    DescribePixelFormat(hDCGL,PixelFormat,SizeOf(TPixelFormatDescriptor),PFD);
    hGL:=wglCreateContext(hDCGL);
    wglMakeCurrent(hDCGL,hGL);
+   if Load_WGL_EXT_swap_control then begin
+    wglSwapIntervalEXT(0);
+   end;
    ReadyGL:=true;
   end;
  except
@@ -813,6 +854,8 @@ end;
 
 procedure TFormGL.FormCreate(Sender: TObject);
 begin
+ ThreadTimer:=TThreadTimer.Create;
+
  KeyLeft:=false;
  KeyRight:=false;
  KeyBackwards:=false;
@@ -845,6 +888,12 @@ end;
 
 procedure TFormGL.FormDestroy(Sender: TObject);
 begin
+ ThreadTimer.Terminate;
+ if ThreadTimer.Suspended then begin
+  ThreadTimer.Resume;
+ end;
+ ThreadTimer.WaitFor;
+ ThreadTimer.Free;
  DoneGL;
  HighResolutionTimer.Free;
 end;
@@ -866,6 +915,9 @@ begin
  FST2:=LastTime;
  FET2:=LastTime;
  Frames:=0;
+ if ThreadTimer.Suspended then begin
+  ThreadTimer.Resume;
+ end;
 end;
 
 procedure TFormGL.TimerDrawTimer(Sender: TObject);

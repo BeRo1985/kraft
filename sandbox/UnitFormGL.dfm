@@ -47,7 +47,6 @@ object FormGL: TFormGL
     Top = 96
   end
   object ApplicationEvents1: TApplicationEvents
-    OnIdle = ApplicationEvents1Idle
     Left = 200
     Top = 120
   end

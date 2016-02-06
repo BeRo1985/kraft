@@ -8,7 +8,8 @@ uses
   Dialogs, JvExControls, JvInspector, JvComponentBase, Menus, kraft,
   sSkinProvider, sSkinManager, acTitleBar, ExtCtrls, sSplitter, sPanel,
   StdCtrls, sGroupBox, ComCtrls, sPageControl, sTreeView,
-  OpenGL, sListBox, sMemo, UnitDemoScene, JvSimScope, sLabel, sCheckBox;
+  OpenGL, sListBox, sMemo, UnitDemoScene, JvSimScope, sLabel, sCheckBox,
+  PasMP;
 
 type
   TFormMain = class(TForm)
@@ -75,6 +76,7 @@ type
     { Private declarations }
   public
     { Public declarations }
+    PasMPInstance:TPasMP;
     KraftPhysics:TKraft;
     TreeNodeKraftPhysics:TTreeNode;
     TreeNodeDemos:TTreeNode;
@@ -185,7 +187,13 @@ begin
 
  DemoScene:=nil;
 
+ PasMPInstance:=TPasMP.Create(-1,0,true);
+
+{$ifdef KraftPasMP}
+ KraftPhysics:=TKraft.Create(PasMPInstance);
+{$else}
  KraftPhysics:=TKraft.Create(-1);
+{$endif}
 
  KraftPhysics.SetFrequency(120.0);
 
@@ -226,6 +234,7 @@ procedure TFormMain.FormDestroy(Sender: TObject);
 begin
  FreeAndNil(DemoScene);
  FreeAndNil(KraftPhysics);
+ FreeAndNil(PasMPInstance);
  FormGL.Free;
 end;
 
@@ -302,23 +311,27 @@ end;
 procedure TFormMain.TimerPerformanceTimer(Sender: TObject);
 var s:string;
 begin
- Str(KraftPhysics.HighResolutionTimer.ToNanoseconds(KraftPhysics.BroadPhaseTime)/1000000.0:1:5,s);
- sLabelBroadPhaseTime.Caption:='Broad phase: '+s+' ms';
+ if assigned(KraftPhysics) then begin
 
- Str(KraftPhysics.HighResolutionTimer.ToNanoseconds(KraftPhysics.MidPhaseTime)/1000000.0:1:5,s);
- sLabelMidPhaseTime.Caption:='Mid phase: '+s+' ms';
+  Str(KraftPhysics.HighResolutionTimer.ToNanoseconds(KraftPhysics.BroadPhaseTime)/1000000.0:1:5,s);
+  sLabelBroadPhaseTime.Caption:='Broad phase: '+s+' ms';
 
- Str(KraftPhysics.HighResolutionTimer.ToNanoseconds(KraftPhysics.NarrowPhaseTime)/1000000.0:1:5,s);
- sLabelNarrowPhaseTime.Caption:='Narrow phase: '+s+' ms';
+  Str(KraftPhysics.HighResolutionTimer.ToNanoseconds(KraftPhysics.MidPhaseTime)/1000000.0:1:5,s);
+  sLabelMidPhaseTime.Caption:='Mid phase: '+s+' ms';
 
- Str(KraftPhysics.HighResolutionTimer.ToNanoseconds(KraftPhysics.SolverTime)/1000000.0:1:5,s);
- sLabelSolverTime.Caption:='Discrete solver: '+s+' ms';
+  Str(KraftPhysics.HighResolutionTimer.ToNanoseconds(KraftPhysics.NarrowPhaseTime)/1000000.0:1:5,s);
+  sLabelNarrowPhaseTime.Caption:='Narrow phase: '+s+' ms';
 
- Str(KraftPhysics.HighResolutionTimer.ToNanoseconds(KraftPhysics.ContinuousTime)/1000000.0:1:5,s);
- sLabelContinuousTime.Caption:='Continuous collision detection and response: '+s+' ms';
+  Str(KraftPhysics.HighResolutionTimer.ToNanoseconds(KraftPhysics.SolverTime)/1000000.0:1:5,s);
+  sLabelSolverTime.Caption:='Discrete solver: '+s+' ms';
 
- Str(KraftPhysics.HighResolutionTimer.ToNanoseconds(KraftPhysics.TotalTime)/1000000.0:1:5,s);
- sLabelTotalTime.Caption:='Total: '+s+' ms';
+  Str(KraftPhysics.HighResolutionTimer.ToNanoseconds(KraftPhysics.ContinuousTime)/1000000.0:1:5,s);
+  sLabelContinuousTime.Caption:='Continuous collision detection and response: '+s+' ms';
+
+  Str(KraftPhysics.HighResolutionTimer.ToNanoseconds(KraftPhysics.TotalTime)/1000000.0:1:5,s);
+  sLabelTotalTime.Caption:='Total: '+s+' ms';
+
+ end;
 
 end;
 

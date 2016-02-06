@@ -18,7 +18,8 @@ uses
   UnitDemoSceneDomino in 'UnitDemoSceneDomino.pas',
   UnitDemoSceneChairAndTable in 'UnitDemoSceneChairAndTable.pas',
   UnitDemoSceneConvexHull in 'UnitDemoSceneConvexHull.pas',
-  UnitDemoSceneCar in 'UnitDemoSceneCar.pas';
+  UnitDemoSceneCar in 'UnitDemoSceneCar.pas',
+  PasMP in '..\..\..\PASMP.github\trunk\src\PasMP.pas';
 
 {$R *.res}
 

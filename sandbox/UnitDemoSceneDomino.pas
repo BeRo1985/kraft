@@ -54,6 +54,7 @@ begin
  Shape.Density:=1.0;
  RigidBody.ForcedMass:=1.0;
  RigidBody.Finish;
+ i:=Count;
  RigidBody.SetWorldTransformation(Matrix4x4TermMul(Matrix4x4TermMul(Matrix4x4Translate(0.0,TKraftShapeSphere(Shape).Radius,-12.0),Matrix4x4RotateY((i-((Count-1)*0.5))*(pi/Count)*2.0)),Matrix4x4Translate(4.0,0.0,-12.0)));
  RigidBody.CollisionGroups:=[0];
  RigidBody.Gravity.Vector:=Vector3(0.0,-9.81*4.0,0.0);
