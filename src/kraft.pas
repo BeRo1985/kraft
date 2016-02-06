@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2016-02-02-23-06-0000                       *
+ *                        Version 2016-02-06-12-43-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -1774,7 +1774,7 @@ type PKraftForceMode=^TKraftForceMode;
        procedure ProcessContactPair(const ContactPair:PKraftContactPair;const ThreadIndex:longint=0);
 
 {$ifdef KraftPasMP}
-       procedure ProcessContactPairParallelForFunction(const Job:PPasMPJob;const ThreadIndex:longint;const Data:pointer;const Index:longint);
+       procedure ProcessContactPairParallelForFunction(const Job:PPasMPJob;const ThreadIndex:longint;const Data:pointer;const FromIndex,ToIndex:longint);
 {$else}
        procedure ProcessContactPairJob(const JobIndex,ThreadIndex:longint);
 {$endif}
@@ -1848,7 +1848,7 @@ type PKraftForceMode=^TKraftForceMode;
        procedure QueryShapeWithTree(const ThreadIndex:longint;const Shape:TKraftShape;const AABBTree:TKraftDynamicAABBTree);
 
 {$ifdef KraftPasMP}
-       procedure ProcessMoveBufferItemParallelForFunction(const Job:PPasMPJob;const ThreadIndex:longint;const Data:pointer;const JobIndex:longint);
+       procedure ProcessMoveBufferItemParallelForFunction(const Job:PPasMPJob;const ThreadIndex:longint;const Data:pointer;const FromIndex,ToIndex:longint);
 {$else}
        procedure ProcessMoveBufferItem(const JobIndex,ThreadIndex:longint);
 {$endif}
@@ -3079,7 +3079,7 @@ type PKraftForceMode=^TKraftForceMode;
 
        procedure BuildIslands;
 {$ifdef KraftPasMP}
-       procedure ProcessSolveIslandParallelForFunction(const Job:PPasMPJob;const ThreadIndex:longint;const Data:pointer;const Index:longint);
+       procedure ProcessSolveIslandParallelForFunction(const Job:PPasMPJob;const ThreadIndex:longint;const Data:pointer;const FromIndex,ToIndex:longint);
 {$else}
        procedure ProcessSolveIslandJob(const JobIndex,ThreadIndex:longint);
 {$endif}
@@ -23430,9 +23430,12 @@ begin
 end;
 
 {$ifdef KraftPasMP}
-procedure TKraftContactManager.ProcessContactPairParallelForFunction(const Job:PPasMPJob;const ThreadIndex:longint;const Data:pointer;const Index:longint);
+procedure TKraftContactManager.ProcessContactPairParallelForFunction(const Job:PPasMPJob;const ThreadIndex:longint;const Data:pointer;const FromIndex,ToIndex:longint);
+var Index:longint;
 begin
- ProcessContactPair(fActiveContactPairs[Index],ThreadIndex);
+ for Index:=FromIndex to ToIndex do begin
+  ProcessContactPair(fActiveContactPairs[Index],ThreadIndex);
+ end;
 end;
 {$else}
 procedure TKraftContactManager.ProcessContactPairJob(const JobIndex,ThreadIndex:longint);
@@ -23579,7 +23582,7 @@ begin
 
 {$ifdef KraftPasMP}
  if assigned(fPhysics.fPasMP) and (fCountActiveContactPairs>64) then begin
-  fPhysics.fPasMP.Invoke(fPhysics.fPasMP.ParallelFor(nil,0,fCountActiveContactPairs-1,ProcessContactPairParallelForFunction,Max(64,fCountActiveContactPairs div (fPhysics.fCountThreads*16)),nil));
+  fPhysics.fPasMP.Invoke(fPhysics.fPasMP.ParallelFor(nil,0,fCountActiveContactPairs-1,ProcessContactPairParallelForFunction,Max(64,fCountActiveContactPairs div (fPhysics.fCountThreads*16)),4));
 {$else}
  if assigned(fPhysics.fJobManager) and (fCountActiveContactPairs>64) then begin
   fPhysics.fJobManager.fOnProcessJob:=ProcessContactPairJob;
@@ -24135,40 +24138,42 @@ end;
 {$endif}
 
 {$ifdef KraftPasMP}
-procedure TKraftBroadPhase.ProcessMoveBufferItemParallelForFunction(const Job:PPasMPJob;const ThreadIndex:longint;const Data:pointer;const JobIndex:longint);
+procedure TKraftBroadPhase.ProcessMoveBufferItemParallelForFunction(const Job:PPasMPJob;const ThreadIndex:longint;const Data:pointer;const FromIndex,ToIndex:longint);
 {$else}
 procedure TKraftBroadPhase.ProcessMoveBufferItem(const JobIndex,ThreadIndex:longint);
 {$endif}
-var Index:longint;
+var {$ifdef KraftPasMP}JobIndex,{$endif}Index:longint;
     Shape:TKraftShape;
 begin
- Index:=JobIndex;
- if Index<fStaticMoveBufferSize then begin
-  // Static shapes against dynamic shapes
-  if fStaticMoveBuffer[Index]>=0 then begin
-   Shape:=fPhysics.fStaticAABBTree.fNodes[fStaticMoveBuffer[Index]].UserData;
-   if assigned(Shape) then begin
-    QueryShapeWithTree(ThreadIndex,Shape,fPhysics.fDynamicAABBTree);
+{$ifdef KraftPasMP}for JobIndex:=FromIndex to ToIndex do{$endif}begin
+  Index:=JobIndex;
+  if Index<fStaticMoveBufferSize then begin
+   // Static shapes against dynamic shapes
+   if fStaticMoveBuffer[Index]>=0 then begin
+    Shape:=fPhysics.fStaticAABBTree.fNodes[fStaticMoveBuffer[Index]].UserData;
+    if assigned(Shape) then begin
+     QueryShapeWithTree(ThreadIndex,Shape,fPhysics.fDynamicAABBTree);
+    end;
    end;
-  end;
- end else if Index<(fStaticMoveBufferSize+fDynamicMoveBufferSize) then begin
-  // Dynamic shapes against static, dynamic and kinematic shapes
-  dec(Index,fStaticMoveBufferSize);
-  if fDynamicMoveBuffer[Index]>=0 then begin
-   Shape:=fPhysics.fDynamicAABBTree.fNodes[fDynamicMoveBuffer[Index]].UserData;
-   if assigned(Shape) then begin
-    QueryShapeWithTree(ThreadIndex,Shape,fPhysics.fStaticAABBTree);
-    QueryShapeWithTree(ThreadIndex,Shape,fPhysics.fDynamicAABBTree);
-    QueryShapeWithTree(ThreadIndex,Shape,fPhysics.fKinematicAABBTree);
+  end else if Index<(fStaticMoveBufferSize+fDynamicMoveBufferSize) then begin
+   // Dynamic shapes against static, dynamic and kinematic shapes
+   dec(Index,fStaticMoveBufferSize);
+   if fDynamicMoveBuffer[Index]>=0 then begin
+    Shape:=fPhysics.fDynamicAABBTree.fNodes[fDynamicMoveBuffer[Index]].UserData;
+    if assigned(Shape) then begin
+     QueryShapeWithTree(ThreadIndex,Shape,fPhysics.fStaticAABBTree);
+     QueryShapeWithTree(ThreadIndex,Shape,fPhysics.fDynamicAABBTree);
+     QueryShapeWithTree(ThreadIndex,Shape,fPhysics.fKinematicAABBTree);
+    end;
    end;
-  end;
- end else if Index<(fStaticMoveBufferSize+fDynamicMoveBufferSize+fKinematicMoveBufferSize) then begin
-  // Kinematic shapes against dynamic shapes
-  dec(Index,fStaticMoveBufferSize+fDynamicMoveBufferSize);
-  if fKinematicMoveBuffer[Index]>=0 then begin
-   Shape:=fPhysics.fKinematicAABBTree.fNodes[fKinematicMoveBuffer[Index]].UserData;
-   if assigned(Shape) then begin
-    QueryShapeWithTree(ThreadIndex,Shape,fPhysics.fDynamicAABBTree);
+  end else if Index<(fStaticMoveBufferSize+fDynamicMoveBufferSize+fKinematicMoveBufferSize) then begin
+   // Kinematic shapes against dynamic shapes
+   dec(Index,fStaticMoveBufferSize+fDynamicMoveBufferSize);
+   if fKinematicMoveBuffer[Index]>=0 then begin
+    Shape:=fPhysics.fKinematicAABBTree.fNodes[fKinematicMoveBuffer[Index]].UserData;
+    if assigned(Shape) then begin
+     QueryShapeWithTree(ThreadIndex,Shape,fPhysics.fDynamicAABBTree);
+    end;
    end;
   end;
  end;
@@ -24188,11 +24193,9 @@ begin
  fAllMoveBufferSize:=fStaticMoveBufferSize+fDynamicMoveBufferSize+fKinematicMoveBufferSize;
 {$ifdef KraftPasMP}
  if assigned(fPhysics.fPasMP) and (fAllMoveBufferSize>1024) then begin
-  fPhysics.fPasMP.Invoke(fPhysics.fPasMP.ParallelFor(nil,0,fAllMoveBufferSize-1,ProcessMoveBufferItemParallelForFunction,Max(64,fAllMoveBufferSize div (fPhysics.fCountThreads*16)),nil));
+  fPhysics.fPasMP.Invoke(fPhysics.fPasMP.ParallelFor(nil,0,fAllMoveBufferSize-1,ProcessMoveBufferItemParallelForFunction,Max(64,fAllMoveBufferSize div (fPhysics.fCountThreads*16)),4));
  end else begin
-  for Index:=0 to fAllMoveBufferSize-1 do begin
-   ProcessMoveBufferItemParallelForFunction(nil,0,nil,Index);
-  end;
+  ProcessMoveBufferItemParallelForFunction(nil,0,nil,0,fAllMoveBufferSize-1);
  end;
 {$else}
  if assigned(fPhysics.fJobManager) and (fAllMoveBufferSize>1024) then begin
@@ -30273,7 +30276,7 @@ begin
 {$ifdef KraftPasMP}
  fPasMP:=APasMP;
 
- fCountThreads:=fPasMP.CountWorkerThreads;
+ fCountThreads:=fPasMP.CountJobWorkerThreads;
 {$else}
 
  fCountThreads:=ACountThreads;
@@ -30742,9 +30745,12 @@ begin
 end;
 
 {$ifdef KraftPasMP}
-procedure TKraft.ProcessSolveIslandParallelForFunction(const Job:PPasMPJob;const ThreadIndex:longint;const Data:pointer;const Index:longint);
+procedure TKraft.ProcessSolveIslandParallelForFunction(const Job:PPasMPJob;const ThreadIndex:longint;const Data:pointer;const FromIndex,ToIndex:longint);
+var Index:longint;
 begin
- fIslands[Index].Solve(fJobTimeStep);
+ for Index:=FromIndex to ToIndex do begin
+  fIslands[Index].Solve(fJobTimeStep);
+ end;
 end;
 {$else}
 procedure TKraft.ProcessSolveIslandJob(const JobIndex,ThreadIndex:longint);
@@ -30760,7 +30766,7 @@ begin
  fIsSolving:=true;
 {$ifdef KraftPasMP}
  if assigned(fPasMP) and (fCountIslands>1) then begin
-  fPasMP.Invoke(fPasMP.ParallelFor(nil,0,fCountIslands-1,ProcessSolveIslandParallelForFunction,Max(1,fCountIslands div (fCountThreads*16)),nil));
+  fPasMP.Invoke(fPasMP.ParallelFor(nil,0,fCountIslands-1,ProcessSolveIslandParallelForFunction,Max(1,fCountIslands div (fCountThreads*16)),4));
 {$else}
  if assigned(fJobManager) and (fCountIslands>1) then begin
   fJobManager.fOnProcessJob:=ProcessSolveIslandJob;
