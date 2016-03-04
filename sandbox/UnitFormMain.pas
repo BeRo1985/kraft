@@ -187,7 +187,7 @@ begin
 
  DemoScene:=nil;
 
- PasMPInstance:=TPasMP.Create(-1,0,true);
+ PasMPInstance:=TPasMP.Create(-1,0,false);
 
 {$ifdef KraftPasMP}
  KraftPhysics:=TKraft.Create(PasMPInstance);
