@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2016-02-06-12-43-0000                       *
+ *                        Version 2016-03-04-14-37-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -8622,28 +8622,31 @@ end;
 function QuaternionMul(const q1,q2:TKraftQuaternion):TKraftQuaternion; {$ifdef CPU386ASMForSinglePrecision}assembler;
 const XORMaskW:array[0..3] of longword=($00000000,$00000000,$00000000,$80000000);
 asm
- movups xmm0,dqword ptr [q1]
- movups xmm1,dqword ptr [q2]
+ movups xmm4,dqword ptr [q1]
+ movaps xmm0,xmm4
+ shufps xmm0,xmm4,$49
+ movups xmm2,dqword ptr [q2]
+ movaps xmm3,xmm2
+ movaps xmm1,xmm2
+ shufps xmm3,xmm2,$52 // 001010010b
+ mulps xmm3,xmm0
+ movaps xmm0,xmm4
+ shufps xmm0,xmm4,$24 // 000100100b
+ shufps xmm1,xmm2,$3f // 000111111b
  movups xmm5,dqword ptr [XORMaskW]
- movaps xmm2,xmm0
- movaps xmm3,xmm1
- movaps xmm4,xmm1
- shufps xmm0,xmm0,$ff // 011111111b
- shufps xmm1,xmm1,$3f // 000111111b
- shufps xmm2,xmm2,$24 // 000100100b
- mulps xmm0,xmm3
- mulps xmm1,xmm2
- shufps xmm3,xmm3,$52 // 001010010b
- shufps xmm2,xmm2,$49 // 001001001b
- shufps xmm4,xmm4,$89 // 010001001b
- mulps xmm3,xmm2
- shufps xmm2,xmm2,$49 // 001001001b
- addps xmm1,xmm3
- mulps xmm2,xmm4
- xorps xmm1,xmm5
- subps xmm0,xmm2
- addps xmm0,xmm1
- movups dqword ptr [result],xmm0
+ mulps xmm1,xmm0
+ movaps xmm0,xmm4
+ shufps xmm0,xmm4,$92 // 001001001b
+ shufps xmm4,xmm4,$ff // 011111111b
+ mulps xmm4,xmm2
+ addps xmm3,xmm1
+ movaps xmm1,xmm2
+ shufps xmm1,xmm2,$89 // 010001001b
+ mulps xmm1,xmm0
+ xorps xmm3,xmm5
+ subps xmm4,xmm1
+ addps xmm3,xmm4
+ movups dqword ptr [result],xmm3
 end;
 {$else}
 begin
