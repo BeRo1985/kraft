@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2016-03-22-01-59-0000                       *
+ *                        Version 2016-03-22-02-37-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -11315,6 +11315,27 @@ begin
 end;
 {$endif}
 
+procedure MemorySwap(a,b:pointer;Size:TPasMPInt32);
+var Temp:TPasMPUInt32;
+begin
+ while Size>=SizeOf(TPasMPUInt32) do begin
+  Temp:=TPasMPUInt32(a^);
+  TPasMPUInt32(a^):=TPasMPUInt32(b^);
+  TPasMPUInt32(b^):=Temp;
+  inc(TPasMPPtrUInt(a),SizeOf(TPasMPUInt32));
+  inc(TPasMPPtrUInt(b),SizeOf(TPasMPUInt32));
+  dec(Size,SizeOf(TPasMPUInt32));
+ end;
+ while Size>=SizeOf(TPasMPUInt8) do begin
+  Temp:=TPasMPUInt8(a^);
+  TPasMPUInt8(a^):=TPasMPUInt8(b^);
+  TPasMPUInt8(b^):=Temp;
+  inc(TPasMPPtrUInt(a),SizeOf(TPasMPUInt8));
+  inc(TPasMPPtrUInt(b),SizeOf(TPasMPUInt8));
+  dec(Size,SizeOf(TPasMPUInt8));
+ end;
+end;
+
 procedure DirectIntroSort(Items:pointer;Left,Right,ElementSize:longint;CompareFunc:TSortCompareFunction);
 type PByteArray=^TByteArray;
      TByteArray=array[0..$3fffffff] of byte;
@@ -11322,132 +11343,122 @@ type PByteArray=^TByteArray;
      TStackItem=record
       Left,Right,Depth:longint;
      end;
-var Depth,i,j,Middle,Size,Parent,Child:longint;
-    Pivot,Temp:pointer;
+var Depth,i,j,Middle,Size,Parent,Child,Pivot,iA,iB,iC:longint;
     StackItem:PStackItem;
     Stack:array[0..31] of TStackItem;
 begin
  if Left<Right then begin
-  GetMem(Temp,ElementSize);
-  GetMem(Pivot,ElementSize);
-  try
-   StackItem:=@Stack[0];
-   StackItem^.Left:=Left;
-   StackItem^.Right:=Right;
-   StackItem^.Depth:=IntLog2((Right-Left)+1) shl 1;
-   inc(StackItem);
-   while ptruint(pointer(StackItem))>ptruint(pointer(@Stack[0])) do begin
-    dec(StackItem);
-    Left:=StackItem^.Left;
-    Right:=StackItem^.Right;
-    Depth:=StackItem^.Depth;
-    if (Right-Left)<16 then begin
-     // Insertion sort
-     for i:=Left+1 to Right do begin
-      j:=i-1;
-      if (j>=Left) and (CompareFunc(pointer(@PByteArray(Items)^[j*ElementSize]),pointer(@PByteArray(Items)^[i*ElementSize]))>0) then begin
-       Move(PByteArray(Items)^[i*ElementSize],Temp^,ElementSize);
-       repeat
-        Move(PByteArray(Items)^[j*ElementSize],PByteArray(Items)^[(j+1)*ElementSize],ElementSize);
-        dec(j);
-       until not ((j>=Left) and (CompareFunc(pointer(@PByteArray(Items)^[j*ElementSize]),Temp)>0));
-       Move(Temp^,PByteArray(Items)^[(j+1)*ElementSize],ElementSize);
-      end;
+  StackItem:=@Stack[0];
+  StackItem^.Left:=Left;
+  StackItem^.Right:=Right;
+  StackItem^.Depth:=IntLog2((Right-Left)+1) shl 1;
+  inc(StackItem);
+  while ptruint(pointer(StackItem))>ptruint(pointer(@Stack[0])) do begin
+   dec(StackItem);
+   Left:=StackItem^.Left;
+   Right:=StackItem^.Right;
+   Depth:=StackItem^.Depth;
+   Size:=(Right-Left)+1;
+   if Size<16 then begin
+    // Insertion sort
+    iA:=Left;
+    iB:=iA+1;
+    while iB<=Right do begin
+     iC:=iB;
+     while (iA>=Left) and
+           (iC>=Left) and
+           (CompareFunc(pointer(@PByteArray(Items)^[iA*ElementSize]),pointer(@PByteArray(Items)^[iC*ElementSize]))>0) do begin
+      MemorySwap(@PByteArray(Items)^[iA*ElementSize],@PByteArray(Items)^[iC*ElementSize],ElementSize);
+      dec(iA);
+      dec(iC);
      end;
-    end else begin
-     if (Depth=0) or (ptruint(pointer(StackItem))>=ptruint(pointer(@Stack[high(Stack)-1]))) then begin
-      // Heap sort
-      Size:=(Right-Left)+1;
-      i:=Size div 2;
-      repeat
-       if i>0 then begin
-        dec(i);
-        Move(PByteArray(Items)^[(Left+i)*ElementSize],Temp^,ElementSize);
+     iA:=iB;
+     inc(iB);
+    end;
+   end else begin
+    if (Depth=0) or (ptruint(pointer(StackItem))>=ptruint(pointer(@Stack[high(Stack)-1]))) then begin
+     // Heap sort
+     i:=Size div 2;
+     repeat
+      if i>0 then begin
+       dec(i);
+      end else begin
+       dec(Size);
+       if Size>0 then begin
+        MemorySwap(@PByteArray(Items)^[(Left+Size)*ElementSize],@PByteArray(Items)^[Left*ElementSize],ElementSize);
        end else begin
-        dec(Size);
-        if Size>0 then begin
-         Move(PByteArray(Items)^[(Left+Size)*ElementSize],Temp^,ElementSize);
-         Move(PByteArray(Items)^[Left*ElementSize],PByteArray(Items)^[(Left+Size)*ElementSize],ElementSize);
-        end else begin
-         break;
-        end;
+        break;
        end;
-       Parent:=i;
-       Child:=(i*2)+1;
-       while Child<Size do begin
-        if ((Child+1)<Size) and (CompareFunc(pointer(@PByteArray(Items)^[((Left+Child)+1)*ElementSize]),pointer(@PByteArray(Items)^[(Left+Child)*ElementSize]))>0) then begin
+      end;
+      Parent:=i;
+      repeat
+       Child:=(Parent*2)+1;
+       if Child<Size then begin
+        if (Child<(Size-1)) and (CompareFunc(pointer(@PByteArray(Items)^[(Left+Child)*ElementSize]),pointer(@PByteArray(Items)^[(Left+Child+1)*ElementSize]))<0) then begin
          inc(Child);
         end;
-        if CompareFunc(pointer(@PByteArray(Items)^[(Left+Child)*ElementSize]),Temp)>0 then begin
-         Move(PByteArray(Items)^[(Left+Child)*ElementSize],PByteArray(Items)^[(Left+Parent)*ElementSize],ElementSize);
+        if CompareFunc(pointer(@PByteArray(Items)^[(Left+Parent)*ElementSize]),pointer(@PByteArray(Items)^[(Left+Child)*ElementSize]))<0 then begin
+         MemorySwap(@PByteArray(Items)^[(Left+Parent)*ElementSize],@PByteArray(Items)^[(Left+Child)*ElementSize],ElementSize);
          Parent:=Child;
-         Child:=(Parent*2)+1;
-        end else begin
-         break;
+         continue;
         end;
        end;
-       Move(Temp^,PByteArray(Items)^[(Left+Parent)*ElementSize],ElementSize);
+       break;
       until false;
-     end else begin
-      // Quick sort width median-of-three optimization
-      Middle:=Left+((Right-Left) shr 1);
-      if (Right-Left)>3 then begin
-       if CompareFunc(pointer(@PByteArray(Items)^[Left*ElementSize]),pointer(@PByteArray(Items)^[Middle*ElementSize]))>0 then begin
-        Move(PByteArray(Items)^[Left*ElementSize],Temp^,ElementSize);
-        Move(PByteArray(Items)^[Middle*ElementSize],PByteArray(Items)^[Left*ElementSize],ElementSize);
-        Move(Temp^,PByteArray(Items)^[Middle*ElementSize],ElementSize);
-       end;
-       if CompareFunc(pointer(@PByteArray(Items)^[Left*ElementSize]),pointer(@PByteArray(Items)^[Right*ElementSize]))>0 then begin
-        Move(PByteArray(Items)^[Left*ElementSize],Temp^,ElementSize);
-        Move(PByteArray(Items)^[Right*ElementSize],PByteArray(Items)^[Left*ElementSize],ElementSize);
-        Move(Temp^,PByteArray(Items)^[Right*ElementSize],ElementSize);
-       end;
-       if CompareFunc(pointer(@PByteArray(Items)^[Middle*ElementSize]),pointer(@PByteArray(Items)^[Right*ElementSize]))>0 then begin
-        Move(PByteArray(Items)^[Middle*ElementSize],Temp^,ElementSize);
-        Move(PByteArray(Items)^[Right*ElementSize],PByteArray(Items)^[Middle*ElementSize],ElementSize);
-        Move(Temp^,PByteArray(Items)^[Right*ElementSize],ElementSize);
-       end;
+     until false;
+    end else begin
+     // Quick sort width median-of-three optimization
+     Middle:=Left+((Right-Left) shr 1);
+     if (Right-Left)>3 then begin
+      if CompareFunc(pointer(@PByteArray(Items)^[Left*ElementSize]),pointer(@PByteArray(Items)^[Middle*ElementSize]))>0 then begin
+       MemorySwap(@PByteArray(Items)^[Left*ElementSize],@PByteArray(Items)^[Middle*ElementSize],ElementSize);
       end;
-      Move(PByteArray(Items)^[Middle*ElementSize],Pivot^,ElementSize);
-      i:=Left;
-      j:=Right;
-      repeat
-       while (i<Right) and (CompareFunc(pointer(@PByteArray(Items)^[i*ElementSize]),Pivot)<0) do begin
-        inc(i);
-       end;
-       while (j>=i) and (CompareFunc(pointer(@PByteArray(Items)^[j*ElementSize]),Pivot)>0) do begin
-        dec(j);
-       end;
-       if i>j then begin
-        break;
-       end else begin
-        if i<>j then begin
-         Move(PByteArray(Items)^[i*ElementSize],Temp^,ElementSize);
-         Move(PByteArray(Items)^[j*ElementSize],PByteArray(Items)^[i*ElementSize],ElementSize);
-         Move(Temp^,PByteArray(Items)^[j*ElementSize],ElementSize);
+      if CompareFunc(pointer(@PByteArray(Items)^[Left*ElementSize]),pointer(@PByteArray(Items)^[Right*ElementSize]))>0 then begin
+       MemorySwap(@PByteArray(Items)^[Left*ElementSize],@PByteArray(Items)^[Right*ElementSize],ElementSize);
+      end;
+      if CompareFunc(pointer(@PByteArray(Items)^[Middle*ElementSize]),pointer(@PByteArray(Items)^[Right*ElementSize]))>0 then begin
+       MemorySwap(@PByteArray(Items)^[Middle*ElementSize],@PByteArray(Items)^[Right*ElementSize],ElementSize);
+      end;
+     end;
+     Pivot:=Middle;
+     i:=Left;
+     j:=Right;
+     repeat
+      while (i<Right) and (CompareFunc(pointer(@PByteArray(Items)^[i*ElementSize]),pointer(@PByteArray(Items)^[Pivot*ElementSize]))<0) do begin
+       inc(i);
+      end;
+      while (j>=i) and (CompareFunc(pointer(@PByteArray(Items)^[j*ElementSize]),pointer(@PByteArray(Items)^[Pivot*ElementSize]))>0) do begin
+       dec(j);
+      end;
+      if i>j then begin
+       break;
+      end else begin
+       if i<>j then begin
+        MemorySwap(@PByteArray(Items)^[i*ElementSize],@PByteArray(Items)^[j*ElementSize],ElementSize);
+        if Pivot=i then begin
+         Pivot:=j;
+        end else if Pivot=j then begin
+         Pivot:=i;
         end;
-        inc(i);
-        dec(j);
        end;
-      until false;
-      if i<Right then begin
-       StackItem^.Left:=i;
-       StackItem^.Right:=Right;
-       StackItem^.Depth:=Depth-1;
-       inc(StackItem);
+       inc(i);
+       dec(j);
       end;
-      if Left<j then begin
-       StackItem^.Left:=Left;
-       StackItem^.Right:=j;
-       StackItem^.Depth:=Depth-1;
-       inc(StackItem);
-      end;
+     until false;
+     if i<Right then begin
+      StackItem^.Left:=i;
+      StackItem^.Right:=Right;
+      StackItem^.Depth:=Depth-1;
+      inc(StackItem);
+     end;
+     if Left<j then begin
+      StackItem^.Left:=Left;
+      StackItem^.Right:=j;
+      StackItem^.Depth:=Depth-1;
+      inc(StackItem);
      end;
     end;
    end;
-  finally
-   FreeMem(Pivot);
-   FreeMem(Temp);
   end;
  end;
 end;
@@ -11475,7 +11486,8 @@ begin
    Left:=StackItem^.Left;
    Right:=StackItem^.Right;
    Depth:=StackItem^.Depth;
-   if (Right-Left)<16 then begin
+   Size:=(Right-Left)+1;
+   if Size<16 then begin
     // Insertion sort
     for i:=Left+1 to Right do begin
      Temp:=PPointers(Items)^[i];
@@ -11491,7 +11503,6 @@ begin
    end else begin
     if (Depth=0) or (ptruint(pointer(StackItem))>=ptruint(pointer(@Stack[high(Stack)-1]))) then begin
      // Heap sort
-     Size:=(Right-Left)+1;
      i:=Size div 2;
      Temp:=nil;
      repeat
