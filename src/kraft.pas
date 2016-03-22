@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2016-03-22-02-37-0000                       *
+ *                        Version 2016-03-22-02-45-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -11315,24 +11315,24 @@ begin
 end;
 {$endif}
 
-procedure MemorySwap(a,b:pointer;Size:TPasMPInt32);
-var Temp:TPasMPUInt32;
+procedure MemorySwap(a,b:pointer;Size:longint);
+var Temp:longint;
 begin
- while Size>=SizeOf(TPasMPUInt32) do begin
-  Temp:=TPasMPUInt32(a^);
-  TPasMPUInt32(a^):=TPasMPUInt32(b^);
-  TPasMPUInt32(b^):=Temp;
-  inc(TPasMPPtrUInt(a),SizeOf(TPasMPUInt32));
-  inc(TPasMPPtrUInt(b),SizeOf(TPasMPUInt32));
-  dec(Size,SizeOf(TPasMPUInt32));
+ while Size>=SizeOf(longint) do begin
+  Temp:=longword(a^);
+  longword(a^):=longword(b^);
+  longword(b^):=Temp;
+  inc(PtrUInt(a),SizeOf(longword));
+  inc(PtrUInt(b),SizeOf(longword));
+  dec(Size,SizeOf(longword));
  end;
- while Size>=SizeOf(TPasMPUInt8) do begin
-  Temp:=TPasMPUInt8(a^);
-  TPasMPUInt8(a^):=TPasMPUInt8(b^);
-  TPasMPUInt8(b^):=Temp;
-  inc(TPasMPPtrUInt(a),SizeOf(TPasMPUInt8));
-  inc(TPasMPPtrUInt(b),SizeOf(TPasMPUInt8));
-  dec(Size,SizeOf(TPasMPUInt8));
+ while Size>=SizeOf(byte) do begin
+  Temp:=byte(a^);
+  byte(a^):=byte(b^);
+  byte(b^):=Temp;
+  inc(PtrUInt(a),SizeOf(byte));
+  inc(PtrUInt(b),SizeOf(byte));
+  dec(Size,SizeOf(byte));
  end;
 end;
 
