@@ -23,6 +23,7 @@ object FormMain: TFormMain
     Height = 655
     Top = 0
     Width = 5
+    ResizeStyle = rsLine
   end
   object sSplitter3: TSplitter
     Left = 755
@@ -31,6 +32,7 @@ object FormMain: TFormMain
     Width = 5
     Align = alRight
     ResizeAnchor = akRight
+    ResizeStyle = rsLine
   end
   object sPanelLeft: TPanel
     Left = 0
@@ -50,6 +52,7 @@ object FormMain: TFormMain
       Width = 305
       Align = alTop
       ResizeAnchor = akTop
+      ResizeStyle = rsLine
     end
     object sPanelLeftTop: TPanel
       Left = 0
@@ -174,6 +177,7 @@ object FormMain: TFormMain
       Width = 445
       Align = alBottom
       ResizeAnchor = akBottom
+      ResizeStyle = rsLine
     end
     object sPanelMiddleBottom: TPanel
       Left = 0
