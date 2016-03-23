@@ -17,7 +17,7 @@ type TDemoSceneChain=class(TDemoScene)
 
 implementation
 
-uses UnitFormMain,UnitFormGL;
+uses UnitFormMain;
 
 constructor TDemoSceneChain.Create(const AKraftPhysics:TKraft);
 const Count=11;

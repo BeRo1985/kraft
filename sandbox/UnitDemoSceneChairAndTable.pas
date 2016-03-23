@@ -17,7 +17,7 @@ type TDemoSceneChairAndTable=class(TDemoScene)
 
 implementation
 
-uses UnitFormMain,UnitFormGL;
+uses UnitFormMain;
 
 constructor TDemoSceneChairAndTable.Create(const AKraftPhysics:TKraft);
 var RigidBody:TKraftRigidBody;

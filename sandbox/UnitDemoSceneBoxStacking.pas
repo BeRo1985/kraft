@@ -19,7 +19,7 @@ type TDemoSceneBoxStacking=class(TDemoScene)
 
 implementation
 
-uses UnitFormMain,UnitFormGL;
+uses UnitFormMain;
 
 constructor TDemoSceneBoxStacking.Create(const AKraftPhysics:TKraft);
 var i:longint;

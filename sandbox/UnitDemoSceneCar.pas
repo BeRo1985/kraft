@@ -23,7 +23,7 @@ type TDemoSceneCar=class(TDemoScene)
 
 implementation
 
-uses UnitFormMain,UnitFormGL;
+uses UnitFormMain;
 
 const CarWidth=2.0;
       CarLength=4.0;

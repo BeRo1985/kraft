@@ -9,7 +9,7 @@ interface
 uses
   LCLIntf, LCLType, LMessages, Messages, SysUtils, Variants, Classes, Graphics, Controls, Forms,
   Dialogs, Math, Menus, kraft, ExtCtrls, StdCtrls, ComCtrls, OpenGLContext, gl, glext,
-  UnitDemoScene, PasMP, Types;
+  UnitDemoScene, PasMP, Types, ObjectInspector, PropEdits, PropEditUtils, GraphPropEdits;
 
 type TCamera=object
       public

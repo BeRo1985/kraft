@@ -17,7 +17,7 @@ type TDemoSceneDomino=class(TDemoScene)
 
 implementation
 
-uses UnitFormMain,UnitFormGL;
+uses UnitFormMain;
 
 constructor TDemoSceneDomino.Create(const AKraftPhysics:TKraft);
 const Count=64;

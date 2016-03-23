@@ -17,7 +17,7 @@ type TDemoSceneBridge=class(TDemoScene)
 
 implementation
 
-uses UnitFormMain,UnitFormGL;
+uses UnitFormMain;
 
 constructor TDemoSceneBridge.Create(const AKraftPhysics:TKraft);
 const Count=11;

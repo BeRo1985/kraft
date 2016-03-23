@@ -30,7 +30,7 @@ procedure RegisterDemoScene(const Name:string;const DemoSceneClass:TDemoSceneCla
 
 implementation
 
-uses UnitFormMain,UnitFormGL;
+uses UnitFormMain;
 
 constructor TDemoScene.Create(const AKraftPhysics:TKraft);
 begin

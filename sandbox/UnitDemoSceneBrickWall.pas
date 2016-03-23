@@ -19,7 +19,7 @@ type TDemoSceneBrickWall=class(TDemoScene)
 
 implementation
 
-uses UnitFormMain,UnitFormGL;
+uses UnitFormMain;
 
 constructor TDemoSceneBrickWall.Create(const AKraftPhysics:TKraft);
 const Height=10;

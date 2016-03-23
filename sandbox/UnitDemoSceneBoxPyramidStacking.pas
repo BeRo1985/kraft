@@ -19,7 +19,7 @@ type TDemoSceneBoxPyramidStacking=class(TDemoScene)
 
 implementation
 
-uses UnitFormMain,UnitFormGL;
+uses UnitFormMain;
 
 constructor TDemoSceneBoxPyramidStacking.Create(const AKraftPhysics:TKraft);
 const Height=10;

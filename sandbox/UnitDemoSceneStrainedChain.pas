@@ -17,7 +17,7 @@ type TDemoSceneStrainedChain=class(TDemoScene)
 
 implementation
 
-uses UnitFormMain,UnitFormGL;
+uses UnitFormMain;
 
 constructor TDemoSceneStrainedChain.Create(const AKraftPhysics:TKraft);
 const Count=11;

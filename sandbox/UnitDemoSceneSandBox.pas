@@ -47,7 +47,7 @@ type TDemoSceneSandBox=class(TDemoScene)
 
 implementation
 
-uses UnitFormMain,UnitFormGL,sandboxfile;
+uses UnitFormMain,sandboxfile;
 
 const ConvexHullPoints:array[0..5] of TKraftVector3=((x:-2.0;y:1.0;z:1.0),
                                                 (x:2.0;y:0.0;z:0.0),

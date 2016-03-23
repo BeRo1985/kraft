@@ -19,7 +19,7 @@ type TDemoSceneBoxOnPlane=class(TDemoScene)
 
 implementation
 
-uses UnitFormMain,UnitFormGL;
+uses UnitFormMain;
 
 constructor TDemoSceneBoxOnPlane.Create(const AKraftPhysics:TKraft); 
 begin
