@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2016-03-22-02-45-0000                       *
+ *                        Version 2016-03-23-03-51-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -504,7 +504,7 @@ type PKraftForceMode=^TKraftForceMode;
      end;
 
      // This class does exist as workaround for FreePascal, which doesn't support TKraftVector3 as published property (but Delphi does it)
-     TKraftVector3Property=class
+     TKraftVector3Property=class(TPersistent)
       private
        fVector:PKraftVector3;
        function GetX:TKraftScalar;
@@ -951,7 +951,7 @@ type PKraftForceMode=^TKraftForceMode;
 
      TKraftConvexHullEdges=array of TKraftConvexHullEdge;
 
-     TKraftConvexHull=class
+     TKraftConvexHull=class(TPersistent)
       private              
 
        fPhysics:TKraft;
@@ -1064,7 +1064,7 @@ type PKraftForceMode=^TKraftForceMode;
 
      TKraftMeshSkipListNodes=array of TKraftMeshSkipListNode;
 
-     TKraftMesh=class
+     TKraftMesh=class(TPersistent)
       private
 
        fPhysics:TKraft;
@@ -1151,7 +1151,7 @@ type PKraftForceMode=^TKraftForceMode;
      TKraftShapeOnContactEndHook=procedure(const ContactPair:PKraftContactPair;const WithShape:TKraftShape) of object;
      TKraftShapeOnContactStayHook=procedure(const ContactPair:PKraftContactPair;const WithShape:TKraftShape) of object;
 
-     TKraftShape=class
+     TKraftShape=class(TPersistent)
       private
 
        fPhysics:TKraft;
@@ -1883,7 +1883,7 @@ type PKraftForceMode=^TKraftForceMode;
 
      TKraftRigidBodyIslandIndices=array of longint;
 
-     TKraftRigidBody=class
+     TKraftRigidBody=class(TPersistent)
       private
 
        fPhysics:TKraft;
@@ -2200,7 +2200,7 @@ type PKraftForceMode=^TKraftForceMode;
 
      TKraftConstraintOnBreak=procedure(APhysics:TKraft;AConstraint:TKraftConstraint) of object;
 
-     TKraftConstraint=class
+     TKraftConstraint=class(TPersistent)
       private
 
        fPhysics:TKraft;
@@ -2926,7 +2926,7 @@ type PKraftForceMode=^TKraftForceMode;
      end;
 {$endif}
 
-     TKraft=class
+     TKraft=class(TPersistent)
       private
 
 {$ifdef KraftPasMP}

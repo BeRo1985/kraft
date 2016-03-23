@@ -10,7 +10,7 @@
         <IsPartOfProject Value="True"/>
         <TopLine Value="2"/>
         <CursorPos X="38" Y="18"/>
-        <UsageCount Value="21"/>
+        <UsageCount Value="22"/>
         <Loaded Value="True"/>
         <DefaultSyntaxHighlighter Value="Delphi"/>
       </Unit0>
@@ -20,10 +20,10 @@
         <ComponentName Value="FormMain"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Form"/>
-        <IsVisibleTab Value="True"/>
         <EditorIndex Value="1"/>
-        <CursorPos X="27" Y="5"/>
-        <UsageCount Value="21"/>
+        <TopLine Value="1295"/>
+        <CursorPos Y="1319"/>
+        <UsageCount Value="22"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
         <DefaultSyntaxHighlighter Value="Delphi"/>
@@ -31,8 +31,12 @@
       <Unit2>
         <Filename Value="..\src\kraft.pas"/>
         <IsPartOfProject Value="True"/>
-        <EditorIndex Value="-1"/>
-        <UsageCount Value="21"/>
+        <IsVisibleTab Value="True"/>
+        <EditorIndex Value="2"/>
+        <TopLine Value="2905"/>
+        <CursorPos X="31" Y="2929"/>
+        <UsageCount Value="22"/>
+        <Loaded Value="True"/>
         <DefaultSyntaxHighlighter Value="Delphi"/>
       </Unit2>
       <Unit3>
@@ -41,7 +45,7 @@
         <EditorIndex Value="-1"/>
         <TopLine Value="19"/>
         <CursorPos X="18" Y="33"/>
-        <UsageCount Value="21"/>
+        <UsageCount Value="22"/>
         <DefaultSyntaxHighlighter Value="Delphi"/>
       </Unit3>
       <Unit4>
@@ -50,7 +54,7 @@
         <EditorIndex Value="-1"/>
         <TopLine Value="7"/>
         <CursorPos X="18" Y="22"/>
-        <UsageCount Value="21"/>
+        <UsageCount Value="22"/>
         <DefaultSyntaxHighlighter Value="Delphi"/>
       </Unit4>
       <Unit5>
@@ -59,7 +63,7 @@
         <EditorIndex Value="-1"/>
         <TopLine Value="35"/>
         <CursorPos X="18" Y="50"/>
-        <UsageCount Value="21"/>
+        <UsageCount Value="22"/>
         <DefaultSyntaxHighlighter Value="Delphi"/>
       </Unit5>
       <Unit6>
@@ -68,7 +72,7 @@
         <EditorIndex Value="-1"/>
         <TopLine Value="7"/>
         <CursorPos X="18" Y="22"/>
-        <UsageCount Value="21"/>
+        <UsageCount Value="22"/>
         <DefaultSyntaxHighlighter Value="Delphi"/>
       </Unit6>
       <Unit7>
@@ -77,7 +81,7 @@
         <EditorIndex Value="-1"/>
         <TopLine Value="7"/>
         <CursorPos X="18" Y="22"/>
-        <UsageCount Value="21"/>
+        <UsageCount Value="22"/>
         <DefaultSyntaxHighlighter Value="Delphi"/>
       </Unit7>
       <Unit8>
@@ -86,7 +90,7 @@
         <EditorIndex Value="-1"/>
         <TopLine Value="5"/>
         <CursorPos X="18" Y="20"/>
-        <UsageCount Value="21"/>
+        <UsageCount Value="22"/>
         <DefaultSyntaxHighlighter Value="Delphi"/>
       </Unit8>
       <Unit9>
@@ -95,7 +99,7 @@
         <EditorIndex Value="-1"/>
         <TopLine Value="5"/>
         <CursorPos X="18" Y="20"/>
-        <UsageCount Value="21"/>
+        <UsageCount Value="22"/>
         <DefaultSyntaxHighlighter Value="Delphi"/>
       </Unit9>
       <Unit10>
@@ -104,7 +108,7 @@
         <EditorIndex Value="-1"/>
         <TopLine Value="5"/>
         <CursorPos X="18" Y="20"/>
-        <UsageCount Value="21"/>
+        <UsageCount Value="22"/>
         <DefaultSyntaxHighlighter Value="Delphi"/>
       </Unit10>
       <Unit11>
@@ -113,7 +117,7 @@
         <EditorIndex Value="-1"/>
         <TopLine Value="5"/>
         <CursorPos X="18" Y="20"/>
-        <UsageCount Value="21"/>
+        <UsageCount Value="22"/>
         <DefaultSyntaxHighlighter Value="Delphi"/>
       </Unit11>
       <Unit12>
@@ -122,7 +126,7 @@
         <EditorIndex Value="-1"/>
         <TopLine Value="7"/>
         <CursorPos X="18" Y="22"/>
-        <UsageCount Value="21"/>
+        <UsageCount Value="22"/>
         <DefaultSyntaxHighlighter Value="Delphi"/>
       </Unit12>
       <Unit13>
@@ -131,7 +135,7 @@
         <EditorIndex Value="-1"/>
         <TopLine Value="5"/>
         <CursorPos X="18" Y="20"/>
-        <UsageCount Value="21"/>
+        <UsageCount Value="22"/>
         <DefaultSyntaxHighlighter Value="Delphi"/>
       </Unit13>
       <Unit14>
@@ -140,7 +144,7 @@
         <EditorIndex Value="-1"/>
         <TopLine Value="5"/>
         <CursorPos X="18" Y="20"/>
-        <UsageCount Value="21"/>
+        <UsageCount Value="22"/>
         <DefaultSyntaxHighlighter Value="Delphi"/>
       </Unit14>
       <Unit15>
@@ -149,7 +153,7 @@
         <EditorIndex Value="-1"/>
         <TopLine Value="5"/>
         <CursorPos X="18" Y="20"/>
-        <UsageCount Value="21"/>
+        <UsageCount Value="22"/>
         <DefaultSyntaxHighlighter Value="Delphi"/>
       </Unit15>
       <Unit16>
@@ -158,21 +162,21 @@
         <EditorIndex Value="-1"/>
         <TopLine Value="11"/>
         <CursorPos X="18" Y="26"/>
-        <UsageCount Value="21"/>
+        <UsageCount Value="22"/>
         <DefaultSyntaxHighlighter Value="Delphi"/>
       </Unit16>
       <Unit17>
         <Filename Value="..\..\..\PASMP.github\trunk\src\PasMP.pas"/>
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="-1"/>
-        <UsageCount Value="21"/>
+        <UsageCount Value="22"/>
         <DefaultSyntaxHighlighter Value="Delphi"/>
       </Unit17>
       <Unit18>
         <Filename Value="sandboxfile.pas"/>
         <IsPartOfProject Value="True"/>
         <EditorIndex Value="-1"/>
-        <UsageCount Value="21"/>
+        <UsageCount Value="22"/>
         <DefaultSyntaxHighlighter Value="Delphi"/>
       </Unit18>
       <Unit19>
@@ -206,71 +210,123 @@
       <Define1 Value="PasMP"/>
       <Define2 Value="KraftPasMP"/>
     </OtherDefines>
-    <JumpHistory Count="16" HistoryIndex="15">
+    <JumpHistory Count="29" HistoryIndex="28">
       <Position1>
-        <Filename Value="UnitFormMain.pas"/>
-        <Caret Line="720" Column="10" TopLine="704"/>
+        <Filename Value="..\src\kraft.pas"/>
+        <Caret Line="549" Column="33" TopLine="525"/>
       </Position1>
       <Position2>
-        <Filename Value="UnitFormMain.pas"/>
-        <Caret Line="719" Column="8" TopLine="700"/>
+        <Filename Value="..\src\kraft.pas"/>
+        <Caret Line="630" Column="32" TopLine="606"/>
       </Position2>
       <Position3>
-        <Filename Value="UnitFormMain.pas"/>
-        <Caret Line="736" Column="40" TopLine="707"/>
+        <Filename Value="..\src\kraft.pas"/>
+        <Caret Line="663" Column="38" TopLine="639"/>
       </Position3>
       <Position4>
-        <Filename Value="UnitFormMain.pas"/>
-        <Caret Line="803" TopLine="786"/>
+        <Filename Value="..\src\kraft.pas"/>
+        <Caret Line="954" Column="28" TopLine="930"/>
       </Position4>
       <Position5>
-        <Filename Value="UnitFormMain.pas"/>
-        <Caret Line="1204" TopLine="1182"/>
+        <Filename Value="..\src\kraft.pas"/>
+        <Caret Line="1067" Column="35" TopLine="1043"/>
       </Position5>
       <Position6>
-        <Filename Value="UnitFormMain.pas"/>
-        <Caret Line="541" Column="76" TopLine="534"/>
+        <Filename Value="..\src\kraft.pas"/>
+        <Caret Line="1154" Column="36" TopLine="1130"/>
       </Position6>
       <Position7>
-        <Filename Value="UnitFormMain.pas"/>
-        <Caret Line="165" Column="10" TopLine="149"/>
+        <Filename Value="..\src\kraft.pas"/>
+        <Caret Line="1705" Column="32" TopLine="1696"/>
       </Position7>
       <Position8>
-        <Filename Value="UnitFormMain.pas"/>
-        <Caret Line="861" Column="70" TopLine="837"/>
+        <Filename Value="..\src\kraft.pas"/>
+        <Caret Line="1824" Column="28" TopLine="1800"/>
       </Position8>
       <Position9>
-        <Filename Value="UnitFormMain.pas"/>
-        <Caret Line="1191" Column="45" TopLine="1176"/>
+        <Filename Value="..\src\kraft.pas"/>
+        <Caret Line="1886" Column="28" TopLine="1862"/>
       </Position9>
       <Position10>
-        <Filename Value="UnitFormMain.pas"/>
-        <Caret Line="1193" Column="45" TopLine="1178"/>
+        <Filename Value="..\src\kraft.pas"/>
+        <Caret Line="2203" Column="41" TopLine="2179"/>
       </Position10>
       <Position11>
-        <Filename Value="UnitFormMain.pas"/>
-        <Caret Line="1295" Column="20" TopLine="1281"/>
+        <Filename Value="..\src\kraft.pas"/>
+        <Caret Line="2725" Column="37" TopLine="2701"/>
       </Position11>
       <Position12>
-        <Filename Value="UnitFormMain.pas"/>
-        <Caret Line="127" Column="15" TopLine="113"/>
+        <Filename Value="..\src\kraft.pas"/>
+        <Caret Line="2902" Column="41" TopLine="2878"/>
       </Position12>
       <Position13>
-        <Filename Value="UnitFormMain.pas"/>
-        <Caret Line="518" Column="12" TopLine="494"/>
+        <Filename Value="..\src\kraft.pas"/>
+        <Caret Line="2929" Column="31" TopLine="2905"/>
       </Position13>
       <Position14>
-        <Filename Value="UnitFormMain.pas"/>
-        <Caret Line="800" Column="25" TopLine="782"/>
+        <Filename Value="..\src\kraft.pas"/>
+        <Caret Line="507" Column="46" TopLine="492"/>
       </Position14>
       <Position15>
-        <Filename Value="UnitFormMain.pas"/>
-        <Caret Line="804" Column="9" TopLine="787"/>
+        <Filename Value="..\src\kraft.pas"/>
+        <Caret Line="954" Column="41" TopLine="930"/>
       </Position15>
       <Position16>
-        <Filename Value="UnitFormMain.pas"/>
-        <Caret Line="12" Column="32"/>
+        <Filename Value="..\src\kraft.pas"/>
+        <Caret Line="1067" Column="35" TopLine="1043"/>
       </Position16>
+      <Position17>
+        <Filename Value="..\src\kraft.pas"/>
+        <Caret Line="1154" Column="36" TopLine="1130"/>
+      </Position17>
+      <Position18>
+        <Filename Value="..\src\kraft.pas"/>
+        <Caret Line="1886" Column="40" TopLine="1862"/>
+      </Position18>
+      <Position19>
+        <Filename Value="..\src\kraft.pas"/>
+        <Caret Line="2203" Column="41" TopLine="2179"/>
+      </Position19>
+      <Position20>
+        <Filename Value="..\src\kraft.pas"/>
+        <Caret Line="2725" Column="37" TopLine="2701"/>
+      </Position20>
+      <Position21>
+        <Filename Value="..\src\kraft.pas"/>
+        <Caret Line="2902" Column="41" TopLine="2878"/>
+      </Position21>
+      <Position22>
+        <Filename Value="..\src\kraft.pas"/>
+        <Caret Line="507" Column="46" TopLine="492"/>
+      </Position22>
+      <Position23>
+        <Filename Value="..\src\kraft.pas"/>
+        <Caret Line="954" Column="41" TopLine="930"/>
+      </Position23>
+      <Position24>
+        <Filename Value="..\src\kraft.pas"/>
+        <Caret Line="1067" Column="35" TopLine="1043"/>
+      </Position24>
+      <Position25>
+        <Filename Value="..\src\kraft.pas"/>
+        <Caret Line="1154" Column="36" TopLine="1130"/>
+      </Position25>
+      <Position26>
+        <Filename Value="..\src\kraft.pas"/>
+        <Caret Line="1886" Column="40" TopLine="1862"/>
+      </Position26>
+      <Position27>
+        <Filename Value="..\src\kraft.pas"/>
+        <Caret Line="2203" Column="41" TopLine="2179"/>
+      </Position27>
+      <Position28>
+        <Filename Value="..\src\kraft.pas"/>
+        <Caret Line="2725" Column="24" TopLine="2701"/>
+      </Position28>
+      <Position29>
+        <Filename Value="..\src\kraft.pas"/>
+        <Caret Line="2902" Column="28" TopLine="2878"/>
+      </Position29>
     </JumpHistory>
   </ProjectSession>
 </CONFIG>

@@ -8,7 +8,7 @@ interface
 
 uses
   LCLIntf, LCLType, LMessages, Messages, SysUtils, Variants, Classes, Graphics, Controls, Forms,
-  Dialogs, Math, Menus, kraft, ExtCtrls, StdCtrls, ComCtrls, OpenGLContext, gl, glext,
+  Dialogs, Math, Menus, TypInfo, kraft, ExtCtrls, StdCtrls, ComCtrls, OpenGLContext, gl, glext,
   UnitDemoScene, PasMP, Types, ObjectInspector, PropEdits, PropEditUtils, GraphPropEdits;
 
 type TCamera=object
@@ -135,9 +135,13 @@ type TCamera=object
     KeyLeft,KeyRight,KeyBackwards,KeyForwards,KeyUp,KeyDown:boolean;
     HighResolutionTimer:TKraftHighResolutionTimer;
     ThreadTimer:TThreadTimer;
+    PropertyGrid: TOIPropertyGrid;
+    TheObjectInspector: TObjectInspectorDlg;
+    ThePropertyEditorHook: TPropertyEditorHook;
     procedure AddRigidBody(RigidBody:TKraftRigidBody);
     procedure AddConstraint(Constraint:TKraftConstraint);
     procedure LoadScene(DemoSceneClass:TDemoSceneClass);
+    procedure SetObjectInspectorRoot(AObject: TPersistent);
   end;
 
 var
@@ -470,7 +474,7 @@ begin
 
   TreeNodeKraftPhysics:=nil;
 
-//  JvInspectorMain.InspectObject:=nil;
+  SetObjectInspectorRoot(nil);
   sTreeViewMain.Items.Clear;
 
   FreeAndNil(DemoScene);
@@ -493,7 +497,7 @@ begin
 
   sTreeViewMain.Selected:=TreeNodeKraftPhysics;
   TreeNodeKraftPhysics.Expand(true);
-  ///JvInspectorMain.InspectObject:=KraftPhysics;
+  SetObjectInspectorRoot(KraftPhysics);
 
   CurrentCamera.Reset;
   LastCamera:=CurrentCamera;
@@ -512,6 +516,24 @@ end;
 procedure TFormMain.FormCreate(Sender: TObject);
 var Index:longint;
 begin
+
+ ThePropertyEditorHook:=TPropertyEditorHook.Create(nil);
+
+ TheObjectInspector:=TObjectInspectorDlg.Create(Application);
+ TheObjectInspector.PropertyEditorHook:=ThePropertyEditorHook;
+ TheObjectInspector.SetBounds(10,10,240,500);
+
+ PropertyGrid:=TOIPropertyGrid.CreateWithParams(Self,ThePropertyEditorHook
+      ,[tkUnknown, tkInteger, tkChar, tkEnumeration, tkFloat, tkSet{, tkMethod}
+      , tkSString, tkLString, tkAString, tkWString, tkVariant
+      {, tkArray, tkRecord, tkInterface}, tkClass, tkObject, tkWChar, tkBool
+      , tkInt64, tkQWord],
+      25);
+ PropertyGrid.Name:='PropertyGrid';
+ PropertyGrid.Parent:=sGroupBoxPropertyEditor;
+ PropertyGrid.Align:=alClient;
+ SetObjectInspectorRoot(nil);
+ TheObjectInspector.Show;
 
  DemoScene:=nil;
 
@@ -596,6 +618,32 @@ begin
  ThreadTimer.WaitFor;
  ThreadTimer.Free;
  HighResolutionTimer.Free;
+ ThePropertyEditorHook.Free;
+end;
+
+procedure TFormMain.SetObjectInspectorRoot(AObject: TPersistent);
+var Selection: TPersistentSelectionList;
+begin
+ if assigned(AObject) then begin
+  ThePropertyEditorHook.LookupRoot:=AObject;
+  Selection:=TPersistentSelectionList.Create;
+  try
+   Selection.Add(AObject);
+   TheObjectInspector.Selection:=Selection;
+   PropertyGrid.Selection:=Selection;
+  finally
+   Selection.Free;
+  end;
+ end else begin
+  ThePropertyEditorHook.LookupRoot:=nil;
+  Selection:=TPersistentSelectionList.Create;
+  try
+   TheObjectInspector.Selection:=Selection;
+   PropertyGrid.Selection:=Selection;
+  finally
+   Selection.Free;
+  end;
+ end;
 end;
 
 procedure TFormMain.N2Click(Sender: TObject);
@@ -1207,9 +1255,9 @@ var TreeNode:TTreeNode;
 begin
  TreeNode:=sTreeViewMain.Selected;
  if assigned(TreeNode) then begin
-  //JvInspectorMain.InspectObject:=TObject(TreeNode.Data);
+  SetObjectInspectorRoot(pointer(TreeNode.Data));
  end else begin
-//  JvInspectorMain.InspectObject:=nil;
+  SetObjectInspectorRoot(nil);
  end;
 end;
 
