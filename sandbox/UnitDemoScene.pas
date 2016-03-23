@@ -6,7 +6,7 @@ unit UnitDemoScene;
 
 interface
 
-uses SysUtils,Classes,LCLIntf, LCLType, LMessages, OpenGL, kraft;
+uses SysUtils,Classes,LCLIntf, LCLType, LMessages, kraft;
 
 type TDemoScene=class;
 

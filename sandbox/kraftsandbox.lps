@@ -4,7 +4,7 @@
     <PathDelim Value="\"/>
     <Version Value="9"/>
     <BuildModes Active="Release"/>
-    <Units Count="22">
+    <Units Count="23">
       <Unit0>
         <Filename Value="kraftsandbox.lpr"/>
         <IsPartOfProject Value="True"/>
@@ -20,7 +20,6 @@
         <ComponentName Value="FormMain"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Form"/>
-        <IsVisibleTab Value="True"/>
         <EditorIndex Value="1"/>
         <TopLine Value="518"/>
         <CursorPos X="13" Y="521"/>
@@ -32,19 +31,21 @@
       <Unit2>
         <Filename Value="..\src\kraft.pas"/>
         <IsPartOfProject Value="True"/>
-        <EditorIndex Value="-1"/>
-        <TopLine Value="4"/>
+        <EditorIndex Value="2"/>
         <CursorPos X="51" Y="4"/>
         <UsageCount Value="22"/>
+        <Loaded Value="True"/>
         <DefaultSyntaxHighlighter Value="Delphi"/>
       </Unit2>
       <Unit3>
         <Filename Value="UnitDemoScene.pas"/>
         <IsPartOfProject Value="True"/>
-        <EditorIndex Value="-1"/>
-        <TopLine Value="19"/>
-        <CursorPos X="18" Y="33"/>
+        <IsVisibleTab Value="True"/>
+        <EditorIndex Value="3"/>
+        <TopLine Value="7"/>
+        <CursorPos X="52" Y="9"/>
         <UsageCount Value="22"/>
+        <Loaded Value="True"/>
         <DefaultSyntaxHighlighter Value="Delphi"/>
       </Unit3>
       <Unit4>
@@ -203,13 +204,24 @@
         <CursorPos X="21" Y="2981"/>
         <UsageCount Value="10"/>
       </Unit21>
+      <Unit22>
+        <Filename Value="UnitFormMain.lfm"/>
+        <ComponentName Value="FormMain"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+        <EditorIndex Value="4"/>
+        <UsageCount Value="10"/>
+        <Loaded Value="True"/>
+        <LoadedDesigner Value="True"/>
+        <DefaultSyntaxHighlighter Value="LFM"/>
+      </Unit22>
     </Units>
     <OtherDefines Count="3">
       <Define0 Value="debugdraw"/>
       <Define1 Value="PasMP"/>
       <Define2 Value="KraftPasMP"/>
     </OtherDefines>
-    <JumpHistory Count="6" HistoryIndex="5">
+    <JumpHistory Count="8" HistoryIndex="7">
       <Position1>
         <Filename Value="kraftsandbox.lpr"/>
         <Caret Line="28" Column="25" TopLine="2"/>
@@ -234,6 +246,14 @@
         <Filename Value="UnitFormMain.pas"/>
         <Caret Line="536" TopLine="511"/>
       </Position6>
+      <Position7>
+        <Filename Value="..\src\kraft.pas"/>
+        <Caret Line="18" Column="103" TopLine="4"/>
+      </Position7>
+      <Position8>
+        <Filename Value="UnitDemoScene.pas"/>
+        <Caret Line="33" Column="18" TopLine="19"/>
+      </Position8>
     </JumpHistory>
   </ProjectSession>
 </CONFIG>
