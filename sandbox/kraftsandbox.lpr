@@ -3,6 +3,7 @@ program kraftsandbox;
 {$MODE Delphi}
 
 uses
+  SysUtils,
   Forms, Interfaces,
   UnitFormMain in 'UnitFormMain.pas' {FormMain},
   kraft in '..\src\kraft.pas',
@@ -25,6 +26,9 @@ uses
 {$R *.res}
 
 begin
+  FormatSettings.DecimalSeparator:='.';
+  FormatSettings.ThousandSeparator:=',';
+  //Application.UpdateFormatSettings:=false;
   Application.Initialize;
   Application.CreateForm(TFormMain, FormMain);
   Application.Run;
