@@ -1,0 +1,309 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONFIG>
+  <ProjectSession>
+    <PathDelim Value="\"/>
+    <Version Value="9"/>
+    <BuildModes Active="Default"/>
+    <Units Count="22">
+      <Unit0>
+        <Filename Value="kraftsandbox.lpr"/>
+        <IsPartOfProject Value="True"/>
+        <CursorPos X="38" Y="18"/>
+        <UsageCount Value="20"/>
+        <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit0>
+      <Unit1>
+        <Filename Value="UnitFormMain.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="FormMain"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+        <IsVisibleTab Value="True"/>
+        <EditorIndex Value="1"/>
+        <TopLine Value="702"/>
+        <CursorPos Y="712"/>
+        <UsageCount Value="20"/>
+        <Loaded Value="True"/>
+        <LoadedDesigner Value="True"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit1>
+      <Unit2>
+        <Filename Value="..\src\kraft.pas"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="-1"/>
+        <UsageCount Value="20"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit2>
+      <Unit3>
+        <Filename Value="UnitFormGL.pas"/>
+        <HasResources Value="True"/>
+        <EditorIndex Value="2"/>
+        <TopLine Value="1070"/>
+        <CursorPos Y="1097"/>
+        <UsageCount Value="20"/>
+        <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit3>
+      <Unit4>
+        <Filename Value="UnitDemoScene.pas"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="3"/>
+        <TopLine Value="58"/>
+        <CursorPos X="4" Y="72"/>
+        <UsageCount Value="20"/>
+        <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit4>
+      <Unit5>
+        <Filename Value="UnitDemoSceneBoxOnPlane.pas"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="-1"/>
+        <UsageCount Value="20"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit5>
+      <Unit6>
+        <Filename Value="UnitDemoSceneSandBox.pas"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="-1"/>
+        <UsageCount Value="20"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit6>
+      <Unit7>
+        <Filename Value="UnitDemoSceneBoxStacking.pas"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="-1"/>
+        <UsageCount Value="20"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit7>
+      <Unit8>
+        <Filename Value="UnitDemoSceneBoxPyramidStacking.pas"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="-1"/>
+        <UsageCount Value="20"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit8>
+      <Unit9>
+        <Filename Value="UnitDemoSceneBridge.pas"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="-1"/>
+        <UsageCount Value="20"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit9>
+      <Unit10>
+        <Filename Value="UnitDemoSceneCombinedShapes.pas"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="-1"/>
+        <UsageCount Value="20"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit10>
+      <Unit11>
+        <Filename Value="UnitDemoSceneChain.pas"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="-1"/>
+        <UsageCount Value="20"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit11>
+      <Unit12>
+        <Filename Value="UnitDemoSceneStrainedChain.pas"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="-1"/>
+        <UsageCount Value="20"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit12>
+      <Unit13>
+        <Filename Value="UnitDemoSceneBrickWall.pas"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="-1"/>
+        <UsageCount Value="20"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit13>
+      <Unit14>
+        <Filename Value="UnitDemoSceneDomino.pas"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="-1"/>
+        <UsageCount Value="20"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit14>
+      <Unit15>
+        <Filename Value="UnitDemoSceneChairAndTable.pas"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="-1"/>
+        <UsageCount Value="20"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit15>
+      <Unit16>
+        <Filename Value="UnitDemoSceneConvexHull.pas"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="-1"/>
+        <UsageCount Value="20"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit16>
+      <Unit17>
+        <Filename Value="UnitDemoSceneCar.pas"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="-1"/>
+        <UsageCount Value="20"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit17>
+      <Unit18>
+        <Filename Value="..\..\..\PASMP.github\trunk\src\PasMP.pas"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="-1"/>
+        <UsageCount Value="20"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit18>
+      <Unit19>
+        <Filename Value="sandboxfile.pas"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="-1"/>
+        <UsageCount Value="20"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit19>
+      <Unit20>
+        <Filename Value="UnitGLContext.pas"/>
+        <EditorIndex Value="-1"/>
+        <TopLine Value="35"/>
+        <CursorPos X="9" Y="38"/>
+        <UsageCount Value="20"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit20>
+      <Unit21>
+        <Filename Value="C:\Lazarus\fpc\3.0.0\source\packages\opengl\src\glext.pp"/>
+        <UnitName Value="GLext"/>
+        <EditorIndex Value="-1"/>
+        <TopLine Value="2970"/>
+        <CursorPos X="21" Y="2981"/>
+        <UsageCount Value="10"/>
+      </Unit21>
+    </Units>
+    <OtherDefines Count="3">
+      <Define0 Value="debugdraw"/>
+      <Define1 Value="PasMP"/>
+      <Define2 Value="KraftPasMP"/>
+    </OtherDefines>
+    <JumpHistory Count="30" HistoryIndex="29">
+      <Position1>
+        <Filename Value="UnitFormMain.pas"/>
+        <Caret Line="84" Column="22" TopLine="70"/>
+      </Position1>
+      <Position2>
+        <Filename Value="UnitFormMain.pas"/>
+        <Caret Line="581" TopLine="566"/>
+      </Position2>
+      <Position3>
+        <Filename Value="UnitFormMain.pas"/>
+        <Caret Line="664" Column="2" TopLine="655"/>
+      </Position3>
+      <Position4>
+        <Filename Value="UnitFormMain.pas"/>
+        <Caret Line="591" Column="15" TopLine="591"/>
+      </Position4>
+      <Position5>
+        <Filename Value="UnitFormMain.pas"/>
+        <Caret Line="616" Column="15" TopLine="606"/>
+      </Position5>
+      <Position6>
+        <Filename Value="UnitFormMain.pas"/>
+        <Caret Line="632" Column="17" TopLine="627"/>
+      </Position6>
+      <Position7>
+        <Filename Value="UnitFormMain.pas"/>
+        <Caret Line="661" Column="6" TopLine="634"/>
+      </Position7>
+      <Position8>
+        <Filename Value="UnitFormMain.pas"/>
+        <Caret Line="656" Column="9" TopLine="629"/>
+      </Position8>
+      <Position9>
+        <Filename Value="UnitFormMain.pas"/>
+        <Caret Line="602" Column="21" TopLine="600"/>
+      </Position9>
+      <Position10>
+        <Filename Value="UnitFormMain.pas"/>
+        <Caret Line="720" Column="10" TopLine="704"/>
+      </Position10>
+      <Position11>
+        <Filename Value="UnitFormMain.pas"/>
+        <Caret Line="719" Column="8" TopLine="700"/>
+      </Position11>
+      <Position12>
+        <Filename Value="UnitFormMain.pas"/>
+        <Caret Line="736" Column="40" TopLine="707"/>
+      </Position12>
+      <Position13>
+        <Filename Value="UnitFormMain.pas"/>
+        <Caret Line="803" TopLine="786"/>
+      </Position13>
+      <Position14>
+        <Filename Value="UnitFormMain.pas"/>
+        <Caret Line="1204" TopLine="1182"/>
+      </Position14>
+      <Position15>
+        <Filename Value="UnitFormMain.pas"/>
+        <Caret Line="541" Column="76" TopLine="534"/>
+      </Position15>
+      <Position16>
+        <Filename Value="UnitFormMain.pas"/>
+        <Caret Line="165" Column="10" TopLine="149"/>
+      </Position16>
+      <Position17>
+        <Filename Value="UnitFormMain.pas"/>
+        <Caret Line="861" Column="70" TopLine="837"/>
+      </Position17>
+      <Position18>
+        <Filename Value="UnitFormMain.pas"/>
+        <Caret Line="1191" Column="45" TopLine="1176"/>
+      </Position18>
+      <Position19>
+        <Filename Value="UnitFormMain.pas"/>
+        <Caret Line="1193" Column="45" TopLine="1178"/>
+      </Position19>
+      <Position20>
+        <Filename Value="UnitFormGL.pas"/>
+        <Caret Line="426" Column="27" TopLine="425"/>
+      </Position20>
+      <Position21>
+        <Filename Value="UnitFormGL.pas"/>
+        <Caret Line="41" Column="13" TopLine="26"/>
+      </Position21>
+      <Position22>
+        <Filename Value="UnitFormGL.pas"/>
+        <Caret Line="79" Column="23" TopLine="56"/>
+      </Position22>
+      <Position23>
+        <Filename Value="UnitFormGL.pas"/>
+        <Caret Line="94" Column="8" TopLine="69"/>
+      </Position23>
+      <Position24>
+        <Filename Value="UnitFormGL.pas"/>
+        <Caret Line="519" Column="9" TopLine="495"/>
+      </Position24>
+      <Position25>
+        <Filename Value="UnitFormGL.pas"/>
+        <Caret Line="895" Column="5" TopLine="871"/>
+      </Position25>
+      <Position26>
+        <Filename Value="UnitFormMain.pas"/>
+        <Caret Line="1295" Column="20" TopLine="1281"/>
+      </Position26>
+      <Position27>
+        <Filename Value="UnitFormMain.pas"/>
+        <Caret Line="127" Column="15" TopLine="113"/>
+      </Position27>
+      <Position28>
+        <Filename Value="UnitFormMain.pas"/>
+        <Caret Line="518" Column="12" TopLine="494"/>
+      </Position28>
+      <Position29>
+        <Filename Value="UnitFormMain.pas"/>
+        <Caret Line="800" Column="25" TopLine="782"/>
+      </Position29>
+      <Position30>
+        <Filename Value="UnitFormMain.pas"/>
+        <Caret Line="804" Column="9" TopLine="787"/>
+      </Position30>
+    </JumpHistory>
+  </ProjectSession>
+  <SkipCheckLCLInterfaces Value="True"/>
+</CONFIG>

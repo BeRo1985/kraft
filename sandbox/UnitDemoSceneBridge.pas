@@ -1,5 +1,7 @@
 unit UnitDemoSceneBridge;
 
+{$MODE Delphi}
+
 interface
 
 uses Kraft,UnitDemoScene;

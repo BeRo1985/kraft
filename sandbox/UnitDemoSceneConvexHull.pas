@@ -1,5 +1,7 @@
 unit UnitDemoSceneConvexHull;
 
+{$MODE Delphi}
+
 interface
 
 uses Kraft,UnitDemoScene;

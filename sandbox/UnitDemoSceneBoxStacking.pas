@@ -1,5 +1,7 @@
 unit UnitDemoSceneBoxStacking;
 
+{$MODE Delphi}
+
 interface
 
 uses Kraft,UnitDemoScene;

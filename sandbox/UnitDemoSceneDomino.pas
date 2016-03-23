@@ -1,5 +1,7 @@
 unit UnitDemoSceneDomino;
 
+{$MODE Delphi}
+
 interface
 
 uses Kraft,UnitDemoScene;

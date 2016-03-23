@@ -1,5 +1,7 @@
 unit UnitDemoSceneBoxPyramidStacking;
 
+{$MODE Delphi}
+
 interface
 
 uses Kraft,UnitDemoScene;

@@ -1,4 +1,7 @@
 unit UnitDemoSceneSandBox;
+
+{$MODE Delphi}
+
 {$j+}
 
 interface

@@ -1,5 +1,7 @@
 unit UnitDemoSceneChairAndTable;
 
+{$MODE Delphi}
+
 interface
 
 uses Kraft,UnitDemoScene;

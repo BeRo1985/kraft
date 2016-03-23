@@ -1,4 +1,7 @@
 UNIT sandboxfile;
+
+{$MODE Delphi}
+
 INTERFACE
 CONST sandboxSize=292044;
       sandboxData:ARRAY[1..sandboxSize] OF BYTE=(80,77,70,48,186,43,0,0,86,51,0,0,18,0,0,0,

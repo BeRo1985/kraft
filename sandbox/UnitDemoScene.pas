@@ -1,9 +1,12 @@
 unit UnitDemoScene;
+
+{$MODE Delphi}
+
 {$j+}
 
 interface
 
-uses SysUtils,Classes,Windows,OpenGL,kraft;
+uses SysUtils,Classes,LCLIntf, LCLType, LMessages, OpenGL, kraft;
 
 type TDemoScene=class;
 
@@ -41,7 +44,7 @@ end;
 destructor TDemoScene.Destroy;
 var Index:longint;
 begin
- wglMakeCurrent(FormGL.hDCGL,FormGL.hGL);
+ //wglMakeCurrent(FormGL.hDCGL,FormGL.hGL);
 
  for Index:=0 to GarbageCollector.Count-1 do begin
   TObject(GarbageCollector[Index]).Free;
@@ -66,7 +69,7 @@ begin
  end;
  ConvexHullGarbageCollector.Free;
 
- wglMakeCurrent(0,0);
+ //wglMakeCurrent(0,0);
 
  inherited Destroy;
 end;

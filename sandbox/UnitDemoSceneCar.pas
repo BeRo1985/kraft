@@ -1,5 +1,7 @@
 unit UnitDemoSceneCar;
 
+{$MODE Delphi}
+
 interface
 
 uses Math,Kraft,UnitDemoScene;

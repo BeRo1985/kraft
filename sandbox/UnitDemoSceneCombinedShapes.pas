@@ -1,5 +1,7 @@
 unit UnitDemoSceneCombinedShapes;
 
+{$MODE Delphi}
+
 interface
 
 uses Kraft,UnitDemoScene;

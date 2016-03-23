@@ -1,5 +1,7 @@
 unit UnitDemoSceneBrickWall;
 
+{$MODE Delphi}
+
 interface
 
 uses Kraft,UnitDemoScene;
