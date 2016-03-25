@@ -41,7 +41,6 @@ type TCamera=object
   { TFormMain }
 
   TFormMain = class(TForm)
-   CheckBoxSingleThreaded: TCheckBox;
     MainMenu1: TMainMenu;
     N1: TMenuItem;
     N2: TMenuItem;
@@ -138,7 +137,7 @@ type TCamera=object
     HighResolutionTimer:TKraftHighResolutionTimer;
     ThreadTimer:TThreadTimer;
     PropertyGrid: TOIPropertyGrid;
-    TheObjectInspector: TObjectInspectorDlg;
+//    TheObjectInspector: TObjectInspectorDlg;
     ThePropertyEditorHook: TPropertyEditorHook;
     procedure AddRigidBody(RigidBody:TKraftRigidBody);
     procedure AddConstraint(Constraint:TKraftConstraint);
@@ -521,9 +520,9 @@ begin
 
  ThePropertyEditorHook:=TPropertyEditorHook.Create(nil);
 
- TheObjectInspector:=TObjectInspectorDlg.Create(Application);
+{TheObjectInspector:=TObjectInspectorDlg.Create(Application);
  TheObjectInspector.PropertyEditorHook:=ThePropertyEditorHook;
- TheObjectInspector.SetBounds(10,10,240,500);
+ TheObjectInspector.SetBounds(10,10,240,500);{}
 
  PropertyGrid:=TOIPropertyGrid.CreateWithParams(Self,ThePropertyEditorHook
       ,[tkUnknown, tkInteger, tkChar, tkEnumeration, tkFloat, tkSet{, tkMethod}
@@ -535,7 +534,7 @@ begin
  PropertyGrid.Parent:=sGroupBoxPropertyEditor;
  PropertyGrid.Align:=alClient;
  SetObjectInspectorRoot(nil);
- TheObjectInspector.Show;
+ //TheObjectInspector.Show;
 
  DemoScene:=nil;
 
@@ -610,7 +609,6 @@ end;
 
 procedure TFormMain.CheckBoxSingleThreadedChange(Sender: TObject);
 begin
- KraftPhysics.SingleThreaded:=CheckBoxSingleThreaded.Checked;
 end;
 
 procedure TFormMain.FormDestroy(Sender: TObject);
@@ -636,7 +634,7 @@ begin
   Selection:=TPersistentSelectionList.Create;
   try
    Selection.Add(AObject);
-   TheObjectInspector.Selection:=Selection;
+   //TheObjectInspector.Selection:=Selection;
    PropertyGrid.Selection:=Selection;
   finally
    Selection.Free;
@@ -645,7 +643,7 @@ begin
   ThePropertyEditorHook.LookupRoot:=nil;
   Selection:=TPersistentSelectionList.Create;
   try
-   TheObjectInspector.Selection:=Selection;
+   //TheObjectInspector.Selection:=Selection;
    PropertyGrid.Selection:=Selection;
   finally
    Selection.Free;

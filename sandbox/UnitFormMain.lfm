@@ -336,15 +336,6 @@ object FormMain: TFormMain
             State = cbChecked
             TabOrder = 4
           end
-          object CheckBoxSingleThreaded: TCheckBox
-            Left = 216
-            Height = 19
-            Top = 8
-            Width = 94
-            Caption = 'Single threaded'
-            OnChange = CheckBoxSingleThreadedChange
-            TabOrder = 5
-          end
         end
       end
     end

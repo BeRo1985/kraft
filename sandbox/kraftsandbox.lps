@@ -20,9 +20,10 @@
         <ComponentName Value="FormMain"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Form"/>
+        <IsVisibleTab Value="True"/>
         <EditorIndex Value="1"/>
-        <TopLine Value="611"/>
-        <CursorPos X="29" Y="613"/>
+        <TopLine Value="622"/>
+        <CursorPos X="6" Y="637"/>
         <UsageCount Value="22"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
@@ -31,7 +32,6 @@
       <Unit2>
         <Filename Value="..\src\kraft.pas"/>
         <IsPartOfProject Value="True"/>
-        <IsVisibleTab Value="True"/>
         <EditorIndex Value="2"/>
         <TopLine Value="3177"/>
         <CursorPos X="8" Y="3200"/>
@@ -221,7 +221,7 @@
       <Define1 Value="PasMP"/>
       <Define2 Value="KraftPasMP"/>
     </OtherDefines>
-    <JumpHistory Count="21" HistoryIndex="20">
+    <JumpHistory Count="28" HistoryIndex="27">
       <Position1>
         <Filename Value="kraftsandbox.lpr"/>
         <Caret Line="28" Column="25" TopLine="2"/>
@@ -306,6 +306,34 @@
         <Filename Value="..\src\kraft.pas"/>
         <Caret Line="336" Column="18" TopLine="321"/>
       </Position21>
+      <Position22>
+        <Filename Value="UnitFormMain.pas"/>
+        <Caret Line="613" Column="29" TopLine="611"/>
+      </Position22>
+      <Position23>
+        <Filename Value="UnitFormMain.pas"/>
+        <Caret Line="612" Column="29" TopLine="610"/>
+      </Position23>
+      <Position24>
+        <Filename Value="UnitFormMain.pas"/>
+        <Caret Line="624" Column="45" TopLine="610"/>
+      </Position24>
+      <Position25>
+        <Filename Value="UnitFormMain.pas"/>
+        <Caret Line="612" TopLine="597"/>
+      </Position25>
+      <Position26>
+        <Filename Value="UnitFormMain.pas"/>
+        <Caret Line="523" Column="16" TopLine="513"/>
+      </Position26>
+      <Position27>
+        <Filename Value="UnitFormMain.pas"/>
+        <Caret Line="140" Column="3" TopLine="127"/>
+      </Position27>
+      <Position28>
+        <Filename Value="UnitFormMain.pas"/>
+        <Caret Line="525" Column="48" TopLine="509"/>
+      </Position28>
     </JumpHistory>
   </ProjectSession>
 </CONFIG>
