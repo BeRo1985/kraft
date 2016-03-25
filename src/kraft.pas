@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2016-03-23-02-49-0000                       *
+ *                        Version 2016-03-25-21-31-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -2933,6 +2933,8 @@ type PKraftForceMode=^TKraftForceMode;
        fPasMP:TPasMP;
 {$endif}
 
+       fSingleThreaded:boolean;
+
        fHighResolutionTimer:TKraftHighResolutionTimer;
 
        fBroadPhaseTime:int64;
@@ -3194,6 +3196,8 @@ type PKraftForceMode=^TKraftForceMode;
 {$endif}
 
       published
+
+       property SingleThreaded:boolean read fSingleThreaded write fSingleThreaded;
 
        property WorldFrequency:TKraftScalar read fWorldFrequency write SetFrequency;
 
@@ -21898,7 +21902,7 @@ var OldManifoldCountContacts:longint;
    end;
 
 {$ifdef DebugDraw}
-    if (ContactManager.fPhysics.fCountThreads<2) and (ContactManager.fCountDebugClipVertexLists<length(ContactManager.fDebugClipVertexLists)) then begin
+    if (ContactManager.fPhysics.SingleThreaded or (ContactManager.fPhysics.fCountThreads<2)) and (ContactManager.fCountDebugClipVertexLists<length(ContactManager.fDebugClipVertexLists)) then begin
      ContactManager.fDebugClipVertexLists[ContactManager.fCountDebugClipVertexLists].fColor.r:=0.5;
      ContactManager.fDebugClipVertexLists[ContactManager.fCountDebugClipVertexLists].fColor.g:=1.0;
      ContactManager.fDebugClipVertexLists[ContactManager.fCountDebugClipVertexLists].fColor.b:=0.5;
@@ -21909,7 +21913,7 @@ var OldManifoldCountContacts:longint;
      end;
      inc(ContactManager.fCountDebugClipVertexLists);
     end;
-    if (ContactManager.fPhysics.fCountThreads<2) and (ContactManager.fCountDebugClipVertexLists<length(ContactManager.fDebugClipVertexLists)) then begin
+    if (ContactManager.fPhysics.SingleThreaded or (ContactManager.fPhysics.fCountThreads<2)) and (ContactManager.fCountDebugClipVertexLists<length(ContactManager.fDebugClipVertexLists)) then begin
      ContactManager.fDebugClipVertexLists[ContactManager.fCountDebugClipVertexLists].fColor.r:=1.0;
      ContactManager.fDebugClipVertexLists[ContactManager.fCountDebugClipVertexLists].fColor.g:=0.5;
      ContactManager.fDebugClipVertexLists[ContactManager.fCountDebugClipVertexLists].fColor.b:=1.0;
@@ -21973,7 +21977,7 @@ var OldManifoldCountContacts:longint;
    end;
 
 {$ifdef DebugDraw}
-    if (ContactManager.fPhysics.fCountThreads<2) and (ContactManager.fCountDebugClipVertexLists<length(ContactManager.fDebugClipVertexLists)) then begin
+    if (ContactManager.fPhysics.SingleThreaded or (ContactManager.fPhysics.fCountThreads<2)) and (ContactManager.fCountDebugClipVertexLists<length(ContactManager.fDebugClipVertexLists)) then begin
      ContactManager.fDebugClipVertexLists[ContactManager.fCountDebugClipVertexLists].fColor.r:=0.5;
      ContactManager.fDebugClipVertexLists[ContactManager.fCountDebugClipVertexLists].fColor.g:=0.5;
      ContactManager.fDebugClipVertexLists[ContactManager.fCountDebugClipVertexLists].fColor.b:=1.0;
@@ -23595,10 +23599,10 @@ begin
  fCountRemainActiveContactPairsToDo:=fCountActiveContactPairs;
 
 {$ifdef KraftPasMP}
- if assigned(fPhysics.fPasMP) and (fCountActiveContactPairs>64) then begin
+ if assigned(fPhysics.fPasMP) and (fCountActiveContactPairs>64) and not fPhysics.fSingleThreaded then begin
   fPhysics.fPasMP.Invoke(fPhysics.fPasMP.ParallelFor(nil,0,fCountActiveContactPairs-1,ProcessContactPairParallelForFunction,Max(64,fCountActiveContactPairs div (fPhysics.fCountThreads*16)),4));
 {$else}
- if assigned(fPhysics.fJobManager) and (fCountActiveContactPairs>64) then begin
+ if assigned(fPhysics.fJobManager) and (fCountActiveContactPairs>64) and not fPhysics.fSingleThreaded then begin
   fPhysics.fJobManager.fOnProcessJob:=ProcessContactPairJob;
   fPhysics.fJobManager.fCountRemainJobs:=fCountActiveContactPairs;
   fPhysics.fJobManager.fGranularity:=Max(64,fCountActiveContactPairs div (fPhysics.fCountThreads*16));
@@ -24206,13 +24210,13 @@ begin
  // Run the thread jobs
  fAllMoveBufferSize:=fStaticMoveBufferSize+fDynamicMoveBufferSize+fKinematicMoveBufferSize;
 {$ifdef KraftPasMP}
- if assigned(fPhysics.fPasMP) and (fAllMoveBufferSize>1024) then begin
+ if assigned(fPhysics.fPasMP) and (fAllMoveBufferSize>1024) and not fPhysics.fSingleThreaded then begin
   fPhysics.fPasMP.Invoke(fPhysics.fPasMP.ParallelFor(nil,0,fAllMoveBufferSize-1,ProcessMoveBufferItemParallelForFunction,Max(64,fAllMoveBufferSize div (fPhysics.fCountThreads*16)),4));
  end else begin
   ProcessMoveBufferItemParallelForFunction(nil,0,nil,0,fAllMoveBufferSize-1);
  end;
 {$else}
- if assigned(fPhysics.fJobManager) and (fAllMoveBufferSize>1024) then begin
+ if assigned(fPhysics.fJobManager) and (fAllMoveBufferSize>1024) and not fPhysics.fSingleThreaded then begin
   fPhysics.fJobManager.fOnProcessJob:=ProcessMoveBufferItem;
   fPhysics.fJobManager.fCountRemainJobs:=fAllMoveBufferSize;
   fPhysics.fJobManager.fGranularity:=Max(64,fAllMoveBufferSize div (fPhysics.fCountThreads*16));
@@ -30283,6 +30287,8 @@ var Index:longint;
 begin
  inherited Create;
 
+ fSingleThreaded:=false;
+
  fHighResolutionTimer:=TKraftHighResolutionTimer.Create;
 
  fIsSolving:=false;
@@ -30779,10 +30785,10 @@ begin
  fJobTimeStep:=TimeStep;
  fIsSolving:=true;
 {$ifdef KraftPasMP}
- if assigned(fPasMP) and (fCountIslands>1) then begin
+ if assigned(fPasMP) and (fCountIslands>1) and not fSingleThreaded then begin
   fPasMP.Invoke(fPasMP.ParallelFor(nil,0,fCountIslands-1,ProcessSolveIslandParallelForFunction,Max(1,fCountIslands div (fCountThreads*16)),4));
 {$else}
- if assigned(fJobManager) and (fCountIslands>1) then begin
+ if assigned(fJobManager) and (fCountIslands>1) and not fSingleThreaded then begin
   fJobManager.fOnProcessJob:=ProcessSolveIslandJob;
   fJobManager.fCountRemainJobs:=fCountIslands;
   fJobManager.fGranularity:=Max(1,fCountIslands div (fCountThreads*16));

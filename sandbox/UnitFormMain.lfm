@@ -1,5 +1,5 @@
 object FormMain: TFormMain
-  Left = -960
+  Left = 0
   Height = 675
   Top = 311
   Width = 945
@@ -288,13 +288,13 @@ object FormMain: TFormMain
         end
         object sTabSheetSettings: TTabSheet
           Caption = 'Settings'
-          ClientHeight = 0
-          ClientWidth = 0
+          ClientHeight = 142
+          ClientWidth = 437
           object sCheckBoxDrawDynamicAABBTree: TCheckBox
             Left = 8
             Height = 19
             Top = 8
-            Width = 151
+            Width = 142
             Caption = 'Draw dynamic AABB tree '
             TabOrder = 0
           end
@@ -302,7 +302,7 @@ object FormMain: TFormMain
             Left = 8
             Height = 19
             Top = 32
-            Width = 98
+            Width = 89
             Caption = 'Draw contacts'
             Checked = True
             State = cbChecked
@@ -312,7 +312,7 @@ object FormMain: TFormMain
             Left = 8
             Height = 19
             Top = 56
-            Width = 102
+            Width = 93
             Caption = 'Draw wireframe'
             TabOrder = 2
           end
@@ -320,7 +320,7 @@ object FormMain: TFormMain
             Left = 8
             Height = 19
             Top = 80
-            Width = 78
+            Width = 69
             Caption = 'Draw solid'
             Checked = True
             State = cbChecked
@@ -330,11 +330,20 @@ object FormMain: TFormMain
             Left = 8
             Height = 19
             Top = 104
-            Width = 108
+            Width = 99
             Caption = 'Draw constraints'
             Checked = True
             State = cbChecked
             TabOrder = 4
+          end
+          object CheckBoxSingleThreaded: TCheckBox
+            Left = 216
+            Height = 19
+            Top = 8
+            Width = 94
+            Caption = 'Single threaded'
+            OnChange = CheckBoxSingleThreadedChange
+            TabOrder = 5
           end
         end
       end

@@ -41,6 +41,7 @@ type TCamera=object
   { TFormMain }
 
   TFormMain = class(TForm)
+   CheckBoxSingleThreaded: TCheckBox;
     MainMenu1: TMainMenu;
     N1: TMenuItem;
     N2: TMenuItem;
@@ -82,6 +83,7 @@ type TCamera=object
     sCheckBoxDrawWireFrame: TCheckBox;
     sCheckBoxDrawSolid: TCheckBox;
     sCheckBoxDrawConstraints: TCheckBox;
+    procedure CheckBoxSingleThreadedChange(Sender: TObject);
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure N2Click(Sender: TObject);
@@ -604,6 +606,11 @@ begin
 
 // LoadScene(TDemoSceneBoxOnPlane);
 
+end;
+
+procedure TFormMain.CheckBoxSingleThreadedChange(Sender: TObject);
+begin
+ KraftPhysics.SingleThreaded:=CheckBoxSingleThreaded.Checked;
 end;
 
 procedure TFormMain.FormDestroy(Sender: TObject);
