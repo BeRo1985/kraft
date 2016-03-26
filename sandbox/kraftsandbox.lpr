@@ -8,6 +8,7 @@ uses
   UnitFormMain in 'UnitFormMain.pas' {FormMain},
   kraft in '..\src\kraft.pas',
   UnitDemoScene in 'UnitDemoScene.pas',
+  UnitDemoSceneCatapult,
   UnitDemoSceneBoxOnPlane in 'UnitDemoSceneBoxOnPlane.pas',
   UnitDemoSceneSandBox in 'UnitDemoSceneSandBox.pas',
   UnitDemoSceneBoxStacking in 'UnitDemoSceneBoxStacking.pas',
