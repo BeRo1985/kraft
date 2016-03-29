@@ -29,7 +29,8 @@ const Count=4;
       RoundaboutTopBasisCircleRadius=2.0;
       RoundaboutTopBasisHeight=0.25;
 var Index:longint;
-    RigidBodyBox:TKraftRigidBody;
+    RigidBodySphere:TKraftRigidBody;
+    ShapeSphere:TKraftShapeSphere;
     ShapeBox:TKraftShapeBox;
     ShapeRoundaboutDownBasis,ShapeRoundaboutTopBasis:TKraftShapeConvexHull;
     RigidBodyRoundaboutDownBasis,RigidBodyRoundaboutTopBasis:TKraftRigidBody;
@@ -94,6 +95,16 @@ begin
  RigidBodyRoundaboutTopBasis.CollisionGroups:=[0];
 
  TKraftConstraintJointHinge.Create(KraftPhysics,RigidBodyRoundaboutDownBasis,RigidBodyRoundaboutTopBasis,Vector3(0.0,RoundaboutDownBasisHeight,0.0),Vector3(0.0,1.0,0.0));
+
+ RigidBodySphere:=TKraftRigidBody.Create(KraftPhysics);
+ RigidBodySphere.SetRigidBodyType(krbtDYNAMIC);
+ ShapeSphere:=TKraftShapeSphere.Create(KraftPhysics,RigidBodySphere,0.5);
+ ShapeSphere.Finish;
+ RigidBodySphere.Finish;
+ RigidBodySphere.SetWorldTransformation(Matrix4x4Translate(0.0,RoundaboutDownBasisHeight+RoundaboutTopBasisHeight+0.5,RoundaboutTopBasisCircleRadius-0.5));
+ RigidBodySphere.CollisionGroups:=[0];
+
+ RigidBodyRoundaboutTopBasis.AddBodyTorque(Vector3(0.0,3000.0,0.0));
 
 end;
 
