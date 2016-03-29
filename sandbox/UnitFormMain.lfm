@@ -1,7 +1,7 @@
 object FormMain: TFormMain
   Left = 0
   Height = 675
-  Top = 333
+  Top = 266
   Width = 945
   Caption = 'Kraft physics engine sandbox - Copyright (C) 2015-2016, Benjamin ''BeRo'' Rosseaux'
   ClientHeight = 655

@@ -9,6 +9,7 @@ uses
   kraft in '..\src\kraft.pas',
   UnitDemoScene in 'UnitDemoScene.pas',
   UnitDemoSceneCatapult,
+  UnitDemoSceneRoundabout,
   UnitDemoSceneBoxOnPlane in 'UnitDemoSceneBoxOnPlane.pas',
   UnitDemoSceneSandBox in 'UnitDemoSceneSandBox.pas',
   UnitDemoSceneBoxStacking in 'UnitDemoSceneBoxStacking.pas',
