@@ -10,6 +10,7 @@ uses
   UnitDemoScene in 'UnitDemoScene.pas',
   UnitDemoSceneCatapult,
   UnitDemoSceneRoundabout,
+  UnitDemoSceneCarousel,
   UnitDemoSceneBoxOnPlane in 'UnitDemoSceneBoxOnPlane.pas',
   UnitDemoSceneSandBox in 'UnitDemoSceneSandBox.pas',
   UnitDemoSceneBoxStacking in 'UnitDemoSceneBoxStacking.pas',

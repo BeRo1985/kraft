@@ -131,7 +131,7 @@
         <PackageName Value="LCL"/>
       </Item3>
     </RequiredPackages>
-    <Units Count="21">
+    <Units Count="22">
       <Unit0>
         <Filename Value="kraftsandbox.lpr"/>
         <IsPartOfProject Value="True"/>
@@ -219,6 +219,10 @@
         <Filename Value="UnitDemoSceneRoundabout.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit20>
+      <Unit21>
+        <Filename Value="UnitDemoSceneCarousel.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit21>
     </Units>
   </ProjectOptions>
   <CompilerOptions>

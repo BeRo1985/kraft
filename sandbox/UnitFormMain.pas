@@ -1085,7 +1085,7 @@ begin
     if FormMain.sCheckBoxDrawConstraints.Checked then begin
      Constraint:=FormMain.KraftPhysics.ConstraintFirst;
      while assigned(Constraint) do begin
-      if assigned(Constraint.RigidBodies[0]) and
+{     if assigned(Constraint.RigidBodies[0]) and
          assigned(Constraint.RigidBodies[1]) then begin
        glLineWidth(5);
        glColor4f(1.0,1.0,0.125,1.0);
@@ -1095,7 +1095,7 @@ begin
        vv:=Vector3TermMatrixMul(PKraftVector3(pointer(@Constraint.RigidBodies[1].ShapeFirst.InterpolatedWorldTransform[3,0]))^,m);
        glVertex3fv(@vv);
        glEnd;
-      end;
+      end;{}
       if Constraint is TKraftConstraintJointRope then begin
        glLineWidth(5);
        glColor4f(0.125,1.0,1.0,1.0);
