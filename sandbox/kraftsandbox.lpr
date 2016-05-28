@@ -3,6 +3,9 @@ program kraftsandbox;
 {$MODE Delphi}
 
 uses
+{$ifdef unix}
+  cthreads,
+{$endif}  
   SysUtils,
   Forms, Interfaces,
   UnitFormMain in 'UnitFormMain.pas' {FormMain},
