@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2016-03-25-21-31-0000                       *
+ *                        Version 2016-09-14-20-04-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -1774,7 +1774,7 @@ type PKraftForceMode=^TKraftForceMode;
        procedure ProcessContactPair(const ContactPair:PKraftContactPair;const ThreadIndex:longint=0);
 
 {$ifdef KraftPasMP}
-       procedure ProcessContactPairParallelForFunction(const Job:PPasMPJob;const ThreadIndex:longint;const Data:pointer;const FromIndex,ToIndex:longint);
+       procedure ProcessContactPairParallelForFunction(const Job:PPasMPJob;const ThreadIndex:longint;const Data:pointer;const FromIndex,ToIndex:TPasMPNativeInt);
 {$else}
        procedure ProcessContactPairJob(const JobIndex,ThreadIndex:longint);
 {$endif}
@@ -1848,7 +1848,7 @@ type PKraftForceMode=^TKraftForceMode;
        procedure QueryShapeWithTree(const ThreadIndex:longint;const Shape:TKraftShape;const AABBTree:TKraftDynamicAABBTree);
 
 {$ifdef KraftPasMP}
-       procedure ProcessMoveBufferItemParallelForFunction(const Job:PPasMPJob;const ThreadIndex:longint;const Data:pointer;const FromIndex,ToIndex:longint);
+       procedure ProcessMoveBufferItemParallelForFunction(const Job:PPasMPJob;const ThreadIndex:longint;const Data:pointer;const FromIndex,ToIndex:TPasMPNativeInt);
 {$else}
        procedure ProcessMoveBufferItem(const JobIndex,ThreadIndex:longint);
 {$endif}
@@ -3081,7 +3081,7 @@ type PKraftForceMode=^TKraftForceMode;
 
        procedure BuildIslands;
 {$ifdef KraftPasMP}
-       procedure ProcessSolveIslandParallelForFunction(const Job:PPasMPJob;const ThreadIndex:longint;const Data:pointer;const FromIndex,ToIndex:longint);
+       procedure ProcessSolveIslandParallelForFunction(const Job:PPasMPJob;const ThreadIndex:longint;const Data:pointer;const FromIndex,ToIndex:TPasMPNativeInt);
 {$else}
        procedure ProcessSolveIslandJob(const JobIndex,ThreadIndex:longint);
 {$endif}
@@ -23448,7 +23448,7 @@ begin
 end;
 
 {$ifdef KraftPasMP}
-procedure TKraftContactManager.ProcessContactPairParallelForFunction(const Job:PPasMPJob;const ThreadIndex:longint;const Data:pointer;const FromIndex,ToIndex:longint);
+procedure TKraftContactManager.ProcessContactPairParallelForFunction(const Job:PPasMPJob;const ThreadIndex:longint;const Data:pointer;const FromIndex,ToIndex:TPasMPNativeInt);
 var Index:longint;
 begin
  for Index:=FromIndex to ToIndex do begin
@@ -24156,7 +24156,7 @@ end;
 {$endif}
 
 {$ifdef KraftPasMP}
-procedure TKraftBroadPhase.ProcessMoveBufferItemParallelForFunction(const Job:PPasMPJob;const ThreadIndex:longint;const Data:pointer;const FromIndex,ToIndex:longint);
+procedure TKraftBroadPhase.ProcessMoveBufferItemParallelForFunction(const Job:PPasMPJob;const ThreadIndex:longint;const Data:pointer;const FromIndex,ToIndex:TPasMPNativeInt);
 {$else}
 procedure TKraftBroadPhase.ProcessMoveBufferItem(const JobIndex,ThreadIndex:longint);
 {$endif}
@@ -30765,7 +30765,7 @@ begin
 end;
 
 {$ifdef KraftPasMP}
-procedure TKraft.ProcessSolveIslandParallelForFunction(const Job:PPasMPJob;const ThreadIndex:longint;const Data:pointer;const FromIndex,ToIndex:longint);
+procedure TKraft.ProcessSolveIslandParallelForFunction(const Job:PPasMPJob;const ThreadIndex:longint;const Data:pointer;const FromIndex,ToIndex:TPasMPNativeInt);
 var Index:longint;
 begin
  for Index:=FromIndex to ToIndex do begin
