@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2016-09-14-20-04-0000                       *
+ *                        Version 2016-12-16-09-22-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -12404,7 +12404,7 @@ begin
      end else begin
       cb:=Vector3Sub(c,b);
       ca:=Vector3Sub(c,a);
-      dc:=Vector3Sub(d,c);
+      cd:=Vector3Sub(c,d);
       uBC:=Vector3Dot(c,cb);
       vCA:=Vector3Dot(c,ca);
       uDC:=Vector3Dot(c,cd);
@@ -12418,7 +12418,7 @@ begin
        Simplex.Count:=1;
       end else begin
        db:=Vector3Sub(d,b);
-       cd:=Vector3Sub(c,d);
+       dc:=Vector3Sub(d,c);
        da:=Vector3Sub(d,a);
        uBD:=Vector3Dot(d,db);
        vDC:=Vector3Dot(d,dc);
