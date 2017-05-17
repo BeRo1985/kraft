@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2016-12-16-09-22-0000                       *
+ *                        Version 2017-05-17-08-33-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -984,6 +984,9 @@ type PKraftForceMode=^TKraftForceMode;
 
        constructor Create(const APhysics:TKraft);
        destructor Destroy; override;
+
+       procedure LoadFromStream(const AStream:TStream);
+       procedure SaveToStream(const AStream:TStream);
 
        function AddVertex(const AVertex:TKraftVector3):longint;
 
@@ -16522,6 +16525,139 @@ begin
  fNext:=nil;
 
  inherited Destroy;
+
+end;
+
+procedure TKraftConvexHull.LoadFromStream(const AStream:TStream);
+var i,j:longint;
+begin
+
+ AStream.ReadBuffer(i,SizeOf(longint));
+ fCountVertices:=i;
+ SetLength(fVertices,fCountVertices);
+ for i:=0 to fCountVertices-1 do begin
+  AStream.ReadBuffer(fVertices[i].Position.x,SizeOf(TKraftScalar));
+  AStream.ReadBuffer(fVertices[i].Position.y,SizeOf(TKraftScalar));
+  AStream.ReadBuffer(fVertices[i].Position.z,SizeOf(TKraftScalar));
+  AStream.ReadBuffer(fVertices[i].CountAdjacencies,SizeOf(longint));
+  SetLength(fVertices[i].Adjacencies,fVertices[i].CountAdjacencies);
+  for j:=0 to fVertices[i].CountAdjacencies-1 do begin
+   AStream.ReadBuffer(fVertices[i].Adjacencies[j],SizeOf(longint));
+  end;
+ end;
+
+ AStream.ReadBuffer(i,SizeOf(longint));
+ fCountFaces:=i;
+ SetLength(fFaces,fCountFaces);
+ for i:=0 to fCountFaces-1 do begin
+  AStream.ReadBuffer(fFaces[i].Plane.Normal.x,SizeOf(TKraftScalar));
+  AStream.ReadBuffer(fFaces[i].Plane.Normal.y,SizeOf(TKraftScalar));
+  AStream.ReadBuffer(fFaces[i].Plane.Normal.z,SizeOf(TKraftScalar));
+  AStream.ReadBuffer(fFaces[i].Plane.Distance,SizeOf(TKraftScalar));
+  AStream.ReadBuffer(fFaces[i].CountVertices,SizeOf(longint));
+  SetLength(fFaces[i].Vertices,fFaces[i].CountVertices);
+  for j:=0 to fFaces[i].CountVertices-1 do begin
+   AStream.ReadBuffer(fFaces[i].Vertices[j],SizeOf(longint));
+  end;
+  AStream.ReadBuffer(fFaces[i].EdgeVertexOffset,SizeOf(longint));
+ end;
+
+ AStream.ReadBuffer(i,SizeOf(longint));
+ fCountEdges:=i;
+ SetLength(fEdges,fCountEdges);
+ for i:=0 to fCountEdges-1 do begin
+  AStream.ReadBuffer(fEdges[i].Vertices[0],SizeOf(longint));
+  AStream.ReadBuffer(fEdges[i].Vertices[1],SizeOf(longint));
+  AStream.ReadBuffer(fEdges[i].Faces[0],SizeOf(longint));
+  AStream.ReadBuffer(fEdges[i].Faces[1],SizeOf(longint));
+ end;
+
+ AStream.ReadBuffer(fSphere.Center.x,SizeOf(TKraftScalar));
+ AStream.ReadBuffer(fSphere.Center.y,SizeOf(TKraftScalar));
+ AStream.ReadBuffer(fSphere.Center.z,SizeOf(TKraftScalar));
+ AStream.ReadBuffer(fSphere.Radius,SizeOf(TKraftScalar));
+
+ AStream.ReadBuffer(fAABB.Min.x,SizeOf(TKraftScalar));
+ AStream.ReadBuffer(fAABB.Min.y,SizeOf(TKraftScalar));
+ AStream.ReadBuffer(fAABB.Min.z,SizeOf(TKraftScalar));
+ AStream.ReadBuffer(fAABB.Max.x,SizeOf(TKraftScalar));
+ AStream.ReadBuffer(fAABB.Max.y,SizeOf(TKraftScalar));
+ AStream.ReadBuffer(fAABB.Max.z,SizeOf(TKraftScalar));
+
+ AStream.ReadBuffer(fAngularMotionDisc,SizeOf(TKraftScalar));
+
+ AStream.ReadBuffer(fMassData.Inertia,SizeOf(TKraftMatrix3x3));
+ AStream.ReadBuffer(fMassData.Center,SizeOf(TKraftVector3));
+ AStream.ReadBuffer(fMassData.Mass,SizeOf(TKraftScalar));
+ AStream.ReadBuffer(fMassData.Volume,SizeOf(TKraftScalar));
+
+ AStream.ReadBuffer(fCentroid.x,SizeOf(TKraftScalar));
+ AStream.ReadBuffer(fCentroid.y,SizeOf(TKraftScalar));
+ AStream.ReadBuffer(fCentroid.z,SizeOf(TKraftScalar));
+
+end;
+
+procedure TKraftConvexHull.SaveToStream(const AStream:TStream);
+var i,j:longint;
+begin
+
+ i:=fCountVertices;
+ AStream.WriteBuffer(i,SizeOf(longint));
+ for i:=0 to fCountVertices-1 do begin
+  AStream.WriteBuffer(fVertices[i].Position.x,SizeOf(TKraftScalar));
+  AStream.WriteBuffer(fVertices[i].Position.y,SizeOf(TKraftScalar));
+  AStream.WriteBuffer(fVertices[i].Position.z,SizeOf(TKraftScalar));
+  AStream.WriteBuffer(fVertices[i].CountAdjacencies,SizeOf(longint));
+  for j:=0 to fVertices[i].CountAdjacencies-1 do begin
+   AStream.WriteBuffer(fVertices[i].Adjacencies[j],SizeOf(longint));
+  end;
+ end;
+
+ i:=fCountFaces;
+ AStream.WriteBuffer(i,SizeOf(longint));
+ for i:=0 to fCountFaces-1 do begin
+  AStream.WriteBuffer(fFaces[i].Plane.Normal.x,SizeOf(TKraftScalar));
+  AStream.WriteBuffer(fFaces[i].Plane.Normal.y,SizeOf(TKraftScalar));
+  AStream.WriteBuffer(fFaces[i].Plane.Normal.z,SizeOf(TKraftScalar));
+  AStream.WriteBuffer(fFaces[i].Plane.Distance,SizeOf(TKraftScalar));
+  AStream.WriteBuffer(fFaces[i].CountVertices,SizeOf(longint));
+  for j:=0 to fFaces[i].CountVertices-1 do begin
+   AStream.WriteBuffer(fFaces[i].Vertices[j],SizeOf(longint));
+  end;
+  AStream.WriteBuffer(fFaces[i].EdgeVertexOffset,SizeOf(longint));
+ end;
+
+ i:=fCountEdges;
+ AStream.WriteBuffer(i,SizeOf(longint));
+ for i:=0 to fCountEdges-1 do begin
+  AStream.WriteBuffer(fEdges[i].Vertices[0],SizeOf(longint));
+  AStream.WriteBuffer(fEdges[i].Vertices[1],SizeOf(longint));
+  AStream.WriteBuffer(fEdges[i].Faces[0],SizeOf(longint));
+  AStream.WriteBuffer(fEdges[i].Faces[1],SizeOf(longint));
+ end;
+
+ AStream.WriteBuffer(fSphere.Center.x,SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fSphere.Center.y,SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fSphere.Center.z,SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fSphere.Radius,SizeOf(TKraftScalar));
+
+ AStream.WriteBuffer(fAABB.Min.x,SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fAABB.Min.y,SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fAABB.Min.z,SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fAABB.Max.x,SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fAABB.Max.y,SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fAABB.Max.z,SizeOf(TKraftScalar));
+
+ AStream.WriteBuffer(fAngularMotionDisc,SizeOf(TKraftScalar));
+
+ AStream.WriteBuffer(fMassData.Inertia,SizeOf(TKraftMatrix3x3));
+ AStream.WriteBuffer(fMassData.Center,SizeOf(TKraftVector3));
+ AStream.WriteBuffer(fMassData.Mass,SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fMassData.Volume,SizeOf(TKraftScalar));
+
+ AStream.WriteBuffer(fCentroid.x,SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fCentroid.y,SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fCentroid.z,SizeOf(TKraftScalar));
 
 end;
 
