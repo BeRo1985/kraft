@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2017-05-17-08-33-0000                       *
+ *                        Version 2017-05-18-07-37-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -14465,35 +14465,74 @@ var CountPoints:longint;
   end;
  end;
  procedure RemoveTooNearPoints;
- var PointIndex,NewPointIndex,CountNewPoints:longint;
+ const HashBits=8;
+       HashSize=1 shl HashBits;
+       HashMask=HashSize-1;
+ var PointIndex,OtherPointIndex,CountNewPoints,HashItemIndex:longint;
+     Hash:longword;
+     InverseTolerance:double;
      NewPoints:TConvexHullVectors;
-     Skip:boolean;
+     PointNextIndices:array of longint;
+     HashTable:array of longint;
  begin
   NewPoints:=nil;
+  PointNextIndices:=nil;
+  HashTable:=nil;
   try
+
+   SetLength(PointNextIndices,length(Points));
+   for PointIndex:=0 to length(PointNextIndices)-1 do begin
+    PointNextIndices[PointIndex]:=-1;
+   end;
+
+   SetLength(HashTable,HashSize);
+   for PointIndex:=0 to length(HashTable)-1 do begin
+    HashTable[PointIndex]:=-1;
+   end;
+
    SetLength(NewPoints,length(Points));
    CountNewPoints:=0;
+
+   InverseTolerance:=1.0/Tolerance;
+
    for PointIndex:=0 to length(Points)-1 do begin
-    Skip:=false;
-    for NewPointIndex:=0 to CountNewPoints-1 do begin
-     if ConvexHullVectorLengthSquared(ConvexHullVectorSub(Points[PointIndex],NewPoints[NewPointIndex]))<=(2.0*Tolerance) then begin
-      Skip:=true;
+
+    Hash:=((trunc(Points[PointIndex].x*InverseTolerance)*73856093) xor
+           (trunc(Points[PointIndex].y*InverseTolerance)*19349663) xor
+           (trunc(Points[PointIndex].z*InverseTolerance)*83492791)) and HashMask;
+
+    HashItemIndex:=HashTable[Hash];
+    while HashItemIndex>=0 do begin
+     if ConvexHullVectorLengthSquared(ConvexHullVectorSub(Points[PointIndex],NewPoints[HashItemIndex]))<=(2.0*Tolerance) then begin
       break;
      end;
+     HashItemIndex:=PointNextIndices[HashItemIndex];
     end;
-    if not Skip then begin
-     NewPoints[CountNewPoints]:=Points[PointIndex];
+
+    if HashItemIndex<0 then begin
+     OtherPointIndex:=CountNewPoints;
      inc(CountNewPoints);
+     if CountNewPoints>length(NewPoints) then begin
+      SetLength(NewPoints,CountNewPoints*2);
+     end;
+     NewPoints[OtherPointIndex]:=Points[PointIndex];
+     PointNextIndices[OtherPointIndex]:=HashTable[Hash];
+     HashTable[Hash]:=OtherPointIndex;
     end;
+
    end;
+
    if length(Points)<>CountNewPoints then begin
     SetLength(Points,CountNewPoints);
     for PointIndex:=0 to CountNewPoints-1 do begin
      Points[PointIndex]:=NewPoints[PointIndex];
     end;
    end;
+
   finally
    SetLength(NewPoints,0);
+   SetLength(PointNextIndices,0);
+   SetLength(HashTable,0);
   end;
  end;
  procedure SortPoints;
