@@ -114,6 +114,7 @@ unit kraft;
 {$longstrings on}
 {$booleval off}
 {$typeinfo on}
+{$notes off}
 
 {-$define UseMoreCollisionGroups}
 
@@ -134,7 +135,11 @@ unit kraft;
  {$undef SIMD}
 {$else}
  {$ifdef cpu386}
-  {$define CPU386ASMForSinglePrecision}
+  {$ifndef DARWIN}
+   // Fails on Mac OS X with
+   // kraft.pas(4243,30) Error: Generating PIC, but reference is not PIC-safe
+   {$define CPU386ASMForSinglePrecision}
+  {$endif}
  {$endif}
  {$undef SIMD}
  {$ifdef CPU386ASMForSinglePrecision}
