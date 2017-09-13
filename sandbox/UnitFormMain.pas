@@ -9,7 +9,8 @@ interface
 uses
   LCLIntf, LCLType, LMessages, Messages, SysUtils, Variants, Classes, Graphics, Controls, Forms,
   Dialogs, Math, Menus, TypInfo, kraft, ExtCtrls, StdCtrls, ComCtrls, OpenGLContext, gl, glext,
-  UnitDemoScene, PasMP, Types, ObjectInspector, PropEdits, PropEditUtils, GraphPropEdits;
+  UnitDemoScene, {$ifdef KraftPasMP} PasMP, {$endif}
+  Types, ObjectInspector, PropEdits, PropEditUtils, GraphPropEdits;
 
 type TCamera=object
       public
@@ -119,7 +120,7 @@ type TCamera=object
     { Private declarations }
   public
     { Public declarations }
-    PasMPInstance:TPasMP;
+    {$ifdef KraftPasMP} PasMPInstance:TPasMP; {$endif}
     KraftPhysics:TKraft;
     TreeNodeKraftPhysics:TTreeNode;
     TreeNodeDemos:TTreeNode;
@@ -540,9 +541,8 @@ begin
 
  OpenGLInitialized:=false;
 
- PasMPInstance:=TPasMP.Create(-1,0,false);
-
 {$ifdef KraftPasMP}
+ PasMPInstance:=TPasMP.Create(-1,0,false);
  KraftPhysics:=TKraft.Create(PasMPInstance);
 {$else}
  KraftPhysics:=TKraft.Create(-1);
@@ -615,7 +615,9 @@ procedure TFormMain.FormDestroy(Sender: TObject);
 begin
  FreeAndNil(DemoScene);
  FreeAndNil(KraftPhysics);
+{$ifdef KraftPasMP}
  FreeAndNil(PasMPInstance);
+{$endif}
  ThreadTimer.Terminate;
  if ThreadTimer.Suspended then begin
   ThreadTimer.Resume;
