@@ -26,8 +26,10 @@ uses
   UnitDemoSceneDomino in 'UnitDemoSceneDomino.pas',
   UnitDemoSceneChairAndTable in 'UnitDemoSceneChairAndTable.pas',
   UnitDemoSceneConvexHull in 'UnitDemoSceneConvexHull.pas',
-  UnitDemoSceneCar in 'UnitDemoSceneCar.pas',
-  PasMP in '..\..\..\PASMP.github\trunk\src\PasMP.pas';
+  UnitDemoSceneCar in 'UnitDemoSceneCar.pas'
+  {$ifdef KraftPasMP},
+  PasMP in '..\..\..\PASMP.github\trunk\src\PasMP.pas'
+  {$endif};
 
 {$R *.res}
 
