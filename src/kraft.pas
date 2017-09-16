@@ -1,7 +1,7 @@
 (****************************************************************************** 
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2017-05-18-07-37-0000                       *
+ *                        Version 2017-09-15-10-26-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -87,6 +87,11 @@ unit kraft;
  {$optimization on}
  {$undef caninline}
  {$undef canx86simd}
+ {$ifdef conditionalexpressions}
+  {$if CompilerVersion>=24.0}
+   {$legacyifend on}
+  {$ifend} 
+ {$endif}
  {$ifdef ver180}
   {$define caninline}
   {$ifdef cpu386}
@@ -134,7 +139,9 @@ unit kraft;
  {$undef SIMD}
 {$else}
  {$ifdef cpu386}
-  {$define CPU386ASMForSinglePrecision}
+  {$if not (defined(Darwin) or defined(CompileForWithPIC))}
+   {$define CPU386ASMForSinglePrecision}
+  {$ifend}	
  {$endif}
  {$undef SIMD}
  {$ifdef CPU386ASMForSinglePrecision}

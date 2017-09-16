@@ -10,6 +10,9 @@ uses
   Forms, Interfaces,
   UnitFormMain in 'UnitFormMain.pas' {FormMain},
   kraft in '..\src\kraft.pas',
+{$ifdef KraftPasMP}
+  PasMP in '..\..\..\PASMP.github\trunk\src\PasMP.pas',
+{$endif}
   UnitDemoScene in 'UnitDemoScene.pas',
   UnitDemoSceneCatapult,
   UnitDemoSceneRoundabout,
@@ -26,8 +29,7 @@ uses
   UnitDemoSceneDomino in 'UnitDemoSceneDomino.pas',
   UnitDemoSceneChairAndTable in 'UnitDemoSceneChairAndTable.pas',
   UnitDemoSceneConvexHull in 'UnitDemoSceneConvexHull.pas',
-  UnitDemoSceneCar in 'UnitDemoSceneCar.pas',
-  PasMP in '..\..\..\PASMP.github\trunk\src\PasMP.pas';
+  UnitDemoSceneCar in 'UnitDemoSceneCar.pas';
 
 {$R *.res}
 
