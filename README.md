@@ -29,6 +29,7 @@ Kraft Physics Engine has the following features:
 - Ray casting
 - Sleeping of inactive rigid bodies
 - Island-based multithreading
+- It can be used also for 1D and 2D physics, and not only for 3D physics
 - SIMD optimizations for x86-32 (later also for x86-64)
 
 ## Future possibly possible features
