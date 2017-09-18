@@ -19,12 +19,12 @@ implementation
 
 uses UnitFormMain;
 
-const ConvexHullPoints:array[0..5] of TKraftVector3=((x:-2.0;y:1.0;z:1.0),
-                                                (x:2.0;y:0.0;z:0.0),
-                                                (x:1.0;y:-2.0;z:1.0),
-                                                (x:0.0;y:2.0;z:0.0),
-                                                (x:1.0;y:1.0;z:-2.0),
-                                                (x:0.0;y:0.0;z:2.0));{}
+const ConvexHullPoints:array[0..5] of TKraftVector3=((x:-2.0;y:1.0;z:1.0{$ifdef SIMD};w:0.0{$endif}),
+                                                     (x:2.0;y:0.0;z:0.0{$ifdef SIMD};w:0.0{$endif}),
+                                                     (x:1.0;y:-2.0;z:1.0{$ifdef SIMD};w:0.0{$endif}),
+                                                     (x:0.0;y:2.0;z:0.0{$ifdef SIMD};w:0.0{$endif}),
+                                                     (x:1.0;y:1.0;z:-2.0{$ifdef SIMD};w:0.0{$endif}),
+                                                     (x:0.0;y:0.0;z:2.0{$ifdef SIMD};w:0.0{$endif}));{}
 
 constructor TDemoSceneConvexHull.Create(const AKraftPhysics:TKraft);
 var RigidBody:TKraftRigidBody;
