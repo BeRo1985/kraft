@@ -29,6 +29,7 @@ Kraft Physics Engine has the following features:
 - Ray casting
 - Sleeping of inactive rigid bodies
 - Island-based multithreading
+- It can be used also for 1D and 2D physics, and not only for 3D physics
 - SIMD optimizations for x86-32 (later also for x86-64)
 
 ## Future possibly possible features
@@ -41,6 +42,10 @@ Kraft Physics Engine has the following features:
 ## License
 
 The Kraft Physics Engine is released under the open-source [ZLib license](http://opensource.org/licenses/zlib).
+
+## PasMP
+
+For to use Kraft with PasMP, you must set a project global define called KraftPasMP (or use -dKraftPasMP as compiler command line parameter)
 
 ## Documentation
 
