@@ -1,7 +1,7 @@
 (****************************************************************************** 
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2017-09-19-14-07-0000                       *
+ *                        Version 2017-09-19-17-31-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -2958,6 +2958,8 @@ type PKraftForceMode=^TKraftForceMode;
      end;
 {$endif}
 
+     TKraftOnPushSphereShapeContactHook=procedure(const WithShape:TKraftShape) of object;
+
      TKraft=class(TPersistent)
       private
 
@@ -3158,7 +3160,7 @@ type PKraftForceMode=^TKraftForceMode;
 
        function RayCast(const Origin,Direction:TKraftVector3;const MaxTime:TKraftScalar;var Shape:TKraftShape;var Time:TKraftScalar;var Point,Normal:TKraftVector3;const CollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)]):boolean;
 
-       function PushSphere(var Center:TKraftVector3;const Radius:TKraftScalar;const CollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const TryIterations:longint=4):boolean;
+       function PushSphere(var Center:TKraftVector3;const Radius:TKraftScalar;const CollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const TryIterations:longint=4;const OnPushSphereShapeContactHook:TKraftOnPushSphereShapeContactHook=nil):boolean;
 
        function GetDistance(const ShapeA,ShapeB:TKraftShape):TKraftScalar;
 
@@ -32479,7 +32481,7 @@ begin
  result:=Hit;
 end;
 
-function TKraft.PushSphere(var Center:TKraftVector3;const Radius:TKraftScalar;const CollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const TryIterations:longint=4):boolean;
+function TKraft.PushSphere(var Center:TKraftVector3;const Radius:TKraftScalar;const CollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const TryIterations:longint=4;const OnPushSphereShapeContactHook:TKraftOnPushSphereShapeContactHook=nil):boolean;
 var Hit:boolean;
     AABB:TKraftAABB;
     Sphere:TKraftSphere;
@@ -32496,6 +32498,9 @@ var Hit:boolean;
    SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Normal,Depth));
    inc(Count);
    Hit:=true;
+   if assigned(OnPushSphereShapeContactHook) then begin
+    OnPushSphereShapeContactHook(Shape);
+   end;
   end;
  end;
  procedure CollideSphereWithCapsule(Shape:TKraftShapeCapsule); {$ifdef caninline}inline;{$endif}
@@ -32520,14 +32525,15 @@ var Hit:boolean;
   if d<=(r1+r2) then begin
    if d<=EPSILON then begin
     SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Vector3XAxis,r1+r2));
-    inc(Count);
-    Hit:=true;
    end else begin
     d1:=1.0/d;
     Normal:=Vector3Neg(Vector3ScalarMul(Vector3Sub(Position,Sphere.Center),d1));
     SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Normal,(r1+r2)-d));
-    inc(Count);
-    Hit:=true;
+   end;
+   inc(Count);
+   Hit:=true;
+   if assigned(OnPushSphereShapeContactHook) then begin
+    OnPushSphereShapeContactHook(Shape);
    end;
   end;
  end;
@@ -32611,10 +32617,16 @@ var Hit:boolean;
    SumMinimumTranslationVector:=Vector3Sub(SumMinimumTranslationVector,Vector3ScalarMul(Normal,ClosestDistance-Sphere.Radius));
    inc(Count);
    Hit:=true;
+   if assigned(OnPushSphereShapeContactHook) then begin
+    OnPushSphereShapeContactHook(Shape);
+   end;
   end else if HasBestClosestPoint then begin
    SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Vector3SafeNorm(BestClosestPointNormal),Sphere.Radius-BestClosestPointDistance));
    inc(Count);
    Hit:=true;
+   if assigned(OnPushSphereShapeContactHook) then begin
+    OnPushSphereShapeContactHook(Shape);
+   end;
   end;
  end;
  procedure CollideSphereWithBox(Shape:TKraftShapeBox); {$ifdef caninline}inline;{$endif}
@@ -32690,6 +32702,9 @@ var Hit:boolean;
    SumMinimumTranslationVector:=Vector3Sub(SumMinimumTranslationVector,Vector3ScalarMul(Vector3SafeNorm(Vector3TermMatrixMulBasis(Normal,Shape.fWorldTransform)),Distance-IntersectionDist));
    inc(Count);
    Hit:=true;
+   if assigned(OnPushSphereShapeContactHook) then begin
+    OnPushSphereShapeContactHook(Shape);
+   end;
   end;
  end;
  procedure CollideSphereWithPlane(Shape:TKraftShapePlane); {$ifdef caninline}inline;{$endif}
@@ -32702,6 +32717,9 @@ var Hit:boolean;
    SumMinimumTranslationVector:=Vector3Sub(SumMinimumTranslationVector,Vector3ScalarMul(Vector3SafeNorm(Vector3TermMatrixMulBasis(Shape.fPlane.Normal,Shape.fWorldTransform)),Distance-Sphere.Radius));
    inc(Count);
    Hit:=true;
+   if assigned(OnPushSphereShapeContactHook) then begin
+    OnPushSphereShapeContactHook(Shape);
+   end;
   end;
  end;
  procedure CollideSphereWithTriangle(Shape:TKraftShapeTriangle);
@@ -32749,12 +32767,13 @@ var Hit:boolean;
    if DistanceSqr<ContactRadiusSqr then begin
     if DistanceSqr>EPSILON then begin
      SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Vector3SafeNorm(Vector3TermMatrixMulBasis(ContactToCenter,Shape.fWorldTransform)),Radius-sqrt(DistanceSqr)));
-     inc(Count);
-     Hit:=true;
     end else begin
      SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Vector3SafeNorm(Vector3TermMatrixMulBasis(Normal,Shape.fWorldTransform)),Radius));
-     inc(Count);
-     Hit:=true;
+    end;
+    inc(Count);
+    Hit:=true;
+    if assigned(OnPushSphereShapeContactHook) then begin
+     OnPushSphereShapeContactHook(Shape);
     end;
    end;
   end;
@@ -32769,7 +32788,9 @@ var Hit:boolean;
      Triangle:PKraftMeshTriangle;
      AABB:TKraftAABB;
      Vertices:array[0..2] of PKraftVector3;
+     WasHit:boolean;
  begin
+  WasHit:=false;
   SphereCenter:=Vector3TermMatrixMulInverted(Sphere.Center,Shape.fWorldTransform);
   Radius:=Sphere.Radius;
   RadiusWithThreshold:=Radius+0.1;
@@ -32821,13 +32842,12 @@ var Hit:boolean;
       if DistanceSqr<ContactRadiusSqr then begin
        if DistanceSqr>EPSILON then begin
         SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Vector3SafeNorm(Vector3TermMatrixMulBasis(ContactToCenter,Shape.fWorldTransform)),Radius-sqrt(DistanceSqr)));
-        inc(Count);
-        Hit:=true;
        end else begin
         SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Vector3SafeNorm(Vector3TermMatrixMulBasis(Normal,Shape.fWorldTransform)),Radius));
-        inc(Count);
-        Hit:=true;
        end;
+       inc(Count);
+       Hit:=true;
+       WasHit:=true;
       end;
      end;
      TriangleIndex:=Triangle^.Next;
@@ -32835,6 +32855,11 @@ var Hit:boolean;
     inc(SkipListNodeIndex);
    end else begin
     SkipListNodeIndex:=SkipListNode^.SkipToNodeIndex;
+   end;
+  end;
+  if WasHit then begin
+   if assigned(OnPushSphereShapeContactHook) then begin
+    OnPushSphereShapeContactHook(Shape);
    end;
   end;
  end;
