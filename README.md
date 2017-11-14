@@ -6,6 +6,10 @@ Author : Benjamin 'BeRo' Rosseaux
 
 Compatible with: Delphi 7-XE7 (but not with the Android and iOS targets), FreePascal >= 2.6.2 (with almost all FPC-supported targets including Android and iOS) 
 
+## Support me
+
+[Support me at Patreon](https://www.patreon.com/bero)
+
 ## Features
 
 Kraft Physics Engine has the following features:
