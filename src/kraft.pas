@@ -1,12 +1,12 @@
 (****************************************************************************** 
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2017-09-19-17-31-0000                       *
+ *                        Version 2018-04-21-19-33-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
  *                                                                            *
- * Copyright (c) 2015-2017, Benjamin Rosseaux (benjamin@rosseaux.de)          *
+ * Copyright (c) 2015-2018, Benjamin Rosseaux (benjamin@rosseaux.de)          *
  *                                                                            *
  * This software is provided 'as-is', without any express or implied          *
  * warranty. In no event will the authors be held liable for any damages      *
@@ -25982,6 +25982,8 @@ begin
  fSolverVelocity:=@Island.fSolver.fVelocities[fIslandIndex];
 
  fSolverPosition:=@Island.fSolver.fPositions[fIslandIndex];
+
+ fSolverLinearFactor:=@Island.fSolver.fLinearFactors[fIslandIndex];
 
  cA:=@fSolverPosition^.Position;
  qA:=@fSolverPosition^.Orientation;
