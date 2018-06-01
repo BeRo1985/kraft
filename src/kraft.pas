@@ -1227,6 +1227,8 @@ type PKraftForceMode=^TKraftForceMode;
 
        fIsMesh:boolean;
 
+       fRayCastable:boolean;
+
        function GetProxyFatWorldAABB:PKraftAABB;
 
       public
@@ -1329,6 +1331,8 @@ type PKraftForceMode=^TKraftForceMode;
        property OnContactBegin:TKraftShapeOnContactBeginHook read fOnContactBegin write fOnContactBegin;
        property OnContactEnd:TKraftShapeOnContactEndHook read fOnContactEnd write fOnContactEnd;
        property OnContactStay:TKraftShapeOnContactStayHook read fOnContactStay write fOnContactStay;
+
+       property RayCastable:Boolean read fRayCastable write fRayCastable;
 
      end;
 
@@ -18938,6 +18942,8 @@ begin
  fOnContactEnd:=nil;
  fOnContactStay:=nil;
 
+ fRayCastable := true;
+
 end;
 
 destructor TKraftShape.Destroy;
@@ -19268,6 +19274,7 @@ var Origin,Direction,m:TKraftVector3;
     p,d,s1,s2,t:TKraftScalar;
 begin
  result:=false;
+ if not fRayCastable then exit;
  Origin:=Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform);
  Direction:=Vector3SafeNorm(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform));
  m:=Vector3Sub(Origin,Vector3Origin);
@@ -19520,6 +19527,7 @@ var Origin,Direction,p,m:TKraftVector3;
     Aq,Bq,Cq,t,t0,t1,y0,y1,HalfHeight,pp,d,s1,s2:TKraftScalar;
 begin
  result:=false;
+ if not fRayCastable then exit;
  Origin:=Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform);
  Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform));
  HalfHeight:=fHeight*0.5;
@@ -19779,6 +19787,7 @@ var FaceIndex,BestFaceIndex:longint;
     Origin,Direction:TKraftVector3;
 begin
  result:=false;
+ if not fRayCastable then exit;
  Origin:=Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform);
  Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform));
  if Vector3LengthSquared(Direction)>EPSILON then begin
@@ -20073,6 +20082,7 @@ var s,v,h:TKraftVector3;
     sign:array[0..2] of TKraftScalar;
 begin
  result:=false;
+ if not fRayCastable then exit;
  s:=Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform);
  v:=Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform);
  if v.x<0 then begin
@@ -20347,6 +20357,7 @@ var Origin,Direction:TKraftVector3;
     Time:TKraftScalar;
 begin
  result:=false;
+ if not fRayCastable then exit;
  Origin:=Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform);
  Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform));
  if Vector3LengthSquared(Direction)>EPSILON then begin
@@ -20662,6 +20673,7 @@ var Origin,Direction:TKraftVector3;
     Time,u,v:TKraftScalar;
 begin
  result:=false;
+ if not fRayCastable then exit;
  Origin:=Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform);
  Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform));
  if Vector3LengthSquared(Direction)>EPSILON then begin
@@ -20806,6 +20818,7 @@ var SkipListNodeIndex,TriangleIndex:longint;
     Origin,Direction,p,Normal:TKraftVector3;
 begin
  result:=false;
+ if not fRayCastable then exit;
  Origin:=Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform);
  Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform));
  if Vector3LengthSquared(Direction)>EPSILON then begin
