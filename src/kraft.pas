@@ -1,7 +1,7 @@
 (****************************************************************************** 
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2018-04-21-19-33-0000                       *
+ *                        Version 2018-06-02-05-46-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -300,7 +300,8 @@ type PKraftForceMode=^TKraftForceMode;
      PKraftShapeFlag=^TKraftShapeFlag;
      TKraftShapeFlag=(ksfCollision,
                       ksfMass,
-                      ksfSensor);
+                      ksfSensor,
+                      ksfRayCastable);
 
      PKraftShapeFlags=^TKraftShapeFlags;
      TKraftShapeFlags=set of TKraftShapeFlag;
@@ -18889,7 +18890,7 @@ begin
   inc(fRigidBody.fShapeCount);
  end;
 
- fFlags:=[ksfCollision,ksfMass];
+ fFlags:=[ksfCollision,ksfMass,ksfRayCastable];
 
  fIsMesh:=false;
 
@@ -19268,26 +19269,28 @@ var Origin,Direction,m:TKraftVector3;
     p,d,s1,s2,t:TKraftScalar;
 begin
  result:=false;
- Origin:=Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform);
- Direction:=Vector3SafeNorm(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform));
- m:=Vector3Sub(Origin,Vector3Origin);
- p:=-Vector3Dot(m,Direction);
- d:=(sqr(p)-Vector3LengthSquared(m))+sqr(fRadius);
- if d>0.0 then begin
-  d:=sqrt(d);
-  s1:=p-d;
-  s2:=p+d;
-  if s2>0.0 then begin
-   if s1<0.0 then begin
-    t:=s2;
-   end else begin
-    t:=s1;
-   end;
-   if (t>=0.0) and (t<=RayCastData.MaxTime) then begin
-    RayCastData.TimeOfImpact:=t;
-    RayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,t)),fWorldTransform);
-    RayCastData.Normal:=Vector3NormEx(Vector3Sub(RayCastData.Point,Vector3TermMatrixMul(Vector3Origin,fWorldTransform)));
-    result:=true;
+ if ksfRayCastable in fFlags then begin
+  Origin:=Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform);
+  Direction:=Vector3SafeNorm(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform));
+  m:=Vector3Sub(Origin,Vector3Origin);
+  p:=-Vector3Dot(m,Direction);
+  d:=(sqr(p)-Vector3LengthSquared(m))+sqr(fRadius);
+  if d>0.0 then begin
+   d:=sqrt(d);
+   s1:=p-d;
+   s2:=p+d;
+   if s2>0.0 then begin
+    if s1<0.0 then begin
+     t:=s2;
+    end else begin
+     t:=s1;
+    end;
+    if (t>=0.0) and (t<=RayCastData.MaxTime) then begin
+     RayCastData.TimeOfImpact:=t;
+     RayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,t)),fWorldTransform);
+     RayCastData.Normal:=Vector3NormEx(Vector3Sub(RayCastData.Point,Vector3TermMatrixMul(Vector3Origin,fWorldTransform)));
+     result:=true;
+    end;
    end;
   end;
  end;
@@ -19520,105 +19523,107 @@ var Origin,Direction,p,m:TKraftVector3;
     Aq,Bq,Cq,t,t0,t1,y0,y1,HalfHeight,pp,d,s1,s2:TKraftScalar;
 begin
  result:=false;
- Origin:=Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform);
- Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform));
- HalfHeight:=fHeight*0.5;
- Aq:=sqr(Direction.x)+sqr(Direction.z);
- Bq:=((2.0*Origin.x)*Direction.x)+((2.0*Origin.z)*Direction.z);
- Cq:=(sqr(Origin.x)+sqr(Origin.z))-sqr(fRadius);
- if SolveQuadraticRoots(Aq,Bq,Cq,t0,t1) then begin
-  if t0>t1 then begin
-   t:=t0;
-   t0:=t1;
-   t1:=t;
-  end;
-  y0:=Origin.y+(Direction.y*t0);
-  y1:=Origin.y+(Direction.y*t1);
-  if y0<(-HalfHeight) then begin
-   if y1>=(-HalfHeight) then begin
-    // if y0 < -HalfHeight and y1 >= -HalfHeight, then the ray hits the bottom Capsule cap
-    t:=y0-y1;
-    if t<>0.0 then begin
-     t:=t0+(((t1-t0)*(y0+HalfHeight))/t);
-     if (t>=0.0) and (t<=RayCastData.MaxTime) then begin
-      RayCastData.TimeOfImpact:=t;
-      RayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,t)),fWorldTransform);
-      RayCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(Vector3(0.0,-1.0,0.0),fWorldTransform));
-      result:=true;
-      exit;
+ if ksfRayCastable in fFlags then begin
+  Origin:=Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform);
+  Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform));
+  HalfHeight:=fHeight*0.5;
+  Aq:=sqr(Direction.x)+sqr(Direction.z);
+  Bq:=((2.0*Origin.x)*Direction.x)+((2.0*Origin.z)*Direction.z);
+  Cq:=(sqr(Origin.x)+sqr(Origin.z))-sqr(fRadius);
+  if SolveQuadraticRoots(Aq,Bq,Cq,t0,t1) then begin
+   if t0>t1 then begin
+    t:=t0;
+    t0:=t1;
+    t1:=t;
+   end;
+   y0:=Origin.y+(Direction.y*t0);
+   y1:=Origin.y+(Direction.y*t1);
+   if y0<(-HalfHeight) then begin
+    if y1>=(-HalfHeight) then begin
+     // if y0 < -HalfHeight and y1 >= -HalfHeight, then the ray hits the bottom Capsule cap
+     t:=y0-y1;
+     if t<>0.0 then begin
+      t:=t0+(((t1-t0)*(y0+HalfHeight))/t);
+      if (t>=0.0) and (t<=RayCastData.MaxTime) then begin
+       RayCastData.TimeOfImpact:=t;
+       RayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,t)),fWorldTransform);
+       RayCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(Vector3(0.0,-1.0,0.0),fWorldTransform));
+       result:=true;
+       exit;
+      end;
      end;
     end;
-   end;
-  end else if y0>HalfHeight then begin
-   if y1<=HalfHeight then begin
-    // if y0 > HalfHeight and y1 <= HalfHeight, then the ray hits the top Capsule cap
-    t:=y0-y1;
-    if t<>0.0 then begin
-     t:=t0+(((t1-t0)*(y0-HalfHeight))/t);
-     if (t>=0.0) and (t<=RayCastData.MaxTime) then begin
-      RayCastData.TimeOfImpact:=t;
-      RayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,t)),fWorldTransform);
-      RayCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(Vector3(0.0,1.0,0.0),fWorldTransform));
-      result:=true;
-      exit;
+   end else if y0>HalfHeight then begin
+    if y1<=HalfHeight then begin
+     // if y0 > HalfHeight and y1 <= HalfHeight, then the ray hits the top Capsule cap
+     t:=y0-y1;
+     if t<>0.0 then begin
+      t:=t0+(((t1-t0)*(y0-HalfHeight))/t);
+      if (t>=0.0) and (t<=RayCastData.MaxTime) then begin
+       RayCastData.TimeOfImpact:=t;
+       RayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,t)),fWorldTransform);
+       RayCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(Vector3(0.0,1.0,0.0),fWorldTransform));
+       result:=true;
+       exit;
+      end;
      end;
     end;
-   end;
-  end else begin
-   if (t0>=0.0) and (t0<=RayCastData.MaxTime) then begin
-    // if y0 < HalfHeight and y0 > -HalfHeight and t0 >= 0.0, then the ray intersects then Capsule wall
-    RayCastData.TimeOfImpact:=t0;
-    p:=Vector3Add(Origin,Vector3ScalarMul(Direction,t0));
-    RayCastData.Point:=Vector3TermMatrixMul(p,fWorldTransform);
-    RayCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(p,fWorldTransform));
-    result:=true;
-    exit;
-   end;
-  end;
- end;
- begin
-  m:=Vector3Sub(Origin,Vector3(0.0,-HalfHeight,0.0));
-  pp:=-Vector3Dot(m,Direction);
-  d:=sqr(pp)-Vector3LengthSquared(m)+sqr(fRadius);
-  if d>0.0 then begin
-   d:=sqrt(d);
-   s1:=pp-d;
-   s2:=pp+d;
-   if s2>0.0 then begin
-    if s1<0.0 then begin
-     t:=s2;
-    end else begin
-     t:=s1;
-    end;
-    if (t>=0.0) and (t<=RayCastData.MaxTime) then begin
-     RayCastData.TimeOfImpact:=t;
-     RayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,t)),fWorldTransform);
-     RayCastData.Normal:=Vector3NormEx(Vector3Sub(RayCastData.Point,Vector3TermMatrixMul(Vector3(0.0,-HalfHeight,0.0),fWorldTransform)));
+   end else begin
+    if (t0>=0.0) and (t0<=RayCastData.MaxTime) then begin
+     // if y0 < HalfHeight and y0 > -HalfHeight and t0 >= 0.0, then the ray intersects then Capsule wall
+     RayCastData.TimeOfImpact:=t0;
+     p:=Vector3Add(Origin,Vector3ScalarMul(Direction,t0));
+     RayCastData.Point:=Vector3TermMatrixMul(p,fWorldTransform);
+     RayCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(p,fWorldTransform));
      result:=true;
      exit;
     end;
    end;
   end;
- end;
- begin
-  m:=Vector3Sub(Origin,Vector3(0.0,HalfHeight,0.0));
-  pp:=-Vector3Dot(m,Direction);
-  d:=sqr(pp)-Vector3LengthSquared(m)+sqr(fRadius);
-  if d>0.0 then begin
-   d:=sqrt(d);
-   s1:=pp-d;
-   s2:=pp+d;
-   if s2>0.0 then begin
-    if s1<0.0 then begin
-     t:=s2;
-    end else begin
-     t:=s1;
+  begin
+   m:=Vector3Sub(Origin,Vector3(0.0,-HalfHeight,0.0));
+   pp:=-Vector3Dot(m,Direction);
+   d:=sqr(pp)-Vector3LengthSquared(m)+sqr(fRadius);
+   if d>0.0 then begin
+    d:=sqrt(d);
+    s1:=pp-d;
+    s2:=pp+d;
+    if s2>0.0 then begin
+     if s1<0.0 then begin
+      t:=s2;
+     end else begin
+      t:=s1;
+     end;
+     if (t>=0.0) and (t<=RayCastData.MaxTime) then begin
+      RayCastData.TimeOfImpact:=t;
+      RayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,t)),fWorldTransform);
+      RayCastData.Normal:=Vector3NormEx(Vector3Sub(RayCastData.Point,Vector3TermMatrixMul(Vector3(0.0,-HalfHeight,0.0),fWorldTransform)));
+      result:=true;
+      exit;
+     end;
     end;
-    if (t>=0.0) and (t<=RayCastData.MaxTime) then begin
-     RayCastData.TimeOfImpact:=t;
-     RayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,t)),fWorldTransform);
-     RayCastData.Normal:=Vector3NormEx(Vector3Sub(RayCastData.Point,Vector3TermMatrixMul(Vector3(0.0,HalfHeight,0.0),fWorldTransform)));
-     result:=true;
+   end;
+  end;
+  begin
+   m:=Vector3Sub(Origin,Vector3(0.0,HalfHeight,0.0));
+   pp:=-Vector3Dot(m,Direction);
+   d:=sqr(pp)-Vector3LengthSquared(m)+sqr(fRadius);
+   if d>0.0 then begin
+    d:=sqrt(d);
+    s1:=pp-d;
+    s2:=pp+d;
+    if s2>0.0 then begin
+     if s1<0.0 then begin
+      t:=s2;
+     end else begin
+      t:=s1;
+     end;
+     if (t>=0.0) and (t<=RayCastData.MaxTime) then begin
+      RayCastData.TimeOfImpact:=t;
+      RayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,t)),fWorldTransform);
+      RayCastData.Normal:=Vector3NormEx(Vector3Sub(RayCastData.Point,Vector3TermMatrixMul(Vector3(0.0,HalfHeight,0.0),fWorldTransform)));
+      result:=true;
+     end;
     end;
    end;
   end;
@@ -19779,42 +19784,44 @@ var FaceIndex,BestFaceIndex:longint;
     Origin,Direction:TKraftVector3;
 begin
  result:=false;
- Origin:=Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform);
- Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform));
- if Vector3LengthSquared(Direction)>EPSILON then begin
-  BestFaceIndex:=-1;
-  TimeFirst:=0.0;
-  TimeLast:=RayCastData.MaxTime+EPSILON;
-  for FaceIndex:=0 to fConvexHull.fCountFaces-1 do begin
-   Face:=@fConvexHull.fFaces[FaceIndex];
-   Numerator:=-PlaneVectorDistance(Face^.Plane,Origin);
-   Denominator:=Vector3Dot(Face^.Plane.Normal,Direction);
-   if abs(Denominator)<EPSILON then begin
-    if Numerator<0.0 then begin
-     exit;
-    end;
-   end else begin
-    Time:=Numerator/Denominator;
-    if Denominator<0.0 then begin
-     if TimeFirst<Time then begin
-      TimeFirst:=Time;
-      BestFaceIndex:=FaceIndex;
+ if ksfRayCastable in fFlags then begin
+  Origin:=Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform);
+  Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform));
+  if Vector3LengthSquared(Direction)>EPSILON then begin
+   BestFaceIndex:=-1;
+   TimeFirst:=0.0;
+   TimeLast:=RayCastData.MaxTime+EPSILON;
+   for FaceIndex:=0 to fConvexHull.fCountFaces-1 do begin
+    Face:=@fConvexHull.fFaces[FaceIndex];
+    Numerator:=-PlaneVectorDistance(Face^.Plane,Origin);
+    Denominator:=Vector3Dot(Face^.Plane.Normal,Direction);
+    if abs(Denominator)<EPSILON then begin
+     if Numerator<0.0 then begin
+      exit;
      end;
     end else begin
-     if TimeLast>Time then begin
-      TimeLast:=Time;
+     Time:=Numerator/Denominator;
+     if Denominator<0.0 then begin
+      if TimeFirst<Time then begin
+       TimeFirst:=Time;
+       BestFaceIndex:=FaceIndex;
+      end;
+     end else begin
+      if TimeLast>Time then begin
+       TimeLast:=Time;
+      end;
+     end;
+     if TimeFirst>TimeLast then begin
+      exit;
      end;
     end;
-    if TimeFirst>TimeLast then begin
-     exit;
-    end;
    end;
-  end;
-  if (BestFaceIndex>=0) and (TimeFirst<=TimeLast) and (TimeFirst<=RayCastData.MaxTime) then begin
-   RayCastData.TimeOfImpact:=TimeFirst;
-   RayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,TimeFirst)),fWorldTransform);
-   RayCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(fConvexHull.fFaces[BestFaceIndex].Plane.Normal,fWorldTransform));
-   result:=true;
+   if (BestFaceIndex>=0) and (TimeFirst<=TimeLast) and (TimeFirst<=RayCastData.MaxTime) then begin
+    RayCastData.TimeOfImpact:=TimeFirst;
+    RayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,TimeFirst)),fWorldTransform);
+    RayCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(fConvexHull.fFaces[BestFaceIndex].Plane.Normal,fWorldTransform));
+    result:=true;
+   end;
   end;
  end;
 end;
@@ -20073,92 +20080,94 @@ var s,v,h:TKraftVector3;
     sign:array[0..2] of TKraftScalar;
 begin
  result:=false;
- s:=Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform);
- v:=Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform);
- if v.x<0 then begin
-  s.x:=-s.x;
-  v.x:=-v.x;
-  sign[0]:=1;
- end else begin
-  sign[0]:=-1;
- end;
- if v.y<0 then begin
-  s.y:=-s.y;
-  v.y:=-v.y;
-  sign[1]:=1;
- end else begin
-  sign[1]:=-1;
- end;
- if v.z<0 then begin
-  s.z:=-s.z;
-  v.z:=-v.z;
-  sign[2]:=1;
- end else begin
-  sign[2]:=-1;
- end;
- h:=fExtents;
- if (((s.x<-h.x) and (v.x<=0)) or (s.x>h.x)) or
-    (((s.y<-h.y) and (v.y<=0)) or (s.y>h.y)) or
-    (((s.z<-h.z) and (v.z<=0)) or (s.z>h.z)) then begin
-  exit;
- end;
- lo:=-INFINITY;
- hi:=INFINITY;
- nlo:=0;
- nhi:=0;
- if v.x<>0.0 then begin
-  k:=((-h.x)-s.x)/v.x;
-  if k>lo then begin
-   lo:=k;
-   nlo:=0;
+ if ksfRayCastable in fFlags then begin
+  s:=Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform);
+  v:=Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform);
+  if v.x<0 then begin
+   s.x:=-s.x;
+   v.x:=-v.x;
+   sign[0]:=1;
+  end else begin
+   sign[0]:=-1;
   end;
-  k:=(h.x-s.x)/v.x;
-  if k<hi then begin
-   hi:=k;
-   nhi:=0;
+  if v.y<0 then begin
+   s.y:=-s.y;
+   v.y:=-v.y;
+   sign[1]:=1;
+  end else begin
+   sign[1]:=-1;
   end;
- end;
- if v.y<>0.0 then begin
-  k:=((-h.y)-s.y)/v.y;
-  if k>lo then begin
-   lo:=k;
-   nlo:=1;
+  if v.z<0 then begin
+   s.z:=-s.z;
+   v.z:=-v.z;
+   sign[2]:=1;
+  end else begin
+   sign[2]:=-1;
   end;
-  k:=(h.y-s.y)/v.y;
-  if k<hi then begin
-   hi:=k;
-   nhi:=1;
+  h:=fExtents;
+  if (((s.x<-h.x) and (v.x<=0)) or (s.x>h.x)) or
+     (((s.y<-h.y) and (v.y<=0)) or (s.y>h.y)) or
+     (((s.z<-h.z) and (v.z<=0)) or (s.z>h.z)) then begin
+   exit;
   end;
- end;
- if v.z<>0.0 then begin
-  k:=((-h.z)-s.z)/v.z;
-  if k>lo then begin
-   lo:=k;
-   nlo:=2;
+  lo:=-INFINITY;
+  hi:=INFINITY;
+  nlo:=0;
+  nhi:=0;
+  if v.x<>0.0 then begin
+   k:=((-h.x)-s.x)/v.x;
+   if k>lo then begin
+    lo:=k;
+    nlo:=0;
+   end;
+   k:=(h.x-s.x)/v.x;
+   if k<hi then begin
+    hi:=k;
+    nhi:=0;
+   end;
   end;
-  k:=(h.z-s.z)/v.z;
-  if k<hi then begin
-   hi:=k;
-   nhi:=2;
+  if v.y<>0.0 then begin
+   k:=((-h.y)-s.y)/v.y;
+   if k>lo then begin
+    lo:=k;
+    nlo:=1;
+   end;
+   k:=(h.y-s.y)/v.y;
+   if k<hi then begin
+    hi:=k;
+    nhi:=1;
+   end;
   end;
+  if v.z<>0.0 then begin
+   k:=((-h.z)-s.z)/v.z;
+   if k>lo then begin
+    lo:=k;
+    nlo:=2;
+   end;
+   k:=(h.z-s.z)/v.z;
+   if k<hi then begin
+    hi:=k;
+    nhi:=2;
+   end;
+  end;
+  if lo>hi then begin
+   exit;
+  end;
+  if lo>=0 then begin
+   Alpha:=lo;
+   n:=nlo;
+  end else begin
+   Alpha:=hi;
+   n:=nhi;
+  end;
+  if (Alpha<0) or (Alpha>RayCastData.MaxTime) then begin
+   exit;
+  end;
+  RayCastData.TimeOfImpact:=Alpha;
+  RayCastData.Point:=Vector3Add(RayCastData.Origin,Vector3ScalarMul(RayCastData.Direction,Alpha));
+  RayCastData.Normal:=Vector3ScalarMul(Vector3(fWorldTransform[n,0],fWorldTransform[n,1],fWorldTransform[n,2]),sign[n]);
+  result:=true;
  end;
- if lo>hi then begin
-  exit;
- end;
- if lo>=0 then begin
-  Alpha:=lo;
-  n:=nlo;
- end else begin
-  Alpha:=hi;
-  n:=nhi;
- end;
- if (Alpha<0) or (Alpha>RayCastData.MaxTime) then begin
-  exit;
- end;
- RayCastData.TimeOfImpact:=Alpha;
- RayCastData.Point:=Vector3Add(RayCastData.Origin,Vector3ScalarMul(RayCastData.Direction,Alpha));
- RayCastData.Normal:=Vector3ScalarMul(Vector3(fWorldTransform[n,0],fWorldTransform[n,1],fWorldTransform[n,2]),sign[n]);
- result:=true;
 end;
 
 {$ifdef DebugDraw}
@@ -20347,18 +20356,20 @@ var Origin,Direction:TKraftVector3;
     Time:TKraftScalar;
 begin
  result:=false;
- Origin:=Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform);
- Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform));
- if Vector3LengthSquared(Direction)>EPSILON then begin
-  Time:=-Vector3Dot(fPlane.Normal,Direction);
-  if abs(Time)>EPSILON then begin
-   Time:=PlaneVectorDistance(fPlane,Origin)/Time;
-   if Time>=0.0 then begin
-    if Time<RayCastData.MaxTime then begin
-     RayCastData.TimeOfImpact:=Time;
-     RayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
-     RayCastData.Normal:=Vector3TermMatrixMulBasis(fPlane.Normal,fWorldTransform);
-     result:=true;
+ if ksfRayCastable in fFlags then begin
+  Origin:=Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform);
+  Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform));
+  if Vector3LengthSquared(Direction)>EPSILON then begin
+   Time:=-Vector3Dot(fPlane.Normal,Direction);
+   if abs(Time)>EPSILON then begin
+    Time:=PlaneVectorDistance(fPlane,Origin)/Time;
+    if Time>=0.0 then begin
+     if Time<RayCastData.MaxTime then begin
+      RayCastData.TimeOfImpact:=Time;
+      RayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
+      RayCastData.Normal:=Vector3TermMatrixMulBasis(fPlane.Normal,fWorldTransform);
+      result:=true;
+     end;
     end;
    end;
   end;
@@ -20662,16 +20673,18 @@ var Origin,Direction:TKraftVector3;
     Time,u,v:TKraftScalar;
 begin
  result:=false;
- Origin:=Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform);
- Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform));
- if Vector3LengthSquared(Direction)>EPSILON then begin
-  Vertices:=@fConvexHull.fVertices[0];
-  if RayIntersectTriangle(Origin,Direction,Vertices^[0].Position,Vertices^[1].Position,Vertices^[2].Position,Time,u,v) then begin
-   if (Time>=0.0) and (Time<=RayCastData.MaxTime) then begin
-    RayCastData.TimeOfImpact:=Time;
-    RayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
-    RayCastData.Normal:=Vector3TermMatrixMulBasis(Vector3NormEx(Vector3Cross(Vector3Sub(Vertices^[1].Position,Vertices^[0].Position),Vector3Sub(Vertices^[2].Position,Vertices^[0].Position))),fWorldTransform);
-    result:=true;
+ if ksfRayCastable in fFlags then begin
+  Origin:=Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform);
+  Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform));
+  if Vector3LengthSquared(Direction)>EPSILON then begin
+   Vertices:=@fConvexHull.fVertices[0];
+   if RayIntersectTriangle(Origin,Direction,Vertices^[0].Position,Vertices^[1].Position,Vertices^[2].Position,Time,u,v) then begin
+    if (Time>=0.0) and (Time<=RayCastData.MaxTime) then begin
+     RayCastData.TimeOfImpact:=Time;
+     RayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
+     RayCastData.Normal:=Vector3TermMatrixMulBasis(Vector3NormEx(Vector3Cross(Vector3Sub(Vertices^[1].Position,Vertices^[0].Position),Vector3Sub(Vertices^[2].Position,Vertices^[0].Position))),fWorldTransform);
+     result:=true;
+    end;
    end;
   end;
  end;
@@ -20806,49 +20819,51 @@ var SkipListNodeIndex,TriangleIndex:longint;
     Origin,Direction,p,Normal:TKraftVector3;
 begin
  result:=false;
- Origin:=Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform);
- Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform));
- if Vector3LengthSquared(Direction)>EPSILON then begin
-  Nearest:=MAX_SCALAR;
-  First:=true;
-  SkipListNodeIndex:=0;  
-  while SkipListNodeIndex<fMesh.fCountSkipListNodes do begin
-   SkipListNode:=@fMesh.fSkipListNodes[SkipListNodeIndex];
-   if AABBRayIntersect(SkipListNode^.AABB,Origin,Direction) then begin
-    TriangleIndex:=SkipListNode^.TriangleIndex;
-    while TriangleIndex>=0 do begin
-     Triangle:=@fMesh.fTriangles[TriangleIndex];
-     if RayIntersectTriangle(Origin,
-                             Direction,
-                             fMesh.fVertices[Triangle^.Vertices[0]],
-                             fMesh.fVertices[Triangle^.Vertices[1]],
-                             fMesh.fVertices[Triangle^.Vertices[2]],
-                             Time,
-                             u,
-                             v) then begin
-      p:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time));
-      if ((Time>=0.0) and (Time<=RayCastData.MaxTime)) and (First or (Time<Nearest)) then begin
-       First:=false;
-       Nearest:=Time;
-       Normal:=Vector3Norm(Vector3Add(Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[0]],1.0-(u+v)),
-                           Vector3Add(Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[1]],u),
-                                      Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[2]],v))));
-       RayCastData.TimeOfImpact:=Time;
-       RayCastData.Point:=p;
-       RayCastData.Normal:=Normal;
-       result:=true;
+ if ksfRayCastable in fFlags then begin
+  Origin:=Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform);
+  Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform));
+  if Vector3LengthSquared(Direction)>EPSILON then begin
+   Nearest:=MAX_SCALAR;
+   First:=true;
+   SkipListNodeIndex:=0;
+   while SkipListNodeIndex<fMesh.fCountSkipListNodes do begin
+    SkipListNode:=@fMesh.fSkipListNodes[SkipListNodeIndex];
+    if AABBRayIntersect(SkipListNode^.AABB,Origin,Direction) then begin
+     TriangleIndex:=SkipListNode^.TriangleIndex;
+     while TriangleIndex>=0 do begin
+      Triangle:=@fMesh.fTriangles[TriangleIndex];
+      if RayIntersectTriangle(Origin,
+                              Direction,
+                              fMesh.fVertices[Triangle^.Vertices[0]],
+                              fMesh.fVertices[Triangle^.Vertices[1]],
+                              fMesh.fVertices[Triangle^.Vertices[2]],
+                              Time,
+                              u,
+                              v) then begin
+       p:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time));
+       if ((Time>=0.0) and (Time<=RayCastData.MaxTime)) and (First or (Time<Nearest)) then begin
+        First:=false;
+        Nearest:=Time;
+        Normal:=Vector3Norm(Vector3Add(Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[0]],1.0-(u+v)),
+                            Vector3Add(Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[1]],u),
+                                       Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[2]],v))));
+        RayCastData.TimeOfImpact:=Time;
+        RayCastData.Point:=p;
+        RayCastData.Normal:=Normal;
+        result:=true;
+       end;
       end;
+      TriangleIndex:=Triangle^.Next;
      end;
-     TriangleIndex:=Triangle^.Next;
+     inc(SkipListNodeIndex);
+    end else begin
+     SkipListNodeIndex:=SkipListNode^.SkipToNodeIndex;
     end;
-    inc(SkipListNodeIndex);
-   end else begin
-    SkipListNodeIndex:=SkipListNode^.SkipToNodeIndex;
    end;
-  end;
-  if result then begin
-   RayCastData.Point:=Vector3TermMatrixMul(RayCastData.Point,fWorldTransform);
-   RayCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(RayCastData.Normal,fWorldTransform));
+   if result then begin
+    RayCastData.Point:=Vector3TermMatrixMul(RayCastData.Point,fWorldTransform);
+    RayCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(RayCastData.Normal,fWorldTransform));
+   end;
   end;
  end;
 end;
