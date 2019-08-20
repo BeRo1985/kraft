@@ -1,7 +1,7 @@
 (****************************************************************************** 
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2018-06-02-05-46-0000                       *
+ *                        Version 2019-08-21-00-10-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -10396,7 +10396,7 @@ constructor TKraftHighResolutionTimer.Create(FrameRate:longint=60);
 begin
  inherited Create;
  fFrequencyShift:=0;
-{$ifdef windows}
+{$if defined(windows)}
  if QueryPerformanceFrequency(fFrequency) then begin
   while (fFrequency and $ffffffffe0000000)<>0 do begin
    fFrequency:=fFrequency shr 1;
@@ -10405,17 +10405,13 @@ begin
  end else begin
   fFrequency:=1000;
  end;
-{$else}
-{$ifdef linux}
+{$elseif defined(linux) or defined(android)}
   fFrequency:=1000000000;
-{$else}
-{$ifdef unix}
+{$elseif defined(unix)}
   fFrequency:=1000000;
 {$else}
   fFrequency:=1000;
-{$endif}
-{$endif}
-{$endif}
+{$ifend}
  fFrameInterval:=(fFrequency+((abs(FrameRate)+1) shr 1)) div abs(FrameRate);
  fMillisecondInterval:=(fFrequency+500) div 1000;
  fTwoMillisecondsInterval:=(fFrequency+250) div 500;
@@ -10435,29 +10431,25 @@ begin
 end;
 
 function TKraftHighResolutionTimer.GetTime:int64;
-{$ifdef linux}
+{$if defined(linux) or defined(android)}
 var NowTimeSpec:TimeSpec;
     ia,ib:int64;
-{$else}
-{$ifdef unix}
+{$elseif defined(unix)}
 var tv:timeval;
     tz:timezone;
     ia,ib:int64;
-{$endif}
-{$endif}
+{$ifend}
 begin
-{$ifdef windows}
+{$if defined(windows)}
  if not QueryPerformanceCounter(result) then begin
   result:=timeGetTime;
  end;
-{$else}
-{$ifdef linux}
+{$elseif defined(linux) or defined(android)}
  clock_gettime(CLOCK_MONOTONIC,@NowTimeSpec);
  ia:=int64(NowTimeSpec.tv_sec)*int64(1000000000);
  ib:=NowTimeSpec.tv_nsec;
  result:=ia+ib;
-{$else}
-{$ifdef unix}
+{$elseif defined(unix)}
   tz.tz_minuteswest:=0;
   tz.tz_dsttime:=0;
   fpgettimeofday(@tv,@tz);
@@ -10466,9 +10458,7 @@ begin
   result:=ia+ib;
 {$else}
  result:=SDL_GetTicks;
-{$endif}
-{$endif}
-{$endif}
+{$ifend}
  result:=result shr fFrequencyShift;
 end;
 
@@ -10484,7 +10474,7 @@ var EndTime,NowTime{$ifdef unix},SleepTime{$endif}:int64;
 {$endif}
 begin
  if Delay>0 then begin
-{$ifdef windows}
+{$if defined(windows)}
   NowTime:=GetTime;
   EndTime:=NowTime+Delay;
   while (NowTime+fTwoMillisecondsInterval)<EndTime do begin
@@ -10498,21 +10488,17 @@ begin
   while NowTime<EndTime do begin
    NowTime:=GetTime;
   end;
-{$else}
-{$ifdef linux}
+{$elseif defined(linux) or defined(android)}
   NowTime:=GetTime;
   EndTime:=NowTime+Delay;
-  while true do begin
-   SleepTime:=abs(EndTime-NowTime);
-   if SleepTime>=fFourMillisecondsInterval then begin
-    SleepTime:=(SleepTime+2) shr 2;
-    if SleepTime>0 then begin
-     req.tv_sec:=SleepTime div 1000000000;
-     req.tv_nsec:=SleepTime mod 10000000000;
-     fpNanoSleep(@req,@rem);
-     NowTime:=GetTime;
-     continue;
-    end;
+  while (NowTime+fFourMillisecondsInterval)<EndTime do begin
+   SleepTime:=((EndTime-NowTime)+2) shr 2;
+   if SleepTime>0 then begin
+    req.tv_sec:=SleepTime div 1000000000;
+    req.tv_nsec:=SleepTime mod 10000000000;
+    fpNanoSleep(@req,@rem);
+    NowTime:=GetTime;
+    continue;
    end;
    break;
   end;
@@ -10523,21 +10509,17 @@ begin
   while NowTime<EndTime do begin
    NowTime:=GetTime;
   end;
-{$else}
-{$ifdef unix}
+{$elseif defined(unix)}
   NowTime:=GetTime;
   EndTime:=NowTime+Delay;
-  while true do begin
-   SleepTime:=abs(EndTime-NowTime);
-   if SleepTime>=fFourMillisecondsInterval then begin
-    SleepTime:=(SleepTime+2) shr 2;
-    if SleepTime>0 then begin
-     req.tv_sec:=SleepTime div 1000000;
-     req.tv_nsec:=(SleepTime mod 1000000)*1000;
-     fpNanoSleep(@req,@rem);
-     NowTime:=GetTime;
-     continue;
-    end;
+  while (NowTime+fFourMillisecondsInterval)<EndTime do begin
+   SleepTime:=((EndTime-NowTime)+2) shr 2;
+   if SleepTime>0 then begin
+    req.tv_sec:=SleepTime div 1000000;
+    req.tv_nsec:=(SleepTime mod 1000000)*1000;
+    fpNanoSleep(@req,@rem);
+    NowTime:=GetTime;
+    continue;
    end;
    break;
   end;
@@ -10562,9 +10544,7 @@ begin
   while NowTime<EndTime do begin
    NowTime:=GetTime;
   end;
-{$endif}
-{$endif}
-{$endif}
+{$ifend}
  end;
 end;
 
