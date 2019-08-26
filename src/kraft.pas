@@ -1,7 +1,7 @@
 (****************************************************************************** 
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2019-08-21-00-27-0000                       *
+ *                        Version 2019-08-26-10-17-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -3704,6 +3704,20 @@ type qword=int64;
      ptrint=longint;
 {$endif}
 {$endif}
+
+{$if defined(fpc) and (defined(cpu386) or defined(cpux64) or defined(cpuamd64))}
+// For to avoid "Fatal: Internal error 200604201" at the FreePascal compiler, when >= -O2 is used
+function Sign(const aValue:single):longint;
+begin
+ if aValue<0.0 then begin
+  result:=-1;
+ end else if aValue>0.0 then begin
+  result:=1;
+ end else begin
+  result:=0;
+ end;
+end;
+{$ifend}
 
 type TUInt128=packed record
 {$ifdef BIG_ENDIAN}
