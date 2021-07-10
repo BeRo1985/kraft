@@ -1,12 +1,12 @@
 (****************************************************************************** 
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2019-08-26-10-17-0000                       *
+ *                        Version 2021-07-10-19-25-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
  *                                                                            *
- * Copyright (c) 2015-2018, Benjamin Rosseaux (benjamin@rosseaux.de)          *
+ * Copyright (c) 2015-2021, Benjamin Rosseaux (benjamin@rosseaux.de)          *
  *                                                                            *
  * This software is provided 'as-is', without any express or implied          *
  * warranty. In no event will the authors be held liable for any damages      *
@@ -2082,6 +2082,9 @@ type PKraftForceMode=^TKraftForceMode;
 
        procedure SetBodyAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
        procedure AddBodyAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+
+       function GetWorldLinearVelocityFromPoint(const APoint:TKraftVector3):TKraftVector3;
+       function GetBodyLinearVelocityFromPoint(const APoint:TKraftVector3):TKraftVector3;
 
        property Physics:TKraft read fPhysics;
 
@@ -25441,6 +25444,16 @@ end;
 procedure TKraftRigidBody.SetAngularMomentum(const NewAngularMomentum:TKraftVector3);
 begin
  fAngularVelocity:=Vector3TermMatrixMul(NewAngularMomentum,fWorldInverseInertiaTensor);
+end;
+
+function TKraftRigidBody.GetWorldLinearVelocityFromPoint(const APoint:TKraftVector3):TKraftVector3;
+begin
+ result:=Vector3Add(fLinearVelocity,Vector3Cross(fAngularVelocity,Vector3Sub(APoint,PKraftVector3(pointer(@fWorldTransform[3,0]))^)));
+end;
+
+function TKraftRigidBody.GetBodyLinearVelocityFromPoint(const APoint:TKraftVector3):TKraftVector3;
+begin
+result:=Vector3TermMatrixMulTransposedBasis(GetWorldLinearVelocityFromPoint(Vector3TermMatrixMul(APoint,fWorldTransform)),fWorldTransform);
 end;
 
 constructor TKraftConstraint.Create(const APhysics:TKraft);
