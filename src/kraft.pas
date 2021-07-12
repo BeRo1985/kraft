@@ -1,7 +1,7 @@
 (****************************************************************************** 
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2021-07-10-19-25-0000                       *
+ *                        Version 2021-07-12-04-16-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -25293,13 +25293,13 @@ end;
 procedure TKraftRigidBody.SetForceAtPosition(const AForce,APosition:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
 begin
  SetWorldForce(AForce,AForceMode);
- SetWorldTorque(Vector3TermMatrixMul(Vector3Cross(Vector3Sub(APosition,fSweep.c),AForce),fWorldInverseInertiaTensor),AForceMode);
+ SetWorldTorque(Vector3Cross(Vector3Sub(APosition,fSweep.c),AForce),AForceMode);
 end;
 
 procedure TKraftRigidBody.AddForceAtPosition(const AForce,APosition:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
 begin
  AddWorldForce(AForce,AForceMode);
- AddWorldTorque(Vector3TermMatrixMul(Vector3Cross(Vector3Sub(APosition,fSweep.c),AForce),fWorldInverseInertiaTensor),AForceMode);
+ AddWorldTorque(Vector3Cross(Vector3Sub(APosition,fSweep.c),AForce),AForceMode);
 end;
 
 procedure TKraftRigidBody.SetWorldForce(const AForce:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
