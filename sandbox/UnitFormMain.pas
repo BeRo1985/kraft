@@ -45,6 +45,7 @@ type TCamera=object
     N1: TMenuItem;
     N2: TMenuItem;
     OpenGLControlWorld: TOpenGLControl;
+    PopupMenu1: TPopupMenu;
     sPanelLeft: TPanel;
     sSplitter1: TSplitter;
     sPanelLeftTop: TPanel;
@@ -1037,7 +1038,7 @@ begin
 
     glShadeModel(GL_SMOOTH);
 
-    glDepthFunc(GL_LEQUAL);
+    glDepthFunc(GL_LESS);
     glCullFace(GL_BACK);
 
     glEnable(GL_LIGHTING);
@@ -1067,6 +1068,8 @@ begin
       RigidBody:=RigidBody.RigidBodyNext;
      end;
     end;
+
+    glDepthFunc(GL_LEQUAL);
 
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
@@ -1310,6 +1313,9 @@ begin
       glDisable(GL_BLEND);{}
      end;
     end;
+
+    glDisable(GL_POLYGON_OFFSET_LINE);
+    glDisable(GL_POLYGON_OFFSET_POINT);
 
     OpenGLControlWorld.SwapBuffers;
 

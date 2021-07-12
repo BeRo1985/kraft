@@ -1,7 +1,7 @@
 (******************************************************************************
  *                   ARCADE CAR PHYSICS FOR KRAFT PHYSICS ENGINE              *
  ******************************************************************************
- *                        Version 2021-07-12-19-06-0000                       *
+ *                        Version 2021-07-12-23-11-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -493,6 +493,8 @@ type { TVehicle }
 
 implementation
 
+{$define SingleRaycastResult}
+
 function Clamp(const aValue,aMin,aMax:TKraftScalar):TKraftScalar; inline;
 begin
  if aValue<=aMin then begin
@@ -808,11 +810,23 @@ var LocalWheelRotation,WorldSpaceWheelRotation:TKraftQuaternion;
     SuspCompressionVelocity,DamperForce,
     LaterialFriction,SlipperyK,HandBrakeK,
     ClampedMag:TKraftScalar;
+{$ifdef SingleRaycastResult}
+    RayResult:TRayResult;
+{$else}
     RayResults:array[0..2] of TRayResult;
+{$endif}
     IsBrakeEnabled,IsHandBrakeEnabled:boolean;
  function RayCast(const aRayOrigin,aRayDirection:TKraftVector3;const aMaxTime:TKraftScalar):TRayResult;
  begin
-  result.Valid:=fVehicle.fKraftPhysics.RayCast(aRayOrigin,aRayDirection,aMaxTime,result.Shape,result.Time,result.Point,result.Normal,[0]);
+  result.Valid:=fVehicle.fKraftPhysics.RayCast(aRayOrigin,
+                                               aRayDirection,
+                                               aMaxTime,
+                                               result.Shape,
+                                               result.Time,
+                                               result.Point,
+                                               result.Normal,
+                                               [0]
+                                              );
  end;
 begin
 
@@ -830,6 +844,21 @@ begin
 
  TraceLen:=fAxle.fRelaxedSuspensionLength+fAxle.fRadius;
 
+{$ifdef SingleRaycastResult}
+ RayOrigin:=aWorldSpacePosition;
+ RayResult:=RayCast(RayOrigin,RayDirection,TraceLen);
+
+ if not RayResult.Valid then begin
+  fCompressionPrev:=fCompression;
+  fCompression:=Clamp01(fCompression-(fVehicle.fKraftPhysics.WorldDeltaTime*RelaxSpeed));
+  exit;
+ end;
+
+ fHitValid:=RayResult.Valid;
+ fHitTime:=RayResult.Time;
+ fHitPoint:=RayResult.Point;
+ fHitNormal:=RayResult.Normal;
+{$else}
  RayOrigin:=Vector3Add(aWorldSpacePosition,Vector3ScalarMul(WorldSpaceAxleLeft,WheelWidth));
  RayResults[0]:=RayCast(RayOrigin,RayDirection,TraceLen);
 
@@ -849,6 +878,7 @@ begin
  fHitTime:=RayResults[2].Time;
  fHitPoint:=RayResults[2].Point;
  fHitNormal:=RayResults[2].Normal;
+{$endif}
 
  SuspensionLengthNow:=fHitTime-fAxle.fRadius;
 
@@ -902,8 +932,11 @@ begin
  WheelVelocity:=fVehicle.fRigidBody.GetWorldLinearVelocityFromPoint(fHitPoint);
 
  ContactUp:=HitNormal;
-//ContactLeft:=Vector3Norm(Vector3Sub(WorldSpaceAxleLeft,Vector3ScalarMul(ContactUp,Vector3Dot(WorldSpaceAxleLeft,ContactUp))));
+{$ifdef SingleRaycastResult}
+ ContactLeft:=Vector3Norm(Vector3Sub(WorldSpaceAxleLeft,Vector3ScalarMul(ContactUp,Vector3Dot(WorldSpaceAxleLeft,ContactUp))));
+{$else}
  ContactLeft:=Vector3Norm(Vector3Sub(RayResults[0].Point,RayResults[1].Point));
+{$endif}
  ContactForward:=Vector3Cross(ContactUp,ContactLeft);
 
  LeftVelocity:=Vector3ScalarMul(ContactLeft,Vector3Dot(WheelVelocity,ContactLeft));

@@ -2,10 +2,10 @@ object FormMain: TFormMain
   Left = -8
   Height = 625
   Top = -8
-  Width = 961
+  Width = 977
   Caption = 'Kraft physics engine sandbox - Copyright (C) 2015-2016, Benjamin ''BeRo'' Rosseaux'
-  ClientHeight = 605
-  ClientWidth = 961
+  ClientHeight = 625
+  ClientWidth = 977
   Color = clBtnFace
   Font.Color = clWindowText
   Font.Height = -11
@@ -16,7 +16,6 @@ object FormMain: TFormMain
   OnDestroy = FormDestroy
   OnShow = FormShow
   Position = poScreenCenter
-  LCLVersion = '2.1.0.0'
   WindowState = wsMaximized
   object sSplitter1: TSplitter
     Left = 305
@@ -26,7 +25,7 @@ object FormMain: TFormMain
     ResizeStyle = rsLine
   end
   object sSplitter3: TSplitter
-    Left = 771
+    Left = 787
     Height = 625
     Top = 0
     Width = 5
@@ -117,7 +116,7 @@ object FormMain: TFormMain
     end
   end
   object sPanelRight: TPanel
-    Left = 776
+    Left = 792
     Height = 625
     Top = 0
     Width = 185
@@ -162,11 +161,11 @@ object FormMain: TFormMain
     Left = 310
     Height = 625
     Top = 0
-    Width = 461
+    Width = 477
     Align = alClient
     BevelOuter = bvNone
     ClientHeight = 625
-    ClientWidth = 461
+    ClientWidth = 477
     FullRepaint = False
     TabOrder = 2
     object sSplitter4: TSplitter
@@ -174,7 +173,7 @@ object FormMain: TFormMain
       Left = 0
       Height = 6
       Top = 451
-      Width = 461
+      Width = 477
       Align = alBottom
       ResizeAnchor = akBottom
       ResizeStyle = rsLine
@@ -183,17 +182,17 @@ object FormMain: TFormMain
       Left = 0
       Height = 168
       Top = 457
-      Width = 461
+      Width = 477
       Align = alBottom
       BevelOuter = bvNone
       ClientHeight = 168
-      ClientWidth = 461
+      ClientWidth = 477
       TabOrder = 0
       object sPageControl1: TPageControl
         Left = 0
         Height = 168
         Top = 0
-        Width = 461
+        Width = 477
         ActivePage = sTabSheetInfo
         Align = alClient
         TabIndex = 0
@@ -201,12 +200,12 @@ object FormMain: TFormMain
         object sTabSheetInfo: TTabSheet
           Caption = 'Info'
           ClientHeight = 142
-          ClientWidth = 453
+          ClientWidth = 469
           object sMemoInfo: TMemo
             Left = 0
             Height = 142
             Top = 0
-            Width = 453
+            Width = 469
             Align = alClient
             Color = clWhite
             Font.Color = clBlack
@@ -343,7 +342,7 @@ object FormMain: TFormMain
       Left = 0
       Height = 451
       Top = 0
-      Width = 461
+      Width = 477
       ActivePage = sTabSheetWorld
       Align = alClient
       TabIndex = 0
@@ -351,14 +350,15 @@ object FormMain: TFormMain
       object sTabSheetWorld: TTabSheet
         Caption = 'World'
         ClientHeight = 425
-        ClientWidth = 453
+        ClientWidth = 469
         object OpenGLControlWorld: TOpenGLControl
           Left = 0
           Height = 425
           Top = 0
-          Width = 453
+          Width = 469
           Align = alClient
           OpenGLMajorVersion = 2
+          DepthBits = 32
           OnEnter = OpenGLControlWorldEnter
           OnExit = OpenGLControlWorldExit
           OnKeyDown = OpenGLControlWorldKeyDown
@@ -408,5 +408,9 @@ object FormMain: TFormMain
     OnTimer = TimerDrawTimer
     Left = 411
     Top = 351
+  end
+  object PopupMenu1: TPopupMenu
+    Left = 562
+    Top = 313
   end
 end
