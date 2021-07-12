@@ -12,6 +12,8 @@ type TDemoScene=class;
 
      TDemoSceneClass=class of TDemoScene;
 
+     { TDemoScene }
+
      TDemoScene=class
       public
        fKraftPhysics:TKraft;
@@ -21,6 +23,13 @@ type TDemoScene=class;
        constructor Create(const AKraftPhysics:TKraft); virtual;
        destructor Destroy; override;
        procedure Step(const DeltaTime:double); virtual;
+       procedure DebugDraw; virtual;
+       function HasOwnKeyboardControls:boolean; virtual;
+       procedure KeyDown(const aKey:Int32); virtual;
+       procedure KeyUp(const aKey:Int32); virtual;
+       function UpdateCamera(var aCameraPosition:TKraftVector3;var aCameraOrientation:TKraftQuaternion):boolean; virtual;
+       procedure StoreWorldTransforms; virtual;
+       procedure InterpolateWorldTransforms(const aAlpha:TKraftScalar); virtual;
        property KraftPhysics:TKraft read fKraftPhysics;
      end;
 
@@ -75,6 +84,39 @@ begin
 end;
 
 procedure TDemoScene.Step(const DeltaTime:double);
+begin
+end;
+
+procedure TDemoScene.DebugDraw;
+begin
+
+end;
+
+function TDemoScene.HasOwnKeyboardControls:boolean;
+begin
+ result:=false;
+end;
+
+procedure TDemoScene.KeyDown(const aKey:Int32);
+begin
+
+end;
+
+procedure TDemoScene.KeyUp(const aKey:Int32);
+begin
+
+end;
+
+function TDemoScene.UpdateCamera(var aCameraPosition:TKraftVector3;var aCameraOrientation:TKraftQuaternion):boolean;
+begin
+ result:=false;
+end;
+
+procedure TDemoScene.StoreWorldTransforms;
+begin
+end;
+
+procedure TDemoScene.InterpolateWorldTransforms(const aAlpha:TKraftScalar);
 begin
 end;
 

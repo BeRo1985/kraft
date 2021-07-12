@@ -14,9 +14,9 @@ uses
   PasMP in '..\..\..\PASMP.github\trunk\src\PasMP.pas',
 {$endif}
   UnitDemoScene in 'UnitDemoScene.pas',
-  UnitDemoSceneCatapult,
-  UnitDemoSceneRoundabout,
-  UnitDemoSceneCarousel,
+  UnitDemoSceneCatapult in 'UnitDemoSceneCatapult.pas',
+  UnitDemoSceneRoundabout in 'UnitDemoSceneRoundabout.pas',
+  UnitDemoSceneCarousel in 'UnitDemoSceneCarousel.pas',
   UnitDemoSceneBoxOnPlane in 'UnitDemoSceneBoxOnPlane.pas',
   UnitDemoSceneSandBox in 'UnitDemoSceneSandBox.pas',
   UnitDemoSceneBoxStacking in 'UnitDemoSceneBoxStacking.pas',
@@ -29,7 +29,8 @@ uses
   UnitDemoSceneDomino in 'UnitDemoSceneDomino.pas',
   UnitDemoSceneChairAndTable in 'UnitDemoSceneChairAndTable.pas',
   UnitDemoSceneConvexHull in 'UnitDemoSceneConvexHull.pas',
-  UnitDemoSceneCar in 'UnitDemoSceneCar.pas';
+  UnitDemoSceneCar in 'UnitDemoSceneCar.pas',
+  UnitDemoSceneRaycastVehicle in 'UnitDemoSceneRaycastVehicle.pas';
 
 {$R *.res}
 

@@ -69,6 +69,7 @@ type TCamera=object
     sTreeViewDemos: TTreeView;
     sTabSheetPerformance: TTabSheet;
     sLabelBroadPhaseTime: TLabel;
+    TimerDraw: TTimer;
     TimerFPS: TTimer;
     TimerPerformance: TTimer;
     sLabelMidPhaseTime: TLabel;
@@ -112,6 +113,7 @@ type TCamera=object
     procedure FormShow(Sender: TObject);
     procedure sTreeViewDemosDblClick(Sender: TObject);
     procedure JvSimScope1Update(Sender: TObject);
+    procedure TimerDrawTimer(Sender: TObject);
     procedure TimerFPSTimer(Sender: TObject);
     procedure TimerPerformanceTimer(Sender: TObject);
     procedure sTreeViewDemosKeyPress(Sender: TObject; var Key: Char);
@@ -168,16 +170,16 @@ end;
 procedure TThreadTimer.Draw;
 begin
  if assigned(FormMain.KraftPhysics) then begin
-  FormMain.OpenGLControlWorld.Paint;
-  Application.ProcessMessages;
+//  FormMain.OpenGLControlWorld.Paint;
+  //Application.ProcessMessages;
  end;
 end;
 
 procedure TThreadTimer.Execute;
 begin
  while not Terminated do begin
-  Synchronize(Draw);
-  Sleep(0);
+  //Synchronize(Draw);
+  Sleep(10);
  end;
 end;
 
@@ -507,6 +509,11 @@ begin
   sTreeViewMain.Items.EndUpdate;
  end;
 
+ if assigned(DemoScene) then begin
+  DemoScene.StoreWorldTransforms;
+  DemoScene.InterpolateWorldTransforms(0.0);
+ end;
+
  KraftPhysics.StoreWorldTransforms;
  KraftPhysics.InterpolateWorldTransforms(0.0);
 
@@ -597,7 +604,10 @@ begin
   for Index:=0 to DemoScenes.Count-1 do begin
    sTreeViewDemos.Items.AddChildObject(TreeNodeDemos,DemoScenes.Strings[Index],DemoScenes.Objects[Index]);
   end;
-  TreeNodeDemoDefault:=TreeNodeDemos.GetFirstChild;
+  TreeNodeDemoDefault:=TreeNodeDemos.FindNode('Raycast vehicle');
+  if not assigned(TreeNodeDemoDefault) then begin
+   TreeNodeDemoDefault:=TreeNodeDemos.GetFirstChild;
+  end;
  finally
   sTreeViewDemos.Items.EndUpdate;
  end;
@@ -686,25 +696,53 @@ begin
 {if Rotating then}begin
   case Key of
    VK_SPACE:begin
-    FireSphere;
+    if (assigned(FormMain.DemoScene) and FormMain.DemoScene.HasOwnKeyboardControls) then begin
+     FormMain.DemoScene.KeyDown(VK_SPACE);
+    end else begin
+     FireSphere;
+    end;
    end;
    VK_LEFT,ord('A'):begin
-    KeyLeft:=true;
+    if (assigned(FormMain.DemoScene) and FormMain.DemoScene.HasOwnKeyboardControls) then begin
+     FormMain.DemoScene.KeyDown(VK_LEFT);
+    end else begin
+     KeyLeft:=true;
+    end;
    end;
    VK_RIGHT,ord('D'):begin
-    KeyRight:=true;
+    if (assigned(FormMain.DemoScene) and FormMain.DemoScene.HasOwnKeyboardControls) then begin
+     FormMain.DemoScene.KeyDown(VK_RIGHT);
+    end else begin
+     KeyRight:=true;
+    end;
    end;
    VK_UP,ord('W'):begin
-    KeyForwards:=true;
+    if (assigned(FormMain.DemoScene) and FormMain.DemoScene.HasOwnKeyboardControls) then begin
+     FormMain.DemoScene.KeyDown(VK_UP);
+    end else begin
+     KeyForwards:=true;
+    end;
    end;
    VK_DOWN,ord('S'):begin
-    KeyBackwards:=true;
+    if (assigned(FormMain.DemoScene) and FormMain.DemoScene.HasOwnKeyboardControls) then begin
+     FormMain.DemoScene.KeyDown(VK_DOWN);
+    end else begin
+     KeyBackwards:=true;
+    end;
    end;
    VK_PRIOR,ord('R'):begin
-    KeyUp:=true;
+    if (assigned(FormMain.DemoScene) and FormMain.DemoScene.HasOwnKeyboardControls) then begin
+     FormMain.DemoScene.KeyDown(VK_PRIOR);
+    end else begin
+     KeyUp:=true;
+    end;
    end;
    VK_NEXT,ord('F'):begin
-    KeyDown:=true;
+    if (assigned(FormMain.DemoScene) and FormMain.DemoScene.HasOwnKeyboardControls) then begin
+     FormMain.DemoScene.KeyDown(VK_NEXT);
+    end else begin
+     KeyDown:=true;
+    end;
    end;
   end;
  end;
@@ -716,6 +754,10 @@ begin
 {if Rotating then{}begin
   case Key of
    VK_SPACE:begin
+    if (assigned(FormMain.DemoScene) and FormMain.DemoScene.HasOwnKeyboardControls) then begin
+     FormMain.DemoScene.KeyUp(VK_SPACE);
+    end else begin
+    end;
 {   FormMain.sTreeViewMain.Items.BeginUpdate;
     try
      FormMain.AddRigidBody(RigidBody);
@@ -724,22 +766,46 @@ begin
     end;{}
    end;
    VK_LEFT,ord('A'):begin
-    KeyLeft:=false;
+    if (assigned(FormMain.DemoScene) and FormMain.DemoScene.HasOwnKeyboardControls) then begin
+     FormMain.DemoScene.KeyUp(VK_LEFT);
+    end else begin
+     KeyLeft:=false;
+    end;
    end;
    VK_RIGHT,ord('D'):begin
-    KeyRight:=false;
+    if (assigned(FormMain.DemoScene) and FormMain.DemoScene.HasOwnKeyboardControls) then begin
+     FormMain.DemoScene.KeyUp(VK_RIGHT);
+    end else begin
+     KeyRight:=false;
+    end;
    end;
    VK_UP,ord('W'):begin
-    KeyForwards:=false;
+    if (assigned(FormMain.DemoScene) and FormMain.DemoScene.HasOwnKeyboardControls) then begin
+     FormMain.DemoScene.KeyUp(VK_UP);
+    end else begin
+     KeyForwards:=false;
+    end;
    end;
    VK_DOWN,ord('S'):begin
-    KeyBackwards:=false;
+    if (assigned(FormMain.DemoScene) and FormMain.DemoScene.HasOwnKeyboardControls) then begin
+     FormMain.DemoScene.KeyUp(VK_DOWN);
+    end else begin
+     KeyBackwards:=false;
+    end;
    end;
    VK_PRIOR,ord('R'):begin
-    KeyUp:=false;
+    if (assigned(FormMain.DemoScene) and FormMain.DemoScene.HasOwnKeyboardControls) then begin
+     FormMain.DemoScene.KeyUp(VK_PRIOR);
+    end else begin
+     KeyUp:=false;
+    end;
    end;
    VK_NEXT,ord('F'):begin
-    KeyDown:=false;
+    if (assigned(FormMain.DemoScene) and FormMain.DemoScene.HasOwnKeyboardControls) then begin
+     FormMain.DemoScene.KeyUp(VK_NEXT);
+    end else begin
+     KeyDown:=false;
+    end;
    end;
   end;
  end;
@@ -873,29 +939,37 @@ begin
      end;
      FormMain.KraftPhysics.StoreWorldTransforms;
      if assigned(FormMain.DemoScene) then begin
+      FormMain.DemoScene.StoreWorldTransforms;
       FormMain.DemoScene.Step(PhysicsTimeStep);
      end;
      FormMain.KraftPhysics.Step(PhysicsTimeStep);
      CurrentCamera.TestCamera;
-     if KeyLeft then begin
-      CurrentCamera.MoveSidewards(PhysicsTimeStep*10.0);
-     end;
-     if KeyRight then begin
-      CurrentCamera.MoveSidewards(-(PhysicsTimeStep*10.0));
-     end;
-     if KeyForwards then begin
-      CurrentCamera.MoveForwards(PhysicsTimeStep*10.0);
-     end;
-     if KeyBackwards then begin
-      CurrentCamera.MoveForwards(-(PhysicsTimeStep*10.0));
-     end;
-     if KeyUp then begin
-      CurrentCamera.MoveUpwards(PhysicsTimeStep*10.0);
-     end;
-     if KeyDown then begin
-      CurrentCamera.MoveUpwards(-(PhysicsTimeStep*10.0));
+     if (assigned(FormMain.DemoScene) and FormMain.DemoScene.UpdateCamera(CurrentCamera.Position,CurrentCamera.Orientation)) then begin
+      CurrentCamera.Matrix:=QuaternionToMatrix4x4(CurrentCamera.Orientation);
+     end else begin
+      if KeyLeft then begin
+       CurrentCamera.MoveSidewards(PhysicsTimeStep*10.0);
+      end;
+      if KeyRight then begin
+       CurrentCamera.MoveSidewards(-(PhysicsTimeStep*10.0));
+      end;
+      if KeyForwards then begin
+       CurrentCamera.MoveForwards(PhysicsTimeStep*10.0);
+      end;
+      if KeyBackwards then begin
+       CurrentCamera.MoveForwards(-(PhysicsTimeStep*10.0));
+      end;
+      if KeyUp then begin
+       CurrentCamera.MoveUpwards(PhysicsTimeStep*10.0);
+      end;
+      if KeyDown then begin
+       CurrentCamera.MoveUpwards(-(PhysicsTimeStep*10.0));
+      end;
      end;
      CurrentCamera.TestCamera;
+    end;
+    if assigned(FormMain.DemoScene) then begin
+     FormMain.DemoScene.InterpolateWorldTransforms(TimeAccumulator/PhysicsTimeStep);
     end;
     FormMain.KraftPhysics.InterpolateWorldTransforms(TimeAccumulator/PhysicsTimeStep);
     InterpolatedCamera.Interpolate(LastCamera,CurrentCamera,TimeAccumulator/PhysicsTimeStep);
@@ -1067,6 +1141,10 @@ begin
     glDisable(GL_POLYGON_OFFSET_LINE);
     glDisable(GL_POLYGON_OFFSET_POINT);
 
+    if assigned(FormMain.DemoScene) then begin
+     FormMain.DemoScene.DebugDraw;
+    end;
+
     glDisable(GL_LIGHTING);
     glEnable(GL_POLYGON_OFFSET_LINE);
     glEnable(GL_POLYGON_OFFSET_POINT);
@@ -1165,70 +1243,72 @@ begin
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_LIGHTING);
     glColor4f(1,1,1,1);
-    glPointSize(2);
-    glLineWidth(2);
-    glTranslatef(0,0,-4);
-    glBegin(GL_LINES);
-    glVertex3f(-0.25,0,0);
-    glVertex3f(0.25,0,0);
-    glVertex3f(0,-0.25,0);
-    glVertex3f(0,0.25,0);
-    glEnd;
-    glBegin(GL_LINE_STRIP);
-    for i:=0 to 16 do begin
-     glVertex3f(cos(i*pi/8)*0.125,sin(i*pi/8)*0.125,0);
-    end;
-    glEnd;
-    glBegin(GL_LINE_STRIP);
-    for i:=0 to 16 do begin
-     glVertex3f(cos(i*pi/8)*0.06125*0.5,sin(i*pi/8)*0.06125*0.5,0);
-    end;
-    glEnd;
-    glPointSize(1);
-    glLineWidth(1);
+    if not (assigned(FormMain.DemoScene) and FormMain.DemoScene.HasOwnKeyboardControls) then begin
+     glPointSize(2);
+     glLineWidth(2);
+     glTranslatef(0,0,-4);
+     glBegin(GL_LINES);
+     glVertex3f(-0.25,0,0);
+     glVertex3f(0.25,0,0);
+     glVertex3f(0,-0.25,0);
+     glVertex3f(0,0.25,0);
+     glEnd;
+     glBegin(GL_LINE_STRIP);
+     for i:=0 to 16 do begin
+      glVertex3f(cos(i*pi/8)*0.125,sin(i*pi/8)*0.125,0);
+     end;
+     glEnd;
+     glBegin(GL_LINE_STRIP);
+     for i:=0 to 16 do begin
+      glVertex3f(cos(i*pi/8)*0.06125*0.5,sin(i*pi/8)*0.06125*0.5,0);
+     end;
+     glEnd;
+     glPointSize(1);
+     glLineWidth(1);
 
-    if Focused then begin
-     glClear(GL_DEPTH_BUFFER_BIT);
-     glMatrixMode(GL_PROJECTION);
-     glLoadIdentity();
-     glMatrixMode(GL_MODELVIEW);
-     glLoadIdentity();
-     glDisable(GL_BLEND);
-     glColor4f(0.5,0.5,1.0,1.0);
-     glLineWidth(3);
-     glDisable(GL_DEPTH_TEST);
-     glDisable(GL_LIGHTING);
-     glDisable(GL_CULL_FACE);
-     glDepthMask(GL_FALSE);
-     glPolygonMode(GL_FRONT_AND_BACK,GL_LINE);
-     glBegin(GL_QUADS);
-     glVertex3f(1.0,-1.0,0.0);
-     glVertex3f(1.0,1.0,0.0);
-     glVertex3f(-1.0,1.0,0.0);
-     glVertex3f(-1.0,-1.0,0.0);
-     glEnd;
-     glDisable(GL_BLEND);
-    end else begin
-  {  glClear(GL_DEPTH_BUFFER_BIT);
-     glMatrixMode(GL_PROJECTION);
-     glLoadIdentity();
-     glMatrixMode(GL_MODELVIEW);
-     glLoadIdentity();
-     glEnable(GL_BLEND);
-     glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
-     glColor4f(0.0,0.0,0.0,0.25);
-     glDisable(GL_DEPTH_TEST);
-     glDisable(GL_LIGHTING);
-     glDisable(GL_CULL_FACE);
-     glDepthMask(GL_FALSE);
-     glPolygonMode(GL_FRONT_AND_BACK,GL_FILL);
-     glBegin(GL_QUADS);
-     glVertex3f(1.0,-1.0,0.0);
-     glVertex3f(1.0,1.0,0.0);
-     glVertex3f(-1.0,1.0,0.0);
-     glVertex3f(-1.0,-1.0,0.0);
-     glEnd;
-     glDisable(GL_BLEND);{}
+     if Focused then begin
+      glClear(GL_DEPTH_BUFFER_BIT);
+      glMatrixMode(GL_PROJECTION);
+      glLoadIdentity();
+      glMatrixMode(GL_MODELVIEW);
+      glLoadIdentity();
+      glDisable(GL_BLEND);
+      glColor4f(0.5,0.5,1.0,1.0);
+      glLineWidth(3);
+      glDisable(GL_DEPTH_TEST);
+      glDisable(GL_LIGHTING);
+      glDisable(GL_CULL_FACE);
+      glDepthMask(GL_FALSE);
+      glPolygonMode(GL_FRONT_AND_BACK,GL_LINE);
+      glBegin(GL_QUADS);
+      glVertex3f(1.0,-1.0,0.0);
+      glVertex3f(1.0,1.0,0.0);
+      glVertex3f(-1.0,1.0,0.0);
+      glVertex3f(-1.0,-1.0,0.0);
+      glEnd;
+      glDisable(GL_BLEND);
+     end else begin
+   {  glClear(GL_DEPTH_BUFFER_BIT);
+      glMatrixMode(GL_PROJECTION);
+      glLoadIdentity();
+      glMatrixMode(GL_MODELVIEW);
+      glLoadIdentity();
+      glEnable(GL_BLEND);
+      glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+      glColor4f(0.0,0.0,0.0,0.25);
+      glDisable(GL_DEPTH_TEST);
+      glDisable(GL_LIGHTING);
+      glDisable(GL_CULL_FACE);
+      glDepthMask(GL_FALSE);
+      glPolygonMode(GL_FRONT_AND_BACK,GL_FILL);
+      glBegin(GL_QUADS);
+      glVertex3f(1.0,-1.0,0.0);
+      glVertex3f(1.0,1.0,0.0);
+      glVertex3f(-1.0,1.0,0.0);
+      glVertex3f(-1.0,-1.0,0.0);
+      glEnd;
+      glDisable(GL_BLEND);{}
+     end;
     end;
 
     OpenGLControlWorld.SwapBuffers;
@@ -1326,6 +1406,13 @@ end;
 procedure TFormMain.JvSimScope1Update(Sender: TObject);
 begin
  if assigned(KraftPhysics) then begin
+ end;
+end;
+
+procedure TFormMain.TimerDrawTimer(Sender: TObject);
+begin
+ if assigned(KraftPhysics) then begin
+  OpenGLControlWorld.Paint;
  end;
 end;
 

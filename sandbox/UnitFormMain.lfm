@@ -1,11 +1,11 @@
 object FormMain: TFormMain
-  Left = 0
-  Height = 675
-  Top = 266
-  Width = 945
+  Left = -8
+  Height = 625
+  Top = -8
+  Width = 961
   Caption = 'Kraft physics engine sandbox - Copyright (C) 2015-2016, Benjamin ''BeRo'' Rosseaux'
-  ClientHeight = 655
-  ClientWidth = 945
+  ClientHeight = 605
+  ClientWidth = 961
   Color = clBtnFace
   Font.Color = clWindowText
   Font.Height = -11
@@ -16,18 +16,18 @@ object FormMain: TFormMain
   OnDestroy = FormDestroy
   OnShow = FormShow
   Position = poScreenCenter
-  LCLVersion = '1.6.0.4'
+  LCLVersion = '2.1.0.0'
   WindowState = wsMaximized
   object sSplitter1: TSplitter
     Left = 305
-    Height = 655
+    Height = 625
     Top = 0
     Width = 5
     ResizeStyle = rsLine
   end
   object sSplitter3: TSplitter
-    Left = 755
-    Height = 655
+    Left = 771
+    Height = 625
     Top = 0
     Width = 5
     Align = alRight
@@ -36,12 +36,12 @@ object FormMain: TFormMain
   end
   object sPanelLeft: TPanel
     Left = 0
-    Height = 655
+    Height = 625
     Top = 0
     Width = 305
     Align = alLeft
     BevelOuter = bvNone
-    ClientHeight = 655
+    ClientHeight = 625
     ClientWidth = 305
     TabOrder = 0
     object sSplitter2: TSplitter
@@ -80,8 +80,8 @@ object FormMain: TFormMain
           Top = 0
           Width = 301
           Align = alClient
+          BackgroundColor = clWhite
           Color = clWhite
-          DefaultItemHeight = 16
           Font.Color = clBlack
           Font.Height = -11
           Font.Name = 'MS Sans Serif'
@@ -97,17 +97,17 @@ object FormMain: TFormMain
     end
     object sPanelLeftBottom: TPanel
       Left = 0
-      Height = 352
+      Height = 322
       Top = 303
       Width = 305
       Align = alClient
       BevelOuter = bvNone
-      ClientHeight = 352
+      ClientHeight = 322
       ClientWidth = 305
       TabOrder = 1
       object sGroupBoxPropertyEditor: TGroupBox
         Left = 0
-        Height = 352
+        Height = 322
         Top = 0
         Width = 305
         Align = alClient
@@ -117,33 +117,33 @@ object FormMain: TFormMain
     end
   end
   object sPanelRight: TPanel
-    Left = 760
-    Height = 655
+    Left = 776
+    Height = 625
     Top = 0
     Width = 185
     Align = alRight
     BevelOuter = bvNone
-    ClientHeight = 655
+    ClientHeight = 625
     ClientWidth = 185
     TabOrder = 1
     object sGroupBoxDemos: TGroupBox
       Left = 0
-      Height = 655
+      Height = 625
       Top = 0
       Width = 185
       Align = alClient
       Caption = 'Demos'
-      ClientHeight = 637
+      ClientHeight = 607
       ClientWidth = 181
       TabOrder = 0
       object sTreeViewDemos: TTreeView
         Left = 0
-        Height = 637
+        Height = 607
         Top = 0
         Width = 181
         Align = alClient
+        BackgroundColor = clWhite
         Color = clWhite
-        DefaultItemHeight = 16
         Font.Color = clBlack
         Font.Height = -11
         Font.Name = 'MS Sans Serif'
@@ -160,21 +160,21 @@ object FormMain: TFormMain
   end
   object sPanelMiddle: TPanel
     Left = 310
-    Height = 655
+    Height = 625
     Top = 0
-    Width = 445
+    Width = 461
     Align = alClient
     BevelOuter = bvNone
-    ClientHeight = 655
-    ClientWidth = 445
+    ClientHeight = 625
+    ClientWidth = 461
     FullRepaint = False
     TabOrder = 2
     object sSplitter4: TSplitter
       Cursor = crVSplit
       Left = 0
       Height = 6
-      Top = 481
-      Width = 445
+      Top = 451
+      Width = 461
       Align = alBottom
       ResizeAnchor = akBottom
       ResizeStyle = rsLine
@@ -182,18 +182,18 @@ object FormMain: TFormMain
     object sPanelMiddleBottom: TPanel
       Left = 0
       Height = 168
-      Top = 487
-      Width = 445
+      Top = 457
+      Width = 461
       Align = alBottom
       BevelOuter = bvNone
       ClientHeight = 168
-      ClientWidth = 445
+      ClientWidth = 461
       TabOrder = 0
       object sPageControl1: TPageControl
         Left = 0
         Height = 168
         Top = 0
-        Width = 445
+        Width = 461
         ActivePage = sTabSheetInfo
         Align = alClient
         TabIndex = 0
@@ -201,12 +201,12 @@ object FormMain: TFormMain
         object sTabSheetInfo: TTabSheet
           Caption = 'Info'
           ClientHeight = 142
-          ClientWidth = 437
+          ClientWidth = 453
           object sMemoInfo: TMemo
             Left = 0
             Height = 142
             Top = 0
-            Width = 437
+            Width = 453
             Align = alClient
             Color = clWhite
             Font.Color = clBlack
@@ -341,22 +341,22 @@ object FormMain: TFormMain
     end
     object sPageControl2: TPageControl
       Left = 0
-      Height = 481
+      Height = 451
       Top = 0
-      Width = 445
+      Width = 461
       ActivePage = sTabSheetWorld
       Align = alClient
       TabIndex = 0
       TabOrder = 1
       object sTabSheetWorld: TTabSheet
         Caption = 'World'
-        ClientHeight = 455
-        ClientWidth = 437
+        ClientHeight = 425
+        ClientWidth = 453
         object OpenGLControlWorld: TOpenGLControl
           Left = 0
-          Height = 455
+          Height = 425
           Top = 0
-          Width = 437
+          Width = 453
           Align = alClient
           OpenGLMajorVersion = 2
           OnEnter = OpenGLControlWorldEnter
@@ -373,8 +373,8 @@ object FormMain: TFormMain
     end
   end
   object MainMenu1: TMainMenu
-    left = 392
-    top = 80
+    Left = 392
+    Top = 80
     object N1: TMenuItem
       Caption = '&File'
       object N2: TMenuItem
@@ -395,12 +395,18 @@ object FormMain: TFormMain
   object TimerPerformance: TTimer
     Interval = 20
     OnTimer = TimerPerformanceTimer
-    left = 547
-    top = 424
+    Left = 547
+    Top = 424
   end
   object TimerFPS: TTimer
     OnTimer = TimerFPSTimer
-    left = 624
-    top = 424
+    Left = 624
+    Top = 424
+  end
+  object TimerDraw: TTimer
+    Interval = 10
+    OnTimer = TimerDrawTimer
+    Left = 411
+    Top = 351
   end
 end
