@@ -912,6 +912,7 @@ var i:longint;
     Shape:TKraftShape;
     PhysicsTimeStep:double;
     Constraint:TKraftConstraint;
+    UpdateCameraDone:boolean;
 begin
  if not OpenGLInitialized then begin
   if glext.Load_GL_version_1_2 and
@@ -951,13 +952,14 @@ begin
      FormMain.KraftPhysics.StoreWorldTransforms;
      if assigned(FormMain.DemoScene) then begin
       FormMain.DemoScene.StoreWorldTransforms;
+      UpdateCameraDone:=FormMain.DemoScene.UpdateCamera(CurrentCamera.Position,CurrentCamera.Orientation);
       FormMain.DemoScene.Step(PhysicsTimeStep);
+     end else begin
+      UpdateCameraDone:=false;
      end;
      FormMain.KraftPhysics.Step(PhysicsTimeStep);
      CurrentCamera.TestCamera;
-     if (assigned(FormMain.DemoScene) and FormMain.DemoScene.UpdateCamera(CurrentCamera.Position,CurrentCamera.Orientation)) then begin
-      CurrentCamera.Matrix:=QuaternionToMatrix4x4(CurrentCamera.Orientation);
-     end else begin
+     if not UpdateCameraDone then begin
       if KeyLeft then begin
        CurrentCamera.MoveSidewards(PhysicsTimeStep*10.0);
       end;

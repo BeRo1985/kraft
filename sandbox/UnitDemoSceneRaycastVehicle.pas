@@ -45,11 +45,30 @@ const CarWidth=1.8;
 
       ProtectionHeightOffset=4;
 
+      CountDominos=64;
+
+      JumpingRampWidth=16.0;
+      JumpingRampHeight=16.0;
+      JumpingRampLength=64.0;
+
+      JumpingRampHalfWidth=JumpingRampWidth*0.5;
+      JumpingRampHalfHeight=JumpingRampHeight*0.5;
+      JumpingRampHalfLength=JumpingRampLength*0.5;
+
+      JumpingRampConvexHullPoints:array[0..5] of TKraftVector3=((x:-JumpingRampHalfWidth;y:0.0;z:0{$ifdef SIMD};w:0.0{$endif}),
+                                                                (x:JumpingRampHalfWidth;y:0.0;z:0{$ifdef SIMD};w:0.0{$endif}),
+                                                                (x:-JumpingRampHalfWidth;y:JumpingRampHeight;z:0.0{$ifdef SIMD};w:0.0{$endif}),
+                                                                (x:JumpingRampHalfWidth;y:JumpingRampHeight;z:0.0{$ifdef SIMD};w:0.0{$endif}),
+                                                                (x:-JumpingRampHalfWidth;y:0.0;z:JumpingRampLength{$ifdef SIMD};w:0.0{$endif}),
+                                                                (x:JumpingRampHalfWidth;y:0.0;z:JumpingRampLength{$ifdef SIMD};w:0.0{$endif}));{}
+
 { TDemoSceneRaycastVehicle }
 
 constructor TDemoSceneRaycastVehicle.Create(const aKraftPhysics: TKraft);
-var Shape:TKraftShape;
-    DummyRigidBody:TKraftRigidBody;
+var Index:Int32;
+    RigidBody:TKraftRigidBody;
+    Shape:TKraftShape;
+    ConvexHull:TKraftConvexHull;
 begin
  inherited Create(AKraftPhysics);
 
@@ -63,6 +82,51 @@ begin
  RigidBodyFloor.Finish;
  RigidBodyFloor.SetWorldTransformation(Matrix4x4Translate(0.0,0.0,0.0));
  RigidBodyFloor.CollisionGroups:=[0];
+
+ begin
+  ConvexHull:=TKraftConvexHull.Create(KraftPhysics);
+  ConvexHullGarbageCollector.Add(ConvexHull);
+  ConvexHull.Load(pointer(@JumpingRampConvexHullPoints),length(JumpingRampConvexHullPoints));
+  ConvexHull.Build;
+  ConvexHull.Finish;
+  for Index:=1 to 4 do begin
+   RigidBody:=TKraftRigidBody.Create(KraftPhysics);
+   RigidBody.SetRigidBodyType(krbtSTATIC);
+   Shape:=TKraftShapeConvexHull.Create(KraftPhysics,RigidBody,ConvexHull);
+   Shape.Restitution:=0.3;
+   Shape.Density:=1.0;
+   RigidBody.Finish;
+   RigidBody.SetWorldTransformation(Matrix4x4Translate(0.0,0.0,-((JumpingRampLength+(CarLength*2.0)))*Index));
+   RigidBody.CollisionGroups:=[0];
+  end;
+  for Index:=1 to 4 do begin
+   RigidBody:=TKraftRigidBody.Create(KraftPhysics);
+   RigidBody.SetRigidBodyType(krbtSTATIC);
+   Shape:=TKraftShapeConvexHull.Create(KraftPhysics,RigidBody,ConvexHull);
+   Shape.Restitution:=0.3;
+   Shape.Density:=1.0;
+   RigidBody.Finish;
+   RigidBody.SetWorldTransformation(Matrix4x4TermMul(Matrix4x4RotateY(PI),Matrix4x4Translate(-(JumpingRampWidth+(CarWidth*2.0)),0.0,-((JumpingRampLength+(CarLength*2.0)))*Index)));
+   RigidBody.CollisionGroups:=[0];
+  end;
+ end;
+
+ begin
+  // Dominos
+  for Index:=0 to CountDominos-1 do begin
+   RigidBody:=TKraftRigidBody.Create(KraftPhysics);
+   RigidBody.SetRigidBodyType(krbtDYNAMIC);
+   Shape:=TKraftShapeBox.Create(KraftPhysics,RigidBody,Vector3(0.125,1.0,0.5));
+   Shape.Restitution:=0.4;
+   Shape.Density:=1.0;
+   RigidBody.ForcedMass:=1.0;
+   RigidBody.Finish;
+   RigidBody.SetWorldTransformation(Matrix4x4TermMul(Matrix4x4TermMul(Matrix4x4Translate(0.0,TKraftShapeBox(Shape).Extents.y,-8.0-((Index/CountDominos)*4.0)),Matrix4x4RotateY((Index-((CountDominos-1)*0.5))*(pi/CountDominos)*2.0)),Matrix4x4Translate(JumpingRampWidth+(CarWidth*4),0.0,-12.0)));
+   RigidBody.CollisionGroups:=[0,1];
+   RigidBody.Gravity.Vector:=Vector3(0.0,-9.81*4.0,0.0);
+   RigidBody.Flags:=RigidBody.Flags+[krbfHasOwnGravity];
+  end;
+ end;
 
  Vehicle:=TVehicle.Create(KraftPhysics);
 
@@ -138,7 +202,7 @@ begin
  InputKeyBrake:=false;
  InputKeyHandBrake:=false;
 
- begin
+{begin
   DummyRigidBody:=TKraftRigidBody.Create(KraftPhysics);
   DummyRigidBody.SetRigidBodyType(krbtSTATIC);
   Shape:=TKraftShapeBox.Create(KraftPhysics,DummyRigidBody,Vector3(4.0,25.0,2.0));
@@ -146,8 +210,7 @@ begin
   DummyRigidBody.Finish;
   DummyRigidBody.CollisionGroups:=[0];
   DummyRigidBody.SetWorldTransformation(Matrix4x4TermMul(Matrix4x4RotateX(-0.35*pi),Matrix4x4Translate(0.0,0.0,-10.0)));
-
- end;
+ end;}
 
 end;
 

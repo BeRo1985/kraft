@@ -1,7 +1,7 @@
 (******************************************************************************
  *                   ARCADE CAR PHYSICS FOR KRAFT PHYSICS ENGINE              *
  ******************************************************************************
- *                        Version 2021-07-14-18-19-0000                       *
+ *                        Version 2021-07-14-21-04-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -243,6 +243,7 @@ type { TVehicle }
                      fVisualRotationRad:TKraftScalar;
                      fCompression:TKraftScalar;
                      fCompressionPrev:TKraftScalar;
+                     fSuspensionLength:TKraftScalar;
                      fOffset:TKraftScalar;
                      fWorldTransform:TKraftMatrix4x4;
                      fLastWorldTransform:TKraftMatrix4x4;
@@ -270,6 +271,7 @@ type { TVehicle }
                     public
                      constructor Create(const aAxle:TAxle;const aOffset:TKraftScalar); reintroduce;
                      destructor Destroy; override;
+                     procedure UpdateSuspensionLength;
                      procedure Update(const aWorldSpacePosition:TKraftVector3;const aTotalWheelsCount,aCountPoweredWheels:Int32;const aLeft:boolean);
                      procedure CalculateWheelRotationFromSpeed;
                      procedure UpdateVisual;
@@ -294,6 +296,7 @@ type { TVehicle }
                      property VisualRotationRad:TKraftScalar read fVisualRotationRad write fVisualRotationRad;
                      property Compression:TKraftScalar read fCompression write fCompression;
                      property CompressionPrev:TKraftScalar read fCompressionPrev write fCompressionPrev;
+                     property SuspensionLength:TKraftScalar read fSuspensionLength write fSuspensionLength;
                     public
                      property WorldTransform:TKraftMatrix4x4 read fWorldTransform write fWorldTransform;
                      property VisualWorldTransform:TKraftMatrix4x4 read fVisualWorldTransform write fVisualWorldTransform;
@@ -334,6 +337,7 @@ type { TVehicle }
               constructor Create(const aVehicle:TVehicle); reintroduce;
               destructor Destroy; override;
               procedure ApplyAntiRoll;
+              procedure UpdateSuspensionLengths;
               procedure Update(const aTotalWheelsCount,aCountPoweredWheels:Int32);
               procedure UpdateVisual;
               procedure StoreWorldTransforms;
@@ -472,6 +476,14 @@ type { TVehicle }
        property WorldBackward:TKraftVector3 read fWorldBackward write fWorldBackward;
        property WorldForward:TKraftVector3 read fWorldForward write fWorldForward;
        property WorldPosition:TKraftVector3 read fWorldPosition write fWorldPosition;
+       property LastWorldTransform:TKraftMatrix4x4 read fLastWorldTransform write fLastWorldTransform;
+       property LastWorldLeft:TKraftVector3 read fLastWorldLeft write fLastWorldLeft;
+       property LastWorldRight:TKraftVector3 read fLastWorldRight write fLastWorldRight;
+       property LastWorldDown:TKraftVector3 read fLastWorldDown write fLastWorldDown;
+       property LastWorldUp:TKraftVector3 read fLastWorldUp write fLastWorldUp;
+       property LastWorldBackward:TKraftVector3 read fLastWorldBackward write fLastWorldBackward;
+       property LastWorldForward:TKraftVector3 read fLastWorldForward write fLastWorldForward;
+       property LastWorldPosition:TKraftVector3 read fLastWorldPosition write fLastWorldPosition;
        property VisualWorldTransform:TKraftMatrix4x4 read fVisualWorldTransform write fVisualWorldTransform;
        property VisualWorldLeft:TKraftVector3 read fVisualWorldLeft write fVisualWorldLeft;
        property VisualWorldRight:TKraftVector3 read fVisualWorldRight write fVisualWorldRight;
@@ -490,7 +502,7 @@ type { TVehicle }
 
 implementation
 
-{-$define SingleRaycastResult}
+{$define SingleRaycastResult}
 
 function Clamp(const aValue,aMin,aMax:TKraftScalar):TKraftScalar; inline;
 begin
@@ -782,12 +794,18 @@ begin
  fVisualRotationRad:=0.0;
  fCompression:=0.0;
  fCompressionPrev:=0.0;
+ fSuspensionLength:=fAxle.fRelaxedSuspensionLength;
  fOffset:=aOffset;
 end;
 
 destructor TVehicle.TAxle.TWheel.Destroy;
 begin
  inherited Destroy;
+end;
+
+procedure TVehicle.TAxle.TWheel.UpdateSuspensionLength;
+begin
+ fSuspensionLength:=Clamp01(1.0-fCompression)*fAxle.fRelaxedSuspensionLength;
 end;
 
 procedure TVehicle.TAxle.TWheel.Update(const aWorldSpacePosition:TKraftVector3;const aTotalWheelsCount,aCountPoweredWheels:Int32;const aLeft:boolean);
@@ -814,6 +832,112 @@ var LocalWheelRotation,WorldSpaceWheelRotation:TKraftQuaternion;
 {$else}
     RayResults:array[0..2] of TRayResult;
 {$endif}
+{$ifdef SingleRaycastResult}
+ function WheelRayCast(const aRayOrigin,aRayDirection,aRayOtherDirection:TKraftVector3;const aFromAngle,aToAngle:TKraftScalar;const aRelaxedSuspensionLength,aWheelRadius:TKraftScalar):TRayResult;
+ const CountRays=32; // +1 primary ray
+       DivFactor=1.0/(CountRays-1);
+ var Index,Count:Int32;
+     Temporary:TRayResult;
+     Time,Angle,Sinus,Cosinus,MaxTime:TKraftScalar;
+     PointXSum,PointYSum,PointZSum,NormalXSum,NormalYSum,NormalZSum,TimeSum,WeightSum,Weight:Double;
+     WheelPositionAtSuspensionLength,Direction:TKraftVector3;
+     Points,Normals:array[0..CountRays] of TKraftVector3;
+     Times:array[0..CountRays] of TKraftScalar;
+ begin
+
+  MaxTime:=fAxle.fRelaxedSuspensionLength+aWheelRadius;
+
+  WheelPositionAtSuspensionLength:=Vector3Add(aRayOrigin,Vector3ScalarMul(aRayDirection,fSuspensionLength));
+
+  // Primary ray with fulled relaxed suspension length
+  result.Valid:=fVehicle.fKraftPhysics.RayCast(aRayOrigin,
+                                               aRayDirection,
+                                               MaxTime,
+                                               result.Shape,
+                                               result.Time,
+                                               result.Point,
+                                               result.Normal,
+                                               [0]
+                                              );
+
+  Count:=0;
+
+  if result.Valid then begin
+   Points[Count]:=result.Point;
+   Normals[Count]:=result.Normal;
+   Times[Count]:=result.Time;
+   inc(Count);
+  end;
+
+  // Other additional rays with last known suspension length
+  for Index:=0 to CountRays-1 do begin
+   Time:=Index*DivFactor;
+   Angle:=(aFromAngle*(1.0-Time))+(aToAngle*Time);
+   SinCos(Angle,Sinus,Cosinus);
+   Direction:=Vector3Sub(
+               Vector3Add(
+                WheelPositionAtSuspensionLength,
+                Vector3ScalarMul(
+                 Vector3Norm(
+                  Vector3Add(Vector3ScalarMul(aRayDirection,Cosinus),
+                             Vector3ScalarMul(aRayOtherDirection,Sinus)
+                            )
+                 ),
+                 aWheelRadius)
+                ),
+                RayOrigin
+               );
+   Temporary.Valid:=fVehicle.fKraftPhysics.RayCast(aRayOrigin,
+                                                   Vector3Norm(Direction),
+                                                   Vector3Length(Direction),
+                                                   Temporary.Shape,
+                                                   Temporary.Time,
+                                                   Temporary.Point,
+                                                   Temporary.Normal,
+                                                   [0]
+                                                  );
+   if Temporary.Valid then begin
+    if (not result.Valid) or (Temporary.Time<result.Time) then begin
+     result:=Temporary;
+    end;
+    Points[Count]:=Temporary.Point;
+    Normals[Count]:=Temporary.Normal;
+    Times[Count]:=Temporary.Time;
+    inc(Count);
+   end;
+  end;
+
+  if Count>0 then begin
+   PointXSum:=0.0;
+   PointYSum:=0.0;
+   PointZSum:=0.0;
+   NormalXSum:=0.0;
+   NormalYSum:=0.0;
+   NormalZSum:=0.0;
+   TimeSum:=0.0;
+   WeightSum:=0.0;
+   for Index:=0 to Count-1 do begin
+    Weight:=Times[Index];
+    PointXSum:=PointXSum+(Points[Index].x*Weight);
+    PointYSum:=PointYSum+(Points[Index].y*Weight);
+    PointZSum:=PointZSum+(Points[Index].z*Weight);
+    NormalXSum:=NormalXSum+(Normals[Index].x*Weight);
+    NormalYSum:=NormalYSum+(Normals[Index].y*Weight);
+    NormalZSum:=NormalZSum+(Normals[Index].z*Weight);
+    TimeSum:=TimeSum+(Times[Index]*Weight);
+    WeightSum:=WeightSum+Weight;
+   end;
+   if WeightSum>0.0 then begin
+    WeightSum:=1.0/WeightSum;
+    result.Point:=Vector3(PointXSum*WeightSum,PointYSum*WeightSum,PointZSum*WeightSum);
+    result.Normal:=Vector3Norm(Vector3(NormalXSum*WeightSum,NormalYSum*WeightSum,NormalZSum*WeightSum));
+    result.Time:=TimeSum*WeightSum;
+    result.Valid:=true;
+   end;
+  end;
+
+ end;
+{$else}
  function RayCast(const aRayOrigin,aRayDirection:TKraftVector3;const aMaxTime:TKraftScalar):TRayResult;
  begin
   result.Valid:=fVehicle.fKraftPhysics.RayCast(aRayOrigin,
@@ -826,7 +950,10 @@ var LocalWheelRotation,WorldSpaceWheelRotation:TKraftQuaternion;
                                                [0]
                                               );
  end;
+{$endif}
 begin
+
+ UpdateSuspensionLength;
 
  LocalWheelRotation:=QuaternionFromAngles(fYawRad,0.0,0.0);
  WorldSpaceWheelRotation:=QuaternionMul(fVehicle.fRigidBody.Sweep.q,LocalWheelRotation);
@@ -840,11 +967,17 @@ begin
 
  RayDirection:=fVehicle.WorldDown;
 
- TraceLen:=fAxle.fRelaxedSuspensionLength+fAxle.fRadius;
+ TraceLen:=fSuspensionLength+fAxle.fRadius;
 
 {$ifdef SingleRaycastResult}
  RayOrigin:=aWorldSpacePosition;
- RayResult:=RayCast(RayOrigin,RayDirection,TraceLen);
+ RayResult:=WheelRayCast(RayOrigin,
+                         fVehicle.WorldDown,
+                         fVehicle.WorldForward,
+                         -PI*0.5,
+                         PI*0.5,
+                         fAxle.fRelaxedSuspensionLength,
+                         fAxle.fRadius);
 
  if not RayResult.Valid then begin
   fCompressionPrev:=fCompression;
@@ -1065,16 +1198,13 @@ begin
 end;
 
 procedure TVehicle.TAxle.TWheel.UpdateVisual;
-var SuspensionCurrentLength:TKraftScalar;
-    LocalWheelPosition:TKraftVector3;
+var LocalWheelPosition:TKraftVector3;
     LocalWheelRotation:TKraftQuaternion;
     WorldSpacePosition:TKraftVector3;
     WorldSpaceRotation:TKraftQuaternion;
 begin
 
- SuspensionCurrentLength:=Clamp01(1.0-fCompression)*fAxle.fRelaxedSuspensionLength;
-
- LocalWheelPosition:=Vector3(fAxle.fWidth*fOffset*0.5,fAxle.fOffset.y-SuspensionCurrentLength,fAxle.fOffset.x);
+ LocalWheelPosition:=Vector3(fAxle.fWidth*fOffset*0.5,fAxle.fOffset.y-fSuspensionLength,fAxle.fOffset.x);
  LocalWheelRotation:=QuaternionFromAngles(fYawRad+IfThen(fOffset<0.0,PI,0.0),0.0,fVisualRotationRad*fOffset);
 
  WorldSpacePosition:=Vector3TermMatrixMul(LocalWheelPosition,fVehicle.fWorldTransform);
@@ -1219,10 +1349,16 @@ begin
  end;
 end;
 
+procedure TVehicle.TAxle.UpdateSuspensionLengths;
+begin
+ fWheelLeft.UpdateSuspensionLength;
+ fWheelRight.UpdateSuspensionLength;
+end;
+
 procedure TVehicle.TAxle.Update(const aTotalWheelsCount,aCountPoweredWheels:Int32);
 begin
- fWheelLeft.Update(Vector3TermMatrixMul(Vector3(fWidth*-0.5,fOffset.y,fOffset.x),fVehicle.fRigidBody.WorldTransform),aTotalWheelsCount,aCountPoweredWheels,true);
- fWheelRight.Update(Vector3TermMatrixMul(Vector3(fWidth*0.5,fOffset.y,fOffset.x),fVehicle.fRigidBody.WorldTransform),aTotalWheelsCount,aCountPoweredWheels,false);
+ fWheelLeft.Update(Vector3TermMatrixMul(Vector3(fWidth*-0.5,fOffset.y,fOffset.x),fVehicle.fWorldTransform),aTotalWheelsCount,aCountPoweredWheels,true);
+ fWheelRight.Update(Vector3TermMatrixMul(Vector3(fWidth*0.5,fOffset.y,fOffset.x),fVehicle.fWorldTransform),aTotalWheelsCount,aCountPoweredWheels,false);
  ApplyAntiRoll;
 end;
 
@@ -1629,6 +1765,9 @@ begin
  fAxleRear.fWheelLeft.CalculateWheelRotationFromSpeed;
  fAxleRear.fWheelRight.CalculateWheelRotationFromSpeed;
 
+ fAxleFront.UpdateSuspensionLengths;
+ fAxleRear.UpdateSuspensionLengths;
+
  UpdateVisual;
 
 end;
@@ -1640,6 +1779,13 @@ begin
  fAxleFront.StoreWorldTransforms;
  fAxleRear.StoreWorldTransforms;
  fLastWorldTransform:=fWorldTransform;
+ fLastWorldRight:=PKraftVector3(pointer(@fLastWorldTransform[0,0]))^;
+ fLastWorldLeft:=Vector3Neg(fLastWorldRight);
+ fLastWorldUp:=PKraftVector3(pointer(@fLastWorldTransform[1,0]))^;
+ fLastWorldDown:=Vector3Neg(fLastWorldUp);
+ fLastWorldForward:=PKraftVector3(pointer(@fLastWorldTransform[2,0]))^;
+ fLastWorldBackward:=Vector3Neg(fLastWorldForward);
+ fLastWorldPosition:=PKraftVector3(pointer(@fLastWorldTransform[3,0]))^;
 end;
 
 procedure TVehicle.InterpolateWorldTransforms(const aAlpha:TKraftScalar);
