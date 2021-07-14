@@ -1,7 +1,7 @@
 (******************************************************************************
  *                   ARCADE CAR PHYSICS FOR KRAFT PHYSICS ENGINE              *
  ******************************************************************************
- *                        Version 2021-07-14-14-07-0000                       *
+ *                        Version 2021-07-14-18-19-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -34,9 +34,8 @@
  *    appropriate copyright notice.                                           *
  * 3. After a pull request, check the status of your pull request on          *
       http://github.com/BeRo1985/kraft                                        *
- * 4. Write code, which is compatible with Delphi 7-XE7 and FreePascal >= 2.6 *
- *    so don't use generics/templates, operator overloading and another newer *
- *    syntax features than Delphi 7 has support for that.                     *
+ * 4. Write code, which is compatible with lastest Delphi and lastest         *
+ *    FreePascal versions                                                     *
  * 5. Don't use Delphi VCL, FreePascal FCL or Lazarus LCL libraries/units.    *
  * 6. No use of third-party libraries/units as possible, but if needed, make  *
  *    it out-ifdef-able                                                       *
@@ -418,6 +417,7 @@ type { TVehicle }
        fInputVertical:TKraftScalar;
        fInputHorizontal:TKraftScalar;
        fInputReset:Boolean;
+       fInputBrake:Boolean;
        fInputHandBrake:Boolean;
       public
        constructor Create(const aKraftPhysics:TKraft); reintroduce;
@@ -430,7 +430,7 @@ type { TVehicle }
        function GetSpeed:TKraftScalar;
        function CalcAccelerationForceMagnitude:TKraftScalar;
        function GetSteerAngleLimitInDeg(const aSpeedMetersPerSec:TKraftScalar):TKraftScalar;
-       procedure UpdateInput(const aV,aH:TKraftScalar;const aReset,aHandBrake:boolean);
+       procedure UpdateInput;
        procedure CalculateAckermannSteering;
        procedure UpdateVisual;
        procedure Update;
@@ -484,6 +484,7 @@ type { TVehicle }
        property InputVertical:TKraftScalar read fInputVertical write fInputVertical;
        property InputHorizontal:TKraftScalar read fInputHorizontal write fInputHorizontal;
        property InputReset:Boolean read fInputReset write fInputReset;
+       property InputBrake:Boolean read fInputBrake write fInputBrake;
        property InputHandBrake:Boolean read fInputHandBrake write fInputHandBrake;
      end;
 
@@ -1314,6 +1315,7 @@ begin
  fInputVertical:=0.0;
  fInputHorizontal:=0.0;
  fInputReset:=false;
+ fInputBrake:=false;
  fInputHandBrake:=false;
 end;
 
@@ -1339,6 +1341,7 @@ begin
  fInputVertical:=0.0;
  fInputHorizontal:=0.0;
  fInputReset:=false;
+ fInputBrake:=false;
  fInputHandBrake:=false;
 end;
 
@@ -1462,37 +1465,39 @@ begin
  result:=fSteerAngleLimitEnvelope.GetValueAtTime(aSpeedMetersPerSec*3.6*GetSteeringHandBrakeK);
 end;
 
-procedure TVehicle.UpdateInput(const aV,aH:TKraftScalar;const aReset,aHandBrake:boolean);
-var V,H,Speed,SpeedKMH,NewSteerAngle,AngleReturnSpeedDegPerSec:TKraftScalar;
+procedure TVehicle.UpdateInput;
+var Vertical,Horizontal,Speed,SpeedKMH,NewSteerAngle,AngleReturnSpeedDegressPerSecond:TKraftScalar;
     IsBrakeNow,IsHandBrakeNow:boolean;
 begin
 
  if fControllable then begin
-  V:=aV;
-  H:=aH;
-  if aReset then begin
+  Vertical:=fInputVertical;
+  Horizontal:=fInputHorizontal;
+  if fInputReset then begin
    Reset;
   end;
  end else begin
-  V:=0.0;
-  H:=0.0;
+  Vertical:=0.0;
+  Horizontal:=0.0;
  end;
 
  IsBrakeNow:=false;
- IsHandBrakeNow:=fControllable and aHandBrake;
+ IsHandBrakeNow:=fControllable and fInputHandBrake;
 
  Speed:=GetSpeed;
 
  fIsAcceleration:=false;
  fIsReverseAcceleration:=false;
 
- if V>0.4 then begin
+ if fInputBrake and fControllable then begin
+  IsBrakeNow:=true;
+ end else if Vertical>0.4 then begin
   if Speed<-0.5 then begin
    IsBrakeNow:=true;
   end else begin
    fIsAcceleration:=true;
   end;
- end else if V<-0.4 then begin
+ end else if Vertical<-0.4 then begin
   if Speed>0.5 then begin
    IsBrakeNow:=true;
   end else begin
@@ -1524,12 +1529,12 @@ begin
 
  SpeedKMH:=abs(Speed)*3.6;
 
- if abs(H)>0.001 then begin
-  NewSteerAngle:=fAxleFront.fSteerAngle+(H*fSteeringSpeedEnvelope.GetValueAtTime(SpeedKMH*GetSteeringHandBrakeK));
+ if abs(Horizontal)>0.001 then begin
+  NewSteerAngle:=fAxleFront.fSteerAngle+(Horizontal*fSteeringSpeedEnvelope.GetValueAtTime(SpeedKMH*GetSteeringHandBrakeK));
   fAxleFront.fSteerAngle:=Min(abs(NewSteerAngle),GetSteerAngleLimitInDeg(Speed))*Sign(NewSteerAngle);
  end else begin
-  AngleReturnSpeedDegPerSec:=fSteeringResetSpeedEnvelope.GetValueAtTime(SpeedKMH)*Clamp01(SpeedKMH*0.5);
-  fAxleFront.SteerAngle:=Max(abs(fAxleFront.fSteerAngle)-(angleReturnSpeedDegPerSec*fKraftPhysics.WorldDeltaTime),0.0)*Sign(fAxleFront.fSteerAngle);
+  AngleReturnSpeedDegressPerSecond:=fSteeringResetSpeedEnvelope.GetValueAtTime(SpeedKMH)*Clamp01(SpeedKMH*0.5);
+  fAxleFront.SteerAngle:=Max(abs(fAxleFront.fSteerAngle)-(AngleReturnSpeedDegressPerSecond*fKraftPhysics.WorldDeltaTime),0.0)*Sign(fAxleFront.fSteerAngle);
  end;
 
 end;
@@ -1584,7 +1589,7 @@ begin
 
  UpdateWorldTransformVectors;
 
- UpdateInput(fInputVertical,fInputHorizontal,fInputReset,fInputHandBrake);
+ UpdateInput;
 
  fAccelerationForceMagnitude:=CalcAccelerationForceMagnitude*Clamp01(0.8+((1.0-GetHandBrakeK)*0.2));
 

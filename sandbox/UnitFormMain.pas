@@ -745,6 +745,11 @@ begin
      KeyDown:=true;
     end;
    end;
+   else begin
+    if (assigned(FormMain.DemoScene) and FormMain.DemoScene.HasOwnKeyboardControls) then begin
+     FormMain.DemoScene.KeyDown(Key);
+    end;
+   end;
   end;
  end;
 end;
@@ -806,6 +811,11 @@ begin
      FormMain.DemoScene.KeyUp(VK_NEXT);
     end else begin
      KeyDown:=false;
+    end;
+   end;
+   else begin
+    if (assigned(FormMain.DemoScene) and FormMain.DemoScene.HasOwnKeyboardControls) then begin
+     FormMain.DemoScene.KeyUp(Key);
     end;
    end;
   end;

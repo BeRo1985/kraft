@@ -16,7 +16,7 @@ type { TDemoSceneRaycastVehicle }
        CarSteering:double;
        CarSpeed:double;
        Time:double;
-       KeyLeft,KeyRight,KeyUp_,KeyDown_,KeyHandBrake:boolean;
+       InputKeyLeft,InputKeyRight,InputKeyUp,InputKeyDown,InputKeyBrake,InputKeyHandBrake:boolean;
        constructor Create(const aKraftPhysics:TKraft); override;
        destructor Destroy; override;
        procedure Step(const DeltaTime:double); override;
@@ -131,11 +131,12 @@ begin
 
  Vehicle.Reset;
 
- KeyLeft:=false;
- KeyRight:=false;
- KeyUp_:=false;
- KeyDown_:=false;
- KeyHandBrake:=false;
+ InputKeyLeft:=false;
+ InputKeyRight:=false;
+ InputKeyUp:=false;
+ InputKeyDown:=false;
+ InputKeyBrake:=false;
+ InputKeyHandBrake:=false;
 
  begin
   DummyRigidBody:=TKraftRigidBody.Create(KraftPhysics);
@@ -159,9 +160,10 @@ end;
 procedure TDemoSceneRaycastVehicle.Step(const DeltaTime:double);
 begin
  Time:=Time+DeltaTime;
- Vehicle.InputVertical:=(ord(KeyUp_) and 1)-(ord(KeyDown_) and 1);
- Vehicle.InputHorizontal:=(ord(KeyLeft) and 1)-(ord(KeyRight) and 1);
- Vehicle.InputHandBrake:=KeyHandBrake;
+ Vehicle.InputVertical:=(ord(InputKeyUp) and 1)-(ord(InputKeyDown) and 1);
+ Vehicle.InputHorizontal:=(ord(InputKeyLeft) and 1)-(ord(InputKeyRight) and 1);
+ Vehicle.InputBrake:=InputKeyBrake;
+ Vehicle.InputHandBrake:=InputKeyHandBrake;
  Vehicle.Update;
 end;
 
@@ -190,19 +192,22 @@ procedure TDemoSceneRaycastVehicle.KeyDown(const aKey:Int32);
 begin
  case aKey of
   VK_LEFT:begin
-   KeyLeft:=true;
+   InputKeyLeft:=true;
   end;
   VK_RIGHT:begin
-   KeyRight:=true;
+   InputKeyRight:=true;
   end;
   VK_UP:begin
-   KeyUp_:=true;
+   InputKeyUp:=true;
   end;
   VK_DOWN:begin
-   KeyDown_:=true;
+   InputKeyDown:=true;
   end;
-  VK_NEXT:begin
-   KeyHandBrake:=true;
+  VK_SPACE:begin
+   InputKeyBrake:=true;
+  end;
+  VK_RETURN:begin
+   InputKeyHandBrake:=true;
   end;
  end;
 end;
@@ -211,19 +216,22 @@ procedure TDemoSceneRaycastVehicle.KeyUp(const aKey:Int32);
 begin
  case aKey of
   VK_LEFT:begin
-   KeyLeft:=false;
+   InputKeyLeft:=false;
   end;
   VK_RIGHT:begin
-   KeyRight:=false;
+   InputKeyRight:=false;
   end;
   VK_UP:begin
-   KeyUp_:=false;
+   InputKeyUp:=false;
   end;
   VK_DOWN:begin
-   KeyDown_:=false;
+   InputKeyDown:=false;
   end;
-  VK_NEXT:begin
-   KeyHandBrake:=false;
+  VK_SPACE:begin
+   InputKeyBrake:=false;
+  end;
+  VK_RETURN:begin
+   InputKeyHandBrake:=false;
   end;
  end;
 end;
