@@ -1,7 +1,7 @@
 (******************************************************************************
  *                   ARCADE CAR PHYSICS FOR KRAFT PHYSICS ENGINE              *
  ******************************************************************************
- *                        Version 2021-07-12-23-11-0000                       *
+ *                        Version 2021-07-14-14-07-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -230,6 +230,8 @@ type { TVehicle }
                      fVehicle:TVehicle;
                      fAxle:TAxle;
                      fIsOnGround:boolean;
+                     fBrake:boolean;
+                     fHandBrake:boolean;
                      fHitValid:boolean;
                      fLastHitValid:boolean;
                      fValidHitValid:boolean;
@@ -281,6 +283,8 @@ type { TVehicle }
                      property Vehicle:TVehicle read fVehicle write fVehicle;
                      property Axle:TAxle read fAxle write fAxle;
                      property IsOnGround:boolean read fIsOnGround write fIsOnGround;
+                     property Brake:boolean read fBrake write fBrake;
+                     property HandBrake:boolean read fHandBrake write fHandBrake;
                      property HitValid:boolean read fHitValid write fHitValid;
                     public
                      property HitPoint:TKraftVector3 read fHitPoint write fHitPoint;
@@ -305,10 +309,6 @@ type { TVehicle }
               fRadius:TKraftScalar;
               fLaterialFriction:TKraftScalar;
               fRollingFriction:TKraftScalar;
-              fBrakeLeft:boolean;
-              fBrakeRight:boolean;
-              fHandbrakeLeft:boolean;
-              fHandbrakeRight:boolean;
               fBrakeForceMagnitude:TKraftScalar;
               fSuspensionStiffness:TKraftScalar;
               fSuspensionDamping:TKraftScalar;
@@ -354,10 +354,6 @@ type { TVehicle }
               property Radius:TKraftScalar read fRadius write fRadius;
               property LaterialFriction:TKraftScalar read fLaterialFriction write fLaterialFriction;
               property RollingFriction:TKraftScalar read fRollingFriction write fRollingFriction;
-              property BrakeLeft:boolean read fBrakeLeft write fBrakeLeft;
-              property BrakeRight:boolean read fBrakeRight write fBrakeRight;
-              property HandbrakeLeft:boolean read fHandbrakeLeft write fHandbrakeLeft;
-              property HandbrakeRight:boolean read fHandbrakeRight write fHandbrakeRight;
               property BrakeForceMagnitude:TKraftScalar read fBrakeForceMagnitude write fBrakeForceMagnitude;
               property SuspensionStiffness:TKraftScalar read fSuspensionStiffness write fSuspensionStiffness;
               property SuspensionDamping:TKraftScalar read fSuspensionDamping write fSuspensionDamping;
@@ -434,7 +430,7 @@ type { TVehicle }
        function GetSpeed:TKraftScalar;
        function CalcAccelerationForceMagnitude:TKraftScalar;
        function GetSteerAngleLimitInDeg(const aSpeedMetersPerSec:TKraftScalar):TKraftScalar;
-       procedure UpdateInput(const aV,aH:TKraftScalar;const aReset,aHandbrake:boolean);
+       procedure UpdateInput(const aV,aH:TKraftScalar;const aReset,aHandBrake:boolean);
        procedure CalculateAckermannSteering;
        procedure UpdateVisual;
        procedure Update;
@@ -493,7 +489,7 @@ type { TVehicle }
 
 implementation
 
-{$define SingleRaycastResult}
+{-$define SingleRaycastResult}
 
 function Clamp(const aValue,aMin,aMax:TKraftScalar):TKraftScalar; inline;
 begin
@@ -773,6 +769,8 @@ begin
  fAxle:=aAxle;
  fVehicle:=fAxle.fVehicle;
  fIsOnGround:=false;
+ fBrake:=false;
+ fHandBrake:=false;
  fHitValid:=false;
  fLastHitValid:=false;
  fValidHitValid:=false;
@@ -815,7 +813,6 @@ var LocalWheelRotation,WorldSpaceWheelRotation:TKraftQuaternion;
 {$else}
     RayResults:array[0..2] of TRayResult;
 {$endif}
-    IsBrakeEnabled,IsHandBrakeEnabled:boolean;
  function RayCast(const aRayOrigin,aRayDirection:TKraftVector3;const aMaxTime:TKraftScalar):TRayResult;
  begin
   result.Valid:=fVehicle.fKraftPhysics.RayCast(aRayOrigin,
@@ -977,23 +974,16 @@ begin
  LongitudinalForce:=Vector3ScalarMul(ContactForward,Vector3Dot(FrictionForce,ContactForward));
 
  // Apply braking force or rolling resistance force or nothing
- if aLeft then begin
-  IsBrakeEnabled:=fAxle.fBrakeLeft;
-  IsHandBrakeEnabled:=fAxle.fHandBrakeLeft;
- end else begin
-  IsBrakeEnabled:=fAxle.fBrakeRight;
-  IsHandBrakeEnabled:=fAxle.fHandBrakeRight;
- end;
- if IsBrakeEnabled or IsHandBrakeEnabled then begin
+ if fBrake or fHandBrake then begin
   ClampedMag:=Clamp(fAxle.fBrakeForceMagnitude*fVehicle.fRigidBody.Mass,0.0,Vector3Length(LongitudinalForce));
   BrakeForce:=Vector3ScalarMul(Vector3Norm(LongitudinalForce),ClampedMag);
-  if IsHandBrakeEnabled then begin
+  if fHandBrake and not fBrake then begin
    BrakeForce:=Vector3ScalarMul(BrakeForce,0.8);
   end;
   LongitudinalForce:=Vector3Sub(LongitudinalForce,BrakeForce);
  end else begin
-  // Apply rolling-friction (automatic slow-down) only if player don't press to the accelerator
   if not (fVehicle.fIsAcceleration or fVehicle.fIsReverseAcceleration) then begin
+   // Apply rolling-friction (automatic slow-down) only if player don't press to the accelerator
    LongitudinalForce:=Vector3ScalarMul(LongitudinalForce,1.0-Clamp01(fAxle.fRollingFriction));
   end;
  end;
@@ -1017,6 +1007,7 @@ begin
   fDebugEngineForce:=EngineForce;
 {$endif}
   fVehicle.fRigidBody.AddForceAtPosition(EngineForce,AccForcePoint,kfmForce);
+  fVehicle.fRigidBody.SetToAwake;
  end else begin
 {$ifdef DebugDraw}
   fDebugEngineForce:=Vector3Origin;
@@ -1177,10 +1168,6 @@ begin
  fRadius:=0.3;
  fLaterialFriction:=0.1;
  fRollingFriction:=0.01;
- fBrakeLeft:=false;
- fBrakeRight:=false;
- fHandBrakeLeft:=false;
- fHandBrakeRight:=false;
  fBrakeForceMagnitude:=4.0;
  fSuspensionStiffness:=8500.0;
  fSuspensionDamping:=3000.0;
@@ -1475,9 +1462,9 @@ begin
  result:=fSteerAngleLimitEnvelope.GetValueAtTime(aSpeedMetersPerSec*3.6*GetSteeringHandBrakeK);
 end;
 
-procedure TVehicle.UpdateInput(const aV,aH:TKraftScalar;const aReset,aHandbrake:boolean);
+procedure TVehicle.UpdateInput(const aV,aH:TKraftScalar;const aReset,aHandBrake:boolean);
 var V,H,Speed,SpeedKMH,NewSteerAngle,AngleReturnSpeedDegPerSec:TKraftScalar;
-    IsBrakeNow,IsHandbrakeNow:boolean;
+    IsBrakeNow,IsHandBrakeNow:boolean;
 begin
 
  if fControllable then begin
@@ -1492,7 +1479,7 @@ begin
  end;
 
  IsBrakeNow:=false;
- IsHandbrakeNow:=fControllable and aHandbrake;
+ IsHandBrakeNow:=fControllable and aHandBrake;
 
  Speed:=GetSpeed;
 
@@ -1517,23 +1504,23 @@ begin
   fBrakeSlipperyTiresTime:=1.0;
  end;
 
- if IsHandbrakeNow then begin
+ if IsHandBrakeNow then begin
   fHandBrakeSlipperyTiresTime:=Max(0.1,fHandBrakeSlipperyTime);
  end;
 
  fIsBrake:=IsBrakeNow;
 
- fIsHandBrake:=IsHandbrakeNow and not (fIsAcceleration or fIsReverseAcceleration);
+ fIsHandBrake:=IsHandBrakeNow and not (fIsAcceleration or fIsReverseAcceleration);
 
- fAxleFront.BrakeLeft:=fIsBrake;
- fAxleFront.BrakeRight:=fIsBrake;
- fAxleRear.BrakeLeft:=fIsBrake;
- fAxleRear.BrakeRight:=fIsBrake;
+ fAxleFront.WheelLeft.Brake:=fIsBrake;
+ fAxleFront.WheelRight.Brake:=fIsBrake;
+ fAxleRear.WheelLeft.Brake:=fIsBrake;
+ fAxleRear.WheelRight.Brake:=fIsBrake;
 
- fAxleFront.HandBrakeLeft:=fIsHandBrake;
- fAxleFront.HandBrakeRight:=fIsHandBrake;
- fAxleRear.HandBrakeLeft:=fIsHandBrake;
- fAxleRear.HandBrakeRight:=fIsHandBrake;
+ fAxleFront.WheelLeft.HandBrake:=fIsHandBrake;
+ fAxleFront.WheelRight.HandBrake:=fIsHandBrake;
+ fAxleRear.WheelLeft.HandBrake:=fIsHandBrake;
+ fAxleRear.WheelRight.HandBrake:=fIsHandBrake;
 
  SpeedKMH:=abs(Speed)*3.6;
 
@@ -1639,8 +1626,6 @@ begin
 
  UpdateVisual;
 
- fRigidBody.SetToAwake;
-
 end;
 
 procedure TVehicle.StoreWorldTransforms;
@@ -1681,7 +1666,7 @@ begin
  glEnd;
  glColor4f(1.0,1.0,1.0,1.0);
  glEnable(GL_DEPTH_TEST);
-//write(#13,fAxleFront.SteerAngle:1:5,' ',AxleFront.WheelLeft.fYawRad*RAD2DEG:1:5,' ',GetSpeed*3.6:1:5,' - ',fWorldForward.x:1:5,' ',fWorldForward.y:1:5,' ',fWorldForward.z:1:5);
+ write(#13,fAxleFront.SteerAngle:1:5,' ',AxleFront.WheelLeft.fYawRad*RAD2DEG:1:5,' ',GetSpeed*3.6:1:5,' - ',fWorldForward.x:1:5,' ',fWorldForward.y:1:5,' ',fWorldForward.z:1:5);
 end;
 {$endif}
 

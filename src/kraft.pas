@@ -25453,7 +25453,7 @@ end;
 
 function TKraftRigidBody.GetBodyLinearVelocityFromPoint(const APoint:TKraftVector3):TKraftVector3;
 begin
-result:=Vector3TermMatrixMulTransposedBasis(GetWorldLinearVelocityFromPoint(Vector3TermMatrixMul(APoint,fWorldTransform)),fWorldTransform);
+ result:=Vector3TermMatrixMulTransposedBasis(GetWorldLinearVelocityFromPoint(Vector3TermMatrixMul(APoint,fWorldTransform)),fWorldTransform);
 end;
 
 constructor TKraftConstraint.Create(const APhysics:TKraft);
