@@ -268,6 +268,9 @@ type { TVehicle }
                      fVisualDebugAccForcePoint:TKraftVector3;
                      fVisualDebugEngineForce:TKraftVector3;
 {$endif}
+                     fRayCastFilterDirection:TKraftVector3;
+                     fRayCastFilterBidirection:TKraftVector3;
+                     function RayCastFilterHook(const aPoint,aNormal:TKraftVector3;const aTime:TKraftScalar;const aShape:TKraftShape):boolean;
                     public
                      constructor Create(const aAxle:TAxle;const aOffset:TKraftScalar); reintroduce;
                      destructor Destroy; override;
@@ -501,8 +504,6 @@ type { TVehicle }
      end;
 
 implementation
-
-{$define SingleRaycastResult}
 
 function Clamp(const aValue,aMin,aMax:TKraftScalar):TKraftScalar; inline;
 begin
@@ -808,7 +809,13 @@ begin
  fSuspensionLength:=Clamp01(1.0-fCompression)*fAxle.fRelaxedSuspensionLength;
 end;
 
+function TVehicle.TAxle.TWheel.RayCastFilterHook(const aPoint,aNormal:TKraftVector3;const aTime:TKraftScalar;const aShape:TKraftShape):boolean;
+begin
+ result:=(Vector3Dot(aNormal,fRayCastFilterDirection))<=-0.1;
+end;
+
 procedure TVehicle.TAxle.TWheel.Update(const aWorldSpacePosition:TKraftVector3;const aTotalWheelsCount,aCountPoweredWheels:Int32;const aLeft:boolean);
+{-$define SingleRaycastResult}
 const RelaxSpeed=1.0;
 type TRayResult=record
       Valid:boolean;
@@ -857,10 +864,11 @@ var LocalWheelRotation,WorldSpaceWheelRotation:TKraftQuaternion;
                                                result.Time,
                                                result.Point,
                                                result.Normal,
-                                               [0]
+                                               [0],
+                                               RayCastFilterHook
                                               );
 
-  Count:=0;
+{ Count:=0;
 
   if result.Valid then begin
    Points[Count]:=result.Point;
@@ -885,21 +893,19 @@ var LocalWheelRotation,WorldSpaceWheelRotation:TKraftQuaternion;
                  ),
                  aWheelRadius)
                 ),
-                RayOrigin
+                WheelPositionAtSuspensionLength
                );
-   Temporary.Valid:=fVehicle.fKraftPhysics.RayCast(aRayOrigin,
+   Temporary.Valid:=fVehicle.fKraftPhysics.RayCast(WheelPositionAtSuspensionLength,
                                                    Vector3Norm(Direction),
                                                    Vector3Length(Direction),
                                                    Temporary.Shape,
                                                    Temporary.Time,
                                                    Temporary.Point,
                                                    Temporary.Normal,
-                                                   [0]
+                                                   [0],
+                                                   RayCastFilterHook
                                                   );
    if Temporary.Valid then begin
-    if (not result.Valid) or (Temporary.Time<result.Time) then begin
-     result:=Temporary;
-    end;
     Points[Count]:=Temporary.Point;
     Normals[Count]:=Temporary.Normal;
     Times[Count]:=Temporary.Time;
@@ -931,10 +937,10 @@ var LocalWheelRotation,WorldSpaceWheelRotation:TKraftQuaternion;
     WeightSum:=1.0/WeightSum;
     result.Point:=Vector3(PointXSum*WeightSum,PointYSum*WeightSum,PointZSum*WeightSum);
     result.Normal:=Vector3Norm(Vector3(NormalXSum*WeightSum,NormalYSum*WeightSum,NormalZSum*WeightSum));
-    result.Time:=TimeSum*WeightSum;
+    result.Time:=(TimeSum*WeightSum)+fSuspensionLength;
     result.Valid:=true;
    end;
-  end;
+  end; //}
 
  end;
 {$else}
@@ -947,7 +953,8 @@ var LocalWheelRotation,WorldSpaceWheelRotation:TKraftQuaternion;
                                                result.Time,
                                                result.Point,
                                                result.Normal,
-                                               [0]
+                                               [0],
+                                               RayCastFilterHook
                                               );
  end;
 {$endif}
@@ -967,7 +974,10 @@ begin
 
  RayDirection:=fVehicle.WorldDown;
 
- TraceLen:=fSuspensionLength+fAxle.fRadius;
+ TraceLen:=fAxle.fRelaxedSuspensionLength+fAxle.fRadius;
+
+ fRayCastFilterDirection:=fVehicle.WorldDown;
+ fRayCastFilterBidirection:=fVehicle.WorldForward;
 
 {$ifdef SingleRaycastResult}
  RayOrigin:=aWorldSpacePosition;
@@ -990,6 +1000,7 @@ begin
  fHitPoint:=RayResult.Point;
  fHitNormal:=RayResult.Normal;
 {$else}
+
  RayOrigin:=Vector3Add(aWorldSpacePosition,Vector3ScalarMul(WorldSpaceAxleLeft,WheelWidth));
  RayResults[0]:=RayCast(RayOrigin,RayDirection,TraceLen);
 
@@ -1062,13 +1073,13 @@ begin
 
  WheelVelocity:=fVehicle.fRigidBody.GetWorldLinearVelocityFromPoint(fHitPoint);
 
- ContactUp:=HitNormal;
+ ContactUp:=Vector3Norm(HitNormal);
 {$ifdef SingleRaycastResult}
  ContactLeft:=Vector3Norm(Vector3Sub(WorldSpaceAxleLeft,Vector3ScalarMul(ContactUp,Vector3Dot(WorldSpaceAxleLeft,ContactUp))));
 {$else}
  ContactLeft:=Vector3Norm(Vector3Sub(RayResults[0].Point,RayResults[1].Point));
 {$endif}
- ContactForward:=Vector3Cross(ContactUp,ContactLeft);
+ ContactForward:=Vector3Norm(Vector3Cross(ContactUp,ContactLeft));
 
  LeftVelocity:=Vector3ScalarMul(ContactLeft,Vector3Dot(WheelVelocity,ContactLeft));
  ForwardVelocity:=Vector3ScalarMul(ContactForward,Vector3Dot(WheelVelocity,ContactForward));
@@ -1707,6 +1718,10 @@ begin
 
  AxleFront.WheelLeft.fYawRad:=ArcTan(AxleSeparation/(TurningCircleRadius+(WheelSeparation*0.5)));
  AxleFront.WheelRight.fYawRad:=ArcTan(AxleSeparation/(TurningCircleRadius-(WheelSeparation*0.5)));
+
+ if fIsAcceleration or fIsReverseAcceleration then begin
+  fRigidBody.SetToAwake;
+ end;
 
 end;
 

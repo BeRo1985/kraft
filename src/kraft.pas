@@ -1,7 +1,7 @@
 (****************************************************************************** 
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2021-07-12-04-16-0000                       *
+ *                        Version 2021-07-14-23-08-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -2964,6 +2964,8 @@ type PKraftForceMode=^TKraftForceMode;
 
      TKraftOnPushSphereShapeContactHook=procedure(const WithShape:TKraftShape) of object;
 
+     TKraftOnRayCastFilterHook=function(const aPoint,aNormal:TKraftVector3;const aTime:TKraftScalar;const aShape:TKraftShape):boolean of object;
+
      TKraft=class(TPersistent)
       private
 
@@ -3162,7 +3164,7 @@ type PKraftForceMode=^TKraftForceMode;
 
        function TestPoint(const Point:TKraftVector3):TKraftShape;
 
-       function RayCast(const Origin,Direction:TKraftVector3;const MaxTime:TKraftScalar;var Shape:TKraftShape;var Time:TKraftScalar;var Point,Normal:TKraftVector3;const CollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)]):boolean;
+       function RayCast(const Origin,Direction:TKraftVector3;const MaxTime:TKraftScalar;var Shape:TKraftShape;var Time:TKraftScalar;var Point,Normal:TKraftVector3;const CollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnRayCastFilterHook:TKraftOnRayCastFilterHook=nil):boolean;
 
        function PushSphere(var Center:TKraftVector3;const Radius:TKraftScalar;const CollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const TryIterations:longint=4;const OnPushSphereShapeContactHook:TKraftOnPushSphereShapeContactHook=nil):boolean;
 
@@ -20375,8 +20377,10 @@ end;
 
 {$ifdef DebugDraw}
 procedure TKraftShapePlane.Draw(const CameraMatrix:TKraftMatrix4x4);
+const PlaneSize=2048;
 var ModelViewMatrix:TKraftMatrix4x4;
-    n:TKraftVector3;
+    n,b,p,q:TKraftVector3;
+    PlaneVertices:array[0..3] of TKraftVector3;
 begin
 
  glPushMatrix;
@@ -20392,43 +20396,51 @@ begin
   fDrawDisplayList:=glGenLists(1);
   glNewList(fDrawDisplayList,GL_COMPILE);
 
-  n:=Vector3NormEx(Vector3Cross(Vector3Sub(fPlaneVertices[1],fPlaneVertices[0]),Vector3Sub(fPlaneVertices[2],fPlaneVertices[0])));
+  GetPlaneSpace(fPlane.Normal,p,q);
+
+  b:=Vector3ScalarMul(fPlane.Normal,fPlane.Distance);
+  PlaneVertices[0]:=Vector3Add(b,Vector3Add(Vector3ScalarMul(p,PlaneSize),Vector3ScalarMul(q,PlaneSize)));
+  PlaneVertices[1]:=Vector3Add(b,Vector3Add(Vector3ScalarMul(p,PlaneSize),Vector3ScalarMul(q,-PlaneSize)));
+  PlaneVertices[2]:=Vector3Add(b,Vector3Add(Vector3ScalarMul(p,-PlaneSize),Vector3ScalarMul(q,-PlaneSize)));
+  PlaneVertices[3]:=Vector3Add(b,Vector3Add(Vector3ScalarMul(p,-PlaneSize),Vector3ScalarMul(q,PlaneSize)));
+
+  n:=Vector3NormEx(Vector3Cross(Vector3Sub(PlaneVertices[1],PlaneVertices[0]),Vector3Sub(PlaneVertices[2],PlaneVertices[0])));
 
 {$ifdef UseDouble}
   glBegin(GL_TRIANGLES);
   glNormal3dv(@n);
-  glVertex3dv(@fPlaneVertices[0]);
-  glVertex3dv(@fPlaneVertices[1]);
-  glVertex3dv(@fPlaneVertices[2]);
-  glVertex3dv(@fPlaneVertices[2]);
-  glVertex3dv(@fPlaneVertices[3]);
-  glVertex3dv(@fPlaneVertices[0]);
+  glVertex3dv(@PlaneVertices[0]);
+  glVertex3dv(@PlaneVertices[1]);
+  glVertex3dv(@PlaneVertices[2]);
+  glVertex3dv(@PlaneVertices[2]);
+  glVertex3dv(@PlaneVertices[3]);
+  glVertex3dv(@PlaneVertices[0]);
   n:=Vector3Neg(n);
   glNormal3dv(@n);
-  glVertex3dv(@fPlaneVertices[2]);
-  glVertex3dv(@fPlaneVertices[1]);
-  glVertex3dv(@fPlaneVertices[0]);
-  glVertex3dv(@fPlaneVertices[0]);
-  glVertex3dv(@fPlaneVertices[3]);
-  glVertex3dv(@fPlaneVertices[2]);
+  glVertex3dv(@PlaneVertices[2]);
+  glVertex3dv(@PlaneVertices[1]);
+  glVertex3dv(@PlaneVertices[0]);
+  glVertex3dv(@PlaneVertices[0]);
+  glVertex3dv(@PlaneVertices[3]);
+  glVertex3dv(@PlaneVertices[2]);
   glEnd;
 {$else}
   glBegin(GL_TRIANGLES);
   glNormal3fv(@n);
-  glVertex3fv(@fPlaneVertices[0]);
-  glVertex3fv(@fPlaneVertices[1]);
-  glVertex3fv(@fPlaneVertices[2]);
-  glVertex3fv(@fPlaneVertices[2]);
-  glVertex3fv(@fPlaneVertices[3]);
-  glVertex3fv(@fPlaneVertices[0]);
+  glVertex3fv(@PlaneVertices[0]);
+  glVertex3fv(@PlaneVertices[1]);
+  glVertex3fv(@PlaneVertices[2]);
+  glVertex3fv(@PlaneVertices[2]);
+  glVertex3fv(@PlaneVertices[3]);
+  glVertex3fv(@PlaneVertices[0]);
   n:=Vector3Neg(n);
   glNormal3fv(@n);
-  glVertex3fv(@fPlaneVertices[2]);
-  glVertex3fv(@fPlaneVertices[1]);
-  glVertex3fv(@fPlaneVertices[0]);
-  glVertex3fv(@fPlaneVertices[0]);
-  glVertex3fv(@fPlaneVertices[3]);
-  glVertex3fv(@fPlaneVertices[2]);
+  glVertex3fv(@PlaneVertices[2]);
+  glVertex3fv(@PlaneVertices[1]);
+  glVertex3fv(@PlaneVertices[0]);
+  glVertex3fv(@PlaneVertices[0]);
+  glVertex3fv(@PlaneVertices[3]);
+  glVertex3fv(@PlaneVertices[2]);
   glEnd;
 {$endif}
 
@@ -32409,7 +32421,7 @@ begin
  result:=Hit;
 end;
 
-function TKraft.RayCast(const Origin,Direction:TKraftVector3;const MaxTime:TKraftScalar;var Shape:TKraftShape;var Time:TKraftScalar;var Point,Normal:TKraftVector3;const CollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)]):boolean;
+function TKraft.RayCast(const Origin,Direction:TKraftVector3;const MaxTime:TKraftScalar;var Shape:TKraftShape;var Time:TKraftScalar;var Point,Normal:TKraftVector3;const CollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnRayCastFilterHook:TKraftOnRayCastFilterHook=nil):boolean;
 var Hit:boolean;
 {$ifdef KraftSingleThreadedUsage}
  procedure QueryTree(AABBTree:TKraftDynamicAABBTree);
@@ -32436,12 +32448,14 @@ var Hit:boolean;
         RayCastData.Direction:=Direction;
         RayCastData.MaxTime:=MaxTime;
         if (assigned(CurrentShape) and (assigned(CurrentShape.fRigidBody) and ((CurrentShape.fRigidBody.fCollisionGroups*CollisionGroups)<>[]))) and CurrentShape.RayCast(RayCastData) then begin
-         if (Hit and (RayCastData.TimeOfImpact<Time)) or not Hit then begin
-          Hit:=true;
-          Time:=RayCastData.TimeOfImpact;
-          Point:=RayCastData.Point;
-          Normal:=RayCastData.Normal;
-          Shape:=CurrentShape;
+         if (assigned(aOnRayCastFilterHook) and aOnRayCastFilterHook(RayCastData.Point,RayCastData.Normal,RayCastData.TimeOfImpact,CurrentShape)) or not assigned(aOnRayCastFilterHook) then begin
+          if (Hit and (RayCastData.TimeOfImpact<Time)) or not Hit then begin
+           Hit:=true;
+           Time:=RayCastData.TimeOfImpact;
+           Point:=RayCastData.Point;
+           Normal:=RayCastData.Normal;
+           Shape:=CurrentShape;
+          end;
          end;
         end;
        end else begin
@@ -32476,12 +32490,14 @@ var Hit:boolean;
       RayCastData.Direction:=Direction;
       RayCastData.MaxTime:=MaxTime;
       if (assigned(CurrentShape) and (assigned(CurrentShape.fRigidBody) and ((CurrentShape.fRigidBody.fCollisionGroups*CollisionGroups)<>[]))) and CurrentShape.RayCast(RayCastData) then begin
-       if (Hit and (RayCastData.TimeOfImpact<Time)) or not Hit then begin
-        Hit:=true;
-        Time:=RayCastData.TimeOfImpact;
-        Point:=RayCastData.Point;
-        Normal:=RayCastData.Normal;
-        Shape:=CurrentShape;
+       if (assigned(aOnRayCastFilterHook) and aOnRayCastFilterHook(RayCastData.Point,RayCastData.Normal,RayCastData.TimeOfImpact,CurrentShape)) or not assigned(aOnRayCastFilterHook) then begin
+        if (Hit and (RayCastData.TimeOfImpact<Time)) or not Hit then begin
+         Hit:=true;
+         Time:=RayCastData.TimeOfImpact;
+         Point:=RayCastData.Point;
+         Normal:=RayCastData.Normal;
+         Shape:=CurrentShape;
+        end;
        end;
       end;
      end else begin

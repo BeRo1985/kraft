@@ -1410,6 +1410,7 @@ begin
  end;
  sTreeViewDemos.Selected:=TreeNodeDemoDefault;
  sTreeViewDemosDblClick(nil);
+ OpenGLControlWorld.SetFocus;
 end;
 
 procedure TFormMain.sTreeViewDemosDblClick(Sender: TObject);

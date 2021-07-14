@@ -47,6 +47,8 @@ const CarWidth=1.8;
 
       CountDominos=64;
 
+      CountStreetElevations=64;
+
       JumpingRampWidth=16.0;
       JumpingRampHeight=16.0;
       JumpingRampLength=64.0;
@@ -128,6 +130,25 @@ begin
   end;
  end;
 
+ begin
+  // Street elevations
+  for Index:=0 to CountStreetElevations-1 do begin
+   RigidBody:=TKraftRigidBody.Create(KraftPhysics);
+   RigidBody.SetRigidBodyType(krbtSTATIC);
+   Shape:=TKraftShapeCapsule.Create(KraftPhysics,RigidBody,0.25,16);
+   Shape.Restitution:=0.4;
+   Shape.Density:=1.0;
+   RigidBody.ForcedMass:=1.0;
+   RigidBody.Finish;
+   RigidBody.SetWorldTransformation(Matrix4x4TermMul(
+                                     Matrix4x4RotateZ(PI*0.5),
+                                     Matrix4x4Translate(-(JumpingRampWidth+(CarWidth*4)),-0.125,-(12.0+(Index*0.75)))
+                                    )
+                                   );
+   RigidBody.CollisionGroups:=[0];
+  end;
+ end;
+
  Vehicle:=TVehicle.Create(KraftPhysics);
 
  Vehicle.DownForce:=10.0;
@@ -136,9 +157,10 @@ begin
  Vehicle.FlightStabilizationDamping:=0.7;
 
  Vehicle.AxleFront.Width:=1.55;
- Vehicle.AxleFront.Offset:=Vector2(1.51,-0.5);
+ Vehicle.AxleFront.Offset:=Vector2(1.51,-0.75);
 //Vehicle.AxleFront.Radius:=0.3;
  Vehicle.AxleFront.WheelVisualScale:=1.0;//2.9;
+ Vehicle.AxleFront.StabilizerBarAntiRollForce:=20000.0;
 {Vehicle.AxleFront.Radius:=0.3;
  Vehicle.AxleFront.LaterialFriction:=0.6;
  Vehicle.AxleFront.RollingFriction:=0.03;
@@ -154,8 +176,9 @@ begin
  Vehicle.AxleFront.IsPowered:=false;
 
  Vehicle.AxleRear.Width:=1.55;
- Vehicle.AxleRear.Offset:=Vector2(-1.29,-0.5);
+ Vehicle.AxleRear.Offset:=Vector2(-1.29,-0.75);
  Vehicle.AxleRear.WheelVisualScale:=1.0;//2.9;
+ Vehicle.AxleRear.StabilizerBarAntiRollForce:=20000.0;
 {Vehicle.AxleRear.Radius:=0.3;
  Vehicle.AxleRear.LaterialFriction:=0.6;
  Vehicle.AxleRear.RollingFriction:=0.03;
@@ -183,7 +206,7 @@ begin
  Shape.Density:=10.0;
  Shape.LocalTransform:=Matrix4x4Translate(0.0,1.75,1.0);}
  Vehicle.RigidBody.Finish;
- Vehicle.RigidBody.SetWorldTransformation(Matrix4x4TermMul(Matrix4x4RotateY(PI),Matrix4x4Translate(0.0,WheelRadius+CarHeight+2,0.0)));
+ Vehicle.RigidBody.SetWorldTransformation(Matrix4x4TermMul(Matrix4x4RotateY(PI),Matrix4x4Translate(0.0,CarHeight+Vehicle.AxleFront.Radius,0.0)));
  Vehicle.RigidBody.CollisionGroups:=[1];
  Vehicle.RigidBody.CollideWithCollisionGroups:=[0,1];
  Vehicle.RigidBody.AngularVelocityDamp:=10.0;//10.0;
