@@ -404,6 +404,7 @@ object FormMain: TFormMain
     Top = 424
   end
   object TimerDraw: TTimer
+    Enabled = False
     Interval = 10
     OnTimer = TimerDrawTimer
     Left = 411
