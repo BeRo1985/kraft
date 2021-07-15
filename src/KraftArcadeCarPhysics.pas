@@ -811,11 +811,11 @@ end;
 
 function TVehicle.TAxle.TWheel.RayCastFilterHook(const aPoint,aNormal:TKraftVector3;const aTime:TKraftScalar;const aShape:TKraftShape):boolean;
 begin
- result:=(Vector3Dot(aNormal,fRayCastFilterDirection))<=-0.1;
+ result:=Vector3Dot(aNormal,fRayCastFilterDirection)<=-0.5;
 end;
 
 procedure TVehicle.TAxle.TWheel.Update(const aWorldSpacePosition:TKraftVector3;const aTotalWheelsCount,aCountPoweredWheels:Int32;const aLeft:boolean);
-{-$define SingleRaycastResult}
+{$define SingleRaycastResult}
 const RelaxSpeed=1.0;
 type TRayResult=record
       Valid:boolean;
@@ -867,6 +867,8 @@ var LocalWheelRotation,WorldSpaceWheelRotation:TKraftQuaternion;
                                                [0],
                                                RayCastFilterHook
                                               );
+
+  // TODO: FIXME MULTI RAYCAST
 
 { Count:=0;
 
@@ -1832,7 +1834,7 @@ begin
  glEnd;
  glColor4f(1.0,1.0,1.0,1.0);
  glEnable(GL_DEPTH_TEST);
- write(#13,fAxleFront.SteerAngle:1:5,' ',AxleFront.WheelLeft.fYawRad*RAD2DEG:1:5,' ',GetSpeed*3.6:1:5,' - ',fWorldForward.x:1:5,' ',fWorldForward.y:1:5,' ',fWorldForward.z:1:5);
+//write(#13,fAxleFront.SteerAngle:1:5,' ',AxleFront.WheelLeft.fYawRad*RAD2DEG:1:5,' ',GetSpeed*3.6:1:5,' - ',fWorldForward.x:1:5,' ',fWorldForward.y:1:5,' ',fWorldForward.z:1:5);
 end;
 {$endif}
 

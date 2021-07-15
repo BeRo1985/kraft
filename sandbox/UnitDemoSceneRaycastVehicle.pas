@@ -125,12 +125,12 @@ begin
    RigidBody.Finish;
    RigidBody.SetWorldTransformation(Matrix4x4TermMul(Matrix4x4TermMul(Matrix4x4Translate(0.0,TKraftShapeBox(Shape).Extents.y,-8.0-((Index/CountDominos)*4.0)),Matrix4x4RotateY((Index-((CountDominos-1)*0.5))*(pi/CountDominos)*2.0)),Matrix4x4Translate(JumpingRampWidth+(CarWidth*4),0.0,-12.0)));
    RigidBody.CollisionGroups:=[0,1];
-   RigidBody.Gravity.Vector:=Vector3(0.0,-9.81*4.0,0.0);
-   RigidBody.Flags:=RigidBody.Flags+[krbfHasOwnGravity];
+// RigidBody.Gravity.Vector:=Vector3(0.0,-9.81*4.0,0.0);
+// RigidBody.Flags:=RigidBody.Flags+[krbfHasOwnGravity];
   end;
  end;
 
- begin
+{begin
   // Street elevations
   for Index:=0 to CountStreetElevations-1 do begin
    RigidBody:=TKraftRigidBody.Create(KraftPhysics);
@@ -147,7 +147,7 @@ begin
                                    );
    RigidBody.CollisionGroups:=[0];
   end;
- end;
+ end;//}
 
  Vehicle:=TVehicle.Create(KraftPhysics);
 
@@ -328,7 +328,7 @@ var Position:TKraftVector3;
     LerpFactor:TKraftScalar;
 begin
  LerpFactor:=1.0-exp(-(1.0/20.0));
- Position:=Vector3Add(Vector3Add(Vehicle.WorldPosition,Vector3ScalarMul(Vehicle.WorldForward,-5.0)),Vector3ScalarMul(Vehicle.WorldUp,1.0));;
+ Position:=Vector3Add(Vector3Add(Vehicle.WorldPosition,Vector3ScalarMul(Vehicle.WorldForward,-5.0)),Vector3ScalarMul(Vehicle.WorldUp,0.0));
  PKraftVector3(@TargetMatrix[2,0])^:=Vector3Norm(Vector3Sub(Vehicle.WorldPosition,Position));
  PKraftVector3(@TargetMatrix[1,0])^:=Vehicle.WorldUp;
  PKraftVector3(@TargetMatrix[0,0])^:=Vector3Cross(PKraftVector3(@TargetMatrix[1,0])^,PKraftVector3(@TargetMatrix[2,0])^);

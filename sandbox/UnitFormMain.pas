@@ -830,16 +830,22 @@ begin
  Rotating:=false;
  case Button of
   mbLeft:begin
-   Rotating:=true;
+   if not (assigned(FormMain.DemoScene) and FormMain.DemoScene.HasOwnKeyboardControls) then begin
+    Rotating:=true;
+   end;
 // Cursor:=crNone;
    OpenGLControlWorld.SetFocus;
   end;
   mbRight:begin
-   Grabbing:=true;
-   Rotating:=true;
+   if not (assigned(FormMain.DemoScene) and FormMain.DemoScene.HasOwnKeyboardControls) then begin
+    Grabbing:=true;
+    Rotating:=true;
+   end;
 // Cursor:=crNone;
    OpenGLControlWorld.SetFocus;
-   StartGrab;
+   if not (assigned(FormMain.DemoScene) and FormMain.DemoScene.HasOwnKeyboardControls) then begin
+    StartGrab;
+   end;
   end;
  end;
 end;
@@ -848,19 +854,21 @@ procedure TFormMain.OpenGLControlWorldMouseMove(Sender: TObject;
  Shift: TShiftState; X, Y: Integer);
 var xrel,yrel:longint;
 begin
- if Rotating then begin
-  xrel:=LastMouseX-x;
-  yrel:=LastMouseY-y;
-  if (xrel<>0) or (yrel<>0) then begin
-   CurrentCamera.RotateCamera(xrel*0.002,yrel*0.002);
-  end;
-  if (x<100) or (y<100) or (x>=(OpenGLControlWorld.ClientWidth-100)) or (y>=(OpenGLControlWorld.ClientHeight-100)) then begin
-   LastMouseX:=OpenGLControlWorld.ClientWidth div 2;
-   LastMouseY:=OpenGLControlWorld.ClientHeight div 2;
-   Mouse.CursorPos:=OpenGLControlWorld.ClientToScreen(Point(OpenGLControlWorld.ClientWidth div 2,OpenGLControlWorld.ClientHeight div 2));
-  end else begin
-   LastMouseX:=x;
-   LastMouseY:=y;
+ if not (assigned(FormMain.DemoScene) and FormMain.DemoScene.HasOwnKeyboardControls) then begin
+  if Rotating then begin
+   xrel:=LastMouseX-x;
+   yrel:=LastMouseY-y;
+   if (xrel<>0) or (yrel<>0) then begin
+    CurrentCamera.RotateCamera(xrel*0.002,yrel*0.002);
+   end;
+   if (x<100) or (y<100) or (x>=(OpenGLControlWorld.ClientWidth-100)) or (y>=(OpenGLControlWorld.ClientHeight-100)) then begin
+    LastMouseX:=OpenGLControlWorld.ClientWidth div 2;
+    LastMouseY:=OpenGLControlWorld.ClientHeight div 2;
+    Mouse.CursorPos:=OpenGLControlWorld.ClientToScreen(Point(OpenGLControlWorld.ClientWidth div 2,OpenGLControlWorld.ClientHeight div 2));
+   end else begin
+    LastMouseX:=x;
+    LastMouseY:=y;
+   end;
   end;
  end;
 end;
@@ -868,19 +876,21 @@ end;
 procedure TFormMain.OpenGLControlWorldMouseUp(Sender: TObject;
  Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
 begin
- if Grabbing then begin
-  Grabbing:=false;
-  StopGrab;
- end;
- if Rotating then begin
- //Cursor:=crDefault;
-  Rotating:=false;
-  KeyLeft:=false;
-  KeyRight:=false;
-  KeyBackwards:=false;
-  KeyForwards:=false;
-  KeyUp:=false;
-  KeyDown:=false;
+ if not (assigned(FormMain.DemoScene) and FormMain.DemoScene.HasOwnKeyboardControls) then begin
+  if Grabbing then begin
+   Grabbing:=false;
+   StopGrab;
+  end;
+  if Rotating then begin
+  //Cursor:=crDefault;
+   Rotating:=false;
+   KeyLeft:=false;
+   KeyRight:=false;
+   KeyBackwards:=false;
+   KeyForwards:=false;
+   KeyUp:=false;
+   KeyDown:=false;
+  end;
  end;
 end;
 
