@@ -1,7 +1,7 @@
 (******************************************************************************
  *                   ARCADE CAR PHYSICS FOR KRAFT PHYSICS ENGINE              *
  ******************************************************************************
- *                        Version 2021-07-14-21-04-0000                       *
+ *                        Version 2021-07-19-03-04-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -815,6 +815,7 @@ begin
 end;
 
 procedure TVehicle.TAxle.TWheel.Update(const aWorldSpacePosition:TKraftVector3;const aTotalWheelsCount,aCountPoweredWheels:Int32;const aLeft:boolean);
+{$define SphereCastResult}
 {$define SingleRaycastResult}
 const RelaxSpeed=1.0;
 type TRayResult=record
@@ -840,6 +841,26 @@ var LocalWheelRotation,WorldSpaceWheelRotation:TKraftQuaternion;
     RayResults:array[0..2] of TRayResult;
 {$endif}
 {$ifdef SingleRaycastResult}
+{$ifdef SphereCastResult}
+ function SphereCast(const aRayOrigin,aRayDirection:TKraftVector3;const aMaxTime,aWheelRadius:TKraftScalar):TRayResult;
+ begin
+  result.Valid:=fVehicle.fKraftPhysics.SphereCast(aRayOrigin,
+                                                  aWheelRadius,
+                                                  aRayDirection,
+                                                  aMaxTime,
+                                                  result.Shape,
+                                                  result.Time,
+                                                  result.Point,
+                                                  result.Normal,
+                                                  [0],
+                                                  RayCastFilterHook
+                                                 );
+  if result.Valid then begin
+   result.Time:=result.Time+aWheelRadius;
+   result.Point:=Vector3Add(result.Point,Vector3ScalarMul(aRayDirection,aWheelRadius));
+  end;
+ end;
+{$else}
  function WheelRayCast(const aRayOrigin,aRayDirection,aRayOtherDirection:TKraftVector3;const aFromAngle,aToAngle:TKraftScalar;const aRelaxedSuspensionLength,aWheelRadius:TKraftScalar):TRayResult;
  const CountRays=32; // +1 primary ray
        DivFactor=1.0/(CountRays-1);
@@ -856,7 +877,6 @@ var LocalWheelRotation,WorldSpaceWheelRotation:TKraftQuaternion;
 
   WheelPositionAtSuspensionLength:=Vector3Add(aRayOrigin,Vector3ScalarMul(aRayDirection,fSuspensionLength));
 
-  // Primary ray with fulled relaxed suspension length
   result.Valid:=fVehicle.fKraftPhysics.RayCast(aRayOrigin,
                                                aRayDirection,
                                                MaxTime,
@@ -870,7 +890,7 @@ var LocalWheelRotation,WorldSpaceWheelRotation:TKraftQuaternion;
 
   // TODO: FIXME MULTI RAYCAST
 
-{ Count:=0;
+  Count:=0;
 
   if result.Valid then begin
    Points[Count]:=result.Point;
@@ -942,9 +962,10 @@ var LocalWheelRotation,WorldSpaceWheelRotation:TKraftQuaternion;
     result.Time:=(TimeSum*WeightSum)+fSuspensionLength;
     result.Valid:=true;
    end;
-  end; //}
+  end;
 
  end;
+{$endif}
 {$else}
  function RayCast(const aRayOrigin,aRayDirection:TKraftVector3;const aMaxTime:TKraftScalar):TRayResult;
  begin
@@ -983,6 +1004,12 @@ begin
 
 {$ifdef SingleRaycastResult}
  RayOrigin:=aWorldSpacePosition;
+{$ifdef SphereCastResult}
+ RayResult:=SphereCast(RayOrigin,
+                       fVehicle.WorldDown,
+                       fAxle.fRelaxedSuspensionLength,
+                       fAxle.fRadius);
+{$else}
  RayResult:=WheelRayCast(RayOrigin,
                          fVehicle.WorldDown,
                          fVehicle.WorldForward,
@@ -990,6 +1017,7 @@ begin
                          PI*0.5,
                          fAxle.fRelaxedSuspensionLength,
                          fAxle.fRadius);
+{$endif}
 
  if not RayResult.Valid then begin
   fCompressionPrev:=fCompression;

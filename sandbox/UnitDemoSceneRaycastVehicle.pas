@@ -130,7 +130,7 @@ begin
   end;
  end;
 
-{begin
+{}begin
   // Street elevations
   for Index:=0 to CountStreetElevations-1 do begin
    RigidBody:=TKraftRigidBody.Create(KraftPhysics);
@@ -142,7 +142,7 @@ begin
    RigidBody.Finish;
    RigidBody.SetWorldTransformation(Matrix4x4TermMul(
                                      Matrix4x4RotateZ(PI*0.5),
-                                     Matrix4x4Translate(-(JumpingRampWidth+(CarWidth*4)),-0.125,-(12.0+(Index*0.75)))
+                                     Matrix4x4Translate(-(JumpingRampWidth+(CarWidth*4)),0.0,-(12.0+(Index*0.75)))
                                     )
                                    );
    RigidBody.CollisionGroups:=[0];
