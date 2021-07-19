@@ -1810,7 +1810,7 @@ end;
 procedure TVehicle.Update;
 const TotalWheelsCount=2 shl 1;
 var CountPoweredWheels:Int32;
-    Axis,AngularVelocity,AngularVelocityDamping:TKraftVector3;
+    Axis,AngularVelocity,AngularVelocityDamping,VehicleUp,AntiGravityUp:TKraftVector3;
     DownForceAmount:TKraftScalar;
 begin
 
@@ -1832,18 +1832,38 @@ begin
 
  if (fAxleFront.fWheelLeft.IsOnGround or fAxleFront.fWheelRight.IsOnGround) or
     (fAxleRear.fWheelLeft.IsOnGround or fAxleRear.fWheelRight.IsOnGround) then begin
+
   // Not all wheels in air
+
   DownForceAmount:=fDownForceCurveEnvelope.GetValueAtTime(fSpeedKMH)*0.01;
   fRigidBody.AddWorldForce(Vector3ScalarMul(fWorldDown,fRigidBody.Mass*DownForceAmount*fDownForce));
+
  end else begin
+
   // All wheels in air
+
   fAfterFlightSlipperyTiresTime:=1.0;
-  Axis:=Vector3Norm(Vector3Cross(fWorldUp,Vector3YAxis));
-  AngularVelocity:=fRigidBody.AngularVelocity;
-  AngularVelocityDamping:=AngularVelocity;
-  AngularVelocityDamping.y:=0.0;
-  fRigidBody.AddWorldAngularVelocity(Vector3Neg(Vector3ScalarMul(AngularVelocityDamping,Clamp01(fFlightStabilizationDamping*fKraftPhysics.WorldDeltaTime))),kfmVelocity);
+
+  // Length of axis depends on the angle - i.e. the further awat
+  // the vehicle is from being upright, the larger the applied impulse
+  // will be, resulting in fast changes when the vehicle is on its
+  // side, but not overcompensating (and therefore shaking) when
+  // the vehicle is not much away from being upright.
+  VehicleUp:=fWorldUp;
+  AntiGravityUp:=Vector3Neg(fKraftPhysics.Gravity.Vector);
+  Axis:=Vector3Norm(Vector3Cross(VehicleUp,AntiGravityUp));
+
+  // To avoid the vehicle goinh backwards/forwards (or rolling sideways),
+  // set the pitch/roll to 0 before applying the 'straightening' impulse.
+  if fFlightStabilizationDamping>0.0 then begin
+   fRigidBody.AngularVelocity:=Vector3Lerp(fRigidBody.AngularVelocity,
+                                           Vector3(0.0,fRigidBody.AngularVelocity.y,0.0),
+                                           Clamp01(fFlightStabilizationDamping*fKraftPhysics.WorldDeltaTime));
+  end;
+
+  // Give a nicely balanced feeling for rebalancing the vehicle
   fRigidBody.AddWorldTorque(Vector3ScalarMul(Axis,fFlightStabilizationForce*fRigidBody.Mass));
+
  end;
 
  fAfterFlightSlipperyTiresTime:=Max(0.0,fAfterFlightSlipperyTiresTime-fKraftPhysics.WorldDeltaTime);
