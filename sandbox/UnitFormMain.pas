@@ -520,6 +520,8 @@ begin
 
  LastTime:=HighResolutionTimer.GetTime;
 
+ OpenGLControlWorld.SetFocus;
+
 end;
 
 procedure TFormMain.FormCreate(Sender: TObject);
@@ -1420,7 +1422,6 @@ begin
  end;
  sTreeViewDemos.Selected:=TreeNodeDemoDefault;
  sTreeViewDemosDblClick(nil);
- OpenGLControlWorld.SetFocus;
 end;
 
 procedure TFormMain.sTreeViewDemosDblClick(Sender: TObject);

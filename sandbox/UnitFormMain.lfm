@@ -1,11 +1,11 @@
 object FormMain: TFormMain
   Left = -8
-  Height = 625
+  Height = 664
   Top = -8
-  Width = 977
+  Width = 993
   Caption = 'Kraft physics engine sandbox - Copyright (C) 2015-2016, Benjamin ''BeRo'' Rosseaux'
-  ClientHeight = 625
-  ClientWidth = 977
+  ClientHeight = 641
+  ClientWidth = 993
   Color = clBtnFace
   Font.Color = clWindowText
   Font.Height = -11
@@ -19,14 +19,14 @@ object FormMain: TFormMain
   WindowState = wsMaximized
   object sSplitter1: TSplitter
     Left = 305
-    Height = 625
+    Height = 641
     Top = 0
     Width = 5
     ResizeStyle = rsLine
   end
   object sSplitter3: TSplitter
-    Left = 787
-    Height = 625
+    Left = 803
+    Height = 641
     Top = 0
     Width = 5
     Align = alRight
@@ -35,12 +35,12 @@ object FormMain: TFormMain
   end
   object sPanelLeft: TPanel
     Left = 0
-    Height = 625
+    Height = 641
     Top = 0
     Width = 305
     Align = alLeft
     BevelOuter = bvNone
-    ClientHeight = 625
+    ClientHeight = 641
     ClientWidth = 305
     TabOrder = 0
     object sSplitter2: TSplitter
@@ -96,17 +96,17 @@ object FormMain: TFormMain
     end
     object sPanelLeftBottom: TPanel
       Left = 0
-      Height = 322
+      Height = 338
       Top = 303
       Width = 305
       Align = alClient
       BevelOuter = bvNone
-      ClientHeight = 322
+      ClientHeight = 338
       ClientWidth = 305
       TabOrder = 1
       object sGroupBoxPropertyEditor: TGroupBox
         Left = 0
-        Height = 322
+        Height = 338
         Top = 0
         Width = 305
         Align = alClient
@@ -116,28 +116,28 @@ object FormMain: TFormMain
     end
   end
   object sPanelRight: TPanel
-    Left = 792
-    Height = 625
+    Left = 808
+    Height = 641
     Top = 0
     Width = 185
     Align = alRight
     BevelOuter = bvNone
-    ClientHeight = 625
+    ClientHeight = 641
     ClientWidth = 185
     TabOrder = 1
     object sGroupBoxDemos: TGroupBox
       Left = 0
-      Height = 625
+      Height = 641
       Top = 0
       Width = 185
       Align = alClient
       Caption = 'Demos'
-      ClientHeight = 607
+      ClientHeight = 623
       ClientWidth = 181
       TabOrder = 0
       object sTreeViewDemos: TTreeView
         Left = 0
-        Height = 607
+        Height = 623
         Top = 0
         Width = 181
         Align = alClient
@@ -159,21 +159,21 @@ object FormMain: TFormMain
   end
   object sPanelMiddle: TPanel
     Left = 310
-    Height = 625
+    Height = 641
     Top = 0
-    Width = 477
+    Width = 493
     Align = alClient
     BevelOuter = bvNone
-    ClientHeight = 625
-    ClientWidth = 477
+    ClientHeight = 641
+    ClientWidth = 493
     FullRepaint = False
     TabOrder = 2
     object sSplitter4: TSplitter
       Cursor = crVSplit
       Left = 0
       Height = 6
-      Top = 451
-      Width = 477
+      Top = 467
+      Width = 493
       Align = alBottom
       ResizeAnchor = akBottom
       ResizeStyle = rsLine
@@ -181,18 +181,18 @@ object FormMain: TFormMain
     object sPanelMiddleBottom: TPanel
       Left = 0
       Height = 168
-      Top = 457
-      Width = 477
+      Top = 473
+      Width = 493
       Align = alBottom
       BevelOuter = bvNone
       ClientHeight = 168
-      ClientWidth = 477
+      ClientWidth = 493
       TabOrder = 0
       object sPageControl1: TPageControl
         Left = 0
         Height = 168
         Top = 0
-        Width = 477
+        Width = 493
         ActivePage = sTabSheetInfo
         Align = alClient
         TabIndex = 0
@@ -200,12 +200,12 @@ object FormMain: TFormMain
         object sTabSheetInfo: TTabSheet
           Caption = 'Info'
           ClientHeight = 142
-          ClientWidth = 469
+          ClientWidth = 485
           object sMemoInfo: TMemo
             Left = 0
             Height = 142
             Top = 0
-            Width = 469
+            Width = 485
             Align = alClient
             Color = clWhite
             Font.Color = clBlack
@@ -340,22 +340,22 @@ object FormMain: TFormMain
     end
     object sPageControl2: TPageControl
       Left = 0
-      Height = 451
+      Height = 467
       Top = 0
-      Width = 477
+      Width = 493
       ActivePage = sTabSheetWorld
       Align = alClient
       TabIndex = 0
       TabOrder = 1
       object sTabSheetWorld: TTabSheet
         Caption = 'World'
-        ClientHeight = 425
-        ClientWidth = 469
+        ClientHeight = 441
+        ClientWidth = 485
         object OpenGLControlWorld: TOpenGLControl
           Left = 0
-          Height = 425
+          Height = 441
           Top = 0
-          Width = 469
+          Width = 485
           Align = alClient
           OpenGLMajorVersion = 2
           DepthBits = 32

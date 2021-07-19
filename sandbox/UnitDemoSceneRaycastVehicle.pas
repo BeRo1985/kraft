@@ -130,7 +130,7 @@ begin
   end;
  end;
 
-{}begin
+{ begin
   // Street elevations
   for Index:=0 to CountStreetElevations-1 do begin
    RigidBody:=TKraftRigidBody.Create(KraftPhysics);

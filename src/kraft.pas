@@ -3531,6 +3531,7 @@ function Vector3Perpendicular(v:TKraftVector3):TKraftVector3; {$ifdef caninline}
 function Vector3TermQuaternionRotate(const v:TKraftVector3;const q:TKraftQuaternion):TKraftVector3; {$ifdef caninline}inline;{$endif}
 function Vector3ProjectToBounds(const v:TKraftVector3;const MinVector,MaxVector:TKraftVector3):TKraftScalar; {$ifdef caninline}inline;{$endif}
 {$endif}
+function Vector3FlushZero(const v:TKraftVector3):TKraftVector3;
 
 function Vector4Compare(const v1,v2:TKraftVector4):boolean;
 function Vector4CompareEx(const v1,v2:TKraftVector4;const Threshold:TKraftScalar=EPSILON):boolean;
@@ -5793,6 +5794,25 @@ begin
  end;
 end;
 {$endif}
+
+function Vector3FlushZero(const v:TKraftVector3):TKraftVector3;
+begin
+ if IsZero(v.x) then begin
+  result.x:=0.0;
+ end else begin
+  result.x:=v.x;
+ end;
+ if IsZero(v.y) then begin
+  result.y:=0.0;
+ end else begin
+  result.y:=v.y;
+ end;
+ if IsZero(v.z) then begin
+  result.z:=0.0;
+ end else begin
+  result.z:=v.z;
+ end;
+end;
 
 function Vector4Compare(const v1,v2:TKraftVector4):boolean;
 begin
@@ -26508,13 +26528,19 @@ end;
 
 function TKraftRigidBody.GetWorldLinearVelocityFromPoint(const APoint:TKraftVector3):TKraftVector3;
 begin
- result:=Vector3Add(fLinearVelocity,Vector3Cross(fAngularVelocity,Vector3Sub(APoint,PKraftVector3(pointer(@fWorldTransform[3,0]))^)));
+ result:=Vector3Add(fLinearVelocity,Vector3Cross(fAngularVelocity,Vector3Sub(APoint,PKraftVector3(@fWorldTransform[3,0])^)));
+//result:=Vector3Add(fLinearVelocity,Vector3Cross(fAngularVelocity,Vector3Sub(APoint,fSweep.c)));
 end;
 
 function TKraftRigidBody.GetBodyLinearVelocityFromPoint(const APoint:TKraftVector3):TKraftVector3;
 begin
  result:=Vector3TermMatrixMulTransposedBasis(GetWorldLinearVelocityFromPoint(Vector3TermMatrixMul(APoint,fWorldTransform)),fWorldTransform);
 end;
+{var WorldPoint:TKraftVector3;
+begin
+ WorldPoint:=Vector3Add(Vector3TermQuaternionRotate(aPoint,fSweep.q),Vector3Sub(Sweep.c,Vector3TermQuaternionRotate(Sweep.LocalCenter,Sweep.q)));
+ result:=Vector3TermQuaternionRotate(Vector3Add(fLinearVelocity,Vector3Cross(fAngularVelocity,Vector3Sub(WorldPoint,fSweep.c))),QuaternionInverse(fSweep.q));
+end;}
 
 constructor TKraftConstraint.Create(const APhysics:TKraft);
 var RigidBodyIndex:longint;
