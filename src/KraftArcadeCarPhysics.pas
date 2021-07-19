@@ -233,7 +233,7 @@ type { TVehicle }
                      fHandBrake:boolean;
                      fHitValid:boolean;
                      fLastHitValid:boolean;
-                     fValidHitValid:boolean;
+                     fVisualHitValid:boolean;
                      fHitPoint:TKraftVector3;
                      fLastHitPoint:TKraftVector3;
                      fVisualHitPoint:TKraftVector3;
@@ -426,6 +426,8 @@ type { TVehicle }
        fInputReset:Boolean;
        fInputBrake:Boolean;
        fInputHandBrake:Boolean;
+       fSpeed:TKraftScalar;
+       fSpeedKMH:TKraftScalar;
       public
        constructor Create(const aKraftPhysics:TKraft); reintroduce;
        destructor Destroy; override;
@@ -501,6 +503,8 @@ type { TVehicle }
        property InputReset:Boolean read fInputReset write fInputReset;
        property InputBrake:Boolean read fInputBrake write fInputBrake;
        property InputHandBrake:Boolean read fInputHandBrake write fInputHandBrake;
+       property Speed:TKraftScalar read fSpeed write fSpeed;
+       property SpeedKMH:TKraftScalar read fSpeedKMH write fSpeedKMH;
      end;
 
 implementation
@@ -787,7 +791,7 @@ begin
  fHandBrake:=false;
  fHitValid:=false;
  fLastHitValid:=false;
- fValidHitValid:=false;
+ fVisualHitValid:=false;
  fHitPoint:=Vector3Origin;
  fHitNormal:=Vector3Origin;
  fHitTime:=0.0;
@@ -815,7 +819,7 @@ begin
 end;
 
 procedure TVehicle.TAxle.TWheel.Update(const aWorldSpacePosition:TKraftVector3;const aTotalWheelsCount,aCountPoweredWheels:Int32;const aLeft:boolean);
-{$define SphereCastResult}
+{-$define SphereCastResult}
 {$define SingleRaycastResult}
 const RelaxSpeed=1.0;
 type TRayResult=record
@@ -887,7 +891,7 @@ var LocalWheelRotation,WorldSpaceWheelRotation:TKraftQuaternion;
                                                [0],
                                                RayCastFilterHook
                                               );
-
+  exit;
   // TODO: FIXME MULTI RAYCAST
 
   Count:=0;
@@ -1170,6 +1174,10 @@ begin
  fDebugLongitudinalForce:=LongitudinalForce;
 {$endif}
 
+ if self=fVehicle.fAxleFront.fWheelLeft then begin
+  writeln(FrictionForce.x:10:5,' ',FrictionForce.y:10:5,' ',FrictionForce.z:10:5,' ');
+ end;
+
  // Apply resulting force
  fVehicle.fRigidBody.AddForceAtPosition(FrictionForce,fHitPoint,kfmForce);
 
@@ -1263,6 +1271,7 @@ procedure TVehicle.TAxle.TWheel.StoreWorldTransforms;
 begin
  fLastWorldTransform:=fWorldTransform;
 {$ifdef DebugDraw}
+ fLastHitValid:=fHitValid;
  fLastHitPoint:=fHitPoint;
  fLastDebugDrawLinePoints[0]:=fDebugDrawLinePoints[0];
  fLastDebugDrawLinePoints[1]:=fDebugDrawLinePoints[1];
@@ -1278,14 +1287,43 @@ procedure TVehicle.TAxle.TWheel.InterpolateWorldTransforms(const aAlpha:TKraftSc
 begin
  fVisualWorldTransform:=Matrix4x4Lerp(fLastWorldTransform,fWorldTransform,aAlpha);
 {$ifdef DebugDraw}
- fVisualHitPoint:=Vector3Lerp(fLastHitPoint,fHitPoint,aAlpha);
- fVisualDebugDrawLinePoints[0]:=Vector3Lerp(fLastDebugDrawLinePoints[0],fDebugDrawLinePoints[0],aAlpha);
- fVisualDebugDrawLinePoints[1]:=Vector3Lerp(fLastDebugDrawLinePoints[1],fDebugDrawLinePoints[1],aAlpha);
- fVisualDebugSlidingVelocity:=Vector3Lerp(fLastDebugSlidingVelocity,fDebugSlidingVelocity,aAlpha);
- fVisualDebugFrictionForce:=Vector3Lerp(fLastDebugFrictionForce,fDebugFrictionForce,aAlpha);
- fVisualDebugLongitudinalForce:=Vector3Lerp(fLastDebugLongitudinalForce,fDebugLongitudinalForce,aAlpha);
- fVisualDebugAccForcePoint:=Vector3Lerp(fLastDebugAccForcePoint,fDebugAccForcePoint,aAlpha);
- fVisualDebugEngineForce:=Vector3Lerp(fLastDebugEngineForce,fDebugEngineForce,aAlpha);
+ if fLastHitValid then begin
+  if fHitValid then begin
+   fVisualHitValid:=true;
+   fVisualHitPoint:=Vector3Lerp(fLastHitPoint,fHitPoint,aAlpha);
+   fVisualDebugDrawLinePoints[0]:=Vector3Lerp(fLastDebugDrawLinePoints[0],fDebugDrawLinePoints[0],aAlpha);
+   fVisualDebugDrawLinePoints[1]:=Vector3Lerp(fLastDebugDrawLinePoints[1],fDebugDrawLinePoints[1],aAlpha);
+   fVisualDebugSlidingVelocity:=Vector3Lerp(fLastDebugSlidingVelocity,fDebugSlidingVelocity,aAlpha);
+   fVisualDebugFrictionForce:=Vector3Lerp(fLastDebugFrictionForce,fDebugFrictionForce,aAlpha);
+   fVisualDebugLongitudinalForce:=Vector3Lerp(fLastDebugLongitudinalForce,fDebugLongitudinalForce,aAlpha);
+   fVisualDebugAccForcePoint:=Vector3Lerp(fLastDebugAccForcePoint,fDebugAccForcePoint,aAlpha);
+   fVisualDebugEngineForce:=Vector3Lerp(fLastDebugEngineForce,fDebugEngineForce,aAlpha);
+  end else begin
+   fVisualHitValid:=true;
+   fVisualHitPoint:=fLastHitPoint;
+   fVisualDebugDrawLinePoints[0]:=fLastDebugDrawLinePoints[0];
+   fVisualDebugDrawLinePoints[1]:=fLastDebugDrawLinePoints[1];
+   fVisualDebugSlidingVelocity:=fLastDebugSlidingVelocity;
+   fVisualDebugFrictionForce:=fLastDebugFrictionForce;
+   fVisualDebugLongitudinalForce:=fLastDebugLongitudinalForce;
+   fVisualDebugAccForcePoint:=fLastDebugAccForcePoint;
+   fVisualDebugEngineForce:=fLastDebugEngineForce;
+  end;
+ end else begin
+  if fHitValid then begin
+   fVisualHitValid:=true;
+   fVisualHitPoint:=fHitPoint;
+   fVisualDebugDrawLinePoints[0]:=fDebugDrawLinePoints[0];
+   fVisualDebugDrawLinePoints[1]:=fDebugDrawLinePoints[1];
+   fVisualDebugSlidingVelocity:=fDebugSlidingVelocity;
+   fVisualDebugFrictionForce:=fDebugFrictionForce;
+   fVisualDebugLongitudinalForce:=fDebugLongitudinalForce;
+   fVisualDebugAccForcePoint:=fDebugAccForcePoint;
+   fVisualDebugEngineForce:=fDebugEngineForce;
+  end else begin
+   fVisualHitValid:=false;
+  end;
+ end;
 {$endif}
 end;
 
@@ -1295,7 +1333,8 @@ var Index:Int32;
     v:TKraftVector3;
 begin
  if true then begin
-  if fHitValid then begin
+
+  if fVisualHitValid then begin
 
    glColor4f(1.0,1.0,0.0,1.0);
    glBegin(GL_LINES);
@@ -1324,6 +1363,7 @@ begin
   end;
   glEnd;
   glEnable(GL_CULL_FACE);
+
  end;
 end;
 {$endif}
@@ -1622,15 +1662,14 @@ begin
 end;
 
 function TVehicle.CalcAccelerationForceMagnitude:TKraftScalar;
-var Speed,DeltaTime:TKraftScalar;
+var DeltaTime:TKraftScalar;
 begin
  if fIsAcceleration or fIsReverseAcceleration then begin
-  Speed:=GetSpeed;
   DeltaTime:=fKraftPhysics.WorldDeltaTime;
   if IsAcceleration then begin
-   result:=GetAccelerationForceMagnitude(fAccelerationCurveEnvelope,Speed,DeltaTime);
+   result:=GetAccelerationForceMagnitude(fAccelerationCurveEnvelope,fSpeed,DeltaTime);
   end else begin
-   result:=-GetAccelerationForceMagnitude(fReverseAccelerationCurveEnvelope,-Speed,DeltaTime);
+   result:=-GetAccelerationForceMagnitude(fReverseAccelerationCurveEnvelope,-fSpeed,DeltaTime);
   end;
  end else begin
   result:=0.0;
@@ -1643,7 +1682,7 @@ begin
 end;
 
 procedure TVehicle.UpdateInput;
-var Vertical,Horizontal,Speed,SpeedKMH,NewSteerAngle,AngleReturnSpeedDegressPerSecond:TKraftScalar;
+var Vertical,Horizontal,NewSteerAngle,AngleReturnSpeedDegressPerSecond:TKraftScalar;
     IsBrakeNow,IsHandBrakeNow:boolean;
 begin
 
@@ -1661,21 +1700,19 @@ begin
  IsBrakeNow:=false;
  IsHandBrakeNow:=fControllable and fInputHandBrake;
 
- Speed:=GetSpeed;
-
  fIsAcceleration:=false;
  fIsReverseAcceleration:=false;
 
  if fInputBrake and fControllable then begin
   IsBrakeNow:=true;
  end else if Vertical>0.4 then begin
-  if Speed<-0.5 then begin
+  if fSpeed<-0.5 then begin
    IsBrakeNow:=true;
   end else begin
    fIsAcceleration:=true;
   end;
  end else if Vertical<-0.4 then begin
-  if Speed>0.5 then begin
+  if fSpeed>0.5 then begin
    IsBrakeNow:=true;
   end else begin
    fIsReverseAcceleration:=true;
@@ -1704,13 +1741,11 @@ begin
  fAxleRear.WheelLeft.HandBrake:=fIsHandBrake;
  fAxleRear.WheelRight.HandBrake:=fIsHandBrake;
 
- SpeedKMH:=abs(Speed)*3.6;
-
  if abs(Horizontal)>0.001 then begin
-  NewSteerAngle:=fAxleFront.fSteerAngle+(Horizontal*fSteeringSpeedEnvelope.GetValueAtTime(SpeedKMH*GetSteeringHandBrakeK));
+  NewSteerAngle:=fAxleFront.fSteerAngle+(Horizontal*fSteeringSpeedEnvelope.GetValueAtTime(fSpeedKMH*GetSteeringHandBrakeK));
   fAxleFront.fSteerAngle:=Min(abs(NewSteerAngle),GetSteerAngleLimitInDeg(Speed))*Sign(NewSteerAngle);
  end else begin
-  AngleReturnSpeedDegressPerSecond:=fSteeringResetSpeedEnvelope.GetValueAtTime(SpeedKMH)*Clamp01(SpeedKMH*0.5);
+  AngleReturnSpeedDegressPerSecond:=fSteeringResetSpeedEnvelope.GetValueAtTime(fSpeedKMH)*Clamp01(fSpeedKMH*0.5);
   fAxleFront.SteerAngle:=Max(abs(fAxleFront.fSteerAngle)-(AngleReturnSpeedDegressPerSecond*fKraftPhysics.WorldDeltaTime),0.0)*Sign(fAxleFront.fSteerAngle);
  end;
 
@@ -1765,10 +1800,13 @@ procedure TVehicle.Update;
 const TotalWheelsCount=2 shl 1;
 var CountPoweredWheels:Int32;
     Axis,AngularVelocity,AngularVelocityDamping:TKraftVector3;
-    Speed,SpeedKMH,DownForceAmount:TKraftScalar;
+    DownForceAmount:TKraftScalar;
 begin
 
  UpdateWorldTransformVectors;
+
+ fSpeed:=GetSpeed;
+ fSpeedKMH:=abs(fSpeed)*3.6;
 
  UpdateInput;
 
@@ -1784,9 +1822,7 @@ begin
  if (fAxleFront.fWheelLeft.IsOnGround or fAxleFront.fWheelRight.IsOnGround) or
     (fAxleRear.fWheelLeft.IsOnGround or fAxleRear.fWheelRight.IsOnGround) then begin
   // Not all wheels in air
-  Speed:=GetSpeed;
-  SpeedKMH:=abs(Speed)*3.6;
-  DownForceAmount:=fDownForceCurveEnvelope.GetValueAtTime(SpeedKMH)*0.01;
+  DownForceAmount:=fDownForceCurveEnvelope.GetValueAtTime(fSpeedKMH)*0.01;
   fRigidBody.AddWorldForce(Vector3ScalarMul(fWorldDown,fRigidBody.Mass*DownForceAmount*fDownForce));
  end else begin
   // All wheels in air
@@ -1862,7 +1898,7 @@ begin
  glEnd;
  glColor4f(1.0,1.0,1.0,1.0);
  glEnable(GL_DEPTH_TEST);
-//write(#13,fAxleFront.SteerAngle:1:5,' ',AxleFront.WheelLeft.fYawRad*RAD2DEG:1:5,' ',GetSpeed*3.6:1:5,' - ',fWorldForward.x:1:5,' ',fWorldForward.y:1:5,' ',fWorldForward.z:1:5);
+//write(#13,fAxleFront.SteerAngle:1:5,' ',AxleFront.WheelLeft.fYawRad*RAD2DEG:1:5,' ',fSpeed*3.6:1:5,' - ',fWorldForward.x:1:5,' ',fWorldForward.y:1:5,' ',fWorldForward.z:1:5);
 end;
 {$endif}
 
