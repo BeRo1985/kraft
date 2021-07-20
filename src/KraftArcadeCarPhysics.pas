@@ -771,7 +771,7 @@ begin
   if (LowIndex=HighIndex) or SameValue(fPoints[LowIndex].fTime,fPoints[HighIndex].fTime) then begin
    result:=fPoints[HighIndex].fValue;
   end else begin
-   result:=(aTime-fPoints[LowIndex].fTime)/(fPoints[HighIndex].fTime-fPoints[LowIndex].fTime);
+   result:=Clamp01((aTime-fPoints[LowIndex].fTime)/(fPoints[HighIndex].fTime-fPoints[LowIndex].fTime));
    result:=(fPoints[LowIndex].fValue*(1.0-result))+(fPoints[HighIndex].fValue*result);
   end;
  end else begin
@@ -820,7 +820,6 @@ end;
 
 procedure TVehicle.TAxle.TWheel.Update(const aWorldSpacePosition:TKraftVector3;const aTotalWheelsCount,aCountPoweredWheels:Int32;const aLeft:boolean);
 {-$define SphereCastResult}
-{-$define SingleRaycastResult}
 const RelaxSpeed=1.0;
 type TRayResult=record
       Valid:boolean;
@@ -830,21 +829,16 @@ type TRayResult=record
       Normal:TKraftVector3;
      end;
 var LocalWheelRotation,WorldSpaceWheelRotation:TKraftQuaternion;
-    WorldSpaceAxleLeft,RayOrigin,RayDirection,
+    WorldSpaceAxleLeft,RayOrigin,
     SuspensionForce,WheelVelocity,ContactUp,ContactLeft,ContactForward,LeftVelocity,ForwardVelocity,
     SlideVelocity,SlidingForce,FrictionForce,
-    LongitudinalForce,BrakeForce,AccForcePoint,
+    LongitudinalForce,AccForcePoint,
     EngineForce:TKraftVector3;
     TraceLen,SuspensionLengthNow,SuspensionForceMagnitude,SpringForce,
     SuspCompressionVelocity,DamperForce,
     LaterialFriction,SlipperyK,HandBrakeK,
-    ClampedMag:TKraftScalar;
-{$ifdef SingleRaycastResult}
+    LongitudinalForceMagnitude,LongitudinalForceLossMagnitude:TKraftScalar;
     RayResult:TRayResult;
-{$else}
-    RayResults:array[0..2] of TRayResult;
-{$endif}
-{$ifdef SphereCastResult}
  function SphereCast(const aRayOrigin,aRayDirection:TKraftVector3;const aMaxTime,aWheelRadius:TKraftScalar):TRayResult;
  begin
   result.Valid:=fVehicle.fKraftPhysics.SphereCast(aRayOrigin,
@@ -863,8 +857,6 @@ var LocalWheelRotation,WorldSpaceWheelRotation:TKraftQuaternion;
    result.Point:=Vector3Add(result.Point,Vector3ScalarMul(aRayDirection,aWheelRadius));
   end;
  end;
-{$else}
-{$ifdef SingleRaycastResult}
  function WheelRayCast(const aRayOrigin,aRayDirection,aRayOtherDirection:TKraftVector3;const aFromAngle,aToAngle:TKraftScalar;const aRelaxedSuspensionLength,aWheelRadius:TKraftScalar):TRayResult;
  const CountRays=32; // +1 primary ray
        DivFactor=1.0/(CountRays-1);
@@ -969,22 +961,6 @@ var LocalWheelRotation,WorldSpaceWheelRotation:TKraftQuaternion;
   end;
 
  end;
-{$else}
- function RayCast(const aRayOrigin,aRayDirection:TKraftVector3;const aMaxTime:TKraftScalar):TRayResult;
- begin
-  result.Valid:=fVehicle.fKraftPhysics.RayCast(aRayOrigin,
-                                               aRayDirection,
-                                               aMaxTime,
-                                               result.Shape,
-                                               result.Time,
-                                               result.Point,
-                                               result.Normal,
-                                               [0],
-                                               RayCastFilterHook
-                                              );
- end;
-{$endif}
-{$endif}
 begin
 
  UpdateSuspensionLength;
@@ -999,17 +975,17 @@ begin
 
  fHitValid:=false;
 
- RayDirection:=fVehicle.WorldDown;
-
  TraceLen:=fAxle.fRelaxedSuspensionLength+fAxle.fRadius;
 
  fRayCastFilterDirection:=fVehicle.WorldDown;
  fRayCastFilterBidirection:=fVehicle.WorldForward;
 
-{$ifdef SingleRaycastResult}
  RayOrigin:=aWorldSpacePosition;
 {$ifdef SphereCastResult}
- RayResult:=SphereCast(RayOrigin,fVehicle.WorldDown,fAxle.fRelaxedSuspensionLength,fAxle.fRadius);
+ RayResult:=SphereCast(RayOrigin,
+                       fVehicle.WorldDown,
+                       fAxle.fRelaxedSuspensionLength,
+                       fAxle.fRadius);
 {$else}
  RayResult:=WheelRayCast(RayOrigin,
                          fVehicle.WorldDown,
@@ -1030,38 +1006,6 @@ begin
  fHitTime:=RayResult.Time;
  fHitPoint:=RayResult.Point;
  fHitNormal:=RayResult.Normal;
-{$else}
-{$ifdef SphereCastResult}
- RayOrigin:=Vector3Add(aWorldSpacePosition,Vector3ScalarMul(WorldSpaceAxleLeft,WheelWidth));
- RayResults[0]:=SphereCast(RayOrigin,fVehicle.WorldDown,fAxle.fRelaxedSuspensionLength,fAxle.fRadius);
-
- RayOrigin:=Vector3Add(aWorldSpacePosition,Vector3ScalarMul(WorldSpaceAxleLeft,-WheelWidth));
- RayResults[1]:=SphereCast(RayOrigin,fVehicle.WorldDown,fAxle.fRelaxedSuspensionLength,fAxle.fRadius);
-
- RayOrigin:=aWorldSpacePosition;
- RayResults[2]:=SphereCast(RayOrigin,fVehicle.WorldDown,fAxle.fRelaxedSuspensionLength,fAxle.fRadius);
-{$else}
- RayOrigin:=Vector3Add(aWorldSpacePosition,Vector3ScalarMul(WorldSpaceAxleLeft,WheelWidth));
- RayResults[0]:=RayCast(RayOrigin,RayDirection,TraceLen);
-
- RayOrigin:=Vector3Add(aWorldSpacePosition,Vector3ScalarMul(WorldSpaceAxleLeft,-WheelWidth));
- RayResults[1]:=RayCast(RayOrigin,RayDirection,TraceLen);
-
- RayOrigin:=aWorldSpacePosition;
- RayResults[2]:=RayCast(RayOrigin,RayDirection,TraceLen);
-{$endif}
-
- if not (RayResults[0].Valid and RayResults[1].Valid and RayResults[2].Valid) then begin
-  fCompressionPrev:=fCompression;
-  fCompression:=Clamp01(fCompression-(fVehicle.fKraftPhysics.WorldDeltaTime*RelaxSpeed));
-  exit;
- end;
-
- fHitValid:=RayResults[2].Valid;
- fHitTime:=RayResults[2].Time;
- fHitPoint:=RayResults[2].Point;
- fHitNormal:=RayResults[2].Normal;
-{$endif}
 
  SuspensionLengthNow:=fHitTime-fAxle.fRadius;
 
@@ -1113,13 +1057,14 @@ begin
  // Friction forces
 
  WheelVelocity:=fVehicle.fRigidBody.GetWorldLinearVelocityFromPoint(fHitPoint);
+ if assigned(RayResult.Shape) and assigned(RayResult.Shape.RigidBody) then begin
+  WheelVelocity:=Vector3Sub(WheelVelocity,RayResult.Shape.RigidBody.GetWorldLinearVelocityFromPoint(fHitPoint));
+ end;
 
  ContactUp:=Vector3Norm(HitNormal);
-{$ifdef SingleRaycastResult}
- ContactLeft:=Vector3Norm(Vector3Sub(WorldSpaceAxleLeft,Vector3ScalarMul(ContactUp,Vector3Dot(WorldSpaceAxleLeft,ContactUp))));
-{$else}
- ContactLeft:=Vector3Norm(Vector3Sub(RayResults[0].Point,RayResults[1].Point));
-{$endif}
+ ContactLeft:=Vector3Norm(Vector3Sub(WorldSpaceAxleLeft,
+                          Vector3ScalarMul(ContactUp,
+                                           Vector3Dot(WorldSpaceAxleLeft,ContactUp))));
  ContactForward:=Vector3Norm(Vector3Cross(ContactUp,ContactLeft));
 
  LeftVelocity:=Vector3ScalarMul(ContactLeft,Vector3Dot(WheelVelocity,ContactLeft));
@@ -1127,7 +1072,16 @@ begin
  SlideVelocity:=Vector3Avg(LeftVelocity,ForwardVelocity);
 
 {if self=fVehicle.fAxleFront.fWheelLeft then begin
-  writeln(WheelVelocity.x:10:5,' ',WheelVelocity.y:10:5,' ',WheelVelocity.z:10:5);
+  writeln('WV: ',WheelVelocity.x:14:5,' ',WheelVelocity.y:14:5,' ',WheelVelocity.z:14:5,' - ',
+          'SV: ',SlideVelocity.x:14:5,' ',SlideVelocity.y:14:5,' ',SlideVelocity.z:14:5,' - ',
+          'LV: ',LeftVelocity.x:14:5,' ',LeftVelocity.y:14:5,' ',LeftVelocity.z:14:5,' - ',
+          'FV: ',ForwardVelocity.x:14:5,' ',ForwardVelocity.y:14:5,' ',ForwardVelocity.z:14:5,' - ',
+          'CL: ',ContactLeft.x:14:5,' ',ContactLeft.y:14:5,' ',ContactLeft.z:14:5,' - ',
+          'CU: ',ContactUp.x:14:5,' ',ContactUp.y:14:5,' ',ContactUp.z:14:5,' - ',
+          'CF: ',ContactForward.x:14:5,' ',ContactForward.y:14:5,' ',ContactForward.z:14:5,' - ',
+          'HF: ',fHitPoint.x:14:5,' ',fHitPoint.y:14:5,' ',fHitPoint.z:14:5,' - ',
+          'LV: ',fVehicle.fRigidBody.LinearVelocity.x:14:5,' ',fVehicle.fRigidBody.LinearVelocity.y:14:5,' ',fVehicle.fRigidBody.LinearVelocity.z:14:5,' - ',
+          'AV: ',fVehicle.fRigidBody.AngularVelocity.x:14:5,' ',fVehicle.fRigidBody.AngularVelocity.y:14:5,' ',fVehicle.fRigidBody.AngularVelocity.z:14:5,' - ');
  end;//}
 
  // Sliding force
@@ -1163,22 +1117,22 @@ begin
  // Remove friction along roll-direction of wheel
  LongitudinalForce:=Vector3ScalarMul(ContactForward,Vector3Dot(FrictionForce,ContactForward));
 
-{[if self=fVehicle.fAxleFront.fWheelLeft then begin
+{if self=fVehicle.fAxleFront.fWheelLeft then begin
   writeln(ContactLeft.x:10:5,' ',ContactLeft.y:10:5,' ',ContactLeft.z:10:5,' - ',ContactForward.x:10:5,' ',ContactForward.y:10:5,' ',ContactForward.z:10:5,' - ',ContactUp.x:10:5,' ',ContactUp.y:10:5,' ',ContactUp.z:10:5,' ');
- end;}
+ end;//}
 
  // Apply braking force or rolling resistance force or nothing
  if fBrake or fHandBrake then begin
-  ClampedMag:=Clamp(fAxle.fBrakeForceMagnitude*fVehicle.fRigidBody.Mass,0.0,Vector3Length(LongitudinalForce));
-  BrakeForce:=Vector3ScalarMul(Vector3Norm(LongitudinalForce),ClampedMag);
+  LongitudinalForceMagnitude:=Vector3Length(LongitudinalForce);
+  LongitudinalForceLossMagnitude:=Clamp(fAxle.fBrakeForceMagnitude*fVehicle.fRigidBody.Mass,0.0,LongitudinalForceMagnitude);
   if fHandBrake and not fBrake then begin
-   BrakeForce:=Vector3ScalarMul(BrakeForce,0.8);
+   LongitudinalForceLossMagnitude:=LongitudinalForceLossMagnitude*0.8;
   end;
-  LongitudinalForce:=Vector3Sub(LongitudinalForce,BrakeForce);
+  Vector3Scale(LongitudinalForce,1.0-Clamp01(LongitudinalForceLossMagnitude/LongitudinalForceMagnitude));
  end else begin
   if not (fVehicle.fIsAcceleration or fVehicle.fIsReverseAcceleration) then begin
    // Apply rolling-friction (automatic slow-down) only if player don't press to the accelerator
-   LongitudinalForce:=Vector3ScalarMul(LongitudinalForce,1.0-Clamp01(fAxle.fRollingFriction));
+   Vector3Scale(LongitudinalForce,1.0-Clamp01(fAxle.fRollingFriction));
   end;
  end;
 
@@ -1189,7 +1143,7 @@ begin
  fDebugLongitudinalForce:=LongitudinalForce;
 {$endif}
 
-// Apply resulting force
+ // Apply resulting force
  fVehicle.fRigidBody.AddForceAtPosition(FrictionForce,fHitPoint,kfmForce);
 
  // Engine force
@@ -1742,15 +1696,15 @@ begin
 
  fIsHandBrake:=IsHandBrakeNow and not (fIsAcceleration or fIsReverseAcceleration);
 
- fAxleFront.WheelLeft.Brake:=fIsBrake;
- fAxleFront.WheelRight.Brake:=fIsBrake;
- fAxleRear.WheelLeft.Brake:=fIsBrake;
- fAxleRear.WheelRight.Brake:=fIsBrake;
+ fAxleFront.WheelLeft.fBrake:=fIsBrake;
+ fAxleFront.WheelRight.fBrake:=fIsBrake;
+ fAxleRear.WheelLeft.fBrake:=fIsBrake;
+ fAxleRear.WheelRight.fBrake:=fIsBrake;
 
- fAxleFront.WheelLeft.HandBrake:=fIsHandBrake;
- fAxleFront.WheelRight.HandBrake:=fIsHandBrake;
- fAxleRear.WheelLeft.HandBrake:=fIsHandBrake;
- fAxleRear.WheelRight.HandBrake:=fIsHandBrake;
+ fAxleFront.WheelLeft.fHandBrake:=fIsHandBrake;
+ fAxleFront.WheelRight.fHandBrake:=fIsHandBrake;
+ fAxleRear.WheelLeft.fHandBrake:=fIsHandBrake;
+ fAxleRear.WheelRight.fHandBrake:=fIsHandBrake;
 
  if abs(Horizontal)>0.001 then begin
   NewSteerAngle:=fAxleFront.fSteerAngle+(Horizontal*fSteeringSpeedEnvelope.GetValueAtTime(fSpeedKMH*GetSteeringHandBrakeK));

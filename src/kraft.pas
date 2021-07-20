@@ -78,6 +78,7 @@ unit kraft;
    {$define BIG_ENDIAN}
   {$endif}
  {$endif}
+ {$excessprecision off}
 {$else}
  {$define LITTLE_ENDIAN}
  {$ifndef cpu64}
@@ -26528,8 +26529,7 @@ end;
 
 function TKraftRigidBody.GetWorldLinearVelocityFromPoint(const APoint:TKraftVector3):TKraftVector3;
 begin
- result:=Vector3Add(fLinearVelocity,Vector3Cross(fAngularVelocity,Vector3Sub(APoint,PKraftVector3(@fWorldTransform[3,0])^)));
-//result:=Vector3Add(fLinearVelocity,Vector3Cross(fAngularVelocity,Vector3Sub(APoint,fSweep.c)));
+ result:=Vector3Add(fLinearVelocity,Vector3Cross(fAngularVelocity,Vector3Sub(APoint,fSweep.c)));
 end;
 
 function TKraftRigidBody.GetBodyLinearVelocityFromPoint(const APoint:TKraftVector3):TKraftVector3;
@@ -31141,7 +31141,7 @@ begin
    end;       
 
    // Integrate linear velocity
-   RigidBody.fLinearVelocity:=Vector3Add(RigidBody.fLinearVelocity,VEctor3Mul(RigidBody.fForce,Vector3ScalarMul(RigidBody.fLinearFactor,RigidBody.InverseMass*TimeStep.DeltaTime)));
+   RigidBody.fLinearVelocity:=Vector3Add(RigidBody.fLinearVelocity,Vector3Mul(RigidBody.fForce,Vector3ScalarMul(RigidBody.fLinearFactor,RigidBody.InverseMass*TimeStep.DeltaTime)));
 
    // Integrate angular velocity
    RigidBody.fAngularVelocity:=Vector3Add(RigidBody.fAngularVelocity,Vector3ScalarMul(Vector3TermMatrixMul(RigidBody.fTorque,RigidBody.fWorldInverseInertiaTensor),TimeStep.DeltaTime));

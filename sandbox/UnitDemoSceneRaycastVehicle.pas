@@ -128,11 +128,11 @@ begin
 // RigidBody.Gravity.Vector:=Vector3(0.0,-9.81*4.0,0.0);
 // RigidBody.Flags:=RigidBody.Flags+[krbfHasOwnGravity];
   end;
- end;
+ end;//}
 
 { begin
   // Street elevations
-  for Index:=0 to CountStreetElevations-1 do begin
+  for Index:=0 to CountStreetElevations-1 do beginMatrix4x4RotateZ
    RigidBody:=TKraftRigidBody.Create(KraftPhysics);
    RigidBody.SetRigidBodyType(krbtSTATIC);
    Shape:=TKraftShapeCapsule.Create(KraftPhysics,RigidBody,0.25,16);
