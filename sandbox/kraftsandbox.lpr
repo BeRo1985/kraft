@@ -33,7 +33,7 @@ uses
   UnitDemoSceneDomino in 'UnitDemoSceneDomino.pas',
   UnitDemoSceneChairAndTable in 'UnitDemoSceneChairAndTable.pas',
   UnitDemoSceneConvexHull in 'UnitDemoSceneConvexHull.pas',
-  UnitDemoSceneCar in 'UnitDemoSceneCar.pas',
+  UnitDemoSceneConstraintVehicle,
   UnitDemoSceneRaycastVehicle in 'UnitDemoSceneRaycastVehicle.pas';
 
 {$R *.res}

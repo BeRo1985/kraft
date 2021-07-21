@@ -29652,10 +29652,10 @@ begin
                            Vector3ScalarMul(fN2,TranslationImpulse.y));
 
  AngularImpulseA:=Vector3Add(Vector3ScalarMul(fR1PlusUCrossN1,TranslationImpulse.x),
-                                 Vector3ScalarMul(fR1PlusUCrossN2,TranslationImpulse.y));
+                             Vector3ScalarMul(fR1PlusUCrossN2,TranslationImpulse.y));
 
  AngularImpulseB:=Vector3Add(Vector3ScalarMul(fR2CrossN1,TranslationImpulse.x),
-                                 Vector3ScalarMul(fR2CrossN2,TranslationImpulse.y));
+                             Vector3ScalarMul(fR2CrossN2,TranslationImpulse.y));
 
  Vector3DirectSub(vA^,Vector3Mul(LinearImpulse,Vector3ScalarMul(fSolverLinearFactors[0]^,fInverseMasses[0])));
  Vector3DirectSub(wA^,Vector3TermMatrixMul(AngularImpulseA,fWorldInverseInertiaTensors[0]));
