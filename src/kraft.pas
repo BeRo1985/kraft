@@ -1912,8 +1912,13 @@ type PKraftForceMode=^TKraftForceMode;
        procedure UpdatePairs; {$ifdef caninline}inline;{$endif}
 
        procedure StaticBufferMove(ProxyID:longint); {$ifdef caninline}inline;{$endif}
+       procedure StaticBufferRemove(ProxyID:longint); {$ifdef caninline}inline;{$endif}
+
        procedure DynamicBufferMove(ProxyID:longint); {$ifdef caninline}inline;{$endif}
+       procedure DynamicBufferRemove(ProxyID:longint); {$ifdef caninline}inline;{$endif}
+
        procedure KinematicBufferMove(ProxyID:longint); {$ifdef caninline}inline;{$endif}
+       procedure KinematicBufferRemove(ProxyID:longint); {$ifdef caninline}inline;{$endif}
 
      end;
 
@@ -19648,6 +19653,7 @@ begin
  end;
 
  if fStaticAABBTreeProxy>=0 then begin
+  fPhysics.fBroadPhase.StaticBufferRemove(fStaticAABBTreeProxy);
   fPhysics.fStaticAABBTree.DestroyProxy(fStaticAABBTreeProxy);
   fStaticAABBTreeProxy:=-1;
  end;
@@ -19658,11 +19664,13 @@ begin
  end;
 
  if fDynamicAABBTreeProxy>=0 then begin
+  fPhysics.fBroadPhase.DynamicBufferRemove(fDynamicAABBTreeProxy);
   fPhysics.fDynamicAABBTree.DestroyProxy(fDynamicAABBTreeProxy);
   fDynamicAABBTreeProxy:=-1;
  end;
 
  if fKinematicAABBTreeProxy>=0 then begin
+  fPhysics.fBroadPhase.KinematicBufferRemove(fKinematicAABBTreeProxy);
   fPhysics.fKinematicAABBTree.DestroyProxy(fKinematicAABBTreeProxy);
   fKinematicAABBTreeProxy:=-1;
  end;
@@ -19761,6 +19769,7 @@ begin
   WorldBoundsExpansion:=Vector3ScalarMul(Vector3(fAngularMotionDisc,fAngularMotionDisc,fAngularMotionDisc),Vector3Length(fRigidBody.fAngularVelocity)*fPhysics.fWorldDeltaTime);
 
   if (fRigidBody.fRigidBodyType<>krbtStatic) and (fStaticAABBTreeProxy>=0) then begin
+   fPhysics.fBroadPhase.StaticBufferRemove(fStaticAABBTreeProxy);
    fPhysics.fStaticAABBTree.DestroyProxy(fStaticAABBTreeProxy);
    fStaticAABBTreeProxy:=-1;
   end else if fRigidBody.fRigidBodyType=krbtStatic then begin
@@ -19778,6 +19787,7 @@ begin
   end;
 
   if (fRigidBody.fRigidBodyType<>krbtDynamic) and (fDynamicAABBTreeProxy>=0) then begin
+   fPhysics.fBroadPhase.DynamicBufferRemove(fDynamicAABBTreeProxy);
    fPhysics.fDynamicAABBTree.DestroyProxy(fDynamicAABBTreeProxy);
    fDynamicAABBTreeProxy:=-1;
   end else if fRigidBody.fRigidBodyType=krbtDynamic then begin
@@ -19795,6 +19805,7 @@ begin
   end;
 
   if (fRigidBody.fRigidBodyType<>krbtKinematic) and (fKinematicAABBTreeProxy>=0) then begin
+   fPhysics.fBroadPhase.KinematicBufferRemove(fKinematicAABBTreeProxy);
    fPhysics.fKinematicAABBTree.DestroyProxy(fKinematicAABBTreeProxy);
    fKinematicAABBTreeProxy:=-1;
   end else if fRigidBody.fRigidBodyType=krbtKinematic then begin
@@ -25588,6 +25599,17 @@ begin
  fStaticMoveBuffer[Index]:=ProxyID;
 end;
 
+procedure TKraftBroadPhase.StaticBufferRemove(ProxyID:longint);
+var Index:longint;
+begin
+ for Index:=fStaticMoveBufferSize-1 downto 0 do begin
+  if fStaticMoveBuffer[Index]=ProxyID then begin
+   Move(fStaticMoveBuffer[Index+1],fStaticMoveBuffer[Index],SizeOf(LongInt)*(fStaticMoveBufferSize-(Index+1)));
+   dec(fStaticMoveBufferSize);
+  end;
+ end;
+end;
+
 procedure TKraftBroadPhase.DynamicBufferMove(ProxyID:longint);
 var Index:longint;
 begin
@@ -25599,6 +25621,17 @@ begin
  fDynamicMoveBuffer[Index]:=ProxyID;
 end;
 
+procedure TKraftBroadPhase.DynamicBufferRemove(ProxyID:longint);
+var Index:longint;
+begin
+ for Index:=fDynamicMoveBufferSize-1 downto 0 do begin
+  if fDynamicMoveBuffer[Index]=ProxyID then begin
+   Move(fDynamicMoveBuffer[Index+1],fDynamicMoveBuffer[Index],SizeOf(LongInt)*(fDynamicMoveBufferSize-(Index+1)));
+   dec(fDynamicMoveBufferSize);
+  end;
+ end;
+end;
+
 procedure TKraftBroadPhase.KinematicBufferMove(ProxyID:longint);
 var Index:longint;
 begin
@@ -25608,6 +25641,17 @@ begin
   SetLength(fKinematicMoveBuffer,fKinematicMoveBufferSize*2);
  end;
  fKinematicMoveBuffer[Index]:=ProxyID;
+end;
+
+procedure TKraftBroadPhase.KinematicBufferRemove(ProxyID:longint);
+var Index:longint;
+begin
+ for Index:=fKinematicMoveBufferSize-1 downto 0 do begin
+  if fKinematicMoveBuffer[Index]=ProxyID then begin
+   Move(fKinematicMoveBuffer[Index+1],fKinematicMoveBuffer[Index],SizeOf(LongInt)*(fKinematicMoveBufferSize-(Index+1)));
+   dec(fKinematicMoveBufferSize);
+  end;
+ end;
 end;
 
 constructor TKraftRigidBody.Create(const APhysics:TKraft);
