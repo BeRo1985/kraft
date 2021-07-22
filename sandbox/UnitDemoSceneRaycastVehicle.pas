@@ -199,7 +199,7 @@ begin
  Shape:=TKraftShapeBox.Create(aKraftPhysics,Vehicle.RigidBody,Vector3(CarHalfWidth,CarHeight*0.5,CarLength*0.5));
  Shape.Restitution:=0.3;
  Shape.Density:=200.0;
- Shape.LocalTransform:=Matrix4x4Translate(0.0,0.0,0.0);
+ Shape.LocalTransform:=Matrix4x4Translate(0.0,0.25,0.0);
 // Shape.LocalCenterOfMass:=Vector3(0.0,-0.38,0.38);
 {Shape:=TKraftShapeBox.Create(aKraftPhysics,Vehicle.RigidBody,Vector3(1.0,1.0,2.0));
  Shape.Restitution:=0.3;
