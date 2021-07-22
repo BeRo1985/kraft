@@ -1057,15 +1057,16 @@ begin
  // Friction forces
 
  WheelVelocity:=fVehicle.fRigidBody.GetWorldLinearVelocityFromPoint(fHitPoint);
- if assigned(RayResult.Shape) and assigned(RayResult.Shape.RigidBody) then begin
+{if assigned(RayResult.Shape) and assigned(RayResult.Shape.RigidBody) then begin
   WheelVelocity:=Vector3Sub(WheelVelocity,RayResult.Shape.RigidBody.GetWorldLinearVelocityFromPoint(fHitPoint));
- end;
+ end; }
 
  ContactUp:=Vector3Norm(HitNormal);
  ContactLeft:=Vector3Norm(Vector3Sub(WorldSpaceAxleLeft,
                           Vector3ScalarMul(ContactUp,
                                            Vector3Dot(WorldSpaceAxleLeft,ContactUp))));
  ContactForward:=Vector3Norm(Vector3Cross(ContactUp,ContactLeft));
+ ContactLeft:=Vector3Norm(Vector3Cross(ContactForward,ContactUp));
 
  LeftVelocity:=Vector3ScalarMul(ContactLeft,Vector3Dot(WheelVelocity,ContactLeft));
  ForwardVelocity:=Vector3ScalarMul(ContactForward,Vector3Dot(WheelVelocity,ContactForward));
@@ -1083,6 +1084,10 @@ begin
           'LV: ',fVehicle.fRigidBody.LinearVelocity.x:14:5,' ',fVehicle.fRigidBody.LinearVelocity.y:14:5,' ',fVehicle.fRigidBody.LinearVelocity.z:14:5,' - ',
           'AV: ',fVehicle.fRigidBody.AngularVelocity.x:14:5,' ',fVehicle.fRigidBody.AngularVelocity.y:14:5,' ',fVehicle.fRigidBody.AngularVelocity.z:14:5,' - ');
  end;//}
+
+ if self=fVehicle.fAxleFront.fWheelLeft then begin
+  writeln(Vector3Dot(WorldSpaceAxleLeft,WheelVelocity):8:4,' ',Vector3Dot(WorldSpaceAxleLeft,LeftVelocity):8:4,' ',Vector3Dot(WheelVelocity,LeftVelocity):8:4,' - ',fVehicle.fRigidBody.AngularVelocity.x:8:4,' ',fVehicle.fRigidBody.AngularVelocity.y:8:4,' ',fVehicle.fRigidBody.AngularVelocity.z:8:4,' - ',HitPoint.x:8:4,' ',HitPoint.y:8:4,' ',HitPoint.z:8:4,' - ',WheelVelocity.x:8:4,' ',WheelVelocity.y:8:4,' ',WheelVelocity.z:8:4);
+ end;
 
  // Sliding force
  SlidingForce:=Vector3ScalarMul(SlideVelocity,(fVehicle.fRigidBody.Mass*fVehicle.fKraftPhysics.WorldInverseDeltaTime)/aTotalWheelsCount);

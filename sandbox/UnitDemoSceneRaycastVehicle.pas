@@ -157,7 +157,7 @@ begin
  Vehicle.FlightStabilizationDamping:=0.7;
 
  Vehicle.AxleFront.Width:=1.55;
- Vehicle.AxleFront.Offset:=Vector2(1.51,-0.75);
+ Vehicle.AxleFront.Offset:=Vector2(1.51,-0.25);
 //Vehicle.AxleFront.Radius:=0.3;
  Vehicle.AxleFront.WheelVisualScale:=1.0;//2.9;
  Vehicle.AxleFront.StabilizerBarAntiRollForce:=20000.0;
@@ -176,7 +176,7 @@ begin
  Vehicle.AxleFront.IsPowered:=false;
 
  Vehicle.AxleRear.Width:=1.55;
- Vehicle.AxleRear.Offset:=Vector2(-1.29,-0.75);
+ Vehicle.AxleRear.Offset:=Vector2(-1.29,-0.25);
  Vehicle.AxleRear.WheelVisualScale:=1.0;//2.9;
  Vehicle.AxleRear.StabilizerBarAntiRollForce:=20000.0;
 {Vehicle.AxleRear.Radius:=0.3;
