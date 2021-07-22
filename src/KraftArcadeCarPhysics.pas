@@ -819,7 +819,7 @@ begin
 end;
 
 procedure TVehicle.TAxle.TWheel.Update(const aWorldSpacePosition:TKraftVector3;const aTotalWheelsCount,aCountPoweredWheels:Int32;const aLeft:boolean);
-{-$define SphereCastResult}
+{$define SphereCastResult}
 const RelaxSpeed=1.0;
 type TRayResult=record
       Valid:boolean;

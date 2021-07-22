@@ -113,7 +113,7 @@ begin
   end;
  end;
 
-{begin
+ begin
   // Dominos
   for Index:=0 to CountDominos-1 do begin
    RigidBody:=TKraftRigidBody.Create(KraftPhysics);
@@ -130,9 +130,9 @@ begin
   end;
  end;//}
 
-{ begin
+ begin
   // Street elevations
-  for Index:=0 to CountStreetElevations-1 do beginMatrix4x4RotateZ
+  for Index:=0 to CountStreetElevations-1 do begin
    RigidBody:=TKraftRigidBody.Create(KraftPhysics);
    RigidBody.SetRigidBodyType(krbtSTATIC);
    Shape:=TKraftShapeCapsule.Create(KraftPhysics,RigidBody,0.25,16);
