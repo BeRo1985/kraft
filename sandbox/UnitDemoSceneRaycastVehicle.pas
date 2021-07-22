@@ -113,7 +113,7 @@ begin
   end;
  end;
 
- begin
+{begin
   // Dominos
   for Index:=0 to CountDominos-1 do begin
    RigidBody:=TKraftRigidBody.Create(KraftPhysics);
@@ -157,10 +157,11 @@ begin
  Vehicle.FlightStabilizationDamping:=0.7;
 
  Vehicle.AxleFront.Width:=1.55;
- Vehicle.AxleFront.Offset:=Vector2(1.51,-0.25);
+ Vehicle.AxleFront.Offset:=Vector2(1.51,-0.325);
 //Vehicle.AxleFront.Radius:=0.3;
  Vehicle.AxleFront.WheelVisualScale:=1.0;//2.9;
  Vehicle.AxleFront.StabilizerBarAntiRollForce:=20000.0;
+ Vehicle.AxleFront.RelaxedSuspensionLength:=0.6;
 {Vehicle.AxleFront.Radius:=0.3;
  Vehicle.AxleFront.LaterialFriction:=0.6;
  Vehicle.AxleFront.RollingFriction:=0.03;
@@ -176,9 +177,10 @@ begin
  Vehicle.AxleFront.IsPowered:=false;
 
  Vehicle.AxleRear.Width:=1.55;
- Vehicle.AxleRear.Offset:=Vector2(-1.29,-0.25);
+ Vehicle.AxleRear.Offset:=Vector2(-1.29,-0.325);
  Vehicle.AxleRear.WheelVisualScale:=1.0;//2.9;
  Vehicle.AxleRear.StabilizerBarAntiRollForce:=20000.0;
+ Vehicle.AxleRear.RelaxedSuspensionLength:=0.6;
 {Vehicle.AxleRear.Radius:=0.3;
  Vehicle.AxleRear.LaterialFriction:=0.6;
  Vehicle.AxleRear.RollingFriction:=0.03;
@@ -195,12 +197,20 @@ begin
 
  Vehicle.RigidBody:=TKraftRigidBody.Create(aKraftPhysics);
  Vehicle.RigidBody.SetRigidBodyType(krbtDYNAMIC);
- Vehicle.RigidBody.ForcedMass:=1500;
+{Vehicle.RigidBody.Flags:=Vehicle.RigidBody.Flags+[krbfHasForcedCenterOfMass];
+ Vehicle.RigidBody.ForcedCenterOfMass.x:=0;
+ Vehicle.RigidBody.ForcedCenterOfMass.y:=-0.3;
+ Vehicle.RigidBody.ForcedCenterOfMass.z:=0.0;
+ Vehicle.RigidBody.ForcedMass:=1500.0;}
  Shape:=TKraftShapeBox.Create(aKraftPhysics,Vehicle.RigidBody,Vector3(CarHalfWidth,CarHeight*0.5,CarLength*0.5));
  Shape.Restitution:=0.3;
  Shape.Density:=200.0;
- Shape.LocalTransform:=Matrix4x4Translate(0.0,0.25,0.0);
-// Shape.LocalCenterOfMass:=Vector3(0.0,-0.38,0.38);
+ Shape.LocalTransform:=Matrix4x4Translate(0.0,0.0,0.0);
+ Shape.Flags:=Shape.Flags+[ksfHasForcedCenterOfMass];
+ Shape.ForcedCenterOfMass.x:=0;
+ Shape.ForcedCenterOfMass.y:=-0.3;
+ Shape.ForcedCenterOfMass.z:=0.0;
+ Shape.ForcedMass:=1500.0;
 {Shape:=TKraftShapeBox.Create(aKraftPhysics,Vehicle.RigidBody,Vector3(1.0,1.0,2.0));
  Shape.Restitution:=0.3;
  Shape.Density:=10.0;

@@ -1,7 +1,7 @@
 (******************************************************************************
  *                   ARCADE CAR PHYSICS FOR KRAFT PHYSICS ENGINE              *
  ******************************************************************************
- *                        Version 2021-07-19-03-04-0000                       *
+ *                        Version 2021-07-22-19-12-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -1047,7 +1047,7 @@ begin
 
  // Apply suspension force
  SuspensionForce:=Vector3ScalarMul(fVehicle.WorldDown,SuspensionForceMagnitude);
- fVehicle.fRigidBody.AddForceAtPosition(SuspensionForce,HitPoint,kfmForce);
+ fVehicle.fRigidBody.AddForceAtPosition(SuspensionForce,HitPoint,kfmForce,false);
 
 {$ifdef DebugDraw}
  fDebugDrawLinePoints[0]:=aWorldSpacePosition;
@@ -1057,9 +1057,6 @@ begin
  // Friction forces
 
  WheelVelocity:=fVehicle.fRigidBody.GetWorldLinearVelocityFromPoint(fHitPoint);
-{if assigned(RayResult.Shape) and assigned(RayResult.Shape.RigidBody) then begin
-  WheelVelocity:=Vector3Sub(WheelVelocity,RayResult.Shape.RigidBody.GetWorldLinearVelocityFromPoint(fHitPoint));
- end; }
 
  ContactUp:=Vector3Norm(HitNormal);
  ContactLeft:=Vector3Norm(Vector3Sub(WorldSpaceAxleLeft,
@@ -1085,9 +1082,15 @@ begin
           'AV: ',fVehicle.fRigidBody.AngularVelocity.x:14:5,' ',fVehicle.fRigidBody.AngularVelocity.y:14:5,' ',fVehicle.fRigidBody.AngularVelocity.z:14:5,' - ');
  end;//}
 
- if self=fVehicle.fAxleFront.fWheelLeft then begin
-  writeln(Vector3Dot(WorldSpaceAxleLeft,WheelVelocity):8:4,' ',Vector3Dot(WorldSpaceAxleLeft,LeftVelocity):8:4,' ',Vector3Dot(WheelVelocity,LeftVelocity):8:4,' - ',fVehicle.fRigidBody.AngularVelocity.x:8:4,' ',fVehicle.fRigidBody.AngularVelocity.y:8:4,' ',fVehicle.fRigidBody.AngularVelocity.z:8:4,' - ',HitPoint.x:8:4,' ',HitPoint.y:8:4,' ',HitPoint.z:8:4,' - ',WheelVelocity.x:8:4,' ',WheelVelocity.y:8:4,' ',WheelVelocity.z:8:4);
- end;
+{if self=fVehicle.fAxleFRont.fWheelLeft then begin
+  writeln(Vector3Dot(WorldSpaceAxleLeft,WheelVelocity):8:4,' ',
+          Vector3Dot(WorldSpaceAxleLeft,LeftVelocity):8:4,' ',
+          Vector3Dot(WheelVelocity,LeftVelocity):8:4,' - ',
+          'FF: ',fDebugFrictionForce.x:8:4,' ',fDebugFrictionForce.y:8:4,' ',fDebugFrictionForce.z:8:4,' - ',
+          'AV: ',fVehicle.fRigidBody.AngularVelocity.x:8:4,' ',fVehicle.fRigidBody.AngularVelocity.y:8:4,' ',fVehicle.fRigidBody.AngularVelocity.z:8:4,' - ',
+          'HP: ',HitPoint.x:8:4,' ',HitPoint.y:8:4,' ',HitPoint.z:8:4,' - ',
+          'WV: ',WheelVelocity.x:8:4,' ',WheelVelocity.y:8:4,' ',WheelVelocity.z:8:4);
+ end;}
 
  // Sliding force
  SlidingForce:=Vector3ScalarMul(SlideVelocity,(fVehicle.fRigidBody.Mass*fVehicle.fKraftPhysics.WorldInverseDeltaTime)/aTotalWheelsCount);
@@ -1149,18 +1152,17 @@ begin
 {$endif}
 
  // Apply resulting force
- fVehicle.fRigidBody.AddForceAtPosition(FrictionForce,fHitPoint,kfmForce);
+ fVehicle.fRigidBody.AddForceAtPosition(FrictionForce,fHitPoint,kfmForce,false);
 
  // Engine force
  if fAxle.fIsPowered and (abs(fVehicle.fAccelerationForceMagnitude)>0.01) and not fVehicle.fIsBrake then begin
-  AccForcePoint:=Vector3Sub(fHitPoint,Vector3ScalarMul(fVehicle.WorldDown,0.2));
+  AccForcePoint:=Vector3Add(fHitPoint,Vector3ScalarMul(fVehicle.WorldDown,-0.2));
   EngineForce:=Vector3ScalarMul(ContactForward,(fVehicle.fAccelerationForceMagnitude/aCountPoweredWheels)*fVehicle.fKraftPhysics.WorldInverseDeltaTime);
 {$ifdef DebugDraw}
   fDebugAccForcePoint:=AccForcePoint;
   fDebugEngineForce:=EngineForce;
 {$endif}
-  fVehicle.fRigidBody.AddForceAtPosition(EngineForce,AccForcePoint,kfmForce);
-  fVehicle.fRigidBody.SetToAwake;
+  fVehicle.fRigidBody.AddForceAtPosition(EngineForce,AccForcePoint,kfmForce,true);
  end else begin
 {$ifdef DebugDraw}
   fDebugEngineForce:=Vector3Origin;
@@ -1379,7 +1381,7 @@ begin
  TravelR:=1.0-Clamp01(fWheelRight.fCompression);
  AntiRollForce:=(TravelL-TravelR)*fStabilizerBarAntiRollForce;
  if fWheelLeft.IsOnGround then begin
-  fVehicle.fRigidBody.AddForceAtPosition(Vector3ScalarMul(fVehicle.fWorldDown,AntiRollForce),fWheelLeft.fHitPoint);
+  fVehicle.fRigidBody.AddForceAtPosition(Vector3ScalarMul(fVehicle.fWorldDown,AntiRollForce),fWheelLeft.fHitPoint,kfmForce,false);
 {$ifdef DebugDraw}
   fDebugAntiRollForces[0]:=Vector3ScalarMul(fVehicle.fWorldDown,AntiRollForce);
 {$endif}
@@ -1389,7 +1391,7 @@ begin
 {$endif}
  end;
  if fWheelRight.IsOnGround then begin
-  fVehicle.fRigidBody.AddForceAtPosition(Vector3ScalarMul(fVehicle.fWorldDown,-AntiRollForce),fWheelRight.fHitPoint);
+  fVehicle.fRigidBody.AddForceAtPosition(Vector3ScalarMul(fVehicle.fWorldDown,-AntiRollForce),fWheelRight.fHitPoint,kfmForce,false);
 {$ifdef DebugDraw}
   fDebugAntiRollForces[1]:=Vector3ScalarMul(fVehicle.fWorldDown,-AntiRollForce);
 {$endif}
@@ -1795,7 +1797,7 @@ begin
   // Not all wheels in air
 
   DownForceAmount:=fDownForceCurveEnvelope.GetValueAtTime(fSpeedKMH)*0.01;
-  fRigidBody.AddWorldForce(Vector3ScalarMul(fWorldDown,fRigidBody.Mass*DownForceAmount*fDownForce));
+  //fRigidBody.AddWorldForce(Vector3ScalarMul(fWorldDown,fRigidBody.Mass*DownForceAmount*fDownForce));
 
  end else begin
 
@@ -1819,7 +1821,7 @@ begin
                                            Vector3(0.0,fRigidBody.AngularVelocity.y,0.0),
                                            Clamp01(fFlightStabilizationDamping*fKraftPhysics.WorldDeltaTime));
   end;
-
+ 
   // Give a nicely balanced feeling for rebalancing the vehicle
   fRigidBody.AddWorldTorque(Vector3ScalarMul(Axis,fFlightStabilizationForce*fRigidBody.Mass));
 

@@ -1,7 +1,7 @@
 (****************************************************************************** 
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2021-07-21-19-27-0000                       *
+ *                        Version 2021-07-22-19-12-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -299,7 +299,8 @@ type PKraftForceMode=^TKraftForceMode;
                       kstMesh);        // Static only
 
      PKraftShapeFlag=^TKraftShapeFlag;
-     TKraftShapeFlag=(ksfCollision,
+     TKraftShapeFlag=(ksfHasForcedCenterOfMass,
+                      ksfCollision,
                       ksfMass,
                       ksfSensor,
                       ksfRayCastable,
@@ -316,6 +317,7 @@ type PKraftForceMode=^TKraftForceMode;
 
      PKraftRigidBodyFlag=^TKraftRigidBodyFlag;
      TKraftRigidBodyFlag=(krbfHasOwnGravity,
+                          krbfHasForcedCenterOfMass,
                           krbfContinuous,
                           krbfContinuousAgainstDynamics,
                           krbfAllowSleep,
@@ -1214,6 +1216,12 @@ type PKraftForceMode=^TKraftForceMode;
 
        fDensity:TKraftScalar;
 
+       fForcedMass:TKraftScalar;
+
+       fForcedCenterOfMass:TKraftVector3;
+
+       fForcedCenterOfMassProperty:TKraftVector3Property;
+
        fUserData:pointer;
 
        fStaticAABBTreeProxy:longint;
@@ -1357,6 +1365,10 @@ type PKraftForceMode=^TKraftForceMode;
        property Restitution:TKraftScalar read fRestitution write fRestitution;
 
        property Density:TKraftScalar read fDensity write fDensity;
+
+       property ForcedMass:TKraftScalar read fForcedMass write fForcedMass;
+
+       property ForcedCenterOfMass:TKraftVector3Property read fForcedCenterOfMassProperty;
 
        property OnContactBegin:TKraftShapeOnContactBeginHook read fOnContactBegin write fOnContactBegin;
        property OnContactEnd:TKraftShapeOnContactEndHook read fOnContactEnd write fOnContactEnd;
@@ -2015,6 +2027,10 @@ type PKraftForceMode=^TKraftForceMode;
        fWorldInertiaTensor:TKraftMatrix3x3;
        fWorldInverseInertiaTensor:TKraftMatrix3x3;
 
+       fForcedCenterOfMass:TKraftVector3;
+
+       fForcedCenterOfMassProperty:TKraftVector3Property;
+
        fForcedMass:TKraftScalar;
 
        fMass:TKraftScalar;
@@ -2111,35 +2127,35 @@ type PKraftForceMode=^TKraftForceMode;
 
        procedure LimitVelocities;
 
-       procedure ApplyImpulseAtPosition(const Point,Impulse:TKraftVector3);
-       procedure ApplyImpulseAtRelativePosition(const RelativePosition,Impulse:TKraftVector3);
+       procedure ApplyImpulseAtPosition(const Point,Impulse:TKraftVector3;const aWake:boolean=true);
+       procedure ApplyImpulseAtRelativePosition(const RelativePosition,Impulse:TKraftVector3;const aWake:boolean=true);
 
-       procedure SetForceAtPosition(const AForce,APosition:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
-       procedure AddForceAtPosition(const AForce,APosition:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+       procedure SetForceAtPosition(const AForce,APosition:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
+       procedure AddForceAtPosition(const AForce,APosition:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
 
-       procedure SetWorldForce(const AForce:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
-       procedure AddWorldForce(const AForce:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+       procedure SetWorldForce(const AForce:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
+       procedure AddWorldForce(const AForce:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
 
-       procedure SetBodyForce(const AForce:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
-       procedure AddBodyForce(const AForce:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+       procedure SetBodyForce(const AForce:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
+       procedure AddBodyForce(const AForce:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
 
-       procedure SetWorldTorque(const ATorque:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
-       procedure AddWorldTorque(const ATorque:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+       procedure SetWorldTorque(const ATorque:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
+       procedure AddWorldTorque(const ATorque:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
 
-       procedure SetBodyTorque(const ATorque:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
-       procedure AddBodyTorque(const ATorque:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+       procedure SetBodyTorque(const ATorque:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
+       procedure AddBodyTorque(const ATorque:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
 
-       procedure SetWorldAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
-       procedure AddWorldAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+       procedure SetWorldAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
+       procedure AddWorldAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
 
-       procedure SetBodyAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
-       procedure AddBodyAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+       procedure SetBodyAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
+       procedure AddBodyAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
 
-       procedure SetWorldAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
-       procedure AddWorldAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+       procedure SetWorldAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
+       procedure AddWorldAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
 
-       procedure SetBodyAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
-       procedure AddBodyAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+       procedure SetBodyAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
+       procedure AddBodyAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
 
        function GetWorldLinearVelocityFromPoint(const APoint:TKraftVector3):TKraftVector3;
        function GetBodyLinearVelocityFromPoint(const APoint:TKraftVector3):TKraftVector3;
@@ -2219,6 +2235,8 @@ type PKraftForceMode=^TKraftForceMode;
        property Gravity:TKraftVector3Property read fGravityProperty write fGravityProperty;
 
        property TimeOfImpact:TKraftScalar read fTimeOfImpact write fTimeOfImpact;
+
+       property ForcedCenterOfMass:TKraftVector3Property read fForcedCenterOfMassProperty write fForcedCenterOfMassProperty;
 
        property ForcedMass:TKraftScalar read fForcedMass write fForcedMass;
 
@@ -19606,6 +19624,12 @@ begin
 
  fDensity:=1.0;
 
+ fForcedMass:=0.0;
+
+ fForcedCenterOfMass:=Vector3Origin;
+
+ fForcedCenterOfMassProperty:=TKraftVector3Property.Create(@fForcedCenterOfMass);
+
  fUserData:=nil;
 
  fStaticAABBTreeProxy:=-1;
@@ -19710,6 +19734,8 @@ begin
 
   dec(fRigidBody.fShapeCount);
  end;
+
+ fForcedCenterOfMassProperty.Free;
 
  inherited Destroy;
 end;
@@ -19935,7 +19961,11 @@ end;
 procedure TKraftShapeSphere.CalculateMassData;
 begin
  fMassData.Volume:=((4.0*pi)*(fRadius*fRadius*fRadius))/3.0;
- fMassData.Mass:=fMassData.Volume*fDensity;
+ if fForcedMass>EPSILON then begin
+  fMassData.Mass:=fForcedMass;
+ end else begin
+  fMassData.Mass:=fMassData.Volume*fDensity;
+ end;
  fMassData.Inertia[0,0]:=(2.0*(sqr(fRadius)*fMassData.Mass))/5.0;
  fMassData.Inertia[0,1]:=0.0;
  fMassData.Inertia[0,2]:=0.0;
@@ -19945,9 +19975,13 @@ begin
  fMassData.Inertia[2,0]:=0.0;
  fMassData.Inertia[2,1]:=0.0;
  fMassData.Inertia[2,2]:=(2.0*(sqr(fRadius)*fMassData.Mass))/5.0;
- fMassData.Center.x:=fLocalTransform[3,0];
- fMassData.Center.y:=fLocalTransform[3,1];
- fMassData.Center.z:=fLocalTransform[3,2];
+ if ksfHasForcedCenterOfMass in fFlags then begin
+  fMassData.Center:=fForcedCenterOfMass;
+ end else begin
+  fMassData.Center.x:=fLocalTransform[3,0];
+  fMassData.Center.y:=fLocalTransform[3,1];
+  fMassData.Center.z:=fLocalTransform[3,2];
+ end;
  Matrix3x3Add(fMassData.Inertia,InertiaTensorParallelAxisTheorem(fMassData.Center,fMassData.Mass));
 end;
 
@@ -20150,7 +20184,11 @@ begin
   CylinderMassData.Inertia[2,2]:=(1.0/12.0)*CylinderMassData.Mass*((3.0*RadiusSquared)+sqr(fHeight));
  end;
  fMassData.Volume:=(CapMassData.Volume*2.0)+CylinderMassData.Volume;
- fMassData.Mass:=(CapMassData.Mass*2.0)+CylinderMassData.Mass;
+ if fForcedMass>EPSILON then begin
+  fMassData.Mass:=fForcedMass;
+ end else begin
+  fMassData.Mass:=(CapMassData.Mass*2.0)+CylinderMassData.Mass;
+ end;
  fMassData.Inertia[0,0]:=(CapMassData.Inertia[0,0]*2.0)+CylinderMassData.Inertia[0,0];
  fMassData.Inertia[0,1]:=(CapMassData.Inertia[0,1]*2.0)+CylinderMassData.Inertia[0,1];
  fMassData.Inertia[0,2]:=(CapMassData.Inertia[0,2]*2.0)+CylinderMassData.Inertia[0,2];
@@ -20160,9 +20198,13 @@ begin
  fMassData.Inertia[2,0]:=(CapMassData.Inertia[2,0]*2.0)+CylinderMassData.Inertia[2,0];
  fMassData.Inertia[2,1]:=(CapMassData.Inertia[2,1]*2.0)+CylinderMassData.Inertia[2,1];
  fMassData.Inertia[2,2]:=(CapMassData.Inertia[2,2]*2.0)+CylinderMassData.Inertia[2,2];
- fMassData.Center.x:=fLocalTransform[3,0];
- fMassData.Center.y:=fLocalTransform[3,1];
- fMassData.Center.z:=fLocalTransform[3,2];
+ if ksfHasForcedCenterOfMass in fFlags then begin
+  fMassData.Center:=fForcedCenterOfMass;
+ end else begin
+  fMassData.Center.x:=fLocalTransform[3,0];
+  fMassData.Center.y:=fLocalTransform[3,1];
+  fMassData.Center.z:=fLocalTransform[3,2];
+ end;
  fMassData.Inertia:=Matrix3x3TermAdd(InertiaTensorTransform(fMassData.Inertia,Matrix3x3(fLocalTransform)),
                                     InertiaTensorParallelAxisTheorem(fMassData.Center,fMassData.Mass));
 end;
@@ -20170,7 +20212,11 @@ end;
 procedure TKraftShapeCapsule.CalculateMassData;
 begin
  fMassData.Volume:=(pi*(fRadius*fRadius))*(fHeight+((4.0*fRadius)/3.0));
- fMassData.Mass:=fMassData.Volume*fDensity;
+ if fForcedMass>EPSILON then begin
+  fMassData.Mass:=fForcedMass;
+ end else begin
+  fMassData.Mass:=fMassData.Volume*fDensity;
+ end;
  fMassData.Inertia[0,0]:=(((5.0*(fHeight*fHeight*fHeight))+(20.0*(fHeight*fHeight)*fRadius)+(45.0*fHeight*(fRadius*fRadius))+(32.0*(fRadius*fRadius*fRadius)))/((60.0*fHeight)+(80.0*fRadius)))*fMassData.Mass;
  fMassData.Inertia[0,1]:=0.0;
  fMassData.Inertia[0,2]:=0.0;
@@ -20180,9 +20226,13 @@ begin
  fMassData.Inertia[2,0]:=0.0;
  fMassData.Inertia[2,1]:=0.0;
  fMassData.Inertia[2,2]:=(((5.0*(fHeight*fHeight*fHeight))+(20.0*(fHeight*fHeight)*fRadius)+(45.0*fHeight*(fRadius*fRadius))+(32.0*(fRadius*fRadius*fRadius)))/((60.0*fHeight)+(80.0*fRadius)))*fMassData.Mass;
- fMassData.Center.x:=fLocalTransform[3,0];
- fMassData.Center.y:=fLocalTransform[3,1];
- fMassData.Center.z:=fLocalTransform[3,2];
+ if ksfHasForcedCenterOfMass in fFlags then begin
+  fMassData.Center:=fForcedCenterOfMass;
+ end else begin
+  fMassData.Center.x:=fLocalTransform[3,0];
+  fMassData.Center.y:=fLocalTransform[3,1];
+  fMassData.Center.z:=fLocalTransform[3,2];
+ end;
  fMassData.Inertia:=Matrix3x3TermAdd(InertiaTensorTransform(fMassData.Inertia,Matrix3x3(fLocalTransform)),
                                     InertiaTensorParallelAxisTheorem(fMassData.Center,fMassData.Mass));
 end;
@@ -20510,7 +20560,14 @@ end;
 procedure TKraftShapeConvexHull.CalculateMassData;
 begin
  fMassData:=fConvexHull.fMassData;
- fMassData.Mass:=fMassData.Mass*fDensity;
+ if fForcedMass>EPSILON then begin
+  fMassData.Mass:=fForcedMass;
+ end else begin
+  fMassData.Mass:=fMassData.Mass*fDensity;
+ end;
+ if ksfHasForcedCenterOfMass in fFlags then begin
+  fMassData.Center:=fForcedCenterOfMass;
+ end;
  fMassData.Inertia[0,0]:=fMassData.Inertia[0,0]*fDensity;
  fMassData.Inertia[0,1]:=fMassData.Inertia[0,1]*fDensity;
  fMassData.Inertia[0,2]:=fMassData.Inertia[0,2]*fDensity;
@@ -20782,7 +20839,11 @@ end;
 procedure TKraftShapeBox.CalculateMassData;
 begin                                                   
  fMassData.Volume:=fExtents.x*fExtents.y*fExtents.z;
- fMassData.Mass:=fMassData.Volume*fDensity;
+ if fForcedMass>EPSILON then begin
+  fMassData.Mass:=fForcedMass;
+ end else begin
+  fMassData.Mass:=fMassData.Volume*fDensity;
+ end;
  fMassData.Inertia[0,0]:=((sqr(fExtents.y)+sqr(fExtents.z))*fMassData.Mass)/12.0;
  fMassData.Inertia[0,1]:=0.0;
  fMassData.Inertia[0,2]:=0.0;
@@ -20792,11 +20853,15 @@ begin
  fMassData.Inertia[2,0]:=0.0;
  fMassData.Inertia[2,1]:=0.0;
  fMassData.Inertia[2,2]:=((sqr(fExtents.x)+sqr(fExtents.y))*fMassData.Mass)/12.0;
- fMassData.Center.x:=fLocalTransform[3,0];
- fMassData.Center.y:=fLocalTransform[3,1];
- fMassData.Center.z:=fLocalTransform[3,2];
+ if ksfHasForcedCenterOfMass in fFlags then begin
+  fMassData.Center:=fForcedCenterOfMass;
+ end else begin
+  fMassData.Center.x:=fLocalTransform[3,0];
+  fMassData.Center.y:=fLocalTransform[3,1];
+  fMassData.Center.z:=fLocalTransform[3,2];
+ end;
  fMassData.Inertia:=Matrix3x3TermAdd(InertiaTensorTransform(fMassData.Inertia,Matrix3x3(fLocalTransform)),
-                                    InertiaTensorParallelAxisTheorem(fMassData.Center,fMassData.Mass));
+                                     InertiaTensorParallelAxisTheorem(fMassData.Center,fMassData.Mass));
 end;
 
 function TKraftShapeBox.GetSignedDistance(const Position:TKraftVector3):TKraftScalar;
@@ -25770,6 +25835,10 @@ begin
  fWorldInertiaTensor:=Matrix3x3Identity;
  fWorldInverseInertiaTensor:=Matrix3x3Identity;
 
+ fForcedCenterOfMass:=Vector3Origin;
+
+ fForcedCenterOfMassProperty:=TKraftVector3Property.Create(@fForcedCenterOfMass);
+
  fForcedMass:=0.0;
 
  fMass:=0.0;
@@ -25907,6 +25976,8 @@ begin
  fRigidBodyType:=krbtUnknown;
 
  fGravityProperty.Free;
+
+ fForcedCenterOfMassProperty.Free;
 
  inherited Destroy;
 end;
@@ -26119,7 +26190,7 @@ begin
 end;
 
 procedure TKraftRigidBody.Finish;
- procedure CalculateMassData; {$ifdef caninline}inline;{$endif}
+ procedure CalculateMassData;
  var Shape:TKraftShape;
      TempLocalCenter:TKraftVector3;
  begin
@@ -26164,9 +26235,13 @@ procedure TKraftRigidBody.Finish;
 
    if fMass>EPSILON then begin
 
-    TempLocalCenter.x:=TempLocalCenter.x/fMass;
-    TempLocalCenter.y:=TempLocalCenter.y/fMass;
-    TempLocalCenter.z:=TempLocalCenter.z/fMass;
+    if krbfHasForcedCenterOfMass in fFlags then begin
+     TempLocalCenter:=fForcedCenterOfMass;
+    end else begin
+     TempLocalCenter.x:=TempLocalCenter.x/fMass;
+     TempLocalCenter.y:=TempLocalCenter.y/fMass;
+     TempLocalCenter.z:=TempLocalCenter.z/fMass;
+    end;
 
     Matrix3x3Sub(fBodyInertiaTensor,InertiaTensorParallelAxisTheorem(TempLocalCenter,fMass));
 
@@ -26440,162 +26515,212 @@ begin
  end;
 end;
 
-procedure TKraftRigidBody.ApplyImpulseAtPosition(const Point,Impulse:TKraftVector3);
+procedure TKraftRigidBody.ApplyImpulseAtPosition(const Point,Impulse:TKraftVector3;const aWake:boolean=true);
 begin
- fLinearVelocity:=Vector3Add(fLinearVelocity,Vector3Mul(Impulse,Vector3ScalarMul(fLinearFactor,fInverseMass)));
- fAngularVelocity:=Vector3Add(fAngularVelocity,Vector3TermMatrixMul(Vector3Cross(Vector3Sub(Point,fSweep.c),Impulse),fWorldInverseInertiaTensor));
-end;
-
-procedure TKraftRigidBody.ApplyImpulseAtRelativePosition(const RelativePosition,Impulse:TKraftVector3);
-begin
- fLinearVelocity:=Vector3Add(fLinearVelocity,Vector3Mul(Impulse,Vector3ScalarMul(fLinearFactor,fInverseMass)));
- fAngularVelocity:=Vector3Add(fAngularVelocity,Vector3TermMatrixMul(Vector3Cross(RelativePosition,Impulse),fWorldInverseInertiaTensor));
-end;
-
-procedure TKraftRigidBody.SetForceAtPosition(const AForce,APosition:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
-begin
- SetWorldForce(AForce,AForceMode);
- SetWorldTorque(Vector3Cross(Vector3Sub(APosition,fSweep.c),AForce),AForceMode);
-end;
-
-procedure TKraftRigidBody.AddForceAtPosition(const AForce,APosition:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
-begin
- AddWorldForce(AForce,AForceMode);
- AddWorldTorque(Vector3Cross(Vector3Sub(APosition,fSweep.c),AForce),AForceMode);
-end;
-
-procedure TKraftRigidBody.SetWorldForce(const AForce:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
-begin
- fForce:=Vector3Origin;
- AddWorldForce(AForce,AForceMode);
-end;
-
-procedure TKraftRigidBody.AddWorldForce(const AForce:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
-begin
- case AForceMode of
-  kfmForce:begin
-   // The unit of the Force parameter is applied to the rigidbody as mass*distance/time^2.
-   fForce:=Vector3Add(fForce,AForce);
-  end;
-  kfmAcceleration:begin
-   // The unit of the Force parameter is applied to the rigidbody as distance/time^2.
-   fForce:=Vector3Add(fForce,Vector3ScalarMul(AForce,fMass));
-  end;
-  kfmImpulse:begin
-   // The unit of the Force parameter is applied to the rigidbody as mass*distance/time.
-   fForce:=Vector3Add(fForce,Vector3ScalarMul(AForce,fPhysics.fWorldInverseDeltaTime));
-  end;
-  kfmVelocity:begin
-   // The unit of the Force parameter is applied to the rigidbody as distance/time.
-   fForce:=Vector3Add(fForce,Vector3ScalarMul(AForce,fMass*fPhysics.fWorldInverseDeltaTime));
+ if fRigidBodyType=krbtDynamic then begin
+  fLinearVelocity:=Vector3Add(fLinearVelocity,Vector3Mul(Impulse,Vector3ScalarMul(fLinearFactor,fInverseMass)));
+  fAngularVelocity:=Vector3Add(fAngularVelocity,Vector3TermMatrixMul(Vector3Cross(Vector3Sub(Point,fSweep.c),Impulse),fWorldInverseInertiaTensor));
+  if aWake and not (krbfAwake in fFlags) then begin
+   SetToAwake;
   end;
  end;
 end;
 
-procedure TKraftRigidBody.SetBodyForce(const AForce:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+procedure TKraftRigidBody.ApplyImpulseAtRelativePosition(const RelativePosition,Impulse:TKraftVector3;const aWake:boolean=true);
 begin
- SetWorldForce(Vector3TermMatrixMulBasis(AForce,fWorldTransform),AForceMode);
-end;
-
-procedure TKraftRigidBody.AddBodyForce(const AForce:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
-begin
- AddWorldForce(Vector3TermMatrixMulBasis(AForce,fWorldTransform),AForceMode);
-end;
-
-procedure TKraftRigidBody.SetWorldTorque(const ATorque:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
-begin
- fTorque:=Vector3Origin;
- AddWorldTorque(ATorque,AForceMode);
-end;
-
-procedure TKraftRigidBody.AddWorldTorque(const ATorque:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
-begin
- case AForceMode of
-  kfmForce:begin
-   // The unit of the Torque parameter is applied to the rigidbody as mass*distance/time^2.
-   fTorque:=Vector3Add(fTorque,ATorque);
-  end;
-  kfmAcceleration:begin
-   // The unit of the Torque parameter is applied to the rigidbody as distance/time^2.
-   fTorque:=Vector3Add(fTorque,Vector3ScalarMul(ATorque,fMass));
-  end;
-  kfmImpulse:begin
-   // The unit of the Torque parameter is applied to the rigidbody as mass*distance/time.
-   fTorque:=Vector3Add(fTorque,Vector3ScalarMul(ATorque,fPhysics.fWorldInverseDeltaTime));
-  end;
-  kfmVelocity:begin
-   // The unit of the Torque parameter is applied to the rigidbody as distance/time.
-   fTorque:=Vector3Add(fTorque,Vector3ScalarMul(ATorque,fMass*fPhysics.fWorldInverseDeltaTime));
+ if fRigidBodyType=krbtDynamic then begin
+  fLinearVelocity:=Vector3Add(fLinearVelocity,Vector3Mul(Impulse,Vector3ScalarMul(fLinearFactor,fInverseMass)));
+  fAngularVelocity:=Vector3Add(fAngularVelocity,Vector3TermMatrixMul(Vector3Cross(RelativePosition,Impulse),fWorldInverseInertiaTensor));
+  if aWake and not (krbfAwake in fFlags) then begin
+   SetToAwake;
   end;
  end;
 end;
 
-procedure TKraftRigidBody.SetBodyTorque(const ATorque:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+procedure TKraftRigidBody.SetForceAtPosition(const AForce,APosition:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
 begin
- SetWorldTorque(Vector3TermMatrixMulBasis(ATorque,fWorldTransform),AForceMode);
-end;
-
-procedure TKraftRigidBody.AddBodyTorque(const ATorque:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
-begin
- AddWorldTorque(Vector3TermMatrixMulBasis(ATorque,fWorldTransform),AForceMode);
-end;
-
-procedure TKraftRigidBody.SetWorldAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
-begin
- fAngularVelocity:=Vector3Origin;
- AddWorldAngularVelocity(AAngularVelocity,AForceMode);
-end;
-
-procedure TKraftRigidBody.AddWorldAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
-begin
- case AForceMode of
-  kfmForce:begin
-   // The unit of the Torque parameter is applied to the rigidbody as mass*distance/time^2.
-   fAngularVelocity:=Vector3Add(fAngularVelocity,Vector3ScalarMul(AAngularVelocity,fInverseMass*fPhysics.fWorldDeltaTime));
-  end;
-  kfmAcceleration:begin
-   // The unit of the Torque parameter is applied to the rigidbody as distance/time^2.
-   fAngularVelocity:=Vector3Add(fAngularVelocity,Vector3ScalarMul(AAngularVelocity,fPhysics.fWorldDeltaTime));
-  end;
-  kfmImpulse:begin
-   // The unit of the Torque parameter is applied to the rigidbody as mass*distance/time.
-   fAngularVelocity:=Vector3Add(fAngularVelocity,Vector3ScalarMul(AAngularVelocity,fInverseMass));
-  end;
-  kfmVelocity:begin
-   // The unit of the Torque parameter is applied to the rigidbody as distance/time.
-   fAngularVelocity:=Vector3Add(fAngularVelocity,AAngularVelocity);
+ if fRigidBodyType=krbtDynamic then begin
+  SetWorldForce(AForce,AForceMode,false);
+  SetWorldTorque(Vector3Cross(Vector3Sub(APosition,fSweep.c),AForce),AForceMode,false);
+  if aWake and not (krbfAwake in fFlags) then begin
+   SetToAwake;
   end;
  end;
 end;
 
-procedure TKraftRigidBody.SetBodyAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+procedure TKraftRigidBody.AddForceAtPosition(const AForce,APosition:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
 begin
- SetWorldAngularVelocity(Vector3TermMatrixMulBasis(AAngularVelocity,fWorldTransform),AForceMode);
+ if fRigidBodyType=krbtDynamic then begin
+  AddWorldForce(AForce,AForceMode,false);
+  AddWorldTorque(Vector3Cross(Vector3Sub(APosition,fSweep.c),AForce),AForceMode,false);
+  if aWake and not (krbfAwake in fFlags) then begin
+   SetToAwake;
+  end;
+ end;
 end;
 
-procedure TKraftRigidBody.AddBodyAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+procedure TKraftRigidBody.SetWorldForce(const AForce:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
 begin
- AddWorldAngularVelocity(Vector3TermMatrixMulBasis(AAngularVelocity,fWorldTransform),AForceMode);
+ if fRigidBodyType=krbtDynamic then begin
+  fForce:=Vector3Origin;
+  AddWorldForce(AForce,AForceMode,false);
+  if aWake and not (krbfAwake in fFlags) then begin
+   SetToAwake;
+  end;
+ end;
 end;
 
-procedure TKraftRigidBody.SetWorldAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+procedure TKraftRigidBody.AddWorldForce(const AForce:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
 begin
- SetWorldAngularVelocity(Vector3TermMatrixMul(AAngularMomentum,fWorldInverseInertiaTensor),AForceMode);
+ if fRigidBodyType=krbtDynamic then begin
+  case AForceMode of
+   kfmForce:begin
+    // The unit of the Force parameter is applied to the rigidbody as mass*distance/time^2.
+    fForce:=Vector3Add(fForce,AForce);
+   end;
+   kfmAcceleration:begin
+    // The unit of the Force parameter is applied to the rigidbody as distance/time^2.
+    fForce:=Vector3Add(fForce,Vector3ScalarMul(AForce,fMass));
+   end;
+   kfmImpulse:begin
+    // The unit of the Force parameter is applied to the rigidbody as mass*distance/time.
+    fForce:=Vector3Add(fForce,Vector3ScalarMul(AForce,fPhysics.fWorldInverseDeltaTime));
+   end;
+   kfmVelocity:begin
+    // The unit of the Force parameter is applied to the rigidbody as distance/time.
+    fForce:=Vector3Add(fForce,Vector3ScalarMul(AForce,fMass*fPhysics.fWorldInverseDeltaTime));
+   end;
+  end;
+  if aWake and not (krbfAwake in fFlags) then begin
+   SetToAwake;
+  end;
+ end;
 end;
 
-procedure TKraftRigidBody.AddWorldAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+procedure TKraftRigidBody.SetBodyForce(const AForce:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
 begin
- AddWorldAngularVelocity(Vector3TermMatrixMul(AAngularMomentum,fWorldInverseInertiaTensor),AForceMode);
+ SetWorldForce(Vector3TermMatrixMulBasis(AForce,fWorldTransform),AForceMode,aWake);
 end;
 
-procedure TKraftRigidBody.SetBodyAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+procedure TKraftRigidBody.AddBodyForce(const AForce:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
 begin
- SetBodyAngularVelocity(Vector3TermMatrixMul(AAngularMomentum,fBodyInverseInertiaTensor),AForceMode);
+ AddWorldForce(Vector3TermMatrixMulBasis(AForce,fWorldTransform),AForceMode,aWake);
 end;
 
-procedure TKraftRigidBody.AddBodyAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce);
+procedure TKraftRigidBody.SetWorldTorque(const ATorque:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
 begin
- AddBodyAngularVelocity(Vector3TermMatrixMul(AAngularMomentum,fBodyInverseInertiaTensor),AForceMode);
+ if fRigidBodyType=krbtDynamic then begin
+  fTorque:=Vector3Origin;
+  AddWorldTorque(ATorque,AForceMode);
+  if aWake and not (krbfAwake in fFlags) then begin
+   SetToAwake;
+  end;
+ end;
+end;
+
+procedure TKraftRigidBody.AddWorldTorque(const ATorque:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
+begin
+ if fRigidBodyType=krbtDynamic then begin
+  case AForceMode of
+   kfmForce:begin
+    // The unit of the Torque parameter is applied to the rigidbody as mass*distance/time^2.
+    fTorque:=Vector3Add(fTorque,ATorque);
+   end;
+   kfmAcceleration:begin
+    // The unit of the Torque parameter is applied to the rigidbody as distance/time^2.
+    fTorque:=Vector3Add(fTorque,Vector3ScalarMul(ATorque,fMass));
+   end;
+   kfmImpulse:begin
+    // The unit of the Torque parameter is applied to the rigidbody as mass*distance/time.
+    fTorque:=Vector3Add(fTorque,Vector3ScalarMul(ATorque,fPhysics.fWorldInverseDeltaTime));
+   end;
+   kfmVelocity:begin
+    // The unit of the Torque parameter is applied to the rigidbody as distance/time.
+    fTorque:=Vector3Add(fTorque,Vector3ScalarMul(ATorque,fMass*fPhysics.fWorldInverseDeltaTime));
+   end;
+  end;
+  if aWake and not (krbfAwake in fFlags) then begin
+   SetToAwake;
+  end;
+ end;
+end;
+
+procedure TKraftRigidBody.SetBodyTorque(const ATorque:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
+begin
+ SetWorldTorque(Vector3TermMatrixMulBasis(ATorque,fWorldTransform),AForceMode,aWake);
+end;
+
+procedure TKraftRigidBody.AddBodyTorque(const ATorque:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
+begin
+ AddWorldTorque(Vector3TermMatrixMulBasis(ATorque,fWorldTransform),AForceMode,aWake);
+end;
+
+procedure TKraftRigidBody.SetWorldAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
+begin
+ if fRigidBodyType=krbtDynamic then begin
+  fAngularVelocity:=Vector3Origin;
+  AddWorldAngularVelocity(AAngularVelocity,AForceMode,false);
+  if aWake and not (krbfAwake in fFlags) then begin
+   SetToAwake;
+  end;
+ end;
+end;
+
+procedure TKraftRigidBody.AddWorldAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
+begin
+ if fRigidBodyType=krbtDynamic then begin
+  case AForceMode of
+   kfmForce:begin
+    // The unit of the Torque parameter is applied to the rigidbody as mass*distance/time^2.
+    fAngularVelocity:=Vector3Add(fAngularVelocity,Vector3ScalarMul(AAngularVelocity,fInverseMass*fPhysics.fWorldDeltaTime));
+   end;
+   kfmAcceleration:begin
+    // The unit of the Torque parameter is applied to the rigidbody as distance/time^2.
+    fAngularVelocity:=Vector3Add(fAngularVelocity,Vector3ScalarMul(AAngularVelocity,fPhysics.fWorldDeltaTime));
+   end;
+   kfmImpulse:begin
+    // The unit of the Torque parameter is applied to the rigidbody as mass*distance/time.
+    fAngularVelocity:=Vector3Add(fAngularVelocity,Vector3ScalarMul(AAngularVelocity,fInverseMass));
+   end;
+   kfmVelocity:begin
+    // The unit of the Torque parameter is applied to the rigidbody as distance/time.
+    fAngularVelocity:=Vector3Add(fAngularVelocity,AAngularVelocity);
+   end;
+  end;
+  if aWake and not (krbfAwake in fFlags) then begin
+   SetToAwake;
+  end;
+ end;
+end;
+
+procedure TKraftRigidBody.SetBodyAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
+begin
+ SetWorldAngularVelocity(Vector3TermMatrixMulBasis(AAngularVelocity,fWorldTransform),AForceMode,aWake);
+end;
+
+procedure TKraftRigidBody.AddBodyAngularVelocity(const AAngularVelocity:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
+begin
+ AddWorldAngularVelocity(Vector3TermMatrixMulBasis(AAngularVelocity,fWorldTransform),AForceMode,aWake);
+end;
+
+procedure TKraftRigidBody.SetWorldAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
+begin
+ SetWorldAngularVelocity(Vector3TermMatrixMul(AAngularMomentum,fWorldInverseInertiaTensor),AForceMode,aWake);
+end;
+
+procedure TKraftRigidBody.AddWorldAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
+begin
+ AddWorldAngularVelocity(Vector3TermMatrixMul(AAngularMomentum,fWorldInverseInertiaTensor),AForceMode,aWake);
+end;
+
+procedure TKraftRigidBody.SetBodyAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
+begin
+ SetBodyAngularVelocity(Vector3TermMatrixMul(AAngularMomentum,fBodyInverseInertiaTensor),AForceMode,aWake);
+end;
+
+procedure TKraftRigidBody.AddBodyAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
+begin
+ AddBodyAngularVelocity(Vector3TermMatrixMul(AAngularMomentum,fBodyInverseInertiaTensor),AForceMode,aWake);
 end;
 
 function TKraftRigidBody.GetAngularMomentum:TKraftVector3;
@@ -31225,7 +31350,10 @@ begin
    RigidBody.fLinearVelocity:=Vector3Add(RigidBody.fLinearVelocity,Vector3Mul(RigidBody.fForce,Vector3ScalarMul(RigidBody.fLinearFactor,RigidBody.InverseMass*TimeStep.DeltaTime)));
 
    // Integrate angular velocity
+// write('AV: ',RigidBody.fAngularVelocity.x:8:4,' ',RigidBody.fAngularVelocity.y:8:4,' ',RigidBody.fAngularVelocity.z:8:4,' - ');
    RigidBody.fAngularVelocity:=Vector3Add(RigidBody.fAngularVelocity,Vector3ScalarMul(Vector3TermMatrixMul(RigidBody.fTorque,RigidBody.fWorldInverseInertiaTensor),TimeStep.DeltaTime));
+// write('AV: ',RigidBody.fAngularVelocity.x:8:4,' ',RigidBody.fAngularVelocity.y:8:4,' ',RigidBody.fAngularVelocity.z:8:4,' - ');
+// writeln('TO: ',RigidBody.fTorque.x:8:4,' ',RigidBody.fTorque.y:8:4,' ',RigidBody.fTorque.z:8:4,' - ');
 
    if assigned(RigidBody.fOnDamping) then begin
     RigidBody.fOnDamping(RigidBody,TimeStep);
