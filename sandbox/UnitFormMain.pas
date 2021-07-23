@@ -172,7 +172,7 @@ procedure TThreadTimer.Draw;
 begin
  if assigned(FormMain.KraftPhysics) then begin
   FormMain.OpenGLControlWorld.Paint;
-  //Application.ProcessMessages;
+  Application.ProcessMessages;
  end;
 end;
 
@@ -180,7 +180,7 @@ procedure TThreadTimer.Execute;
 begin
  while not Terminated do begin
   Synchronize(Draw);
-  Sleep(10);
+  //Sleep(0);
  end;
 end;
 

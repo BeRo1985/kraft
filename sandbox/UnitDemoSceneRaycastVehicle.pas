@@ -67,7 +67,8 @@ const CarWidth=1.8;
 { TDemoSceneRaycastVehicle }
 
 constructor TDemoSceneRaycastVehicle.Create(const aKraftPhysics: TKraft);
-var Index:Int32;
+const Height=10;
+var Index,i,j:Int32;
     RigidBody:TKraftRigidBody;
     Shape:TKraftShape;
     ConvexHull:TKraftConvexHull;
@@ -149,6 +150,26 @@ begin
   end;
  end;//}
 
+ begin
+  // Brick wall
+  for i:=0 to Height-1 do begin
+   for j:=0 to Height-1 do begin
+    if (i+j)>0 then begin
+     RigidBody:=TKraftRigidBody.Create(KraftPhysics);
+     RigidBody.SetRigidBodyType(krbtDYNAMIC);
+     Shape:=TKraftShapeBox.Create(KraftPhysics,RigidBody,Vector3(1.0,0.5,0.25));
+     Shape.Restitution:=0.4;
+     Shape.Density:=10.0;
+  // RigidBody.ForcedMass:=1.0;
+     RigidBody.Finish;
+     RigidBody.SetWorldTransformation(Matrix4x4Translate((((j+((i and 1)*0.5))-(Height*0.5))*(TKraftShapeBox(Shape).Extents.x*2.0))-((JumpingRampWidth+(CarWidth*4))*2),TKraftShapeBox(Shape).Extents.y+((Height-(i+1))*(TKraftShapeBox(Shape).Extents.y*2.0)),-8.0));
+     RigidBody.CollisionGroups:=[0];
+     RigidBody.SetToSleep;
+    end;
+   end;
+  end;
+ end;
+
  Vehicle:=TVehicle.Create(KraftPhysics);
 
  Vehicle.DownForce:=10.0;
@@ -157,10 +178,10 @@ begin
  Vehicle.FlightStabilizationDamping:=0.7;
 
  Vehicle.AxleFront.Width:=1.55;
- Vehicle.AxleFront.Offset:=Vector2(1.51,-0.325);
+ Vehicle.AxleFront.Offset:=Vector2(1.51,-0.5);
 //Vehicle.AxleFront.Radius:=0.3;
  Vehicle.AxleFront.WheelVisualScale:=1.0;//2.9;
- Vehicle.AxleFront.StabilizerBarAntiRollForce:=20000.0;
+//Vehicle.AxleFront.StabilizerBarAntiRollForce:=20000.0;
  Vehicle.AxleFront.RelaxedSuspensionLength:=0.6;
 {Vehicle.AxleFront.Radius:=0.3;
  Vehicle.AxleFront.LaterialFriction:=0.6;
@@ -177,9 +198,9 @@ begin
  Vehicle.AxleFront.IsPowered:=false;
 
  Vehicle.AxleRear.Width:=1.55;
- Vehicle.AxleRear.Offset:=Vector2(-1.29,-0.325);
+ Vehicle.AxleRear.Offset:=Vector2(-1.29,-0.5);
  Vehicle.AxleRear.WheelVisualScale:=1.0;//2.9;
- Vehicle.AxleRear.StabilizerBarAntiRollForce:=20000.0;
+//Vehicle.AxleRear.StabilizerBarAntiRollForce:=20000.0;
  Vehicle.AxleRear.RelaxedSuspensionLength:=0.6;
 {Vehicle.AxleRear.Radius:=0.3;
  Vehicle.AxleRear.LaterialFriction:=0.6;
