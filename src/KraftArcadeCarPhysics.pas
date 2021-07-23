@@ -1,7 +1,7 @@
 (******************************************************************************
  *                   ARCADE CAR PHYSICS FOR KRAFT PHYSICS ENGINE              *
  ******************************************************************************
- *                        Version 2021-07-23-02-21-0000                       *
+ *                        Version 2021-07-23-13-53-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -837,7 +837,7 @@ var LocalWheelRotation,WorldSpaceWheelRotation:TKraftQuaternion;
     TraceLen,SuspensionLengthNow,SuspensionForceMagnitude,SpringForce,
     SuspCompressionVelocity,DamperForce,
     LaterialFriction,SlipperyK,HandBrakeK,
-    LongitudinalForceMagnitude,LongitudinalForceLossMagnitude:TKraftScalar;
+    LongitudinalForceMagnitude,LongitudinalBrakeForceMagnitude:TKraftScalar;
     RayResult:TRayResult;
  function SphereCast(const aRayOrigin,aRayDirection:TKraftVector3;const aMaxTime,aWheelRadius:TKraftScalar):TRayResult;
  begin
@@ -1132,11 +1132,16 @@ begin
  // Apply braking force or rolling resistance force or nothing
  if fBrake or fHandBrake then begin
   LongitudinalForceMagnitude:=Vector3Length(LongitudinalForce);
-  LongitudinalForceLossMagnitude:=Clamp(fAxle.fBrakeForceMagnitude*fVehicle.fRigidBody.Mass,0.0,LongitudinalForceMagnitude);
-  if fHandBrake and not fBrake then begin
-   LongitudinalForceLossMagnitude:=LongitudinalForceLossMagnitude*0.8;
+  if not IsZero(LongitudinalForceMagnitude) then begin
+   LongitudinalBrakeForceMagnitude:=Clamp(fAxle.fBrakeForceMagnitude*fVehicle.fRigidBody.Mass,
+                                           0.0,
+                                           LongitudinalForceMagnitude);
+   if fHandBrake and not fBrake then begin
+    LongitudinalBrakeForceMagnitude:=LongitudinalBrakeForceMagnitude*0.8;
+   end;
+   Vector3DirectSub(LongitudinalForce,Vector3ScalarMul(Vector3Norm(LongitudinalForce),LongitudinalBrakeForceMagnitude));
+// Vector3Scale(LongitudinalForce,1.0-Clamp01(LongitudinalBrakeForceMagnitude/LongitudinalForceMagnitude));
   end;
-  Vector3Scale(LongitudinalForce,1.0-Clamp01(LongitudinalForceLossMagnitude/LongitudinalForceMagnitude));
  end else begin
   if not (fVehicle.fIsAcceleration or fVehicle.fIsReverseAcceleration) then begin
    // Apply rolling-friction (automatic slow-down) only if player don't press to the accelerator
@@ -1216,6 +1221,7 @@ begin
   fVisualRotationRad:=0.0;
 
  end;
+
 end;
 
 procedure TVehicle.TAxle.TWheel.UpdateVisual;
@@ -1797,7 +1803,7 @@ begin
   // Not all wheels in air
 
   DownForceAmount:=fDownForceCurveEnvelope.GetValueAtTime(fSpeedKMH)*0.01;
-  //fRigidBody.AddWorldForce(Vector3ScalarMul(fWorldDown,fRigidBody.Mass*DownForceAmount*fDownForce));
+//  fRigidBody.AddWorldForce(Vector3ScalarMul(fWorldDown,fRigidBody.Mass*DownForceAmount*fDownForce));
 
  end else begin
 

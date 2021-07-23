@@ -168,7 +168,7 @@ begin
     end;
    end;
   end;
- end;
+ end;    //}
 
  Vehicle:=TVehicle.Create(KraftPhysics);
 
@@ -179,16 +179,15 @@ begin
 
  Vehicle.AxleFront.Width:=1.55;
  Vehicle.AxleFront.Offset:=Vector2(1.51,-0.5);
-//Vehicle.AxleFront.Radius:=0.3;
+ Vehicle.AxleFront.Radius:=0.3;
  Vehicle.AxleFront.WheelVisualScale:=1.0;//2.9;
-//Vehicle.AxleFront.StabilizerBarAntiRollForce:=20000.0;
+ Vehicle.AxleFront.StabilizerBarAntiRollForce:=15000.0;
  Vehicle.AxleFront.RelaxedSuspensionLength:=0.6;
-{Vehicle.AxleFront.Radius:=0.3;
- Vehicle.AxleFront.LaterialFriction:=0.6;
- Vehicle.AxleFront.RollingFriction:=0.03;
- Vehicle.AxleFront.SuspensionStiffness:=15000.0;
+{Vehicle.AxleFront.SuspensionStiffness:=15000.0;
  Vehicle.AxleFront.SuspensionDamping:=3000.0;
- Vehicle.AxleFront.SuspensionRestitution:=1.0;
+ Vehicle.AxleFront.SuspensionRestitution:=1.0;}
+{Vehicle.AxleFront.LaterialFriction:=0.6;
+ Vehicle.AxleFront.RollingFriction:=0.03;
  Vehicle.AxleFront.RelaxedSuspensionLength:=0.45;
  Vehicle.AxleFront.StabilizerBarAntiRollForce:=10000.0;
  Vehicle.AxleFront.WheelVisualScale:=1.0;//2.9;
@@ -199,15 +198,15 @@ begin
 
  Vehicle.AxleRear.Width:=1.55;
  Vehicle.AxleRear.Offset:=Vector2(-1.29,-0.5);
+ Vehicle.AxleRear.Radius:=0.3;
  Vehicle.AxleRear.WheelVisualScale:=1.0;//2.9;
-//Vehicle.AxleRear.StabilizerBarAntiRollForce:=20000.0;
+ Vehicle.AxleRear.StabilizerBarAntiRollForce:=15000.0;
  Vehicle.AxleRear.RelaxedSuspensionLength:=0.6;
-{Vehicle.AxleRear.Radius:=0.3;
- Vehicle.AxleRear.LaterialFriction:=0.6;
- Vehicle.AxleRear.RollingFriction:=0.03;
- Vehicle.AxleRear.SuspensionStiffness:=9500.0;
+{Vehicle.AxleRear.SuspensionStiffness:=9500.0;
  Vehicle.AxleRear.SuspensionDamping:=3000.0;
- Vehicle.AxleRear.SuspensionRestitution:=1.0;
+ Vehicle.AxleRear.SuspensionRestitution:=1.0;}
+{Vehicle.AxleRear.LaterialFriction:=0.6;
+ Vehicle.AxleRear.RollingFriction:=0.03;
  Vehicle.AxleRear.RelaxedSuspensionLength:=0.45;
  Vehicle.AxleRear.StabilizerBarAntiRollForce:=10000.0;
  Vehicle.AxleRear.WheelVisualScale:=1.0;//2.9;

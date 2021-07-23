@@ -1,7 +1,7 @@
 (****************************************************************************** 
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2021-07-22-19-12-0000                       *
+ *                        Version 2021-07-23-13-53-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -31350,10 +31350,7 @@ begin
    RigidBody.fLinearVelocity:=Vector3Add(RigidBody.fLinearVelocity,Vector3Mul(RigidBody.fForce,Vector3ScalarMul(RigidBody.fLinearFactor,RigidBody.InverseMass*TimeStep.DeltaTime)));
 
    // Integrate angular velocity
-// write('AV: ',RigidBody.fAngularVelocity.x:8:4,' ',RigidBody.fAngularVelocity.y:8:4,' ',RigidBody.fAngularVelocity.z:8:4,' - ');
    RigidBody.fAngularVelocity:=Vector3Add(RigidBody.fAngularVelocity,Vector3ScalarMul(Vector3TermMatrixMul(RigidBody.fTorque,RigidBody.fWorldInverseInertiaTensor),TimeStep.DeltaTime));
-// write('AV: ',RigidBody.fAngularVelocity.x:8:4,' ',RigidBody.fAngularVelocity.y:8:4,' ',RigidBody.fAngularVelocity.z:8:4,' - ');
-// writeln('TO: ',RigidBody.fTorque.x:8:4,' ',RigidBody.fTorque.y:8:4,' ',RigidBody.fTorque.z:8:4,' - ');
 
    if assigned(RigidBody.fOnDamping) then begin
     RigidBody.fOnDamping(RigidBody,TimeStep);
