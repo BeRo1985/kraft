@@ -208,7 +208,7 @@ begin
  Shape.LocalTransform:=Matrix4x4Translate(0.0,0.0,0.0);
  Shape.Flags:=Shape.Flags+[ksfHasForcedCenterOfMass];
  Shape.ForcedCenterOfMass.x:=0;
- Shape.ForcedCenterOfMass.y:=-0.3;
+ Shape.ForcedCenterOfMass.y:=-0.6;
  Shape.ForcedCenterOfMass.z:=0.0;
  Shape.ForcedMass:=1500.0;
 {Shape:=TKraftShapeBox.Create(aKraftPhysics,Vehicle.RigidBody,Vector3(1.0,1.0,2.0));

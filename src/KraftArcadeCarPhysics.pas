@@ -1,7 +1,7 @@
 (******************************************************************************
  *                   ARCADE CAR PHYSICS FOR KRAFT PHYSICS ENGINE              *
  ******************************************************************************
- *                        Version 2021-07-22-19-12-0000                       *
+ *                        Version 2021-07-23-02-21-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -1099,7 +1099,7 @@ begin
  fDebugSlidingVelocity:=SlideVelocity;
 {$endif}
 
- LaterialFriction:=Clamp01(fAxle.LaterialFriction);
+ LaterialFriction:=Clamp01(fAxle.fLaterialFriction);
 
  SlipperyK:=1.0;
 
@@ -1879,15 +1879,24 @@ end;
 
 {$ifdef DebugDraw}
 procedure TVehicle.DebugDraw;
+var v:TKraftVector3;
 begin
+ v:=Vector3TermMatrixMul(fRigidBody.Sweep.LocalCenter,fRigidBody.WorldTransform);
  glDisable(GL_DEPTH_TEST);
  fAxleFront.DebugDraw;
  fAxleRear.DebugDraw;
  glColor4f(0.0,0.0,1.0,1.0);
- glBegin(GL_LINES);
+ glBegin(GL_LINE_STRIP);
  glVertex3fv(@fAxleFront.fVisualDebugMiddle);
+ glVertex3fv(@v);
  glVertex3fv(@fAxleRear.fVisualDebugMiddle);
  glEnd;
+ begin
+  glColor4f(1.0,1.0,0.0,1.0);
+  glBegin(GL_POINTS);
+  glVertex3fv(@v);
+  glEnd;
+ end;
  glColor4f(1.0,1.0,1.0,1.0);
  glEnable(GL_DEPTH_TEST);
 //write(#13,fAxleFront.SteerAngle:1:5,' ',AxleFront.WheelLeft.fYawRad*RAD2DEG:1:5,' ',fSpeed*3.6:1:5,' - ',fWorldForward.x:1:5,' ',fWorldForward.y:1:5,' ',fWorldForward.z:1:5);
