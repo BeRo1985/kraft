@@ -1,7 +1,7 @@
 (****************************************************************************** 
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2021-07-23-13-53-0000                       *
+ *                        Version 2021-08-28-04-51-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -399,7 +399,7 @@ type PKraftForceMode=^TKraftForceMode;
      PKraftScalar=^TKraftScalar;
      TKraftScalar={$ifdef UseDouble}double{$else}single{$endif};
 
-     TKraftScalars=array[0..0] of TKraftScalar;
+     TKraftScalars=array[0..1] of TKraftScalar;
      PKraftScalars=^TKraftScalars;
 
      TKraftLongInts=array[0..0] of longint;
