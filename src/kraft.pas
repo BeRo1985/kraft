@@ -1,12 +1,12 @@
 (****************************************************************************** 
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2021-08-28-04-51-0000                       *
+ *                        Version 2022-08-02-13-24-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
  *                                                                            *
- * Copyright (c) 2015-2021, Benjamin Rosseaux (benjamin@rosseaux.de)          *
+ * Copyright (c) 2015-2022, Benjamin Rosseaux (benjamin@rosseaux.de)          *
  *                                                                            *
  * This software is provided 'as-is', without any express or implied          *
  * warranty. In no event will the authors be held liable for any damages      *
@@ -32312,7 +32312,8 @@ begin
      // Skip contacts that have been added to an island already and we can safely skip contacts if these didn't actually collide with anything,
      // and skip also sensors
      if ((ContactPair^.Flags*[kcfColliding,kcfInIsland])=[kcfColliding]) and
-        not ((ksfSensor in ContactPair^.Shapes[0].fFlags) or
+        not ((krbfSensor in ContactPairEdge^.OtherRigidBody.fFlags) or
+             (ksfSensor in ContactPair^.Shapes[0].fFlags) or
              (ksfSensor in ContactPair^.Shapes[1].fFlags)) then begin
       ContactPair^.Flags:=ContactPair^.Flags+[kcfInIsland];
       Island.AddContactPair(ContactPair);
