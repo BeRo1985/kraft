@@ -1888,12 +1888,12 @@ type PKraftForceMode=^TKraftForceMode;
 
      TKraftBroadPhaseMoveBuffer=class
       private
-       fPhysics:TKraft;
+       fAABBTree:TKraftDynamicAABBTree;
        fItems:TKraftBroadPhaseMoveBufferItems;
        fSize:longint;
        function GetItem(const aIndex:longint):longint; {$ifdef caninline}inline;{$endif}
       public
-       constructor Create(const aPhysics:TKraft);
+       constructor Create(const aAABBTree:TKraftDynamicAABBTree);
        destructor Destroy; override;
        procedure Clear;
        procedure Add(const aProxyID:longint);
@@ -25390,10 +25390,10 @@ begin
  end;
 end;
 
-constructor TKraftBroadPhaseMoveBuffer.Create(const aPhysics:TKraft);
+constructor TKraftBroadPhaseMoveBuffer.Create(const aAABBTree:TKraftDynamicAABBTree);
 begin
  inherited Create;
- fPhysics:=aPhysics;
+ fAABBTree:=aAABBTree;
  fItems:=nil;
  SetLength(fItems,64);
  fSize:=0;
@@ -25419,8 +25419,8 @@ procedure TKraftBroadPhaseMoveBuffer.Add(const aProxyID:longint);
 var Index:longint;
     Node:PKraftDynamicAABBTreeNode;
 begin
- if (aProxyID>=0) and (aProxyID<fPhysics.fDynamicAABBTree.fNodeCount) then begin
-  Node:=@fPhysics.fDynamicAABBTree.fNodes^[aProxyID];
+ if (aProxyID>=0) and (aProxyID<fAABBTree.fNodeCount) then begin
+  Node:=@fAABBTree.fNodes^[aProxyID];
  end else begin
   Node:=nil;
  end;
@@ -25446,11 +25446,11 @@ procedure TKraftBroadPhaseMoveBuffer.Remove(const aProxyID:longint);
 var Index,SearchIndex:longint;
     Node:PKraftDynamicAABBTreeNode;
 begin
-  // The order of the items is irrelevant in this case, so that we can simply
+ // The order of the items is irrelevant in this case, so that we can simply
  // overwrite the to be removed item with the the last array item, while
  // decrementing the size of the array in the process at the same time.
- if (aProxyID>=0) and (aProxyID<fPhysics.fDynamicAABBTree.fNodeCount) then begin
-  Node:=@fPhysics.fDynamicAABBTree.fNodes^[aProxyID];
+ if (aProxyID>=0) and (aProxyID<fAABBTree.fNodeCount) then begin
+  Node:=@fAABBTree.fNodes^[aProxyID];
  end else begin
   Node:=nil;
  end;
@@ -25506,11 +25506,11 @@ begin
   
  end;
 
- fStaticMoveBuffer:=TKraftBroadPhaseMoveBuffer.Create(fPhysics);
+ fStaticMoveBuffer:=TKraftBroadPhaseMoveBuffer.Create(fPhysics.fStaticAABBTree);
 
- fDynamicMoveBuffer:=TKraftBroadPhaseMoveBuffer.Create(fPhysics);
+ fDynamicMoveBuffer:=TKraftBroadPhaseMoveBuffer.Create(fPhysics.fDynamicAABBTree);
 
- fKinematicMoveBuffer:=TKraftBroadPhaseMoveBuffer.Create(fPhysics);
+ fKinematicMoveBuffer:=TKraftBroadPhaseMoveBuffer.Create(fPhysics.fKinematicAABBTree);
 
 end;
 

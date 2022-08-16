@@ -130,7 +130,7 @@
         <PackageName Value="LCL"/>
       </Item3>
     </RequiredPackages>
-    <Units Count="25">
+    <Units Count="24">
       <Unit0>
         <Filename Value="kraftsandbox.lpr"/>
         <IsPartOfProject Value="True"/>
@@ -230,10 +230,6 @@
         <Filename Value="..\src\KraftArcadeCarPhysics.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit23>
-      <Unit24>
-        <Filename Value="..\src\KraftRaycastVehicle.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit24>
     </Units>
   </ProjectOptions>
   <CompilerOptions>
