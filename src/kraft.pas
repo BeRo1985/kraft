@@ -1,12 +1,12 @@
 (****************************************************************************** 
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2022-08-02-13-24-0000                       *
+ *                        Version 2023-01-20-21-33-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
  *                                                                            *
- * Copyright (c) 2015-2022, Benjamin Rosseaux (benjamin@rosseaux.de)          *
+ * Copyright (c) 2015-2023, Benjamin Rosseaux (benjamin@rosseaux.de)          *
  *                                                                            *
  * This software is provided 'as-is', without any express or implied          *
  * warranty. In no event will the authors be held liable for any damages      *
@@ -9477,8 +9477,8 @@ end;
 function AABBContains(const InAABB,AABB:TKraftAABB):boolean; overload; {$ifdef caninline}inline;{$endif}
 begin
  result:=((InAABB.Min.x-EPSILON)<=(AABB.Min.x+EPSILON)) and ((InAABB.Min.y-EPSILON)<=(AABB.Min.y+EPSILON)) and ((InAABB.Min.z-EPSILON)<=(AABB.Min.z+EPSILON)) and
-         ((InAABB.Max.x+EPSILON)>=(AABB.Min.x+EPSILON)) and ((InAABB.Max.y+EPSILON)>=(AABB.Min.y+EPSILON)) and ((InAABB.Max.z+EPSILON)>=(AABB.Min.z+EPSILON)) and
-         ((InAABB.Min.x-EPSILON)<=(AABB.Max.x-EPSILON)) and ((InAABB.Min.y-EPSILON)<=(AABB.Max.y-EPSILON)) and ((InAABB.Min.z-EPSILON)<=(AABB.Max.z-EPSILON)) and
+         ((InAABB.Max.x+EPSILON)>=(AABB.Min.x-EPSILON)) and ((InAABB.Max.y+EPSILON)>=(AABB.Min.y-EPSILON)) and ((InAABB.Max.z+EPSILON)>=(AABB.Min.z-EPSILON)) and
+         ((InAABB.Min.x-EPSILON)<=(AABB.Max.x+EPSILON)) and ((InAABB.Min.y-EPSILON)<=(AABB.Max.y+EPSILON)) and ((InAABB.Min.z-EPSILON)<=(AABB.Max.z+EPSILON)) and
          ((InAABB.Max.x+EPSILON)>=(AABB.Max.x-EPSILON)) and ((InAABB.Max.y+EPSILON)>=(AABB.Max.y-EPSILON)) and ((InAABB.Max.z+EPSILON)>=(AABB.Max.z-EPSILON));
 end;
 
