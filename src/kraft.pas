@@ -293,10 +293,11 @@ type PKraftForceMode=^TKraftForceMode;
                       kstSphere,
                       kstCapsule,
                       kstConvexHull,
-                      kstBox,          // Internally derived from convex hull
-                      kstPlane,        // Internally derived from convex hull
-                      kstTriangle,     // Internally derived from convex hull and only for internal usage only at mesh shapes
-                      kstMesh);        // Static only
+                      kstBox,                  // Internally derived from convex hull
+                      kstPlane,                // Internally derived from convex hull
+                      kstTriangle,             // Internally derived from convex hull and only for internal usage only at mesh shapes
+                      kstMesh,                 // Static only
+                      kstSignedDistanceField);
 
      PKraftShapeFlag=^TKraftShapeFlag;
      TKraftShapeFlag=(ksfHasForcedCenterOfMass,
@@ -1538,6 +1539,29 @@ type PKraftForceMode=^TKraftForceMode;
        procedure Draw(const CameraMatrix:TKraftMatrix4x4); override;
 {$endif}
        property Mesh:TKraftMesh read fMesh;
+     end;
+
+     TKraftShapeSignedDistanceField=class(TKraftShape)
+      private
+       fAABB:TKraftAABB;
+      public
+       constructor Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody;const aAABB:TKraftAABB); reintroduce;
+       destructor Destroy; override;
+       procedure UpdateShapeAABB; override;
+       procedure CalculateMassData; override;
+       function GetSignedDistance(const Position:TKraftVector3):TKraftScalar; override;
+       function GetSignedDistanceVector(const Position:TKraftVector3):TKraftVector3; override;
+       function GetClosestPointTo(const Position:TKraftVector3):TKraftVector3; override;
+       function GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3; override;
+       function GetLocalFeatureSupportVertex(const Index:longint):TKraftVector3; override;
+       function GetLocalFeatureSupportIndex(const Direction:TKraftVector3):longint; override;
+       function GetCenter(const Transform:TKraftMatrix4x4):TKraftVector3; override;
+       function TestPoint(const p:TKraftVector3):boolean; override;
+       function RayCast(var RayCastData:TKraftRayCastData):boolean; override;
+       function SphereCast(var SphereCastData:TKraftSphereCastData):boolean; override;
+{$ifdef DebugDraw}
+       procedure Draw(const CameraMatrix:TKraftMatrix4x4); override;
+{$endif}
      end;
 
      PKraftGJKStateShapes=^TKraftGJKStateShapes;
@@ -22788,6 +22812,148 @@ begin
  end;
 
  glPopMatrix;
+end;
+{$endif}
+
+constructor TKraftShapeSignedDistanceField.Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody;const aAABB:TKraftAABB);
+begin
+
+ inherited Create(APhysics,ARigidBody);
+
+ fShapeType:=kstSignedDistanceField;
+
+ fFeatureRadius:=0.0;
+
+ fAABB:=aAABB;
+
+end;
+
+destructor TKraftShapeSignedDistanceField.Destroy;
+begin
+ inherited Destroy;
+end;
+
+procedure TKraftShapeSignedDistanceField.UpdateShapeAABB;
+begin
+ fShapeAABB:=fAABB;
+end;
+
+procedure TKraftShapeSignedDistanceField.CalculateMassData;
+begin
+end;
+
+function TKraftShapeSignedDistanceField.GetSignedDistance(const Position:TKraftVector3):TKraftScalar;
+begin
+ result:=MAX_SCALAR;
+end;
+
+function TKraftShapeSignedDistanceField.GetSignedDistanceVector(const Position:TKraftVector3):TKraftVector3;
+var Center:TKraftScalar;
+begin
+ Center:=GetSignedDistance(Position);
+ result.x:=Center-GetSignedDistance(Vector3(Position.x+EPSILON,Position.y,Position.z));
+ result.y:=Center-GetSignedDistance(Vector3(Position.x,Position.y+EPSILON,Position.z));
+ result.z:=Center-GetSignedDistance(Vector3(Position.x,Position.y,Position.z+EPSILON));
+ result:=Vector3ScalarMul(Vector3Norm(result),Center);
+end;
+
+function TKraftShapeSignedDistanceField.GetClosestPointTo(const Position:TKraftVector3):TKraftVector3;
+begin
+ result:=Vector3Sub(Position,GetSignedDistanceVector(Position));
+end;
+
+function TKraftShapeSignedDistanceField.GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3;
+begin
+ result:=Vector3Origin;
+end;
+
+function TKraftShapeSignedDistanceField.GetLocalFeatureSupportVertex(const Index:longint):TKraftVector3;
+begin
+ result:=Vector3Origin;
+end;
+
+function TKraftShapeSignedDistanceField.GetLocalFeatureSupportIndex(const Direction:TKraftVector3):longint;
+begin
+ result:=-1;
+end;
+
+function TKraftShapeSignedDistanceField.GetCenter(const Transform:TKraftMatrix4x4):TKraftVector3;
+begin
+ result:=Vector3Origin;
+end;
+
+function TKraftShapeSignedDistanceField.TestPoint(const p:TKraftVector3):boolean;
+begin
+ result:=false;
+end;
+
+function TKraftShapeSignedDistanceField.RayCast(var RayCastData:TKraftRayCastData):boolean;
+var Step:longint;
+    Time,Distance,Center:TKraftScalar;
+    Current,Origin,Direction:TKraftVector3;
+begin
+ result:=false;
+ if ksfRayCastable in fFlags then begin
+  Origin:=Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform);
+  Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform));
+  if Vector3LengthSquared(Direction)>EPSILON then begin
+   Time:=0.0;
+   for Step:=0 to 511 do begin
+    Current:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time));
+    Distance:=GetSignedDistance(Current);
+    if abs(Distance)<EPSILON then begin
+     RayCastData.TimeOfImpact:=Time;
+     RayCastData.Point:=Vector3TermMatrixMul(Current,fWorldTransform);
+     Center:=GetSignedDistance(RayCastData.Point);
+     RayCastData.Normal.x:=Center-GetSignedDistance(Vector3(RayCastData.Point.x+EPSILON,RayCastData.Point.y,RayCastData.Point.z));
+     RayCastData.Normal.y:=Center-GetSignedDistance(Vector3(RayCastData.Point.x,RayCastData.Point.y+EPSILON,RayCastData.Point.z));
+     RayCastData.Normal.z:=Center-GetSignedDistance(Vector3(RayCastData.Point.x,RayCastData.Point.y,RayCastData.Point.z+EPSILON));
+     Vector3Normalize(RayCastData.Normal);
+     result:=true;
+     break;
+    end else begin
+     Time:=Time+Distance;
+    end;
+   end;
+  end;
+ end;
+end;
+
+function TKraftShapeSignedDistanceField.SphereCast(var SphereCastData:TKraftSphereCastData):boolean;
+var Step:longint;
+    Time,Distance,Center:TKraftScalar;
+    Current,Origin,Direction:TKraftVector3;
+begin
+ result:=false;
+ if ksfSphereCastable in fFlags then begin
+  Origin:=Vector3TermMatrixMulInverted(SphereCastData.Origin,fWorldTransform);
+  Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,fWorldTransform));
+  if Vector3LengthSquared(Direction)>EPSILON then begin
+   Time:=0.0;
+   for Step:=0 to 511 do begin
+    Current:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time+SphereCastData.Radius));
+    Distance:=GetSignedDistance(Current);
+    if abs(Distance)<EPSILON then begin
+     SphereCastData.TimeOfImpact:=Time;
+     SphereCastData.Point:=Vector3TermMatrixMul(Current,fWorldTransform);
+     Center:=GetSignedDistance(SphereCastData.Point);
+     SphereCastData.Normal.x:=Center-GetSignedDistance(Vector3(SphereCastData.Point.x+EPSILON,SphereCastData.Point.y,SphereCastData.Point.z));
+     SphereCastData.Normal.y:=Center-GetSignedDistance(Vector3(SphereCastData.Point.x,SphereCastData.Point.y+EPSILON,SphereCastData.Point.z));
+     SphereCastData.Normal.z:=Center-GetSignedDistance(Vector3(SphereCastData.Point.x,SphereCastData.Point.y,SphereCastData.Point.z+EPSILON));
+     Vector3Normalize(SphereCastData.Normal);
+     result:=true;
+     break;
+    end else begin
+     Time:=Time+Distance;
+    end;
+   end;
+  end;
+ end;
+end;
+
+{$ifdef DebugDraw}
+procedure TKraftShapeSignedDistanceField.Draw(const CameraMatrix:TKraftMatrix4x4);
+begin
 end;
 {$endif}
 
