@@ -15,7 +15,7 @@ uses
   UnitFormMain in 'UnitFormMain.pas' {FormMain},
   kraft in '..\src\kraft.pas',
 {$ifdef KraftPasMP}
-  PasMP in '..\..\..\PASMP.github\trunk\src\PasMP.pas',
+  PasMP in '..\..\pasmp\src\PasMP.pas',
 {$endif}
   UnitDemoScene in 'UnitDemoScene.pas',
   UnitDemoSceneCatapult in 'UnitDemoSceneCatapult.pas',
