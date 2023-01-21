@@ -34790,7 +34790,7 @@ var Hit:boolean;
     Sphere:TKraftSphere;
     SumMinimumTranslationVector:TKraftVector3;
     Count:longint;
- procedure CollideSphereWithSphere(Shape:TKraftShapeSphere); {$ifdef caninline}inline;{$endif}
+ procedure CollideSphereWithSphere(Shape:TKraftShapeSphere);
  var Position,Normal:TKraftVector3;
      Depth:TKraftScalar;
  begin
@@ -34806,7 +34806,7 @@ var Hit:boolean;
    end;
   end;
  end;
- procedure CollideSphereWithCapsule(Shape:TKraftShapeCapsule); {$ifdef caninline}inline;{$endif}
+ procedure CollideSphereWithCapsule(Shape:TKraftShapeCapsule);
  var Alpha,HalfLength,r1,r2,d,d1:TKraftScalar;
      Center,Position,Normal,GeometryDirection:TKraftVector3;
  begin
@@ -34840,7 +34840,7 @@ var Hit:boolean;
    end;
   end;
  end;
- procedure CollideSphereWithConvexHull(Shape:TKraftShapeConvexHull); {$ifdef caninline}inline;{$endif}
+ procedure CollideSphereWithConvexHull(Shape:TKraftShapeConvexHull);
  var FaceIndex,ClosestFaceIndex,VertexIndex:longint;
      Distance,ClosestDistance,BestClosestPointDistance,d:TKraftScalar;
      SphereCenter,Normal,ClosestPoint,{BestClosestPoint,}BestClosestPointNormal,ab,ap,a,b,v,n:TKraftVector3;
@@ -34932,7 +34932,7 @@ var Hit:boolean;
    end;
   end;
  end;
- procedure CollideSphereWithBox(Shape:TKraftShapeBox); {$ifdef caninline}inline;{$endif}
+ procedure CollideSphereWithBox(Shape:TKraftShapeBox);
  //const ModuloThree:array[0..5] of longint=(0,1,2,0,1,2);
  var IntersectionDist,ContactDist,DistSqr,Distance,FaceDist,MinDist:TKraftScalar;
      SphereRelativePosition,ClosestPoint,Normal:TKraftVector3;
@@ -35010,7 +35010,7 @@ var Hit:boolean;
    end;
   end;
  end;
- procedure CollideSphereWithPlane(Shape:TKraftShapePlane); {$ifdef caninline}inline;{$endif}
+ procedure CollideSphereWithPlane(Shape:TKraftShapePlane);
  var Distance:TKraftScalar;
      SphereCenter:TKraftVector3;
  begin
@@ -35081,7 +35081,7 @@ var Hit:boolean;
    end;
   end;
  end;
- procedure CollideSphereWithMesh(Shape:TKraftShapeMesh); {$ifdef caninline}inline;{$endif}
+ procedure CollideSphereWithMesh(Shape:TKraftShapeMesh);
  const ModuloThree:array[0..5] of longint=(0,1,2,0,1,2);
  var i,SkipListNodeIndex,TriangleIndex:longint;
      Radius,RadiusWithThreshold,DistanceFromPlane,ContactRadiusSqr,DistanceSqr:TKraftScalar;
@@ -35227,6 +35227,8 @@ var Hit:boolean;
           kstSignedDistanceField:begin
            CollideSphereWithSignedDistanceField(TKraftShapeSignedDistanceField(CurrentShape));
           end;
+          else begin
+          end;
          end;
         end;
        end else begin
@@ -35281,6 +35283,8 @@ var Hit:boolean;
         end;
         kstSignedDistanceField:begin
          CollideSphereWithSignedDistanceField(TKraftShapeSignedDistanceField(CurrentShape));
+        end;
+        else begin
         end;
        end;
       end;
