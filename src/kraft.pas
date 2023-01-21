@@ -290,14 +290,14 @@ type PKraftForceMode=^TKraftForceMode;
 
      PKraftShapeType=^TKraftShapeType;
      TKraftShapeType=(kstUnknown=0,
+                      kstSignedDistanceField,
                       kstSphere,
                       kstCapsule,
                       kstConvexHull,
                       kstBox,                  // Internally derived from convex hull
                       kstPlane,                // Internally derived from convex hull
                       kstTriangle,             // Internally derived from convex hull and only for internal usage only at mesh shapes
-                      kstMesh,                 // Static only
-                      kstSignedDistanceField);
+                      kstMesh);                // Static only
 
      PKraftShapeFlag=^TKraftShapeFlag;
      TKraftShapeFlag=(ksfHasForcedCenterOfMass,
@@ -24917,7 +24917,9 @@ begin
     (ksfCollision in Shapes[0].fFlags) and
     (ksfCollision in Shapes[1].fFlags) then begin
 
-  if ContactManager.fPhysics.fPersistentContactManifold then begin
+  if ContactManager.fPhysics.fPersistentContactManifold or
+     ((ShapeA.fShapeType=kstSignedDistanceField) or
+      (ShapeB.fShapeType=kstSignedDistanceField)) then begin
 
    // Incremental persistent contact manifold
    ProcessPersistentContactManifold(ShapeA,ShapeB);
@@ -24947,6 +24949,8 @@ begin
       kstTriangle:begin
        CollideSphereWithTriangle(TKraftShapeSphere(ShapeA),TKraftShapeTriangle(ShapeB));
       end;
+      else begin
+      end;
      end;
     end;
     kstCapsule:begin
@@ -24963,6 +24967,8 @@ begin
       kstTriangle:begin
        CollideCapsuleWithTriangle(TKraftShapeCapsule(ShapeA),TKraftShapeTriangle(ShapeB));
       end;{}
+      else begin
+      end;
      end;
     end;
     kstConvexHull,kstBox,kstPlane,kstTriangle:begin
@@ -24970,7 +24976,11 @@ begin
       kstConvexHull,kstBox,kstPlane,kstTriangle:begin
        CollideConvexHullWithConvexHull(TKraftShapeConvexHull(ShapeA),TKraftShapeConvexHull(ShapeB));
       end;
+      else begin
+      end;
      end;
+    end;
+    else begin
     end;
    end;
 
@@ -27103,7 +27113,7 @@ procedure TKraftRigidBody.Finish;
     end else if Shape is TKraftShapeTriangle then begin
      raise EKraftShapeTypeOnlyForStaticRigidBody.Create('Triangle shapes are allowed only at static rigidbodies');
     end else if Shape is TKraftShapeMesh then begin
-    raise EKraftShapeTypeOnlyForStaticRigidBody.Create('Mesh shapes are allowed only at static rigidbodies');
+     raise EKraftShapeTypeOnlyForStaticRigidBody.Create('Mesh shapes are allowed only at static rigidbodies');
     end;
     if (ksfMass in Shape.fFlags) and (Shape.fDensity>EPSILON) then begin
      fMass:=fMass+Shape.fMassData.Mass;
@@ -34790,6 +34800,22 @@ var Hit:boolean;
     Sphere:TKraftSphere;
     SumMinimumTranslationVector:TKraftVector3;
     Count:longint;
+ procedure CollideSphereWithSignedDistanceField(Shape:TKraftShapeSignedDistanceField);
+ var SphereCenter,Direction:TKraftVector3;
+     Radius,Distance:TKraftScalar;
+ begin
+  SphereCenter:=Vector3TermMatrixMulInverted(Sphere.Center,Shape.fWorldTransform);
+  Radius:=Sphere.Radius;
+  Distance:=Shape.GetSignedDistance(SphereCenter);
+  if Distance<Radius then begin
+   Shape.GetSignedDistanceAndDirection(SphereCenter,Direction);
+   SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Direction,Distance-Radius));
+   inc(Count);
+   if assigned(OnPushSphereShapeContactHook) then begin
+    OnPushSphereShapeContactHook(Shape);
+   end;
+  end;
+ end;
  procedure CollideSphereWithSphere(Shape:TKraftShapeSphere);
  var Position,Normal:TKraftVector3;
      Depth:TKraftScalar;
@@ -35166,21 +35192,6 @@ var Hit:boolean;
    end;
   end;
  end;
- procedure CollideSphereWithSignedDistanceField(Shape:TKraftShapeSignedDistanceField);
- var SphereCenter,Direction:TKraftVector3;
-     Radius,Distance:TKraftScalar;
- begin
-  SphereCenter:=Vector3TermMatrixMulInverted(Sphere.Center,Shape.fWorldTransform);
-  Radius:=Sphere.Radius;
-  Distance:=Shape.GetSignedDistanceAndDirection(SphereCenter,Direction);
-  if Distance<Radius then begin
-   SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Direction,Distance-Radius));
-   inc(Count);
-   if assigned(OnPushSphereShapeContactHook) then begin
-    OnPushSphereShapeContactHook(Shape);
-   end;
-  end;
- end;
 {$ifdef KraftSingleThreadedUsage}
  procedure QueryTree(AABBTree:TKraftDynamicAABBTree);
  var LocalStack:PKraftDynamicAABBTreeLongintArray;
@@ -35203,6 +35214,9 @@ var Hit:boolean;
         CurrentShape:=Node^.UserData;
         if assigned(CurrentShape) and (assigned(CurrentShape.fRigidBody) and ((CurrentShape.fRigidBody.fCollisionGroups*CollisionGroups)<>[])) then begin
          case CurrentShape.fShapeType of
+          kstSignedDistanceField:begin
+           CollideSphereWithSignedDistanceField(TKraftShapeSignedDistanceField(CurrentShape));
+          end;
           kstSphere:begin
            CollideSphereWithSphere(TKraftShapeSphere(CurrentShape));
           end;
@@ -35223,9 +35237,6 @@ var Hit:boolean;
           end;
           kstMesh:begin
            CollideSphereWithMesh(TKraftShapeMesh(CurrentShape));
-          end;
-          kstSignedDistanceField:begin
-           CollideSphereWithSignedDistanceField(TKraftShapeSignedDistanceField(CurrentShape));
           end;
           else begin
           end;
@@ -35260,6 +35271,9 @@ var Hit:boolean;
       CurrentShape:=Node^.UserData;
       if assigned(CurrentShape) and (assigned(CurrentShape.fRigidBody) and ((CurrentShape.fRigidBody.fCollisionGroups*CollisionGroups)<>[])) then begin
        case CurrentShape.fShapeType of
+        kstSignedDistanceField:begin
+         CollideSphereWithSignedDistanceField(TKraftShapeSignedDistanceField(CurrentShape));
+        end;
         kstSphere:begin
          CollideSphereWithSphere(TKraftShapeSphere(CurrentShape));
         end;
@@ -35280,9 +35294,6 @@ var Hit:boolean;
         end;
         kstMesh:begin
          CollideSphereWithMesh(TKraftShapeMesh(CurrentShape));
-        end;
-        kstSignedDistanceField:begin
-         CollideSphereWithSignedDistanceField(TKraftShapeSignedDistanceField(CurrentShape));
         end;
         else begin
         end;
