@@ -1,7 +1,7 @@
 (****************************************************************************** 
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2023-01-21-21-03-0000                       *
+ *                        Version 2023-01-22-11-52-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -163,7 +163,7 @@ unit kraft;
  {$undef SIMD}
  {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMForSinglePrecision)}
   {$define SIMD}
- {$endif}
+ {$ifend}
 {$endif}
 
 interface
@@ -5469,7 +5469,7 @@ begin
  t:=Vector3ScalarMul(Vector3Cross(qv,v),2.0);
  result:=Vector3Add(Vector3Add(v,Vector3ScalarMul(t,q.w)),Vector3Cross(qv,t));
 end;
-{$endif}
+{$ifend}
 
 function Vector3ProjectToBounds(const v:TKraftVector3;const MinVector,MaxVector:TKraftVector3):TKraftScalar;
 begin
