@@ -1,7 +1,7 @@
 (****************************************************************************** 
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2023-01-22-11-52-0000                       *
+ *                        Version 2023-01-22-14-18-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -3849,12 +3849,12 @@ const daabbtNULLNODE=-1;
 
       pi2=pi*2.0;
 
-{$ifdef cpu386}
-      {%H-}MMXExt:boolean=false;
-      {%H-}SSEExt:boolean=false;
-      {%H-}SSE2Ext:boolean=false;
-      {%H-}SSE3Ext:boolean=false;
-{$endif}
+{$if defined(cpu386) or defined(cpuamd64)}
+var {%H-}MMXExt:longbool=false;
+    {%H-}SSEExt:longbool=false;
+    {%H-}SSE2Ext:longbool=false;
+    {%H-}SSE3Ext:longbool=false;
+{$ifend}
 
 {$ifdef fpc}
  {$undef OldDelphi}
@@ -4055,9 +4055,11 @@ begin
  result:=x+1;
 end;
 
-function SIMDGetFlags:longword; {$ifdef cpu386}assembler;
+function SIMDGetFlags:longword; {$if defined(cpu386) or defined(cpuamd64)}assembler;
+var Temp:longword;
 asm
- stmxcsr dword ptr result
+ stmxcsr dword ptr [Temp]
+ mov eax,dword ptr [Temp]
 end;
 {$else}
 begin
@@ -4065,19 +4067,24 @@ begin
 end;
 {$endif}
 
-procedure SIMDSetFlags(const Flags:longword); {$ifdef cpu386}register; assembler;
+procedure SIMDSetFlags(const Flags:longword); {$if defined(cpu386) or defined(cpuamd64)}assembler;
 var Temp:longword;
 asm
- mov dword ptr Temp,eax
- ldmxcsr dword ptr Temp
+{$if defined(cpu386)}
+ mov dword ptr [Temp],eax
+{$elseif defined(Windows)}
+ mov dword ptr [Temp],ecx
+{$else}
+ mov dword ptr [Temp],edi
+{$ifend}
+ ldmxcsr dword ptr [Temp]
 end;
 {$else}
 begin
 end;
 {$endif}
 
-procedure SIMDSetOurFlags;
-{$ifdef cpu386}
+procedure SIMDSetOurFlags;{$if defined(cpu386) or defined(cpuamd64)}assembler;
 // Flush to Zero=Bit 15
 // Underflow exception mask=Bit 11
 // Denormals are zeros=Bit 6
@@ -4094,66 +4101,100 @@ const DenormalsAreZero=1 shl 6;
       SIMDFlags=InvalidOperationExceptionMask or DenormalExceptionMask or DivodeByZeroExceptionMask or OverflowExceptionMask or UnderflowExceptionMask or PrecisionMask or FlushToZero or DenormalsAreZero;
       RoundToNearest=longword(longword($ffffffff) and not ((1 shl 13) or (1 shl 14)));
 var SIMDCtrl:longword;
-begin
- if SSEExt then begin
-  asm
-   push eax
-   stmxcsr dword ptr SIMDCtrl
-   mov eax,dword ptr SIMDCtrl
-   or eax,SIMDFlags
-   and eax,RoundToNearest
-   mov dword ptr SIMDCtrl,eax
-   ldmxcsr dword ptr SIMDCtrl
-   pop eax
-  end;
- end;
+asm
+{$if defined(cpuamd64)}
+ push rax
+ mov eax,dword ptr [rip+SSEExt]
+{$else}
+ push eax
+ mov eax,dword ptr [SSEExt]
+{$ifend}
+ test eax,eax
+ jz @Skip
+  stmxcsr dword ptr SIMDCtrl
+  mov eax,dword ptr SIMDCtrl
+  or eax,SIMDFlags
+  and eax,RoundToNearest
+  mov dword ptr SIMDCtrl,eax
+  ldmxcsr dword ptr SIMDCtrl
+ @Skip:
+{$if defined(cpuamd64)}
+ pop rax
+{$else}
+ pop eax
+{$ifend}
 end;
 {$else}
 begin
 end;
 {$endif}
 
-procedure CheckCPU;
-{$ifdef cpu386}
-var Features,FeaturesExt:longword;
-{$endif}
-begin
-{$ifdef cpu386}
- Features:=0;
- FeaturesExt:=0;
- asm
-  pushad
+{$if defined(cpu386) or defined(cpuamd64) or defined(cpux86_64) or defined(cpux64)}
+type TCPUIDData=record
+      case Byte of
+       0:(
+        Data:array[0..3] of longword;
+       );
+       1:(
+        EAX,EBX,EDX,ECX:longword;
+       );
+       2:(
+        String_:array[0..15] of AnsiChar;
+       );
+      end;
 
-  // Check for CPUID opcode
-  pushfd
-  pop eax
-  mov edx,eax
-  xor eax,$200000
-  push eax
-  popfd
-  pushfd
-  pop eax
-  xor eax,edx
-  jz @NoCPUID
-   // Get cpu features per CPUID opcode
-   mov eax,1
-   cpuid
-   mov dword ptr FeaturesExt,ecx
-   mov dword ptr Features,edx
-  @NoCPUID:
-  popad
- end;
- MMXExt:=(Features and $00800000)<>0;
- SSEExt:=(Features and $02000000)<>0;
- SSE2Ext:=(Features and $04000000)<>0;
- SSE3Ext:=(FeaturesExt and $00000001)<>0;
+      PCPUIDData=^TCPUIDData;
+
+procedure GetCPUID(Value:longword;out Data:TCPUIDData); assembler;
+asm
+{$if defined(cpuamd64) or defined(cpux86_64) or defined(cpux64)}
+ push rbx
+{$if defined(Windows) or defined(Win32) or defined(Win64)}
+ // Win64 ABI (rcx, rdx, ...)
+ mov eax,ecx
+ mov r8,rdx
 {$else}
-{MMXExt:=false;
- SSEExt:=false;
- SSE2Ext:=false;
- SSE3Ext:=false;{}
-{$endif}
+ // SysV x64 ABI (rdi, rsi, ...)
+ mov eax,edi
+ mov r8,rsi
+{$ifend}
+{$else}
+ // register (eax, edx, ...)
+ push ebx
+ push edi
+ mov edi,edx
+{$ifend}
+ cpuid
+{$if defined(cpuamd64) or defined(cpux86_64) or defined(cpux64)}
+ mov dword ptr [r8+0],eax
+ mov dword ptr [r8+4],ebx
+ mov dword ptr [r8+8],edx
+ mov dword ptr [r8+12],ecx
+ pop rbx
+{$else}
+ mov dword ptr [edi+0],eax
+ mov dword ptr [edi+4],ebx
+ mov dword ptr [edi+8],edx
+ mov dword ptr [edi+12],ecx
+ pop edi
+ pop ebx
+{$ifend}
 end;
+{$ifend}
+
+procedure CheckCPU;{$if defined(cpu386) or defined(cpuamd64)}
+var Data:TCPUIDData;
+begin
+ GetCPUID(1,Data);
+ MMXExt:=(Data.EDX and $00800000)<>0;
+ SSEExt:=(Data.EDX and $02000000)<>0;
+ SSE2Ext:=(Data.EDX and $04000000)<>0;
+ SSE3Ext:=(Data.ECX and $00000001)<>0;
+end;
+{$else}
+begin
+end;
+{$ifend}
 
 function Vector2(x,y:TKraftScalar):TKraftVector2; {$ifdef caninline}inline;{$endif}
 begin
@@ -5075,11 +5116,15 @@ begin
  v:=t;
 end;
 
-procedure Vector3MatrixMul(var v:TKraftVector3;const m:TKraftMatrix4x4); overload; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+procedure Vector3MatrixMul(var v:TKraftVector3;const m:TKraftMatrix4x4); overload; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler;
 const cOne:array[0..3] of TKraftScalar=(0.0,0.0,0.0,1.0);
+{$if defined(cpuamd64) and defined(Windows)}
+var StackSave0,StackSave1:array[0..3] of single;
+{$ifend}
 asm
-{$if defined(cpuamd64) and not defined(fpc)}
- .noframe
+{$if defined(cpuamd64) and defined(Windows)}
+ movups dqword ptr [StackSave0],xmm6
+ movups dqword ptr [StackSave1],xmm7
 {$ifend}
  movups xmm0,dqword ptr [v]     // d c b a
 {$if defined(cpuamd64)}
@@ -5110,6 +5155,10 @@ asm
  addps xmm2,xmm3
  addps xmm0,xmm2
  movups dqword ptr [v],xmm0
+{$if defined(cpuamd64) and defined(Windows)}
+ movups xmm6,dqword ptr [StackSave0]
+ movups xmm7,dqword ptr [StackSave1]
+{$ifend}
 end;
 {$else}
 var t:TKraftVector3;
@@ -5217,11 +5266,15 @@ begin
 end;
 {$ifend}
 
-function Vector3TermMatrixMul(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; overload; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+function Vector3TermMatrixMul(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; overload; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler;
 const cOne:array[0..3] of TKraftScalar=(0.0,0.0,0.0,1.0);
+{$if defined(cpuamd64) and defined(Windows)}
+var StackSave0,StackSave1:array[0..3] of single;
+{$ifend}
 asm
-{$if defined(cpuamd64) and not defined(fpc)}
- .noframe
+{$if defined(cpuamd64) and defined(Windows)}
+ movups dqword ptr [StackSave0],xmm6
+ movups dqword ptr [StackSave1],xmm7
 {$ifend}
  movups xmm0,dqword ptr [v]     // d c b a
 {$if defined(cpuamd64)}
@@ -5252,6 +5305,10 @@ asm
  addps xmm2,xmm3
  addps xmm0,xmm2
  movups dqword ptr [result],xmm0
+{$if defined(cpuamd64) and defined(Windows)}
+ movups xmm6,dqword ptr [StackSave0]
+ movups xmm7,dqword ptr [StackSave1]
+{$ifend}
 end;
 {$else}
 begin
@@ -6206,8 +6263,11 @@ begin
  v:=t;
 end;
 
-procedure Vector4MatrixMul(var v:TKraftVector4;const m:TKraftMatrix4x4); {$ifdef CPU386ASMForSinglePrecision}register;
+procedure Vector4MatrixMul(var v:TKraftVector4;const m:TKraftMatrix4x4); {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
 {mov eax,v
  mov edx,m}
  movups xmm0,dqword ptr [v]     // d c b a
@@ -6242,12 +6302,15 @@ begin
 end;
 {$endif}
 
-function Vector4TermMatrixMul(const v:TKraftVector4;const m:TKraftMatrix4x4):TKraftVector4; {$ifdef CPU386ASMForSinglePrecision}register;
+function Vector4TermMatrixMul(const v:TKraftVector4;const m:TKraftMatrix4x4):TKraftVector4; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
 {mov eax,v
  mov edx,m
  mov ecx,result}
- movups xmm0,[eax]              // d c b a
+ movups xmm0,dqword ptr [v]     // d c b a
  movaps xmm1,xmm0               // d c b a
  movaps xmm2,xmm0               // d c b a
  movaps xmm3,xmm0               // d c b a
@@ -6266,7 +6329,7 @@ asm
  addps xmm0,xmm1
  addps xmm2,xmm3
  addps xmm0,xmm2
- movups [ecx],xmm0
+ movups dqword ptr [result],xmm0
 end;
 {$else}
 begin
@@ -7139,8 +7202,16 @@ begin
  m1[3,3]:=m1[3,3]-m2[3,3];
 end;
 
-procedure Matrix4x4Mul(var m1:TKraftMatrix4x4;const m2:TKraftMatrix4x4); overload; {$ifdef CPU386ASMForSinglePrecision}register;
+procedure Matrix4x4Mul(var m1:TKraftMatrix4x4;const m2:TKraftMatrix4x4); overload; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler;
+{$if defined(cpuamd64) and defined(Windows)}
+var StackSave0,StackSave1:array[0..3] of single;
+{$ifend}
 asm
+{$if defined(cpuamd64) and defined(Windows)}
+ movups dqword ptr [StackSave0],xmm6
+ movups dqword ptr [StackSave1],xmm7
+{$ifend}
+
  movups xmm0,dqword ptr [m2+0]
  movups xmm1,dqword ptr [m2+16]
  movups xmm2,dqword ptr [m2+32]
@@ -7202,6 +7273,11 @@ asm
  addps xmm4,xmm6
  movups dqword ptr [m1+48],xmm4
 
+{$if defined(cpuamd64) and defined(Windows)}
+ movups xmm6,dqword ptr [StackSave0]
+ movups xmm7,dqword ptr [StackSave1]
+{$ifend}
+
 end;
 {$else}
 var t:TKraftMatrix4x4;
@@ -7226,8 +7302,15 @@ begin
 end;
 {$endif}
 
-procedure Matrix4x4Mul(var mr:TKraftMatrix4x4;const m1,m2:TKraftMatrix4x4); overload; {$ifdef CPU386ASMForSinglePrecision}register;
+procedure Matrix4x4Mul(var mr:TKraftMatrix4x4;const m1,m2:TKraftMatrix4x4); overload; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler;
+{$if defined(cpuamd64) and defined(Windows)}
+var StackSave0,StackSave1:array[0..3] of single;
+{$ifend}
 asm
+{$if defined(cpuamd64) and defined(Windows)}
+ movups dqword ptr [StackSave0],xmm6
+ movups dqword ptr [StackSave1],xmm7
+{$ifend}
 
  movups xmm0,dqword ptr [m2+0]
  movups xmm1,dqword ptr [m2+16]
@@ -7289,6 +7372,11 @@ asm
  addps xmm6,xmm7
  addps xmm4,xmm6
  movups dqword ptr [mr+48],xmm4
+
+{$if defined(cpuamd64) and defined(Windows)}
+ movups xmm6,dqword ptr [StackSave0]
+ movups xmm7,dqword ptr [StackSave1]
+{$ifend}
 
 end;
 {$else}
@@ -7352,8 +7440,15 @@ begin
  result[3,3]:=m1[3,3]-m2[3,3];
 end;
 
-function Matrix4x4TermMul(const m1,m2:TKraftMatrix4x4):TKraftMatrix4x4; {$ifdef CPU386ASMForSinglePrecision}register;
+function Matrix4x4TermMul(const m1,m2:TKraftMatrix4x4):TKraftMatrix4x4; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler;
+{$if defined(cpuamd64) and defined(Windows)}
+var StackSave0,StackSave1:array[0..3] of single;
+{$ifend}
 asm
+{$if defined(cpuamd64) and defined(Windows)}
+ movups dqword ptr [StackSave0],xmm6
+ movups dqword ptr [StackSave1],xmm7
+{$ifend}
 
  movups xmm0,dqword ptr [m2+0]
  movups xmm1,dqword ptr [m2+16]
@@ -7415,6 +7510,11 @@ asm
  addps xmm6,xmm7
  addps xmm4,xmm6
  movups dqword ptr [result+48],xmm4
+
+{$if defined(cpuamd64) and defined(Windows)}
+ movups xmm6,dqword ptr [StackSave0]
+ movups xmm7,dqword ptr [StackSave1]
+{$ifend}
 
 end;
 {$else}
@@ -7546,9 +7646,11 @@ begin
  m[3,3]:=m[3,3]*s;
 end;
 
-procedure Matrix4x4Transpose(var m:TKraftMatrix4x4);
-{$ifdef CPU386ASMForSinglePrecision}
+procedure Matrix4x4Transpose(var m:TKraftMatrix4x4); {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
  movups xmm0,dqword ptr [m+0]
  movups xmm4,dqword ptr [m+16]
  movups xmm2,dqword ptr [m+32]
@@ -7560,15 +7662,15 @@ asm
  unpcklps xmm2,xmm5
  unpckhps xmm3,xmm5
  movaps xmm4,xmm0
- movaps xmm6,xmm1
+ movaps xmm5,xmm1
  shufps xmm0,xmm2,$44 // 01000100b
  shufps xmm4,xmm2,$ee // 11101110b
  shufps xmm1,xmm3,$44 // 01000100b
- shufps xmm6,xmm3,$ee // 11101110b
+ shufps xmm5,xmm3,$ee // 11101110b
  movups dqword ptr [m+0],xmm0
  movups dqword ptr [m+16],xmm4
  movups dqword ptr [m+32],xmm1
- movups dqword ptr [m+48],xmm6
+ movups dqword ptr [m+48],xmm5
 end;
 {$else}
 var mt:TKraftMatrix4x4;
@@ -7593,9 +7695,11 @@ begin
 end;
 {$endif}
 
-function Matrix4x4TermTranspose(const m:TKraftMatrix4x4):TKraftMatrix4x4;
-{$ifdef CPU386ASMForSinglePrecision}
+function Matrix4x4TermTranspose(const m:TKraftMatrix4x4):TKraftMatrix4x4; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
  movups xmm0,dqword ptr [m+0]
  movups xmm4,dqword ptr [m+16]
  movups xmm2,dqword ptr [m+32]
@@ -7607,15 +7711,15 @@ asm
  unpcklps xmm2,xmm5
  unpckhps xmm3,xmm5
  movaps xmm4,xmm0
- movaps xmm6,xmm1
+ movaps xmm5,xmm1
  shufps xmm0,xmm2,$44 // 01000100b
  shufps xmm4,xmm2,$ee // 11101110b
  shufps xmm1,xmm3,$44 // 01000100b
- shufps xmm6,xmm3,$ee // 11101110b
+ shufps xmm5,xmm3,$ee // 11101110b
  movups dqword ptr [result+0],xmm0
  movups dqword ptr [result+16],xmm4
  movups dqword ptr [result+32],xmm1
- movups dqword ptr [result+48],xmm6
+ movups dqword ptr [result+48],xmm5
 end;
 {$else}
 begin
@@ -7638,9 +7742,16 @@ begin
 end;
 {$endif}
 
-function Matrix4x4Determinant(const m:TKraftMatrix4x4):TKraftScalar;
-{$ifdef CPU386ASMForSinglePrecision}
+function Matrix4x4Determinant(const m:TKraftMatrix4x4):TKraftScalar; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler;
+{$if defined(cpuamd64) and defined(Windows)}
+var StackSave0,StackSave1:array[0..3] of single;
+{$ifend}
 asm
+{$if defined(cpuamd64) and defined(Windows)}
+ movups dqword ptr [StackSave0],xmm6
+ movups dqword ptr [StackSave1],xmm7
+{$ifend}
+
  movups xmm0,dqword ptr [m+32]
  movups xmm1,dqword ptr [m+48]
  movups xmm2,dqword ptr [m+16]
@@ -7679,6 +7790,12 @@ asm
  shufps xmm6,xmm6,$01
  addss xmm5,xmm6
  movss dword ptr [result],xmm5
+
+{$if defined(cpuamd64) and defined(Windows)}
+ movups xmm6,dqword ptr [StackSave0]
+ movups xmm7,dqword ptr [StackSave1]
+{$ifend}
+
 end;
 {$else}
 var inv:array[0..15] of TKraftScalar;
@@ -7860,9 +7977,16 @@ begin
  result[3,3]:=ma[3,3];
 end;
 
-function Matrix4x4Inverse(var mr:TKraftMatrix4x4;const ma:TKraftMatrix4x4):boolean;
-{$ifdef CPU386ASMForSinglePrecision}
+function Matrix4x4Inverse(var mr:TKraftMatrix4x4;const ma:TKraftMatrix4x4):boolean; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler;
+{$if defined(cpuamd64) and defined(Windows)}
+var StackSave0,StackSave1:array[0..3] of single;
+{$ifend}
 asm
+{$if defined(cpuamd64) and defined(Windows)}
+ movups dqword ptr [StackSave0],xmm6
+ movups dqword ptr [StackSave1],xmm7
+{$ifend}
+
  mov ecx,esp
  and esp,$fffffff0
  sub esp,$b0
@@ -8031,6 +8155,11 @@ asm
  movups dqword ptr [mr+48],xmm5
  mov esp,ecx
  mov eax,1
+
+{$if defined(cpuamd64) and defined(Windows)}
+ movups xmm6,dqword ptr [StackSave0]
+ movups xmm7,dqword ptr [StackSave1]
+{$ifend}
 end;
 {$else}
 var inv:array[0..15] of TKraftScalar;
@@ -8078,9 +8207,16 @@ begin
 end;
 {$endif}
 
-function Matrix4x4TermInverse(const ma:TKraftMatrix4x4):TKraftMatrix4x4;
-{$ifdef CPU386ASMForSinglePrecision}
+function Matrix4x4TermInverse(const ma:TKraftMatrix4x4):TKraftMatrix4x4; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler;
+{$if defined(cpuamd64) and defined(Windows)}
+var StackSave0,StackSave1:array[0..3] of single;
+{$ifend}
 asm
+{$if defined(cpuamd64) and defined(Windows)}
+ movups dqword ptr [StackSave0],xmm6
+ movups dqword ptr [StackSave1],xmm7
+{$ifend}
+
  mov ecx,esp
  and esp,$fffffff0
  sub esp,$b0
@@ -8248,6 +8384,12 @@ asm
  movups dqword ptr [result+32],xmm6
  movups dqword ptr [result+48],xmm5
  mov esp,ecx
+
+{$if defined(cpuamd64) and defined(Windows)}
+ movups xmm6,dqword ptr [StackSave0]
+ movups xmm7,dqword ptr [StackSave1]
+{$ifend}
+
 end;
 {$else}
 var inv:array[0..15] of TKraftScalar;
@@ -8763,8 +8905,11 @@ begin
  result.Distance:=-((result.Normal.x*p1.x)+(result.Normal.y*p1.y)+(result.Normal.z*p1.z));
 end;
 
-function QuaternionNormal(const AQuaternion:TKraftQuaternion):TKraftScalar; {$ifdef CPU386ASMForSinglePrecision}assembler;
+function QuaternionNormal(const AQuaternion:TKraftQuaternion):TKraftScalar; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
  movups xmm0,dqword ptr [AQuaternion]
  mulps xmm0,xmm0
  movhlps xmm1,xmm0
@@ -8780,8 +8925,11 @@ begin
 end;
 {$endif}
                             
-function QuaternionLengthSquared(const AQuaternion:TKraftQuaternion):TKraftScalar; {$ifdef CPU386ASMForSinglePrecision}assembler;
+function QuaternionLengthSquared(const AQuaternion:TKraftQuaternion):TKraftScalar; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
  movups xmm0,dqword ptr [AQuaternion]
  mulps xmm0,xmm0
  movhlps xmm1,xmm0
@@ -8796,8 +8944,11 @@ begin
 end;
 {$endif}
 
-procedure QuaternionNormalize(var AQuaternion:TKraftQuaternion); {$ifdef CPU386ASMForSinglePrecision}assembler;
+procedure QuaternionNormalize(var AQuaternion:TKraftQuaternion); {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
 {movups xmm2,dqword ptr [AQuaternion]
  movaps xmm0,xmm2
  mulps xmm0,xmm0
@@ -8842,8 +8993,11 @@ begin
 end;
 {$endif}
 
-function QuaternionTermNormalize(const AQuaternion:TKraftQuaternion):TKraftQuaternion; {$ifdef CPU386ASMForSinglePrecision}assembler;
+function QuaternionTermNormalize(const AQuaternion:TKraftQuaternion):TKraftQuaternion; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
  movups xmm2,dqword ptr [AQuaternion]
  movaps xmm0,xmm2
  mulps xmm0,xmm0
@@ -8873,8 +9027,11 @@ begin
 end;
 {$endif}
 
-function QuaternionNeg(const AQuaternion:TKraftQuaternion):TKraftQuaternion; {$ifdef CPU386ASMForSinglePrecision}assembler;
+function QuaternionNeg(const AQuaternion:TKraftQuaternion):TKraftQuaternion; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
  movups xmm1,dqword ptr [AQuaternion]
  xorps xmm0,xmm0
  subps xmm0,xmm1
@@ -8889,11 +9046,18 @@ begin
 end;
 {$endif}
 
-function QuaternionConjugate(const AQuaternion:TKraftQuaternion):TKraftQuaternion; {$ifdef CPU386ASMForSinglePrecision}assembler;
+function QuaternionConjugate(const AQuaternion:TKraftQuaternion):TKraftQuaternion; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 const XORMask:array[0..3] of longword=($80000000,$80000000,$80000000,$00000000);
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
  movups xmm0,dqword ptr [AQuaternion]
+{$if defined(cpuamd64)}
+ movups xmm1,dqword ptr [rip+XORMask]
+{$else}
  movups xmm1,dqword ptr [XORMask]
+{$ifend}
  xorps xmm0,xmm1
  movups dqword ptr [result],xmm0
 end;
@@ -8906,11 +9070,18 @@ begin
 end;
 {$endif}
 
-function QuaternionInverse(const AQuaternion:TKraftQuaternion):TKraftQuaternion; {$ifdef CPU386ASMForSinglePrecision}assembler;
+function QuaternionInverse(const AQuaternion:TKraftQuaternion):TKraftQuaternion; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 const XORMask:array[0..3] of longword=($80000000,$80000000,$80000000,$00000000);
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
  movups xmm2,dqword ptr [AQuaternion]
+{$if defined(cpuamd64)}
+ movups xmm3,dqword ptr [rip+XORMask]
+{$else}
  movups xmm3,dqword ptr [XORMask]
+{$ifend}
  movaps xmm0,xmm2
  mulps xmm0,xmm0
  movhlps xmm1,xmm0
@@ -8937,8 +9108,11 @@ begin
 end;
 {$endif}
 
-function QuaternionAdd(const q1,q2:TKraftQuaternion):TKraftQuaternion; {$ifdef CPU386ASMForSinglePrecision}assembler;
+function QuaternionAdd(const q1,q2:TKraftQuaternion):TKraftQuaternion; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
  movups xmm0,dqword ptr [q1]
  movups xmm1,dqword ptr [q2]
  addps xmm0,xmm1
@@ -8953,8 +9127,11 @@ begin
 end;
 {$endif}
 
-function QuaternionSub(const q1,q2:TKraftQuaternion):TKraftQuaternion; {$ifdef CPU386ASMForSinglePrecision}assembler;
+function QuaternionSub(const q1,q2:TKraftQuaternion):TKraftQuaternion; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
  movups xmm0,dqword ptr [q1]
  movups xmm1,dqword ptr [q2]
  subps xmm0,xmm1
@@ -8969,8 +9146,11 @@ begin
 end;
 {$endif}
 
-function QuaternionScalarMul(const q:TKraftQuaternion;const s:TKraftScalar):TKraftQuaternion; {$ifdef CPU386ASMForSinglePrecision}assembler;
-asm                    
+function QuaternionScalarMul(const q:TKraftQuaternion;const s:TKraftScalar):TKraftQuaternion; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
  movups xmm0,dqword ptr [q]
  movss xmm1,dword ptr [s]
  shufps xmm1,xmm1,$00
@@ -8986,9 +9166,12 @@ begin
 end;
 {$endif}
 
-function QuaternionMul(const q1,q2:TKraftQuaternion):TKraftQuaternion; {$ifdef CPU386ASMForSinglePrecision}assembler;
+function QuaternionMul(const q1,q2:TKraftQuaternion):TKraftQuaternion; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 const XORMaskW:array[0..3] of longword=($00000000,$00000000,$00000000,$80000000);
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
  movups xmm4,dqword ptr [q1]
  movaps xmm0,xmm4
  shufps xmm0,xmm4,$49
@@ -9000,7 +9183,11 @@ asm
  movaps xmm0,xmm4
  shufps xmm0,xmm4,$24 // 000100100b
  shufps xmm1,xmm2,$3f // 000111111b
+{$if defined(cpuamd64)}
+ movups xmm5,dqword ptr [rip+XORMaskW]
+{$else}
  movups xmm5,dqword ptr [XORMaskW]
+{$ifend}
  mulps xmm1,xmm0
  movaps xmm0,xmm4
  shufps xmm0,xmm4,$92 // 001001001b
@@ -12048,12 +12235,34 @@ end;
 
 type TSortCompareFunction=function(const a,b:pointer):longint;
 
-function IntLog2(x:longword):longword; {$ifdef cpu386}assembler; register;
+function IntLog2(x:longword):longword; {$if defined(fpc)}{$ifdef CAN_INLINE}inline;{$endif}
+begin
+ if x<>0 then begin
+  result:=BSRWord(x);
+ end else begin
+  result:=0;
+ end;
+end;
+{$elseif defined(cpu386)}
 asm
  test eax,eax
  jz @Done
  bsr eax,eax
  @Done:
+end;
+{$elseif defined(cpux86_64)}
+asm
+{$ifndef fpc}
+ .noframe
+{$endif}
+{$ifdef Windows}
+ bsr eax,ecx
+{$else}
+ bsr eax,edi
+{$endif}
+ jnz @Done
+ xor eax,eax
+@Done:
 end;
 {$else}
 begin
@@ -12063,14 +12272,14 @@ begin
  x:=x or (x shr 8);
  x:=x or (x shr 16);
  x:=x shr 1;
- x:=x-((x shr 1) and $55555555);
+ dec(x,(x shr 1) and $55555555);
  x:=((x shr 2) and $33333333)+(x and $33333333);
  x:=((x shr 4)+x) and $0f0f0f0f;
- x:=x+(x shr 8);
- x:=x+(x shr 16);
+ inc(x,x shr 8);
+ inc(x,x shr 16);
  result:=x and $3f;
 end;
-{$endif}
+{$ifend}
 
 procedure MemorySwap(a,b:pointer;Size:longint);
 var Temp:longint;
@@ -15584,12 +15793,34 @@ begin
  end;
 end;
 
-function KraftQuickHullIntLog2(x:longword):longword; {$ifdef cpu386}assembler; register;
+function KraftQuickHullIntLog2(x:longword):longword; {$if defined(fpc)}{$ifdef CAN_INLINE}inline;{$endif}
+begin
+ if x<>0 then begin
+  result:=BSRWord(x);
+ end else begin
+  result:=0;
+ end;
+end;
+{$elseif defined(cpu386)}
 asm
  test eax,eax
  jz @Done
  bsr eax,eax
  @Done:
+end;
+{$elseif defined(cpux86_64)}
+asm
+{$ifndef fpc}
+ .noframe
+{$endif}
+{$ifdef Windows}
+ bsr eax,ecx
+{$else}
+ bsr eax,edi
+{$endif}
+ jnz @Done
+ xor eax,eax
+@Done:
 end;
 {$else}
 begin
@@ -15599,14 +15830,14 @@ begin
  x:=x or (x shr 8);
  x:=x or (x shr 16);
  x:=x shr 1;
- x:=x-((x shr 1) and $55555555);
+ dec(x,(x shr 1) and $55555555);
  x:=((x shr 2) and $33333333)+(x and $33333333);
  x:=((x shr 4)+x) and $0f0f0f0f;
- x:=x+(x shr 8);
- x:=x+(x shr 16);
+ inc(x,x shr 8);
+ inc(x,x shr 16);
  result:=x and $3f;
 end;
-{$endif}
+{$ifend}
 
 constructor TKraftQuickHullIntegerList.Create;
 begin
