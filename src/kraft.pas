@@ -250,6 +250,8 @@ const EPSILON={$ifdef UseDouble}1e-14{$else}1e-5{$endif}; // actually {$ifdef Us
       KRAFT_QUICKHULL_HASHSIZE=1 shl KRAFT_QUICKHULL_HASHBITS;
       KRAFT_QUICKHULL_HASHMASK=KRAFT_QUICKHULL_HASHSIZE-1;
 
+      KraftSIMD={$ifdef SIMD}true{$else}false{$endif};
+
 type PKraftForceMode=^TKraftForceMode;
      TKraftForceMode=(kfmForce,        // The unit of the force parameter is applied to the rigidbody as mass*distance/time^2.
                       kfmAcceleration, // The unit of the force parameter is applied to the rigidbody as distance/time^2.
@@ -4150,6 +4152,9 @@ begin
  result.x:=x;
  result.y:=y;
  result.z:=z;
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
 end;
 
 function Vector3(const v:TKraftVector4):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
@@ -4157,6 +4162,9 @@ begin
  result.x:=v.x;
  result.y:=v.y;
  result.z:=v.z;
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
 end;
 
 function Matrix3x3(const m:TKraftMatrix4x4):TKraftMatrix3x3; overload; {$ifdef caninline}inline;{$endif}
@@ -5592,6 +5600,9 @@ begin
  p.x:=abs(v.x);
  p.y:=abs(v.y);
  p.z:=abs(v.z);
+{$ifdef SIMD}
+ p.w:=0.0;
+{$endif}
  if (p.x<=p.y) and (p.x<=p.z) then begin
   p:=Vector3XAxis;
  end else if (p.y<=p.x) and (p.y<=p.z) then begin
@@ -5729,6 +5740,9 @@ begin
  end else begin
   result.z:=v.z;
  end;
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
 end;
 
 function Vector4Compare(const v1,v2:TKraftVector4):boolean;
@@ -5775,7 +5789,7 @@ begin
  result.x:=(v1.y*v2.z)-(v2.y*v1.z);
  result.y:=(v2.x*v1.z)-(v1.x*v2.z);
  result.z:=(v1.x*v2.y)-(v2.x*v1.y);
- result.w:=1;
+ result.w:=1.0;
 end;
 
 function Vector4Neg(const v:TKraftVector4):TKraftVector4;
@@ -5783,7 +5797,7 @@ begin
  result.x:=-v.x;
  result.y:=-v.y;
  result.z:=-v.z;
- result.w:=1;
+ result.w:=1.0;
 end;
 
 procedure Vector4Scale(var v:TKraftVector4;sx,sy,sz:TKraftScalar); overload;
@@ -5805,7 +5819,7 @@ begin
  result.x:=v1.x*v2.x;
  result.y:=v1.y*v2.y;
  result.z:=v1.z*v2.z;
- result.w:=1;
+ result.w:=1.0;
 end;
 
 function Vector4Length(const v:TKraftVector4):TKraftScalar;
@@ -5871,7 +5885,7 @@ begin
  t.x:=v.x;
  t.y:=(v.y*cos(a))+(v.z*-sin(a));
  t.z:=(v.y*sin(a))+(v.z*cos(a));
- t.w:=1;
+ t.w:=1.0;
  v:=t;
 end;
 
@@ -5881,7 +5895,7 @@ begin
  t.x:=(v.x*cos(a))+(v.z*sin(a));
  t.y:=v.y;
  t.z:=(v.x*-sin(a))+(v.z*cos(a));
- t.w:=1;
+ t.w:=1.0;
  v:=t;
 end;
 
@@ -5891,7 +5905,7 @@ begin
  t.x:=(v.x*cos(a))+(v.y*-sin(a));
  t.y:=(v.x*sin(a))+(v.y*cos(a));
  t.z:=v.z;
- t.w:=1;
+ t.w:=1.0;
  v:=t;
 end;
 
@@ -6380,6 +6394,9 @@ begin
  result.x:=m[c,0];
  result.y:=m[c,1];
  result.z:=m[c,2];
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
 end;
 
 procedure Matrix3x3SetRow(var m:TKraftMatrix3x3;const r:longint;const v:TKraftVector3); {$ifdef caninline}inline;{$endif}
@@ -6394,6 +6411,9 @@ begin
  result.x:=m[0,r];
  result.y:=m[1,r];
  result.z:=m[2,r];
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
 end;
 
 function Matrix3x3Compare(const m1,m2:TKraftMatrix3x3):boolean;
@@ -6480,10 +6500,16 @@ begin
  x.x:=m[0,0];
  x.y:=m[0,1];
  x.z:=m[0,2];
+{$ifdef SIMD}
+ x.w:=0.0;
+{$endif}
  Vector3NormalizeEx(x);
  y.x:=m[1,0];
  y.y:=m[1,1];
  y.z:=m[1,2];
+{$ifdef SIMD}
+ y.w:=0.0;
+{$endif}
  z:=Vector3NormEx(Vector3Cross(x,y));
  y:=Vector3NormEx(Vector3Cross(z,x));
  m[0,0]:=x.x;
@@ -6527,6 +6553,9 @@ begin
   x.x:=abs(FromDirection.x);
   x.y:=abs(FromDirection.y);
   x.z:=abs(FromDirection.z);
+{$ifdef SIMD}
+  x.w:=0.0;
+{$endif}
   if x.x<x.y then begin
    if x.x<x.z then begin
     x.x:=1.0;
@@ -6551,12 +6580,21 @@ begin
   u.x:=x.x-FromDirection.x;
   u.y:=x.y-FromDirection.y;
   u.z:=x.z-FromDirection.z;
+{$ifdef SIMD}
+  u.w:=0.0;
+{$endif}
   v.x:=x.x-ToDirection.x;
   v.y:=x.y-ToDirection.y;
   v.z:=x.z-ToDirection.z;
+{$ifdef SIMD}
+  v.w:=0.0;
+{$endif}
   c.x:=2.0/(sqr(u.x)+sqr(u.y)+sqr(u.z));
   c.y:=2.0/(sqr(v.x)+sqr(v.y)+sqr(v.z));
   c.z:=c.x*c.y*((u.x*v.x)+(u.y*v.y)+(u.z*v.z));
+{$ifdef SIMD}
+  c.w:=0.0;
+{$endif}
   result[0,0]:=1.0+((c.z*(v.x*u.x))-((c.y*(v.x*v.x))+(c.x*(u.x*u.x))));
   result[0,1]:=(c.z*(v.x*u.y))-((c.y*(v.x*v.y))+(c.x*(u.x*u.y)));
   result[0,2]:=(c.z*(v.x*u.z))-((c.y*(v.x*v.z))+(c.x*(u.x*u.z)));
@@ -8468,6 +8506,9 @@ begin
  result.Normal.x:=(Matrix[0,0]*Plane.Normal.x)+(Matrix[1,0]*Plane.Normal.y)+(Matrix[2,0]*Plane.Normal.z)+(Matrix[3,0]*Plane.Distance);
  result.Normal.y:=(Matrix[0,1]*Plane.Normal.x)+(Matrix[1,1]*Plane.Normal.y)+(Matrix[2,1]*Plane.Normal.z)+(Matrix[3,1]*Plane.Distance);
  result.Normal.z:=(Matrix[0,2]*Plane.Normal.x)+(Matrix[1,2]*Plane.Normal.y)+(Matrix[2,2]*Plane.Normal.z)+(Matrix[3,2]*Plane.Distance);
+{$ifdef SIMD}
+ result.Normal.w:=0.0;
+{$endif}
  result.Distance:=(Matrix[0,3]*Plane.Normal.x)+(Matrix[1,3]*Plane.Normal.y)+(Matrix[2,3]*Plane.Normal.z)+(Matrix[3,3]*Plane.Distance);
 end;
 
@@ -8498,11 +8539,17 @@ begin
   Plane.Normal.x:=Plane.Normal.x/l;
   Plane.Normal.y:=Plane.Normal.y/l;
   Plane.Normal.z:=Plane.Normal.z/l;
+{$ifdef SIMD}
+  Plane.Normal.w:=0.0;
+{$endif}
   Plane.Distance:=Plane.Distance/l;
  end else begin
   Plane.Normal.x:=0.0;
   Plane.Normal.y:=0.0;
   Plane.Normal.z:=0.0;
+{$ifdef SIMD}
+  Plane.Normal.w:=0.0;
+{$endif}
   Plane.Distance:=0.0;
  end;
 end;
@@ -8524,6 +8571,9 @@ begin
  result.Normal.x:=n.x;
  result.Normal.y:=n.y;
  result.Normal.z:=n.z;
+{$ifdef SIMD}
+ result.Normal.w:=0.0;
+{$endif}
  result.Distance:=-((result.Normal.x*p1.x)+(result.Normal.y*p1.y)+(result.Normal.z*p1.z));
 end;
 
@@ -8534,6 +8584,9 @@ begin
  result.Normal.x:=n.x;
  result.Normal.y:=n.y;
  result.Normal.z:=n.z;
+{$ifdef SIMD}
+ result.Normal.w:=0.0;
+{$endif}
  result.Distance:=-((result.Normal.x*p1.x)+(result.Normal.y*p1.y)+(result.Normal.z*p1.z));
 end;
 
@@ -9308,6 +9361,9 @@ begin
  result.x:=ArcTan2(2.0*((AQuaternion.x*AQuaternion.y)+(AQuaternion.z*AQuaternion.w)),1.0-(2.0*(sqr(AQuaternion.y)+sqr(AQuaternion.z))));
  result.y:=ArcSin(2.0*((AQuaternion.x*AQuaternion.z)-(AQuaternion.y*AQuaternion.w)));
  result.z:=ArcTan2(2.0*((AQuaternion.x*AQuaternion.w)+(AQuaternion.y*AQuaternion.z)),1.0-(2.0*(sqr(AQuaternion.z)+sqr(AQuaternion.w))));
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
 end;
 
 procedure QuaternionToAxisAngle(AQuaternion:TKraftQuaternion;var Axis:TKraftVector3;var Angle:TKraftScalar); {$ifdef caninline}inline;{$endif}
@@ -9322,6 +9378,9 @@ begin
  Axis.x:=AQuaternion.x/SinAngle;
  Axis.y:=AQuaternion.y/SinAngle;
  Axis.z:=AQuaternion.z/SinAngle;
+{$ifdef SIMD}
+ Axis.w:=0.0;
+{$endif}
 end;
 
 function QuaternionGenerator(AQuaternion:TKraftQuaternion):TKraftVector3; {$ifdef caninline}inline;{$endif}
@@ -9331,6 +9390,9 @@ begin
  result.x:=AQuaternion.x;
  result.y:=AQuaternion.y;
  result.z:=AQuaternion.z;
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
  if s>0.0 then begin
   result:=Vector3ScalarMul(result,s);
  end;
@@ -9458,9 +9520,15 @@ begin
  result.Min.x:=Min(AABB.Min.x,WithAABB.Min.x);
  result.Min.y:=Min(AABB.Min.y,WithAABB.Min.y);
  result.Min.z:=Min(AABB.Min.z,WithAABB.Min.z);
+{$ifdef SIMD}
+ result.Min.w:=0.0;
+{$endif}
  result.Max.x:=Max(AABB.Max.x,WithAABB.Max.x);
  result.Max.y:=Max(AABB.Max.y,WithAABB.Max.y);
  result.Max.z:=Max(AABB.Max.z,WithAABB.Max.z);
+{$ifdef SIMD}
+ result.Max.w:=0.0;
+{$endif}
 end;
 
 function AABBCombineVector3(const AABB:TKraftAABB;v:TKraftVector3):TKraftAABB; {$ifdef caninline}inline;{$endif}
@@ -9468,9 +9536,15 @@ begin
  result.Min.x:=Min(AABB.Min.x,v.x);
  result.Min.y:=Min(AABB.Min.y,v.y);
  result.Min.z:=Min(AABB.Min.z,v.z);
+{$ifdef SIMD}
+ result.Min.w:=0.0;
+{$endif}
  result.Max.x:=Max(AABB.Max.x,v.x);
  result.Max.y:=Max(AABB.Max.y,v.y);
  result.Max.z:=Max(AABB.Max.z,v.z);
+{$ifdef SIMD}
+ result.Max.w:=0.0;
+{$endif}
 end;
 
 function AABBIntersect(const AABB,WithAABB:TKraftAABB;Threshold:TKraftScalar=EPSILON):boolean; {$ifdef caninline}inline;{$endif}
@@ -9535,12 +9609,21 @@ begin
  end else begin
   InvDirection.z:=0.0;
  end;
+{$ifdef SIMD}
+ InvDirection.w:=0.0;
+{$endif}
  a.x:=(AABB.Min.x-Origin.x)*InvDirection.x;
  a.y:=(AABB.Min.y-Origin.y)*InvDirection.y;
  a.z:=(AABB.Min.z-Origin.z)*InvDirection.z;
+{$ifdef SIMD}
+ a.w:=0.0;
+{$endif}
  b.x:=(AABB.Max.x-Origin.x)*InvDirection.x;
  b.y:=(AABB.Max.y-Origin.y)*InvDirection.y;
  b.z:=(AABB.Max.z-Origin.z)*InvDirection.z;
+{$ifdef SIMD}
+ b.w:=0.0;
+{$endif}
  if a.x<b.x then begin
   AABBMin.x:=a.x;
   AABBMax.x:=b.x;
@@ -9617,6 +9700,9 @@ begin
  ClosestPoint.x:=Min(Max(Point.x,AABB.Min.x),AABB.Max.x);
  ClosestPoint.y:=Min(Max(Point.y,AABB.Min.y),AABB.Max.y);
  ClosestPoint.z:=Min(Max(Point.z,AABB.Min.z),AABB.Max.z);
+{$ifdef SIMD}
+ ClosestPoint.w:=0.0;
+{$endif}
  if assigned(ClosestPointOnAABB) then begin
   ClosestPointOnAABB^:=ClosestPoint;
  end;
@@ -9629,6 +9715,9 @@ begin
  ClosestPoint.x:=Min(Max(Point.x,AABB.Min.x),AABB.Max.x);
  ClosestPoint.y:=Min(Max(Point.y,AABB.Min.y),AABB.Max.y);
  ClosestPoint.z:=Min(Max(Point.z,AABB.Min.z),AABB.Max.z);
+{$ifdef SIMD}
+ ClosestPoint.w:=0.0;
+{$endif}
  result:=Vector3DistSquared(ClosestPoint,Point);
 end;
 
@@ -9654,13 +9743,22 @@ begin
  e0.x:=v1.x-v0.x;
  e0.y:=v1.y-v0.y;
  e0.z:=v1.z-v0.z;
+{$ifdef SIMD}
+ e0.w:=0.0;
+{$endif}
  e1.x:=v2.x-v0.x;
  e1.y:=v2.y-v0.y;
  e1.z:=v2.z-v0.z;
+{$ifdef SIMD}
+ e1.w:=0.0;
+{$endif}
 
  p.x:=(RayDirection.y*e1.z)-(RayDirection.z*e1.y);
  p.y:=(RayDirection.z*e1.x)-(RayDirection.x*e1.z);
  p.z:=(RayDirection.x*e1.y)-(RayDirection.y*e1.x);
+{$ifdef SIMD}
+ p.w:=0.0;
+{$endif}
 
  Determinant:=(e0.x*p.x)+(e0.y*p.y)+(e0.z*p.z);
  if Determinant<EPSILON then begin
@@ -9670,6 +9768,9 @@ begin
  t.x:=RayOrigin.x-v0.x;
  t.y:=RayOrigin.y-v0.y;
  t.z:=RayOrigin.z-v0.z;
+{$ifdef SIMD}
+ t.w:=0.0;
+{$endif}
 
  u:=(t.x*p.x)+(t.y*p.y)+(t.z*p.z);
  if (u<0.0) or (u>Determinant) then begin
@@ -9679,6 +9780,9 @@ begin
  q.x:=(t.y*e0.z)-(t.z*e0.y);
  q.y:=(t.z*e0.x)-(t.x*e0.z);
  q.z:=(t.x*e0.y)-(t.y*e0.x);
+{$ifdef SIMD}
+ q.w:=0.0;
+{$endif}
 
  v:=(RayDirection.x*q.x)+(RayDirection.y*q.y)+(RayDirection.z*q.z);
  if (v<0.0) or ((u+v)>Determinant) then begin
@@ -9726,26 +9830,44 @@ begin
  ab.x:=b.x-a.x;
  ab.y:=b.y-a.y;
  ab.z:=b.z-a.z;
+{$ifdef SIMD}
+ ab.w:=0.0;
+{$endif}
 
  ac.x:=c.x-a.x;
  ac.y:=c.y-a.y;
  ac.z:=c.z-a.z;
+{$ifdef SIMD}
+ ac.w:=0.0;
+{$endif}
 
  bc.x:=c.x-b.x;
  bc.y:=c.y-b.y;
  bc.z:=c.z-b.z;
+{$ifdef SIMD}
+ bc.w:=0.0;
+{$endif}
 
  pa.x:=p.x-a.x;
  pa.y:=p.y-a.y;
  pa.z:=p.z-a.z;
+{$ifdef SIMD}
+ pa.w:=0.0;
+{$endif}
 
  pb.x:=p.x-b.x;
  pb.y:=p.y-b.y;
  pb.z:=p.z-b.z;
+{$ifdef SIMD}
+ pb.w:=0.0;
+{$endif}
 
  pc.x:=p.x-c.x;
  pc.y:=p.y-c.y;
  pc.z:=p.z-c.z;
+{$ifdef SIMD}
+ pc.w:=0.0;
+{$endif}
 
  // Determine the parametric position s for the projection of P onto AB (i.e. PPU2 = A+s*AB, where
  // s = snom/(snom+sdenom), and then parametric position t for P projected onto AC
@@ -9779,12 +9901,21 @@ begin
  n.x:=(ab.y*ac.z)-(ab.z*ac.y);
  n.y:=(ab.z*ac.x)-(ab.x*ac.z);
  n.z:=(ab.x*ac.y)-(ab.y*ac.x);
+{$ifdef SIMD}
+ n.w:=0.0;
+{$endif}
  ap.x:=a.x-p.x;
  ap.y:=a.y-p.y;
  ap.z:=a.z-p.z;
+{$ifdef SIMD}
+ ap.w:=0.0;
+{$endif}
  bp.x:=b.x-p.x;
  bp.y:=b.y-p.y;
  bp.z:=b.z-p.z;
+{$ifdef SIMD}
+ bp.w:=0.0;
+{$endif}
  vc:=(n.x*((ap.y*bp.z)-(ap.z*bp.y)))+(n.y*((ap.z*bp.x)-(ap.x*bp.z)))+(n.z*((ap.x*bp.y)-(ap.y*bp.x)));
 
  // If P is outside of AB (signed area <= 0) and within voronoi feature region, then return
@@ -9799,6 +9930,9 @@ begin
  cp.x:=c.x-p.x;
  cp.y:=c.y-p.y;
  cp.z:=c.z-p.z;
+{$ifdef SIMD}
+ cp.w:=0.0;
+{$endif}
  va:=(n.x*((bp.y*cp.z)-(bp.z*cp.y)))+(n.y*((bp.z*cp.x)-(bp.x*cp.z)))+(n.z*((bp.x*cp.y)-(bp.y*cp.x)));
  if (va<=0.0) and (unom>=0.0) and (udenom>=0.0) then begin
   v:=unom/(unom+udenom);
@@ -10626,6 +10760,9 @@ begin
    kU.y:=kW.z*fInvLength;
    kU.z:=-kW.y*fInvLength;
   end;
+{$ifdef SIMD}
+  kU.w:=0.0;
+{$endif}
  end;
 
  kV:=Vector3Norm(Vector3Cross(kW,kU));
@@ -10633,6 +10770,9 @@ begin
  kD.x:=Vector3Dot(kU,aRayDirection);
  kD.y:=Vector3Dot(kV,aRayDirection);
  kD.z:=Vector3Dot(kW,aRayDirection);
+{$ifdef SIMD}
+ kD.w:=0.0;
+{$endif}
  fDLength:=Vector3Length(kD);
  if fDLength>0.0 then begin
   fInvDLength:=1.0/fDLength;
@@ -10645,6 +10785,9 @@ begin
  kP.x:=Vector3Dot(kU,kDiff);
  kP.y:=Vector3Dot(kV,kDiff);
  kP.z:=Vector3Dot(kW,kDiff);
+{$ifdef SIMD}
+ kP.w:=0.0;
+{$endif}
  fRadiusSqr:=sqr(aRadius);
 
  if (abs(kD.z)>=(1.0-EPSILON)) or (fDLength<EPSILON) then begin
@@ -11473,6 +11616,10 @@ begin
  end else if d.z>0.0 then begin
   result.Max.z:=result.Max.z+d.z;
  end;
+{$ifdef SIMD}
+ result.Min.w:=0.0;
+ result.Max.w:=0.0;
+{$endif}
 end;
 
 function CompareFloat(const a,b:pointer):longint;
@@ -11695,6 +11842,10 @@ begin
   q.y:=n.z*p.x;
   q.z:=a*k;
  end;
+{$ifdef SIMD}
+ p.w:=0.0;
+ q.w:=0.0;
+{$endif}
 end;
 
 procedure ComputeBasis(var a:TKraftVector3;out b,c:TKraftVector3); overload; {$ifdef caninline}inline;{$endif}
@@ -11711,6 +11862,9 @@ begin
   b.y:=a.z;
   b.z:=-a.y;
  end;
+{$ifdef SIMD}
+ b.w:=0.0;
+{$endif}
  Vector3NormalizeEx(a);
  Vector3NormalizeEx(b);
  c:=Vector3NormEx(Vector3Cross(a,b));
@@ -11834,6 +11988,9 @@ begin
  end else begin
   Overlap:=Overlap or 3;
  end;
+{$ifdef SIMD}
+ ClosestBoxPoint.w:=0.0;
+{$endif}
  if Overlap<>7 then begin
   result:=sqrt(result);
  end else begin
@@ -11841,6 +11998,9 @@ begin
   Direction.x:=ClosestBoxPoint.x/Extents.x;
   Direction.y:=ClosestBoxPoint.y/Extents.y;
   Direction.z:=ClosestBoxPoint.z/Extents.z;
+{$ifdef SIMD}
+  Direction.w:=0.0;
+{$endif}
   if (abs(Direction.x)>abs(Direction.y)) and (abs(Direction.x)>abs(Direction.z)) then begin
    if Direction.x<0.0 then begin
     ClosestBoxPoint.x:=-Extents.x;
@@ -12555,10 +12715,16 @@ begin
      PositionA.x:=((v0a.x*b0)+(v1a.x*b1)+(v2a.x*b2)+(v3a.x*b3))*Inv;
      PositionA.y:=((v0a.y*b0)+(v1a.y*b1)+(v2a.y*b2)+(v3a.y*b3))*Inv;
      PositionA.z:=((v0a.z*b0)+(v1a.z*b1)+(v2a.z*b2)+(v3a.z*b3))*Inv;
+{$ifdef SIMD}
+     PositionA.w:=0.0;
+{$endif}
 
      PositionB.x:=((v0b.x*b0)+(v1b.x*b1)+(v2b.x*b2)+(v3b.x*b3))*Inv;
      PositionB.y:=((v0b.y*b0)+(v1b.y*b1)+(v2b.y*b2)+(v3b.y*b3))*Inv;
      PositionB.z:=((v0b.z*b0)+(v1b.z*b1)+(v2b.z*b2)+(v3b.z*b3))*Inv;
+{$ifdef SIMD}
+     PositionB.w:=0.0;
+{$endif}
 
     end;
 
@@ -12627,6 +12793,9 @@ begin
  LocalPointB.x:=TransformB[3,0];
  LocalPointB.y:=TransformB[3,1];
  LocalPointB.z:=TransformB[3,2];
+{$ifdef SIMD}
+ LocalPointB.w:=0.0;
+{$endif}
 
  if Vector3LengthSquared(LocalPointB)<EPSILON then begin
   HitPosition:=LocalPointB;
@@ -12769,6 +12938,9 @@ begin
  LocalOrigin.x:=LocalTransformBinA[3,0];
  LocalOrigin.y:=LocalTransformBinA[3,1];
  LocalOrigin.z:=LocalTransformBinA[3,2];
+{$ifdef SIMD}
+ LocalOrigin.w:=0.0;
+{$endif}
 
  // This sweep amount needs to expand the minkowski difference to fully intersect the plane defined by the sweep direction and origin.
  RayLengthSquared:=Vector3LengthSquared(LocalDirection);
@@ -12954,6 +13126,9 @@ begin
  result.x:=aAABB.MinMax[aX and 1].x;
  result.y:=aAABB.MinMax[aY and 1].y;
  result.z:=aAABB.MinMax[aZ and 1].Z;
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
 end;
 
 function AABBGetVertex(const aAABB:TKraftAABB;const aIndex:longint):TKraftVector3; overload;
@@ -12961,6 +13136,9 @@ begin
  result.x:=aAABB.MinMax[(aIndex shr 0) and 1].x;
  result.y:=aAABB.MinMax[(aIndex shr 1) and 1].y;
  result.z:=aAABB.MinMax[(aIndex shr 2) and 1].Z;
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
 end;
 
 function TKraftGJK.Run:boolean;
@@ -18135,6 +18313,9 @@ begin
  fSphere.Center.x:=0.0;
  fSphere.Center.y:=0.0;
  fSphere.Center.z:=0.0;
+{$ifdef SIMD}
+ fSphere.Center.w:=0.0;
+{$endif}
  fSphere.Radius:=0.0;
  if fCountVertices>0 then begin
   v0:=@fVertices[0].Position;
@@ -18269,6 +18450,9 @@ begin
  fCentroid.x:=CentroidX/Denominator;
  fCentroid.y:=CentroidY/Denominator;
  fCentroid.z:=CentroidZ/Denominator;
+{$ifdef SIMD}
+ fCentroid.w:=0.0;
+{$endif}
 
  Volume:=Volume/6.0;
 
@@ -18324,6 +18508,9 @@ begin
  fSphere.Center.x:=0.0;
  fSphere.Center.y:=0.0;
  fSphere.Center.z:=0.0;
+{$ifdef SIMD}
+ fSphere.Center.w:=0.0;
+{$endif}
  fSphere.Radius:=0.0;
  if fCountVertices>0 then begin
   v:=@fVertices[0].Position;
@@ -18787,6 +18974,9 @@ var SrcPos:longint;
     fVertices[Counter].x:=ReadFloat;
     fVertices[Counter].y:=ReadFloat;
     fVertices[Counter].z:=ReadFloat;
+{$ifdef SIMD}
+    fVertices[Counter].w:=0.0;
+{$endif}
    end;
    for Counter:=0 to fCountTriangles-1 do begin
     Triangle:=@fTriangles[Counter];
@@ -18988,6 +19178,9 @@ var SrcPos:longint;
         Vertex^.x:=ReadFloat;
         Vertex^.y:=ReadFloat;
         Vertex^.z:=ReadFloat;
+{$ifdef SIMD}
+        Vertex^.w:=0.0;
+{$endif}
         inc(Vertex);
        end;
       end;
@@ -19068,6 +19261,9 @@ var SrcPos:longint;
        v[h].x:=tv.x;
        v[h].y:=tv.z;
        v[h].z:=-tv.y;
+{$ifdef SIMD}
+       v[h].w:=0.0;
+{$endif}
       end;
       AddTriangle(AddVertex(v[0]),AddVertex(v[1]),AddVertex(v[2]));
      end;
@@ -19254,9 +19450,15 @@ begin
      CurrentAABB^.Min.x:=Min(Min(v0^.x,v1^.x),v2^.x)-EPSILON;
      CurrentAABB^.Min.y:=Min(Min(v0^.y,v1^.y),v2^.y)-EPSILON;
      CurrentAABB^.Min.z:=Min(Min(v0^.z,v1^.z),v2^.z)-EPSILON;
+{$ifdef SIMD}
+     CurrentAABB^.Min.w:=0.0;
+{$endif}
      CurrentAABB^.Max.x:=Max(Max(v0^.x,v1^.x),v2^.x)+EPSILON;
      CurrentAABB^.Max.y:=Max(Max(v0^.y,v1^.y),v2^.y)+EPSILON;
      CurrentAABB^.Max.z:=Max(Max(v0^.z,v1^.z),v2^.z)+EPSILON;
+{$ifdef SIMD}
+     CurrentAABB^.Max.w:=0.0;
+{$endif}
      Triangle^.AABB:=TriangleAABBs[Index];
     end;
     Root:=0;
@@ -19319,6 +19521,9 @@ begin
         Median.x:=Points[0,Count shr 1];
         Median.y:=Points[1,Count shr 1];
         Median.z:=Points[2,Count shr 1];
+{$ifdef SIMD}
+        Median.w:=0.0;
+{$endif}
        end else begin
         Median:=Center;
        end;
@@ -20430,6 +20635,9 @@ begin
  Direction.x:=Center-GetLocalSignedDistance(Vector3(Position.x+EPSILON,Position.y,Position.z));
  Direction.y:=Center-GetLocalSignedDistance(Vector3(Position.x,Position.y+EPSILON,Position.z));
  Direction.z:=Center-GetLocalSignedDistance(Vector3(Position.x,Position.y,Position.z+EPSILON));
+{$ifdef SIMD}
+ Direction.w:=0.0;
+{$endif}
  Vector3Normalize(Direction);
  result:=Center;
 end;
@@ -20527,9 +20735,15 @@ begin
  fShapeAABB.Min.x:=-fRadius;
  fShapeAABB.Min.y:=-fRadius;
  fShapeAABB.Min.z:=-fRadius;
+{$ifdef SIMD}
+ fShapeAABB.Min.w:=0.0;
+{$endif}
  fShapeAABB.Max.x:=fRadius;
  fShapeAABB.Max.y:=fRadius;
  fShapeAABB.Max.z:=fRadius;
+{$ifdef SIMD}
+ fShapeAABB.Max.w:=0.0;
+{$endif}
 end;
 
 procedure TKraftShapeSphere.CalculateMassData;
@@ -20555,6 +20769,9 @@ begin
   fMassData.Center.x:=fLocalTransform[3,0];
   fMassData.Center.y:=fLocalTransform[3,1];
   fMassData.Center.z:=fLocalTransform[3,2];
+{$ifdef SIMD}
+  fMassData.Center.w:=0.0;
+{$endif}
  end;
  Matrix3x3Add(fMassData.Inertia,InertiaTensorParallelAxisTheorem(fMassData.Center,fMassData.Mass));
 end;
@@ -20730,9 +20947,15 @@ begin
  fShapeAABB.Min.x:=-fRadius;
  fShapeAABB.Min.y:=-(fRadius+(fHeight*0.5));
  fShapeAABB.Min.z:=-fRadius;
+{$ifdef SIMD}
+ fShapeAABB.Min.w:=0.0;
+{$endif}
  fShapeAABB.Max.x:=fRadius;
  fShapeAABB.Max.y:=fRadius+(fHeight*0.5);
  fShapeAABB.Max.z:=fRadius;
+{$ifdef SIMD}
+ fShapeAABB.Max.w:=0.0;
+{$endif}
 end;
 
 //{$define UseTKraftShapeCapsuleCalculateMassDataReferenceTestImplementation}
@@ -20789,6 +21012,9 @@ begin
   fMassData.Center.x:=fLocalTransform[3,0];
   fMassData.Center.y:=fLocalTransform[3,1];
   fMassData.Center.z:=fLocalTransform[3,2];
+{$ifdef SIMD}
+  fMassData.Center.w:=0.0;
+{$endif}
  end;
  fMassData.Inertia:=Matrix3x3TermAdd(InertiaTensorTransform(fMassData.Inertia,Matrix3x3(fLocalTransform)),
                                     InertiaTensorParallelAxisTheorem(fMassData.Center,fMassData.Mass));
@@ -20817,6 +21043,9 @@ begin
   fMassData.Center.x:=fLocalTransform[3,0];
   fMassData.Center.y:=fLocalTransform[3,1];
   fMassData.Center.z:=fLocalTransform[3,2];
+{$ifdef SIMD}
+  fMassData.Center.w:=0.0;
+{$endif}
  end;
  fMassData.Inertia:=Matrix3x3TermAdd(InertiaTensorTransform(fMassData.Inertia,Matrix3x3(fLocalTransform)),
                                      InertiaTensorParallelAxisTheorem(fMassData.Center,fMassData.Mass));
@@ -20832,9 +21061,15 @@ begin
  a.x:=0.0;
  a.y:=-HalfHeight;
  a.z:=0.0;
+{$ifdef SIMD}
+ a.w:=0.0;
+{$endif}
  b.x:=0.0;
  b.y:=HalfHeight;
  b.z:=0.0;
+{$ifdef SIMD}
+ b.w:=0.0;
+{$endif}
  pa:=Vector3Sub(p,a);
  ba:=Vector3Sub(b,a);
  result:=Vector3Length(Vector3Sub(pa,Vector3ScalarMul(ba,Min(Max(Vector3Dot(pa,ba)/Vector3Dot(ba,ba),0.0),1.0))))-fRadius;
@@ -20849,9 +21084,15 @@ begin
  a.x:=0.0;
  a.y:=-HalfHeight;
  a.z:=0.0;
+{$ifdef SIMD}
+ a.w:=0.0;
+{$endif}
  b.x:=0.0;
  b.y:=HalfHeight;
  b.z:=0.0;
+{$ifdef SIMD}
+ b.w:=0.0;
+{$endif}
  pa:=Vector3Sub(p,a);
  ba:=Vector3Sub(b,a);
  Direction:=Vector3Sub(Vector3ScalarMul(ba,Min(Max(Vector3Dot(pa,ba)/Vector3Dot(ba,ba),0.0),1.0)),pa);
@@ -20867,9 +21108,15 @@ begin
  a.x:=0.0;
  a.y:=-HalfHeight;
  a.z:=0.0;
+{$ifdef SIMD}
+ a.w:=0.0;
+{$endif}
  b.x:=0.0;
  b.y:=HalfHeight;
  b.z:=0.0;
+{$ifdef SIMD}
+ b.w:=0.0;
+{$endif}
  pa:=Vector3Sub(p,a);
  ba:=Vector3Sub(b,a);
  t:=Vector3ScalarMul(ba,Min(Max(Vector3Dot(pa,ba)/Vector3Dot(ba,ba),0.0),1.0));
@@ -20885,9 +21132,15 @@ begin
  p0.x:=(Normal.x*fRadius);
  p0.y:=(Normal.y*fRadius)-HalfHeight;
  p0.z:=(Normal.z*fRadius);
+{$ifdef SIMD}
+ p0.w:=0.0;
+{$endif}
  p1.x:=(Normal.x*fRadius);
  p1.y:=(Normal.y*fRadius)+HalfHeight;
  p1.z:=(Normal.z*fRadius);
+{$ifdef SIMD}
+ p1.w:=0.0;
+{$endif}
  if Vector3Dot(p0,Normal)<Vector3Dot(p1,Normal) then begin
   result:=p1;
  end else begin
@@ -20907,6 +21160,9 @@ begin
   end;
  end;
  result.z:=0.0;
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
 end;
 
 function TKraftShapeCapsule.GetLocalFeatureSupportIndex(const Direction:TKraftVector3):longint;
@@ -21440,6 +21696,9 @@ begin
   end else begin
    BoxPoints[i].z:=-fExtents.z;
   end;
+{$ifdef SIMD}
+  BoxPoints[i].w:=0.0;
+{$endif}
  end;
  fShapeConvexHull:=TKraftConvexHull.Create(APhysics);
  fShapeConvexHull.Load(pointer(@BoxPoints[0]),length(BoxPoints));
@@ -21462,9 +21721,15 @@ begin
  fShapeAABB.Min.x:=-fExtents.x;
  fShapeAABB.Min.y:=-fExtents.y;
  fShapeAABB.Min.z:=-fExtents.z;
+{$ifdef SIMD}
+ fShapeAABB.Min.w:=0.0;
+{$endif}
  fShapeAABB.Max.x:=fExtents.x;
  fShapeAABB.Max.y:=fExtents.y;
  fShapeAABB.Max.z:=fExtents.z;
+{$ifdef SIMD}
+ fShapeAABB.Max.w:=0.0;
+{$endif}
 end;
 
 procedure TKraftShapeBox.CalculateMassData;
@@ -21490,6 +21755,9 @@ begin
   fMassData.Center.x:=fLocalTransform[3,0];
   fMassData.Center.y:=fLocalTransform[3,1];
   fMassData.Center.z:=fLocalTransform[3,2];
+{$ifdef SIMD}
+  fMassData.Center.w:=0.0;
+{$endif}
  end;
  fMassData.Inertia:=Matrix3x3TermAdd(InertiaTensorTransform(fMassData.Inertia,Matrix3x3(fLocalTransform)),
                                      InertiaTensorParallelAxisTheorem(fMassData.Center,fMassData.Mass));
@@ -21668,6 +21936,9 @@ begin
  result.y:=fExtents.y*(1-longint(longword(longword(pointer(@Normal.y)^) shr 31) shl 1));
  result.z:=fExtents.z*(1-longint(longword(longword(pointer(@Normal.z)^) shr 31) shl 1));
 {$endif}
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
 end;
 
 function TKraftShapeBox.GetLocalFeatureSupportVertex(const Index:longint):TKraftVector3;
@@ -21725,6 +21996,10 @@ begin
   end else begin
    sign[2]:=-1;
   end;
+{$ifdef SIMD}
+  s.w:=0.0;
+  v.w:=0.0;
+{$endif}
   h:=fExtents;
   if (((s.x<-h.x) and (v.x<=0)) or (s.x>h.x)) or
      (((s.y<-h.y) and (v.y<=0)) or (s.y>h.y)) or
@@ -21822,9 +22097,16 @@ begin
   end else begin
    sign[2]:=-1;
   end;
+{$ifdef SIMD}
+  s.w:=0.0;
+  v.w:=0.0;
+{$endif}
   h.x:=fExtents.x+SphereCastData.Radius;
   h.y:=fExtents.y+SphereCastData.Radius;
   h.z:=fExtents.z+SphereCastData.Radius;
+{$ifdef SIMD}
+  h.w:=0.0;
+{$endif}
   if (((s.x<-h.x) and (v.x<=0)) or (s.x>h.x)) or
      (((s.y<-h.y) and (v.y<=0)) or (s.y>h.y)) or
      (((s.z<-h.z) and (v.z<=0)) or (s.z>h.z)) then begin
@@ -22000,9 +22282,15 @@ begin
  fShapeAABB.Min.x:=Min(Min(Min(Min(fPlaneVertices[0].x,fPlaneVertices[1].x),fPlaneVertices[2].x),fPlaneVertices[3].x),b.x)-0.1;
  fShapeAABB.Min.y:=Min(Min(Min(Min(fPlaneVertices[0].y,fPlaneVertices[1].y),fPlaneVertices[2].y),fPlaneVertices[3].y),b.y)-0.1;
  fShapeAABB.Min.z:=Min(Min(Min(Min(fPlaneVertices[0].z,fPlaneVertices[1].z),fPlaneVertices[2].z),fPlaneVertices[3].z),b.z)-0.1;
+{$ifdef SIMD}
+ fShapeAABB.Min.w:=0.0;
+{$endif}
  fShapeAABB.Max.x:=Max(Max(Max(Max(fPlaneVertices[0].x,fPlaneVertices[1].x),fPlaneVertices[2].x),fPlaneVertices[3].x),b.x)+0.1;
  fShapeAABB.Max.y:=Max(Max(Max(Max(fPlaneVertices[0].y,fPlaneVertices[1].y),fPlaneVertices[2].y),fPlaneVertices[3].y),b.y)+0.1;
  fShapeAABB.Max.z:=Max(Max(Max(Max(fPlaneVertices[0].z,fPlaneVertices[1].z),fPlaneVertices[2].z),fPlaneVertices[3].z),b.z)+0.1;
+{$ifdef SIMD}
+ fShapeAABB.Max.w:=0.0;
+{$endif}
 end;
 
 procedure TKraftShapePlane.CalculateMassData;
@@ -22328,9 +22616,15 @@ begin
  fShapeAABB.Min.x:=Min(Min(Vertices^[0].Position.x,Vertices^[1].Position.x),Vertices^[2].Position.x)-0.1;
  fShapeAABB.Min.y:=Min(Min(Vertices^[0].Position.y,Vertices^[1].Position.y),Vertices^[2].Position.y)-0.1;
  fShapeAABB.Min.z:=Min(Min(Vertices^[0].Position.z,Vertices^[1].Position.z),Vertices^[2].Position.z)-0.1;
+{$ifdef SIMD}
+ fShapeAABB.Min.w:=0.0;
+{$endif}
  fShapeAABB.Max.x:=Max(Max(Vertices^[0].Position.x,Vertices^[1].Position.x),Vertices^[2].Position.x)+0.1;
  fShapeAABB.Max.y:=Max(Max(Vertices^[0].Position.y,Vertices^[1].Position.y),Vertices^[2].Position.y)+0.1;
  fShapeAABB.Max.z:=Max(Max(Vertices^[0].Position.z,Vertices^[1].Position.z),Vertices^[2].Position.z)+0.1;
+{$ifdef SIMD}
+ fShapeAABB.Max.w:=0.0;
+{$endif}
 
  fShapeConvexHull.fAABB:=fShapeAABB;
 
@@ -22338,6 +22632,9 @@ begin
  fShapeSphere.Center.x:=(Vertices^[0].Position.x+Vertices^[1].Position.x+Vertices^[2].Position.x)/3.0;
  fShapeSphere.Center.y:=(Vertices^[0].Position.y+Vertices^[1].Position.y+Vertices^[2].Position.y)/3.0;
  fShapeSphere.Center.z:=(Vertices^[0].Position.z+Vertices^[1].Position.z+Vertices^[2].Position.z)/3.0;{}
+{$ifdef SIMD}
+ fShapeSphere.Center.w:=0.0;
+{$endif}
  fShapeSphere.Radius:=sqrt(Max(Max(Vector3DistSquared(fShapeSphere.Center,Vertices^[0].Position),
                                   Vector3DistSquared(fShapeSphere.Center,Vertices^[1].Position)),
                                   Vector3DistSquared(fShapeSphere.Center,Vertices^[2].Position)));
@@ -22366,9 +22663,15 @@ begin
  fShapeAABB.Min.x:=Min(Min(Vertices^[0].Position.x,Vertices^[1].Position.x),Vertices^[2].Position.x)-0.1;
  fShapeAABB.Min.y:=Min(Min(Vertices^[0].Position.y,Vertices^[1].Position.y),Vertices^[2].Position.y)-0.1;
  fShapeAABB.Min.z:=Min(Min(Vertices^[0].Position.z,Vertices^[1].Position.z),Vertices^[2].Position.z)-0.1;
+{$ifdef SIMD}
+ fShapeAABB.Min.w:=0.0;
+{$endif}
  fShapeAABB.Max.x:=Max(Max(Vertices^[0].Position.x,Vertices^[1].Position.x),Vertices^[2].Position.x)+0.1;
  fShapeAABB.Max.y:=Max(Max(Vertices^[0].Position.y,Vertices^[1].Position.y),Vertices^[2].Position.y)+0.1;
  fShapeAABB.Max.z:=Max(Max(Vertices^[0].Position.z,Vertices^[1].Position.z),Vertices^[2].Position.z)+0.1;
+{$ifdef SIMD}
+ fShapeAABB.Max.w:=0.0;
+{$endif}
 end;
 
 procedure TKraftShapeTriangle.CalculateMassData;
@@ -22384,6 +22687,9 @@ begin
  fShapeSphere.Center.x:=(Vertices^[0].Position.x+Vertices^[1].Position.x+Vertices^[2].Position.x)*f1d3;
  fShapeSphere.Center.y:=(Vertices^[0].Position.y+Vertices^[1].Position.y+Vertices^[2].Position.y)*f1d3;
  fShapeSphere.Center.z:=(Vertices^[0].Position.z+Vertices^[1].Position.z+Vertices^[2].Position.z)*f1d3;
+{$ifdef SIMD}
+ fShapeSphere.Center.w:=0.0;
+{$endif}
  fShapeSphere.Radius:=sqrt(Max(Max(Vector3DistSquared(fShapeSphere.Center,Vertices^[0].Position),
                                   Vector3DistSquared(fShapeSphere.Center,Vertices^[1].Position)),
                                   Vector3DistSquared(fShapeSphere.Center,Vertices^[2].Position)));
@@ -22894,6 +23200,9 @@ begin
  Direction.x:=Center-GetLocalSignedDistance(Vector3(Position.x+EPSILON,Position.y,Position.z));
  Direction.y:=Center-GetLocalSignedDistance(Vector3(Position.x,Position.y+EPSILON,Position.z));
  Direction.z:=Center-GetLocalSignedDistance(Vector3(Position.x,Position.y,Position.z+EPSILON));
+{$ifdef SIMD}
+ Direction.w:=0.0;
+{$endif}
  Vector3Normalize(Direction);
  result:=Center;
 end;
@@ -22952,6 +23261,9 @@ begin
      RayCastData.Normal.x:=Center-GetLocalSignedDistance(Vector3(RayCastData.Point.x+EPSILON,RayCastData.Point.y,RayCastData.Point.z));
      RayCastData.Normal.y:=Center-GetLocalSignedDistance(Vector3(RayCastData.Point.x,RayCastData.Point.y+EPSILON,RayCastData.Point.z));
      RayCastData.Normal.z:=Center-GetLocalSignedDistance(Vector3(RayCastData.Point.x,RayCastData.Point.y,RayCastData.Point.z+EPSILON));
+{$ifdef SIMD}
+     RayCastData.Normal.w:=0.0;
+{$endif}
      Vector3Normalize(RayCastData.Normal);
      result:=true;
      break;
@@ -22984,6 +23296,9 @@ begin
      SphereCastData.Normal.x:=Center-GetLocalSignedDistance(Vector3(SphereCastData.Point.x+EPSILON,SphereCastData.Point.y,SphereCastData.Point.z));
      SphereCastData.Normal.y:=Center-GetLocalSignedDistance(Vector3(SphereCastData.Point.x,SphereCastData.Point.y+EPSILON,SphereCastData.Point.z));
      SphereCastData.Normal.z:=Center-GetLocalSignedDistance(Vector3(SphereCastData.Point.x,SphereCastData.Point.y,SphereCastData.Point.z+EPSILON));
+{$ifdef SIMD}
+     SphereCastData.Normal.w:=0.0;
+{$endif}
      Vector3Normalize(SphereCastData.Normal);
      result:=true;
      break;
@@ -23444,6 +23759,9 @@ var OldManifoldCountContacts:longint;
   ClosestPoint.x:=Min(Max(SphereRelativePosition.x,-ShapeB.fExtents.x),ShapeB.fExtents.x);
   ClosestPoint.y:=Min(Max(SphereRelativePosition.y,-ShapeB.fExtents.y),ShapeB.fExtents.y);
   ClosestPoint.z:=Min(Max(SphereRelativePosition.z,-ShapeB.fExtents.z),ShapeB.fExtents.z);
+{$ifdef SIMD}
+  ClosestPoint.w:=0.0;
+{$endif}
   Normal:=Vector3Sub(SphereRelativePosition,ClosestPoint);
   DistSqr:=Vector3LengthSquared(Normal);
   IntersectionDist:=ShapeA.fRadius;
@@ -24705,6 +25023,9 @@ var OldManifoldCountContacts:longint;
    Center.x:=(ShapeTriangle.fConvexHull.fVertices[0].Position.x+ShapeTriangle.fConvexHull.fVertices[1].Position.x+ShapeTriangle.fConvexHull.fVertices[2].Position.x)/3.0;
    Center.y:=(ShapeTriangle.fConvexHull.fVertices[0].Position.y+ShapeTriangle.fConvexHull.fVertices[1].Position.y+ShapeTriangle.fConvexHull.fVertices[2].Position.y)/3.0;
    Center.z:=(ShapeTriangle.fConvexHull.fVertices[0].Position.z+ShapeTriangle.fConvexHull.fVertices[1].Position.z+ShapeTriangle.fConvexHull.fVertices[2].Position.z)/3.0;
+{$ifdef SIMD}
+   Center.w:=0.0;
+{$endif}
    ShapeTriangle.fConvexHull.fVertices[0].Position:=Vector3Sub(ShapeTriangle.fConvexHull.fVertices[0].Position,Center);
    ShapeTriangle.fConvexHull.fVertices[1].Position:=Vector3Sub(ShapeTriangle.fConvexHull.fVertices[1].Position,Center);
    ShapeTriangle.fConvexHull.fVertices[2].Position:=Vector3Sub(ShapeTriangle.fConvexHull.fVertices[2].Position,Center);
@@ -26757,12 +27078,18 @@ begin
  fGravity.x:=0.0;
  fGravity.y:=-9.83;
  fGravity.z:=0.0;
+{$ifdef SIMD}
+ fGravity.w:=0.0;
+{$endif}
 
  fGravityProperty:=TKraftVector3Property.Create(@fGravity);
 
  fLinearFactor.x:=1.0;
  fLinearFactor.y:=1.0;
  fLinearFactor.z:=1.0;
+{$ifdef SIMD}
+ fLinearFactor.w:=0.0;
+{$endif}
 
  fUserData:=nil;
 
@@ -27150,6 +27477,9 @@ procedure TKraftRigidBody.Finish;
    fSweep.c0.x:=fWorldTransform[3,0];
    fSweep.c0.y:=fWorldTransform[3,1];
    fSweep.c0.z:=fWorldTransform[3,2];
+{$ifdef SIMD}
+   fSweep.c0.w:=0.0;
+{$endif}
    fSweep.c:=fSweep.c0;
 
   end else begin
@@ -27181,6 +27511,9 @@ procedure TKraftRigidBody.Finish;
      TempLocalCenter.x:=TempLocalCenter.x/fMass;
      TempLocalCenter.y:=TempLocalCenter.y/fMass;
      TempLocalCenter.z:=TempLocalCenter.z/fMass;
+{$ifdef SIMD}
+     TempLocalCenter.w:=0.0;
+{$endif}
     end;
 
     Matrix3x3Sub(fBodyInertiaTensor,InertiaTensorParallelAxisTheorem(TempLocalCenter,fMass));
@@ -27213,6 +27546,10 @@ procedure TKraftRigidBody.Finish;
     end else begin
      fLinearFactor.z:=1.0;
     end;
+
+{$ifdef SIMD}
+    fLinearFactor.w:=0.0;
+{$endif}
 
     Matrix3x3Inverse(fBodyInverseInertiaTensor,fBodyInertiaTensor);
 
@@ -29836,6 +30173,9 @@ begin
   RotationError.x:=qError.x*2.0;
   RotationError.y:=qError.y*2.0;
   RotationError.z:=qError.z*2.0;
+{$ifdef SIMD}
+  RotationError.w:=0.0;
+{$endif}
 
   result:=result and (Vector3Length(RotationError)<fPhysics.fAngularSlop);
 
@@ -30968,6 +31308,9 @@ begin
   RotationError.x:=qError.x*2.0;
   RotationError.y:=qError.y*2.0;
   RotationError.z:=qError.z*2.0;
+{$ifdef SIMD}
+  RotationError.w:=0.0;
+{$endif}
 
   RotationImpulse:=Vector3TermMatrixMul(Vector3Neg(RotationError),fInverseMassMatrixRotationConstraint);
 
@@ -32933,6 +33276,9 @@ begin
  fGravity.x:=0.0;
  fGravity.y:=-9.83;
  fGravity.z:=0.0;
+{$ifdef SIMD}
+ fGravity.w:=0.0;
+{$endif}
 
  fGravityProperty:=TKraftVector3Property.Create(@fGravity);
 
@@ -35019,6 +35365,9 @@ var Hit:boolean;
   ClosestPoint.x:=Min(Max(SphereRelativePosition.x,-Shape.fExtents.x),Shape.fExtents.x);
   ClosestPoint.y:=Min(Max(SphereRelativePosition.y,-Shape.fExtents.y),Shape.fExtents.y);
   ClosestPoint.z:=Min(Max(SphereRelativePosition.z,-Shape.fExtents.z),Shape.fExtents.z);
+{$ifdef SIMD}
+  ClosestPoint.w:=0.0;
+{$endif}
   Normal:=Vector3Sub(SphereRelativePosition,ClosestPoint);
   DistSqr:=Vector3LengthSquared(Normal);
   IntersectionDist:=Sphere.Radius;
@@ -35177,9 +35526,15 @@ var Hit:boolean;
   AABB.Min.x:=SphereCenter.x-RadiusWithThreshold;
   AABB.Min.y:=SphereCenter.y-RadiusWithThreshold;
   AABB.Min.z:=SphereCenter.z-RadiusWithThreshold;
+{$ifdef SIMD}
+  AABB.Min.w:=0.0;
+{$endif}
   AABB.Max.x:=SphereCenter.x+RadiusWithThreshold;
   AABB.Max.y:=SphereCenter.y+RadiusWithThreshold;
   AABB.Max.z:=SphereCenter.z+RadiusWithThreshold;
+{$ifdef SIMD}
+  AABB.Max.w:=0.0;
+{$endif}
   RadiusWithThreshold:=Radius+EPSILON;
   SkipListNodeIndex:=0;
   while SkipListNodeIndex<Shape.fMesh.fCountSkipListNodes do begin
@@ -35369,9 +35724,15 @@ begin
   AABB.Min.x:=Center.x-Radius;
   AABB.Min.y:=Center.y-Radius;
   AABB.Min.z:=Center.z-Radius;
+{$ifdef SIMD}
+  AABB.Min.w:=0.0;
+{$endif}
   AABB.Max.x:=Center.x+Radius;
   AABB.Max.y:=Center.y+Radius;
   AABB.Max.z:=Center.z+Radius;
+{$ifdef SIMD}
+  AABB.Max.w:=0.0;
+{$endif}
   Sphere.Center:=Center;
   Sphere.Radius:=Radius;
   SumMinimumTranslationVector:=Vector3Origin;
@@ -35385,6 +35746,9 @@ begin
    Center.x:=Center.x+(SumMinimumTranslationVector.x/Count);
    Center.y:=Center.y+(SumMinimumTranslationVector.y/Count);
    Center.z:=Center.z+(SumMinimumTranslationVector.z/Count);
+{$ifdef SIMD}
+   Center.w:=0.0;
+{$endif}
   end else begin
    break;
   end;
