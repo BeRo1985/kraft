@@ -24500,7 +24500,7 @@ var OldManifoldCountContacts:longint;
   end;
 
  end;
- procedure CollideWithMPRAndPerturbation(ShapeA,ShapeB:TKraftShape);
+ procedure CollideWithMPROrSignedDistanceFieldAndPerturbation(ShapeA,ShapeB:TKraftShape);
  const PerturbationAngleLimit=pi*0.125;
        pi2=pi*2.0;
  var PerturbationIterations,PreturbIteration,ContactIndex:longint;
@@ -24521,7 +24521,17 @@ var OldManifoldCountContacts:longint;
 
   Manifold.CountContacts:=0;
 
-  if MPRPenetration(ShapeA,ShapeB,ShapeA.fWorldTransform,ShapeB.fWorldTransform,pa,pb,Normal,PenetrationDepth) then begin
+  if (ShapeA.ShapeType=kstSignedDistanceField) or (ShapeB.ShapeType=kstSignedDistanceField) then begin
+   pa:=Vector3Origin;
+   pb:=Vector3Origin;
+   Normal:=Vector3Origin;
+   PenetrationDepth:=0.0;
+   OK:=false;
+  end else begin
+   OK:=MPRPenetration(ShapeA,ShapeB,ShapeA.fWorldTransform,ShapeB.fWorldTransform,pa,pb,Normal,PenetrationDepth);
+  end;
+
+  if OK then begin
 
    Manifold.LocalNormal:=Vector3TermMatrixMulTransposedBasis(Vector3Neg(Normal),Shapes[1].fWorldTransform);
 
@@ -24570,7 +24580,16 @@ var OldManifoldCountContacts:longint;
      ShapeTransformMatrices[0]:=@ShapeA.fWorldTransform;
      ShapeTransformMatrices[1]:=@PerturbatedTransform;
     end;
-    if MPRPenetration(ShapeA,ShapeB,ShapeTransformMatrices[0]^,ShapeTransformMatrices[1]^,tpa,tpb,Normal,PenetrationDepth) then begin
+    if (ShapeA.ShapeType=kstSignedDistanceField) or (ShapeB.ShapeType=kstSignedDistanceField) then begin
+     tpa:=Vector3Origin;
+     tpb:=Vector3Origin;
+     Normal:=Vector3Origin;
+     PenetrationDepth:=0.0;
+     OK:=false;
+    end else begin
+     OK:=MPRPenetration(ShapeA,ShapeB,ShapeTransformMatrices[0]^,ShapeTransformMatrices[1]^,tpa,tpb,Normal,PenetrationDepth);
+    end;
+    if OK then begin
      if PerturbationA then begin
       Vector3MatrixMul(tpa,Matrix4x4TermMul(Matrix4x4TermInverse(PerturbatedTransform),ShapeA.fWorldTransform));
      end else begin
@@ -24682,6 +24701,7 @@ var OldManifoldCountContacts:longint;
      Nearest,Index,SubIndex:longint;
      Contact:PKraftContact;
      NewContact:TKraftContact;
+     OK:boolean;
  begin
 {$ifdef UseTriangleMeshFullPerturbation}
   if ShapeB=TriangleShape then begin
@@ -24689,13 +24709,23 @@ var OldManifoldCountContacts:longint;
   end;
 {$endif}
   if ((OldManifoldCountContacts=0) or ContactManager.fPhysics.fAlwaysPerturbating) and (ContactManager.fPhysics.fPerturbationIterations>0) then begin
-   CollideWithMPRAndPerturbation(ShapeA,ShapeB);
+   CollideWithMPROrSignedDistanceFieldAndPerturbation(ShapeA,ShapeB);
   end else begin
 
    Manifold.CountContacts:=OldManifoldCountContacts;
    Manifold.Persistent:=true;
 
-   if MPRPenetration(ShapeA,ShapeB,ShapeA.fWorldTransform,ShapeB.fWorldTransform,WorldPositions[0],WorldPositions[1],Normal,PenetrationDepth) then begin
+   if (ShapeA.ShapeType=kstSignedDistanceField) or (ShapeB.ShapeType=kstSignedDistanceField) then begin
+    WorldPositions[0]:=Vector3Origin;
+    WorldPositions[1]:=Vector3Origin;
+    Normal:=Vector3Origin;
+    PenetrationDepth:=0.0;
+    OK:=false;
+   end else begin
+    OK:=MPRPenetration(ShapeA,ShapeB,ShapeA.fWorldTransform,ShapeB.fWorldTransform,WorldPositions[0],WorldPositions[1],Normal,PenetrationDepth);
+   end;
+
+   if OK then begin
 
     Point:=Vector3Avg(WorldPositions[0],WorldPositions[1]);
     WorldPositions[0]:=Point;
