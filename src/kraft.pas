@@ -147,21 +147,18 @@ unit kraft;
 {-$define NonSIMD}
 
 {$ifdef NonSIMD}
- {$undef CPU386ASMForSinglePrecision}
- {$undef CPUAMD64ASMForSinglePrecision}
  {$undef SIMD}
+ {$undef SIMDASM}
 {$else}
  {$ifdef cpu386}
   {$if not (defined(Darwin) or defined(CompileForWithPIC))}
-   {$define CPU386ASMForSinglePrecision}
+   //{$define SIMDASM}
   {$ifend}
  {$endif}
  {$if defined(cpux64) or defined(cpuamd64)}
-  {$if not (defined(Darwin) or defined(CompileForWithPIC))}
-  // {$define CPUAMD64ASMForSinglePrecision}
-  {$ifend}
+  //{$define SIMDASM}
  {$ifend}
- {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMForSinglePrecision)}
+ {$if defined(SIMDASM)}
   {$define SIMD}
  {$ifend}
 {$endif}
@@ -4372,10 +4369,8 @@ end;
 const Vector3Mask:array[0..3] of longword=($ffffffff,$ffffffff,$ffffffff,$00000000);
 {$endif}
 
-{-$undef CPUAMD64ASMFORSINGLEPRECISION}
-
 function Vector3Abs(const v:TKraftVector3):TKraftVector3;
-{$if defined(SIMD) and defined(CPU386ASMForSinglePrecision)}assembler;
+{$if defined(SIMD) and defined(SIMDASM) and defined(cpu386)}assembler;
 asm
  movss xmm0,dword ptr [v+0]
  movss xmm1,dword ptr [v+4]
@@ -4395,7 +4390,7 @@ asm
  movss dword ptr [result+8],xmm2
  movss dword ptr [result+12],xmm3
 end;
-{$elseif defined(SIMD) and defined(CPUAMD64ASMForSinglePrecision)}assembler; {$ifdef fpc}nostackframe;{$endif}
+{$elseif defined(SIMD) and defined(SIMDASM) and defined(cpuamd64)}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
 {$ifndef fpc}
  .noframe
@@ -4439,7 +4434,7 @@ begin
  result:=(abs(v1.x-v2.x)<Threshold) and (abs(v1.y-v2.y)<Threshold) and (abs(v1.z-v2.z)<Threshold);
 end;
 
-procedure Vector3DirectAdd(var v1:TKraftVector3;const v2:TKraftVector3); {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+procedure Vector3DirectAdd(var v1:TKraftVector3;const v2:TKraftVector3); {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -4460,7 +4455,7 @@ begin
 end;
 {$ifend}
 
-procedure Vector3DirectSub(var v1:TKraftVector3;const v2:TKraftVector3); {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+procedure Vector3DirectSub(var v1:TKraftVector3;const v2:TKraftVector3); {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -4481,7 +4476,7 @@ begin
 end;
 {$ifend}
 
-function Vector3Add(const v1,v2:TKraftVector3):TKraftVector3; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+function Vector3Add(const v1,v2:TKraftVector3):TKraftVector3; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -4502,7 +4497,7 @@ begin
 end;
 {$ifend}
 
-function Vector3Sub(const v1,v2:TKraftVector3):TKraftVector3; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+function Vector3Sub(const v1,v2:TKraftVector3):TKraftVector3; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -4523,7 +4518,7 @@ begin
 end;
 {$ifend}
 
-function Vector3Avg(const v1,v2:TKraftVector3):TKraftVector3; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+function Vector3Avg(const v1,v2:TKraftVector3):TKraftVector3; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 const Half:TKraftVector3=(x:0.5;y:0.5;z:0.5;w:0.0);
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
@@ -4582,7 +4577,7 @@ begin
 {$endif}
 end;
 
-function Vector3ScalarMul(const v:TKraftVector3;const s:TKraftScalar):TKraftVector3; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+function Vector3ScalarMul(const v:TKraftVector3;const s:TKraftScalar):TKraftVector3; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -4604,7 +4599,7 @@ begin
 end;
 {$ifend}
 
-function Vector3Dot(const v1,v2:TKraftVector3):TKraftScalar; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+function Vector3Dot(const v1,v2:TKraftVector3):TKraftScalar; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 {$if defined(SIMD) and defined(cpu386_)}
 asm
  movss xmm0,dword ptr [v1+0]
@@ -4713,7 +4708,7 @@ begin
 {$endif}
 end;
 
-function Vector3Cross(const v1,v2:TKraftVector3):TKraftVector3; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+function Vector3Cross(const v1,v2:TKraftVector3):TKraftVector3; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -4771,7 +4766,7 @@ begin
 end;
 {$ifend}
 
-function Vector3Neg(const v:TKraftVector3):TKraftVector3; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+function Vector3Neg(const v:TKraftVector3):TKraftVector3; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -4792,7 +4787,7 @@ begin
 end;
 {$ifend}
 
-procedure Vector3Scale(var v:TKraftVector3;const sx,sy,sz:TKraftScalar); overload; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+procedure Vector3Scale(var v:TKraftVector3;const sx,sy,sz:TKraftScalar); overload; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -4818,7 +4813,7 @@ begin
 end;
 {$ifend}
 
-procedure Vector3Scale(var v:TKraftVector3;const s:TKraftScalar); overload; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+procedure Vector3Scale(var v:TKraftVector3;const s:TKraftScalar); overload; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -4840,7 +4835,7 @@ begin
 end;
 {$ifend}
 
-function Vector3Mul(const v1,v2:TKraftVector3):TKraftVector3; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+function Vector3Mul(const v1,v2:TKraftVector3):TKraftVector3; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -4861,7 +4856,7 @@ begin
 end;
 {$ifend}
 
-function Vector3Length(const v:TKraftVector3):TKraftScalar; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+function Vector3Length(const v:TKraftVector3):TKraftScalar; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -4881,7 +4876,7 @@ begin
 end;
 {$ifend}
 
-function Vector3Dist(const v1,v2:TKraftVector3):TKraftScalar; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+function Vector3Dist(const v1,v2:TKraftVector3):TKraftScalar; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -4903,7 +4898,7 @@ begin
 end;
 {$ifend}
 
-function Vector3LengthSquared(const v:TKraftVector3):TKraftScalar; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+function Vector3LengthSquared(const v:TKraftVector3):TKraftScalar; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -4922,7 +4917,7 @@ begin
 end;
 {$ifend}
 
-function Vector3DistSquared(const v1,v2:TKraftVector3):TKraftScalar; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+function Vector3DistSquared(const v1,v2:TKraftVector3):TKraftScalar; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -4958,7 +4953,7 @@ begin
  end;
 end;
 
-function Vector3LengthNormalize(var v:TKraftVector3):TKraftScalar; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+function Vector3LengthNormalize(var v:TKraftVector3):TKraftScalar; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -5006,7 +5001,7 @@ begin
 end;
 {$ifend}
 
-procedure Vector3Normalize(var v:TKraftVector3); {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+procedure Vector3Normalize(var v:TKraftVector3); {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -5047,7 +5042,7 @@ begin
 end;
 {$ifend}
 
-procedure Vector3NormalizeEx(var v:TKraftVector3); {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+procedure Vector3NormalizeEx(var v:TKraftVector3); {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -5107,7 +5102,7 @@ begin
 {$endif}
 end;
 
-function Vector3Norm(const v:TKraftVector3):TKraftVector3; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+function Vector3Norm(const v:TKraftVector3):TKraftVector3; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -5148,7 +5143,7 @@ begin
 end;
 {$ifend}
 
-function Vector3NormEx(const v:TKraftVector3):TKraftVector3; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+function Vector3NormEx(const v:TKraftVector3):TKraftVector3; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -5237,7 +5232,7 @@ begin
  v:=t;
 end;
 
-procedure Vector3MatrixMul(var v:TKraftVector3;const m:TKraftMatrix4x4); overload; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler;
+procedure Vector3MatrixMul(var v:TKraftVector3;const m:TKraftMatrix4x4); overload; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler;
 const cOne:array[0..3] of TKraftScalar=(0.0,0.0,0.0,1.0);
 {$if defined(cpuamd64) and defined(Windows)}
 var StackSave0,StackSave1:array[0..3] of single;
@@ -5358,7 +5353,7 @@ end;
 {$endif}
 (**)
 
-function Vector3TermMatrixMul(const v:TKraftVector3;const m:TKraftMatrix3x3):TKraftVector3; overload; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+function Vector3TermMatrixMul(const v:TKraftVector3;const m:TKraftMatrix3x3):TKraftVector3; overload; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 const cOne:array[0..3] of TKraftScalar=(0.0,0.0,0.0,1.0);
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
@@ -5400,7 +5395,7 @@ begin
 end;
 {$ifend}
 
-function Vector3TermMatrixMul(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; overload; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler;
+function Vector3TermMatrixMul(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; overload; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler;
 const cOne:array[0..3] of TKraftScalar=(0.0,0.0,0.0,1.0);
 {$if defined(cpuamd64) and defined(Windows)}
 var StackSave0,StackSave1:array[0..3] of single;
@@ -5531,7 +5526,7 @@ begin
 {$endif}
 end;
 
-function Vector3TermMatrixMulBasis(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; overload; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+function Vector3TermMatrixMulBasis(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; overload; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 const Mask:array[0..3] of longword=($ffffffff,$ffffffff,$ffffffff,$00000000);
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
@@ -5607,7 +5602,7 @@ begin
  result:=Vector3NormEx(Vector3Sub(p,Vector3ScalarMul(v,Vector3Dot(v,p))));
 end;
 
-function Vector3TermQuaternionRotate(const v:TKraftVector3;const q:TKraftQuaternion):TKraftVector3; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler;
+function Vector3TermQuaternionRotate(const v:TKraftVector3;const q:TKraftQuaternion):TKraftVector3; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler;
 const Mask:array[0..3] of longword=($ffffffff,$ffffffff,$ffffffff,$00000000);
 {$if defined(cpuamd64) and defined(Windows)}
 var StackSave0,StackSave1:array[0..3] of single;
@@ -5900,7 +5895,7 @@ begin
  v:=t;
 end;
 
-procedure Vector4MatrixMul(var v:TKraftVector4;const m:TKraftMatrix4x4); {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+procedure Vector4MatrixMul(var v:TKraftVector4;const m:TKraftMatrix4x4); {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -5939,7 +5934,7 @@ begin
 end;
 {$endif}
 
-function Vector4TermMatrixMul(const v:TKraftVector4;const m:TKraftMatrix4x4):TKraftVector4; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+function Vector4TermMatrixMul(const v:TKraftVector4;const m:TKraftMatrix4x4):TKraftVector4; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -6839,7 +6834,7 @@ begin
  m1[3,3]:=m1[3,3]-m2[3,3];
 end;
 
-procedure Matrix4x4Mul(var m1:TKraftMatrix4x4;const m2:TKraftMatrix4x4); overload; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler;
+procedure Matrix4x4Mul(var m1:TKraftMatrix4x4;const m2:TKraftMatrix4x4); overload; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler;
 {$if defined(cpuamd64) and defined(Windows)}
 var StackSave0,StackSave1:array[0..3] of single;
 {$ifend}
@@ -6939,7 +6934,7 @@ begin
 end;
 {$endif}
 
-procedure Matrix4x4Mul(var mr:TKraftMatrix4x4;const m1,m2:TKraftMatrix4x4); overload; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler;
+procedure Matrix4x4Mul(var mr:TKraftMatrix4x4;const m1,m2:TKraftMatrix4x4); overload; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler;
 {$if defined(cpuamd64) and defined(Windows)}
 var StackSave0,StackSave1:array[0..3] of single;
 {$ifend}
@@ -7077,7 +7072,7 @@ begin
  result[3,3]:=m1[3,3]-m2[3,3];
 end;
 
-function Matrix4x4TermMul(const m1,m2:TKraftMatrix4x4):TKraftMatrix4x4; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler;
+function Matrix4x4TermMul(const m1,m2:TKraftMatrix4x4):TKraftMatrix4x4; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler;
 {$if defined(cpuamd64) and defined(Windows)}
 var StackSave0,StackSave1:array[0..3] of single;
 {$ifend}
@@ -7283,7 +7278,7 @@ begin
  m[3,3]:=m[3,3]*s;
 end;
 
-procedure Matrix4x4Transpose(var m:TKraftMatrix4x4); {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+procedure Matrix4x4Transpose(var m:TKraftMatrix4x4); {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -7332,7 +7327,7 @@ begin
 end;
 {$endif}
 
-function Matrix4x4TermTranspose(const m:TKraftMatrix4x4):TKraftMatrix4x4; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+function Matrix4x4TermTranspose(const m:TKraftMatrix4x4):TKraftMatrix4x4; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -7379,7 +7374,7 @@ begin
 end;
 {$endif}
 
-function Matrix4x4Determinant(const m:TKraftMatrix4x4):TKraftScalar; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler;
+function Matrix4x4Determinant(const m:TKraftMatrix4x4):TKraftScalar; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler;
 {$if defined(cpuamd64) and defined(Windows)}
 var StackSave0,StackSave1:array[0..3] of single;
 {$ifend}
@@ -7614,7 +7609,7 @@ begin
  result[3,3]:=ma[3,3];
 end;
 
-function Matrix4x4Inverse(var mr:TKraftMatrix4x4;const ma:TKraftMatrix4x4):boolean; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler;
+function Matrix4x4Inverse(var mr:TKraftMatrix4x4;const ma:TKraftMatrix4x4):boolean; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler;
 {$if defined(cpuamd64) and defined(Windows)}
 var StackSave0,StackSave1:array[0..3] of single;
 {$ifend}
@@ -7844,7 +7839,7 @@ begin
 end;
 {$endif}
 
-function Matrix4x4TermInverse(const ma:TKraftMatrix4x4):TKraftMatrix4x4; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler;
+function Matrix4x4TermInverse(const ma:TKraftMatrix4x4):TKraftMatrix4x4; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler;
 {$if defined(cpuamd64) and defined(Windows)}
 var StackSave0,StackSave1:array[0..3] of single;
 {$ifend}
@@ -8542,7 +8537,7 @@ begin
  result.Distance:=-((result.Normal.x*p1.x)+(result.Normal.y*p1.y)+(result.Normal.z*p1.z));
 end;
 
-function QuaternionNormal(const AQuaternion:TKraftQuaternion):TKraftScalar; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+function QuaternionNormal(const AQuaternion:TKraftQuaternion):TKraftScalar; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -8562,7 +8557,7 @@ begin
 end;
 {$endif}
                             
-function QuaternionLengthSquared(const AQuaternion:TKraftQuaternion):TKraftScalar; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+function QuaternionLengthSquared(const AQuaternion:TKraftQuaternion):TKraftScalar; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -8581,7 +8576,7 @@ begin
 end;
 {$endif}
 
-procedure QuaternionNormalize(var AQuaternion:TKraftQuaternion); {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+procedure QuaternionNormalize(var AQuaternion:TKraftQuaternion); {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -8630,7 +8625,7 @@ begin
 end;
 {$endif}
 
-function QuaternionTermNormalize(const AQuaternion:TKraftQuaternion):TKraftQuaternion; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+function QuaternionTermNormalize(const AQuaternion:TKraftQuaternion):TKraftQuaternion; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -8664,7 +8659,7 @@ begin
 end;
 {$endif}
 
-function QuaternionNeg(const AQuaternion:TKraftQuaternion):TKraftQuaternion; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+function QuaternionNeg(const AQuaternion:TKraftQuaternion):TKraftQuaternion; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -8683,7 +8678,7 @@ begin
 end;
 {$endif}
 
-function QuaternionConjugate(const AQuaternion:TKraftQuaternion):TKraftQuaternion; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+function QuaternionConjugate(const AQuaternion:TKraftQuaternion):TKraftQuaternion; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 const XORMask:array[0..3] of longword=($80000000,$80000000,$80000000,$00000000);
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
@@ -8707,7 +8702,7 @@ begin
 end;
 {$endif}
 
-function QuaternionInverse(const AQuaternion:TKraftQuaternion):TKraftQuaternion; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+function QuaternionInverse(const AQuaternion:TKraftQuaternion):TKraftQuaternion; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 const XORMask:array[0..3] of longword=($80000000,$80000000,$80000000,$00000000);
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
@@ -8745,7 +8740,7 @@ begin
 end;
 {$endif}
 
-function QuaternionAdd(const q1,q2:TKraftQuaternion):TKraftQuaternion; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+function QuaternionAdd(const q1,q2:TKraftQuaternion):TKraftQuaternion; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -8764,7 +8759,7 @@ begin
 end;
 {$endif}
 
-function QuaternionSub(const q1,q2:TKraftQuaternion):TKraftQuaternion; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+function QuaternionSub(const q1,q2:TKraftQuaternion):TKraftQuaternion; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -8783,7 +8778,7 @@ begin
 end;
 {$endif}
 
-function QuaternionScalarMul(const q:TKraftQuaternion;const s:TKraftScalar):TKraftQuaternion; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+function QuaternionScalarMul(const q:TKraftQuaternion;const s:TKraftScalar):TKraftQuaternion; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -8803,7 +8798,7 @@ begin
 end;
 {$endif}
 
-function QuaternionMul(const q1,q2:TKraftQuaternion):TKraftQuaternion; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+function QuaternionMul(const q1,q2:TKraftQuaternion):TKraftQuaternion; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 const XORMaskW:array[0..3] of longword=($00000000,$00000000,$00000000,$80000000);
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
