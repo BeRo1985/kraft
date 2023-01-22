@@ -119,7 +119,7 @@ unit kraft;
  {$define windows}
 {$endif}
 {$extendedsyntax on}
-{$writeableconst on}
+{$writeableconst off}
 {$varstringchecks on}
 {$typedaddress off}
 {$overflowchecks off}
@@ -148,6 +148,7 @@ unit kraft;
 
 {$ifdef NonSIMD}
  {$undef CPU386ASMForSinglePrecision}
+ {$undef CPUAMD64ASMForSinglePrecision}
  {$undef SIMD}
 {$else}
  {$ifdef cpu386}
@@ -157,10 +158,9 @@ unit kraft;
  {$endif}
  {$if defined(cpux64) or defined(cpuamd64)}
   {$if not (defined(Darwin) or defined(CompileForWithPIC))}
-   {$define CPUAMD64ASMForSinglePrecision}
+  // {$define CPUAMD64ASMForSinglePrecision}
   {$ifend}
  {$ifend}
- {$undef SIMD}
  {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMForSinglePrecision)}
   {$define SIMD}
  {$ifend}
@@ -3537,111 +3537,57 @@ procedure Vector2MatrixMul(var v:TKraftVector2;const m:TKraftMatrix2x2); {$ifdef
 function Vector2TermMatrixMul(const v:TKraftVector2;const m:TKraftMatrix2x2):TKraftVector2; {$ifdef caninline}inline;{$endif}
 function Vector2Lerp(const v1,v2:TKraftVector2;w:TKraftScalar):TKraftVector2; {$ifdef caninline}inline;{$endif}
 
-{$ifdef SIMD}
-function Vector3Flip(const v:TKraftVector3):TKraftVector3;
-function Vector3Abs(const v:TKraftVector3):TKraftVector3;
-function Vector3Compare(const v1,v2:TKraftVector3):boolean;
-function Vector3CompareEx(const v1,v2:TKraftVector3;const Threshold:TKraftScalar=EPSILON):boolean;
-procedure Vector3DirectAdd(var v1:TKraftVector3;const v2:TKraftVector3);
-procedure Vector3DirectSub(var v1:TKraftVector3;const v2:TKraftVector3);
-function Vector3Add(const v1,v2:TKraftVector3):TKraftVector3;
-function Vector3Sub(const v1,v2:TKraftVector3):TKraftVector3;
-function Vector3Avg(const v1,v2:TKraftVector3):TKraftVector3; overload;
-function Vector3Avg(const v1,v2,v3:TKraftVector3):TKraftVector3; overload;
-function Vector3Avg(const va:PKraftVector3s;Count:longint):TKraftVector3; overload;
-function Vector3ScalarMul(const v:TKraftVector3;const s:TKraftScalar):TKraftVector3; {$ifdef CPU386ASMForSinglePrecision}assembler;{$endif}
-function Vector3Dot(const v1,v2:TKraftVector3):TKraftScalar; {$ifdef CPU386ASMForSinglePrecision}assembler;{$endif}
-function Vector3Cos(const v1,v2:TKraftVector3):TKraftScalar;
-function Vector3GetOneUnitOrthogonalVector(const v:TKraftVector3):TKraftVector3;
-function Vector3Cross(const v1,v2:TKraftVector3):TKraftVector3;
-function Vector3Neg(const v:TKraftVector3):TKraftVector3; {$ifdef CPU386ASMForSinglePrecision}assembler;{$endif}
-procedure Vector3Scale(var v:TKraftVector3;const sx,sy,sz:TKraftScalar); overload; {$ifdef CPU386ASMForSinglePrecision}assembler;{$endif}
-procedure Vector3Scale(var v:TKraftVector3;const s:TKraftScalar); overload; {$ifdef CPU386ASMForSinglePrecision}assembler;{$endif}
-function Vector3Mul(const v1,v2:TKraftVector3):TKraftVector3; {$ifdef CPU386ASMForSinglePrecision}assembler;{$endif}
-function Vector3Length(const v:TKraftVector3):TKraftScalar; {$ifdef CPU386ASMForSinglePrecision}assembler;{$endif}
-function Vector3Dist(const v1,v2:TKraftVector3):TKraftScalar; {$ifdef CPU386ASMForSinglePrecision}assembler;{$endif}
-function Vector3LengthSquared(const v:TKraftVector3):TKraftScalar; {$ifdef CPU386ASMForSinglePrecision}assembler;{$endif}
-function Vector3DistSquared(const v1,v2:TKraftVector3):TKraftScalar; {$ifdef CPU386ASMForSinglePrecision}assembler;{$endif}
-function Vector3Angle(const v1,v2,v3:TKraftVector3):TKraftScalar;
-function Vector3LengthNormalize(var v:TKraftVector3):TKraftScalar;
-procedure Vector3Normalize(var v:TKraftVector3);
-procedure Vector3NormalizeEx(var v:TKraftVector3);
-function Vector3SafeNorm(const v:TKraftVector3):TKraftVector3;
-function Vector3Norm(const v:TKraftVector3):TKraftVector3;
-function Vector3NormEx(const v:TKraftVector3):TKraftVector3; 
-procedure Vector3RotateX(var v:TKraftVector3;a:TKraftScalar);
-procedure Vector3RotateY(var v:TKraftVector3;a:TKraftScalar);
-procedure Vector3RotateZ(var v:TKraftVector3;a:TKraftScalar);
-procedure Vector3MatrixMul(var v:TKraftVector3;const m:TKraftMatrix3x3); overload;
-procedure Vector3MatrixMul(var v:TKraftVector3;const m:TKraftMatrix4x4); overload; {$ifdef CPU386ASMForSinglePrecision}assembler;{$endif}
-procedure Vector3MatrixMulBasis(var v:TKraftVector3;const m:TKraftMatrix4x4); overload;
-procedure Vector3MatrixMulInverted(var v:TKraftVector3;const m:TKraftMatrix4x4); overload;
-function Vector3TermMatrixMul(const v:TKraftVector3;const m:TKraftMatrix3x3):TKraftVector3; overload;
-function Vector3TermMatrixMul(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; overload; {$ifdef CPU386ASMForSinglePrecision}assembler;{$endif}
-function Vector3TermMatrixMulInverse(const v:TKraftVector3;const m:TKraftMatrix3x3):TKraftVector3; overload;
-function Vector3TermMatrixMulInverted(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; overload;
-function Vector3TermMatrixMulTransposed(const v:TKraftVector3;const m:TKraftMatrix3x3):TKraftVector3; overload;
-function Vector3TermMatrixMulTransposed(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; overload;
-function Vector3TermMatrixMulTransposedBasis(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; overload;
-function Vector3TermMatrixMulBasis(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; overload;
-function Vector3TermMatrixMulHomogen(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3;
-function Vector3Lerp(const v1,v2:TKraftVector3;w:TKraftScalar):TKraftVector3;
-function Vector3Perpendicular(v:TKraftVector3):TKraftVector3;
-function Vector3TermQuaternionRotate(const v:TKraftVector3;const q:TKraftQuaternion):TKraftVector3;
-function Vector3ProjectToBounds(const v:TKraftVector3;const MinVector,MaxVector:TKraftVector3):TKraftScalar;
-{$else}
 function Vector3Flip(const v:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
-function Vector3Abs(const v:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
-function Vector3Compare(const v1,v2:TKraftVector3):boolean; {$ifdef caninline}inline;{$endif}
-function Vector3CompareEx(const v1,v2:TKraftVector3;const Threshold:TKraftScalar=EPSILON):boolean; {$ifdef caninline}inline;{$endif}
-function Vector3DirectAdd(var v1:TKraftVector3;const v2:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
-function Vector3DirectSub(var v1:TKraftVector3;const v2:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
-function Vector3Add(const v1,v2:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
-function Vector3Sub(const v1,v2:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
-function Vector3Avg(const v1,v2:TKraftVector3):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
-function Vector3Avg(const v1,v2,v3:TKraftVector3):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
-function Vector3Avg(const va:PKraftVector3s;Count:longint):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
-function Vector3ScalarMul(const v:TKraftVector3;const s:TKraftScalar):TKraftVector3; {$ifdef caninline}inline;{$endif}
-function Vector3Dot(const v1,v2:TKraftVector3):TKraftScalar; {$ifdef caninline}inline;{$endif}
-function Vector3Cos(const v1,v2:TKraftVector3):TKraftScalar; {$ifdef caninline}inline;{$endif}
-function Vector3GetOneUnitOrthogonalVector(const v:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
-function Vector3Cross(const v1,v2:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
-function Vector3Neg(const v:TKraftVector3):TKraftVector3;  {$ifdef caninline}inline;{$endif}
-procedure Vector3Scale(var v:TKraftVector3;const sx,sy,sz:TKraftScalar); overload; {$ifdef caninline}inline;{$endif}
-procedure Vector3Scale(var v:TKraftVector3;const s:TKraftScalar); overload; {$ifdef caninline}inline;{$endif}
-function Vector3Mul(const v1,v2:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
-function Vector3Length(const v:TKraftVector3):TKraftScalar; {$ifdef caninline}inline;{$endif}
-function Vector3Dist(const v1,v2:TKraftVector3):TKraftScalar; {$ifdef caninline}inline;{$endif}
-function Vector3LengthSquared(const v:TKraftVector3):TKraftScalar; {$ifdef caninline}inline;{$endif}
-function Vector3DistSquared(const v1,v2:TKraftVector3):TKraftScalar; {$ifdef caninline}inline;{$endif}
-function Vector3Angle(const v1,v2,v3:TKraftVector3):TKraftScalar; {$ifdef caninline}inline;{$endif}
-function Vector3LengthNormalize(var v:TKraftVector3):TKraftScalar; {$ifdef caninline}inline;{$endif}
-procedure Vector3Normalize(var v:TKraftVector3); {$ifdef caninline}inline;{$endif}
-procedure Vector3NormalizeEx(var v:TKraftVector3); {$ifdef caninline}inline;{$endif}
-function Vector3SafeNorm(const v:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
-function Vector3Norm(const v:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
-function Vector3NormEx(const v:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
-procedure Vector3RotateX(var v:TKraftVector3;a:TKraftScalar); {$ifdef caninline}inline;{$endif}
-procedure Vector3RotateY(var v:TKraftVector3;a:TKraftScalar); {$ifdef caninline}inline;{$endif}
-procedure Vector3RotateZ(var v:TKraftVector3;a:TKraftScalar); {$ifdef caninline}inline;{$endif}
-procedure Vector3MatrixMul(var v:TKraftVector3;const m:TKraftMatrix3x3); overload; {$ifdef caninline}inline;{$endif}
-procedure Vector3MatrixMul(var v:TKraftVector3;const m:TKraftMatrix4x4); overload; {$ifdef CPU386ASMForSinglePrecision}assembler;{$endif}
-procedure Vector3MatrixMulBasis(var v:TKraftVector3;const m:TKraftMatrix4x4); overload; {$ifdef caninline}inline;{$endif}
-procedure Vector3MatrixMulInverted(var v:TKraftVector3;const m:TKraftMatrix4x4); overload; {$ifdef caninline}inline;{$endif}
-function Vector3TermMatrixMul(const v:TKraftVector3;const m:TKraftMatrix3x3):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
-function Vector3TermMatrixMul(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; overload; {$ifdef CPU386ASMForSinglePrecision}assembler;{$endif}
-function Vector3TermMatrixMulInverse(const v:TKraftVector3;const m:TKraftMatrix3x3):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
-function Vector3TermMatrixMulInverted(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
-function Vector3TermMatrixMulTransposed(const v:TKraftVector3;const m:TKraftMatrix3x3):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
-function Vector3TermMatrixMulTransposed(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
-function Vector3TermMatrixMulTransposedBasis(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
-function Vector3TermMatrixMulBasis(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
-function Vector3TermMatrixMulHomogen(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; {$ifdef caninline}inline;{$endif}
-function Vector3Lerp(const v1,v2:TKraftVector3;w:TKraftScalar):TKraftVector3; {$ifdef caninline}inline;{$endif}
-function Vector3Perpendicular(v:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
-function Vector3TermQuaternionRotate(const v:TKraftVector3;const q:TKraftQuaternion):TKraftVector3; {$ifdef caninline}inline;{$endif}
-function Vector3ProjectToBounds(const v:TKraftVector3;const MinVector,MaxVector:TKraftVector3):TKraftScalar; {$ifdef caninline}inline;{$endif}
-{$endif}
+function Vector3Abs(const v:TKraftVector3):TKraftVector3; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+function Vector3Compare(const v1,v2:TKraftVector3):boolean; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+function Vector3CompareEx(const v1,v2:TKraftVector3;const Threshold:TKraftScalar=EPSILON):boolean; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+procedure Vector3DirectAdd(var v1:TKraftVector3;const v2:TKraftVector3); {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+procedure Vector3DirectSub(var v1:TKraftVector3;const v2:TKraftVector3); {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+function Vector3Add(const v1,v2:TKraftVector3):TKraftVector3; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+function Vector3Sub(const v1,v2:TKraftVector3):TKraftVector3; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+function Vector3Avg(const v1,v2:TKraftVector3):TKraftVector3; overload; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+function Vector3Avg(const v1,v2,v3:TKraftVector3):TKraftVector3; overload; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+function Vector3Avg(const va:PKraftVector3s;Count:longint):TKraftVector3; overload; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+function Vector3ScalarMul(const v:TKraftVector3;const s:TKraftScalar):TKraftVector3; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+function Vector3Dot(const v1,v2:TKraftVector3):TKraftScalar; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+function Vector3Cos(const v1,v2:TKraftVector3):TKraftScalar; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+function Vector3GetOneUnitOrthogonalVector(const v:TKraftVector3):TKraftVector3; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+function Vector3Cross(const v1,v2:TKraftVector3):TKraftVector3; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+function Vector3Neg(const v:TKraftVector3):TKraftVector3;  {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+procedure Vector3Scale(var v:TKraftVector3;const sx,sy,sz:TKraftScalar); overload; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+procedure Vector3Scale(var v:TKraftVector3;const s:TKraftScalar); overload; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+function Vector3Mul(const v1,v2:TKraftVector3):TKraftVector3; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+function Vector3Length(const v:TKraftVector3):TKraftScalar; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+function Vector3Dist(const v1,v2:TKraftVector3):TKraftScalar; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+function Vector3LengthSquared(const v:TKraftVector3):TKraftScalar; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+function Vector3DistSquared(const v1,v2:TKraftVector3):TKraftScalar; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+function Vector3Angle(const v1,v2,v3:TKraftVector3):TKraftScalar; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+function Vector3LengthNormalize(var v:TKraftVector3):TKraftScalar; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+procedure Vector3Normalize(var v:TKraftVector3); {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+procedure Vector3NormalizeEx(var v:TKraftVector3); {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+function Vector3SafeNorm(const v:TKraftVector3):TKraftVector3; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+function Vector3Norm(const v:TKraftVector3):TKraftVector3; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+function Vector3NormEx(const v:TKraftVector3):TKraftVector3; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+procedure Vector3RotateX(var v:TKraftVector3;a:TKraftScalar); {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+procedure Vector3RotateY(var v:TKraftVector3;a:TKraftScalar); {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+procedure Vector3RotateZ(var v:TKraftVector3;a:TKraftScalar); {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+procedure Vector3MatrixMul(var v:TKraftVector3;const m:TKraftMatrix3x3); overload; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+procedure Vector3MatrixMul(var v:TKraftVector3;const m:TKraftMatrix4x4); overload; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+procedure Vector3MatrixMulBasis(var v:TKraftVector3;const m:TKraftMatrix4x4); overload; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+procedure Vector3MatrixMulInverted(var v:TKraftVector3;const m:TKraftMatrix4x4); overload; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+function Vector3TermMatrixMul(const v:TKraftVector3;const m:TKraftMatrix3x3):TKraftVector3; overload; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+function Vector3TermMatrixMul(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; overload; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+function Vector3TermMatrixMulInverse(const v:TKraftVector3;const m:TKraftMatrix3x3):TKraftVector3; overload; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+function Vector3TermMatrixMulInverted(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; overload; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+function Vector3TermMatrixMulTransposed(const v:TKraftVector3;const m:TKraftMatrix3x3):TKraftVector3; overload; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+function Vector3TermMatrixMulTransposed(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; overload; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+function Vector3TermMatrixMulTransposedBasis(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; overload; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+function Vector3TermMatrixMulBasis(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; overload; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+function Vector3TermMatrixMulHomogen(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+function Vector3Lerp(const v1,v2:TKraftVector3;w:TKraftScalar):TKraftVector3; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+function Vector3Perpendicular(v:TKraftVector3):TKraftVector3; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+function Vector3TermQuaternionRotate(const v:TKraftVector3;const q:TKraftQuaternion):TKraftVector3; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
+function Vector3ProjectToBounds(const v:TKraftVector3;const MinVector,MaxVector:TKraftVector3):TKraftScalar; {$if defined(caninline) and not defined(SIMD)}inline;{$ifend}
 function Vector3FlushZero(const v:TKraftVector3):TKraftVector3;
 
 function Vector4Compare(const v1,v2:TKraftVector4):boolean;
@@ -4412,22 +4358,76 @@ begin
  end;
 end;
 
-{$ifdef SIMD}      
-function Vector3Flip(const v:TKraftVector3):TKraftVector3;
+function Vector3Flip(const v:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
 begin
  result.x:=v.x;
  result.y:=v.z;
  result.z:=-v.y;
+{$ifdef SIMD}
+ result.w:=0.0;
+{$ifend}
 end;
 
+{$ifdef SIMD}
 const Vector3Mask:array[0..3] of longword=($ffffffff,$ffffffff,$ffffffff,$00000000);
+{$endif}
+
+{-$undef CPUAMD64ASMFORSINGLEPRECISION}
 
 function Vector3Abs(const v:TKraftVector3):TKraftVector3;
+{$if defined(SIMD) and defined(CPU386ASMForSinglePrecision)}assembler;
+asm
+ movss xmm0,dword ptr [v+0]
+ movss xmm1,dword ptr [v+4]
+ movss xmm2,dword ptr [v+8]
+ movlhps xmm0,xmm1
+ shufps xmm0,xmm2,$88
+ xorps xmm3,xmm3
+ xorps xmm1,xmm1
+ subps xmm1,xmm0
+ maxps xmm0,xmm1
+ movaps xmm1,xmm0
+ movaps xmm2,xmm0
+ shufps xmm1,xmm1,$55
+ shufps xmm2,xmm2,$aa
+ movss dword ptr [result+0],xmm0
+ movss dword ptr [result+4],xmm1
+ movss dword ptr [result+8],xmm2
+ movss dword ptr [result+12],xmm3
+end;
+{$elseif defined(SIMD) and defined(CPUAMD64ASMForSinglePrecision)}assembler; {$ifdef fpc}nostackframe;{$endif}
+asm
+{$ifndef fpc}
+ .noframe
+{$endif}
+ movss xmm0,dword ptr [v+0]
+ movss xmm1,dword ptr [v+4]
+ movss xmm2,dword ptr [v+8]
+ movlhps xmm0,xmm1
+ shufps xmm0,xmm2,$88
+ xorps xmm3,xmm3
+ xorps xmm1,xmm1
+ subps xmm1,xmm0
+ maxps xmm0,xmm1
+ movaps xmm1,xmm0
+ movaps xmm2,xmm0
+ shufps xmm1,xmm1,$55
+ shufps xmm2,xmm2,$aa
+ movss dword ptr [result+0],xmm0
+ movss dword ptr [result+4],xmm1
+ movss dword ptr [result+8],xmm2
+ movss dword ptr [result+12],xmm3
+end;
+{$else}
 begin
  result.x:=abs(v.x);
  result.y:=abs(v.y);
  result.z:=abs(v.z);
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
 end;
+{$ifend}
 
 function Vector3Compare(const v1,v2:TKraftVector3):boolean;
 begin
@@ -4454,6 +4454,9 @@ begin
  v1.x:=v1.x+v2.x;
  v1.y:=v1.y+v2.y;
  v1.z:=v1.z+v2.z;
+{$ifdef SIMD}
+ v1.w:=0.0;
+{$endif}
 end;
 {$ifend}
 
@@ -4472,6 +4475,9 @@ begin
  v1.x:=v1.x-v2.x;
  v1.y:=v1.y-v2.y;
  v1.z:=v1.z-v2.z;
+{$ifdef SIMD}
+ v1.w:=0.0;
+{$endif}
 end;
 {$ifend}
 
@@ -4490,6 +4496,9 @@ begin
  result.x:=v1.x+v2.x;
  result.y:=v1.y+v2.y;
  result.z:=v1.z+v2.z;
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
 end;
 {$ifend}
 
@@ -4508,6 +4517,9 @@ begin
  result.x:=v1.x-v2.x;
  result.y:=v1.y-v2.y;
  result.z:=v1.z-v2.z;
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
 end;
 {$ifend}
 
@@ -4533,6 +4545,9 @@ begin
  result.x:=(v1.x+v2.x)*0.5;
  result.y:=(v1.y+v2.y)*0.5;
  result.z:=(v1.z+v2.z)*0.5;
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
 end;
 {$ifend}
 
@@ -4541,6 +4556,9 @@ begin
  result.x:=(v1.x+v2.x+v3.x)/3.0;
  result.y:=(v1.y+v2.y+v3.y)/3.0;
  result.z:=(v1.z+v2.z+v3.z)/3.0;
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
 end;
 
 function Vector3Avg(const va:PKraftVector3s;Count:longint):TKraftVector3;
@@ -4559,6 +4577,9 @@ begin
   result.y:=result.y/Count;
   result.z:=result.z/Count;
  end;
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
 end;
 
 function Vector3ScalarMul(const v:TKraftVector3;const s:TKraftScalar):TKraftVector3; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
@@ -4577,16 +4598,54 @@ begin
  result.x:=v.x*s;
  result.y:=v.y*s;
  result.z:=v.z*s;
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
 end;
 {$ifend}
 
 function Vector3Dot(const v1,v2:TKraftVector3):TKraftScalar; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
+{$if defined(SIMD) and defined(cpu386_)}
+asm
+ movss xmm0,dword ptr [v1+0]
+ movss xmm1,dword ptr [v1+4]
+ movss xmm2,dword ptr [v1+8]
+ mulss xmm0,dword ptr [v2+0]
+ mulss xmm1,dword ptr [v2+4]
+ mulss xmm2,dword ptr [v2+8]
+ addss xmm0,xmm1
+ addss xmm0,xmm2
+ movss dword ptr [result],xmm0
+end;
+{$elseif defined(SIMD) and defined(cpux64_)}
+asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
+ movss xmm0,dword ptr [v1+0]
+ movss xmm1,dword ptr [v1+4]
+ movss xmm2,dword ptr [v1+8]
+ mulss xmm0,dword ptr [v2+0]
+ mulss xmm1,dword ptr [v2+4]
+ mulss xmm2,dword ptr [v2+8]
+ addss xmm0,xmm1
+ addss xmm0,xmm2
+ movss dword ptr [result],xmm0
+end;
+{$else}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
 {$ifend}
  movups xmm0,dqword ptr [v1]
  movups xmm1,dqword ptr [v2]
+{$if defined(cpuamd64)}
+ movups xmm2,dqword ptr [rip+Vector3Mask]
+{$else}
+ movups xmm2,dqword ptr [Vector3Mask]
+{$ifend}
+ andps xmm0,xmm2
+ andps xmm1,xmm2
  mulps xmm0,xmm1         // xmm0 = ?, z1*z2, y1*y2, x1*x2
  movhlps xmm1,xmm0       // xmm1 = ?, ?, ?, z1*z2
  addss xmm1,xmm0         // xmm1 = ?, ?, ?, z1*z2 + x1*x2
@@ -4594,6 +4653,7 @@ asm
  addss xmm1,xmm0         // xmm1 = ?, ?, ?, z1*z2 + y1*y2 + x1*x2
  movss dword ptr [result],xmm1
 end;
+{$ifend}
 {$else}
 begin
  result:=(v1.x*v2.x)+(v1.y*v2.y)+(v1.z*v2.z);
@@ -4601,7 +4661,7 @@ end;
 {$ifend}
 
 function Vector3Cos(const v1,v2:TKraftVector3):TKraftScalar;
-var d:extended;
+var d:TKraftScalar;
 begin
  d:=sqrt(Vector3LengthSquared(v1)*Vector3LengthSquared(v2));
  if d<>0.0 then begin
@@ -4648,7 +4708,9 @@ begin
    result.z:=0.0;
   end;
  end;
+{$ifdef SIMD}
  result.w:=0.0;
+{$endif}
 end;
 
 function Vector3Cross(const v1,v2:TKraftVector3):TKraftVector3; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
@@ -4659,6 +4721,13 @@ asm
 {$ifdef SSEVector3CrossOtherVariant}
  movups xmm0,dqword ptr [v1]
  movups xmm2,dqword ptr [v2]
+{$if defined(cpuamd64)}
+ movups xmm1,dqword ptr [rip+Vector3Mask]
+{$else}
+ movups xmm1,dqword ptr [Vector3Mask]
+{$ifend}
+ andps xmm0,xmm1
+ andps xmm2,xmm1
  movaps xmm1,xmm0
  movaps xmm3,xmm2
  shufps xmm0,xmm0,$c9
@@ -4672,6 +4741,13 @@ asm
 {$else}
  movups xmm0,dqword ptr [v1]
  movups xmm1,dqword ptr [v2]
+{$if defined(cpuamd64)}
+ movups xmm2,dqword ptr [rip+Vector3Mask]
+{$else}
+ movups xmm2,dqword ptr [Vector3Mask]
+{$ifend}
+ andps xmm0,xmm2
+ andps xmm1,xmm2
  movaps xmm2,xmm0
  movaps xmm3,xmm1
  shufps xmm0,xmm0,$12
@@ -4689,6 +4765,9 @@ begin
  result.x:=(v1.y*v2.z)-(v1.z*v2.y);
  result.y:=(v1.z*v2.x)-(v1.x*v2.z);
  result.z:=(v1.x*v2.y)-(v1.y*v2.x);
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
 end;
 {$ifend}
 
@@ -4707,6 +4786,9 @@ begin
  result.x:=-v.x;
  result.y:=-v.y;
  result.z:=-v.z;
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
 end;
 {$ifend}
 
@@ -4730,6 +4812,9 @@ begin
  v.x:=v.x*sx;
  v.y:=v.y*sy;
  v.z:=v.z*sz;
+{$ifdef SIMD}
+ v.w:=0.0;
+{$endif}
 end;
 {$ifend}
 
@@ -4749,6 +4834,9 @@ begin
  v.x:=v.x*s;
  v.y:=v.y*s;
  v.z:=v.z*s;
+{$ifdef SIMD}
+ v.w:=0.0;
+{$endif}
 end;
 {$ifend}
 
@@ -4767,6 +4855,9 @@ begin
  result.x:=v1.x*v2.x;
  result.y:=v1.y*v2.y;
  result.z:=v1.z*v2.z;
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
 end;
 {$ifend}
 
@@ -4909,6 +5000,9 @@ begin
   v.y:=0.0;
   v.z:=0.0;
  end;
+{$ifdef SIMD}
+ v.w:=0.0;
+{$endif}
 end;
 {$ifend}
 
@@ -4947,6 +5041,9 @@ begin
   v.y:=0.0;
   v.z:=0.0;
  end;
+{$ifdef SIMD}
+ v.w:=0.0;
+{$endif}
 end;
 {$ifend}
 
@@ -4985,6 +5082,9 @@ begin
   v.y:=0.0;
   v.z:=0.0;
  end;
+{$ifdef SIMD}
+ v.w:=0.0;
+{$endif}
 end;
 {$ifend}
 
@@ -5002,6 +5102,9 @@ begin
   result.y:=0.0;
   result.z:=0.0;
  end;
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
 end;
 
 function Vector3Norm(const v:TKraftVector3):TKraftVector3; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
@@ -5039,6 +5142,9 @@ begin
   result.y:=0.0;
   result.z:=0.0;
  end;
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
 end;
 {$ifend}
 
@@ -5077,6 +5183,9 @@ begin
   result.y:=0.0;
   result.z:=0.0;
  end;
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
 end;
 {$ifend}
 
@@ -5086,6 +5195,9 @@ begin
  t.x:=v.x;
  t.y:=(v.y*cos(a))-(v.z*sin(a));
  t.z:=(v.y*sin(a))+(v.z*cos(a));
+{$ifdef SIMD}
+ t.w:=0.0;
+{$endif}
  v:=t;
 end;
 
@@ -5095,6 +5207,9 @@ begin
  t.x:=(v.x*cos(a))+(v.z*sin(a));
  t.y:=v.y;
  t.z:=(v.z*cos(a))-(v.x*sin(a));
+{$ifdef SIMD}
+ t.w:=0.0;
+{$endif}
  v:=t;
 end;
 
@@ -5104,6 +5219,9 @@ begin
  t.x:=(v.x*cos(a))-(v.y*sin(a));
  t.y:=(v.x*sin(a))+(v.y*cos(a));
  t.z:=v.z;
+{$ifdef SIMD}
+ t.w:=0.0;
+{$endif}
  v:=t;
 end;
 
@@ -5113,6 +5231,9 @@ begin
  t.x:=(m[0,0]*v.x)+(m[1,0]*v.y)+(m[2,0]*v.z);
  t.y:=(m[0,1]*v.x)+(m[1,1]*v.y)+(m[2,1]*v.z);
  t.z:=(m[0,2]*v.x)+(m[1,2]*v.y)+(m[2,2]*v.z);
+{$ifdef SIMD}
+ t.w:=0.0;
+{$endif}
  v:=t;
 end;
 
@@ -5166,6 +5287,9 @@ begin
  t.x:=(m[0,0]*v.x)+(m[1,0]*v.y)+(m[2,0]*v.z)+m[3,0];
  t.y:=(m[0,1]*v.x)+(m[1,1]*v.y)+(m[2,1]*v.z)+m[3,1];
  t.z:=(m[0,2]*v.x)+(m[1,2]*v.y)+(m[2,2]*v.z)+m[3,2];
+{$ifdef SIMD}
+ t.w:=0.0;
+{$endif}
  v:=t;
 end;
 {$ifend}
@@ -5176,6 +5300,9 @@ begin
  t.x:=(m[0,0]*v.x)+(m[1,0]*v.y)+(m[2,0]*v.z);
  t.y:=(m[0,1]*v.x)+(m[1,1]*v.y)+(m[2,1]*v.z);
  t.z:=(m[0,2]*v.x)+(m[1,2]*v.y)+(m[2,2]*v.z);
+{$ifdef SIMD}
+ t.w:=0.0;
+{$endif}
  v:=t;
 end;
 
@@ -5188,6 +5315,9 @@ begin
  t.x:=(m[0,0]*p.x)+(m[0,1]*p.y)+(m[0,2]*p.z);
  t.y:=(m[1,0]*p.x)+(m[1,1]*p.y)+(m[1,2]*p.z);
  t.z:=(m[2,0]*p.x)+(m[2,1]*p.y)+(m[2,2]*p.z);
+{$ifdef SIMD}
+ t.w:=0.0;
+{$endif}
  v:=t;
 end;
 
@@ -5223,6 +5353,7 @@ begin
  result.x:=(m[0,0]*v.x)+(m[1,0]*v.y)+(m[2,0]*v.z);
  result.y:=(m[0,1]*v.x)+(m[1,1]*v.y)+(m[2,1]*v.z);
  result.z:=(m[0,2]*v.x)+(m[1,2]*v.y)+(m[2,2]*v.z);
+ result.w:=0.0;
 end;
 {$endif}
 (**)
@@ -5263,6 +5394,9 @@ begin
  result.x:=(m[0,0]*v.x)+(m[1,0]*v.y)+(m[2,0]*v.z);
  result.y:=(m[0,1]*v.x)+(m[1,1]*v.y)+(m[2,1]*v.z);
  result.z:=(m[0,2]*v.x)+(m[1,2]*v.y)+(m[2,2]*v.z);
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
 end;
 {$ifend}
 
@@ -5315,6 +5449,9 @@ begin
  result.x:=(m[0,0]*v.x)+(m[1,0]*v.y)+(m[2,0]*v.z)+m[3,0];
  result.y:=(m[0,1]*v.x)+(m[1,1]*v.y)+(m[2,1]*v.z)+m[3,1];
  result.z:=(m[0,2]*v.x)+(m[1,2]*v.y)+(m[2,2]*v.z)+m[3,2];
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
 end;
 {$ifend}
 
@@ -5330,6 +5467,9 @@ begin
  result.x:=((v.x*((m[1,1]*m[2,2])-(m[1,2]*m[2,1])))+(v.y*((m[1,2]*m[2,0])-(m[1,0]*m[2,2])))+(v.z*((m[1,0]*m[2,1])-(m[1,1]*m[2,0]))))*Determinant;
  result.y:=((m[0,0]*((v.y*m[2,2])-(v.z*m[2,1])))+(m[0,1]*((v.z*m[2,0])-(v.x*m[2,2])))+(m[0,2]*((v.x*m[2,1])-(v.y*m[2,0]))))*Determinant;
  result.z:=((m[0,0]*((m[1,1]*v.z)-(m[1,2]*v.y)))+(m[0,1]*((m[1,2]*v.x)-(m[1,0]*v.z)))+(m[0,2]*((m[1,0]*v.y)-(m[1,1]*v.x))))*Determinant;
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
 end;
 
 function Vector3TermMatrixMulInverted(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; overload;
@@ -5341,6 +5481,9 @@ begin
  result.x:=(m[0,0]*p.x)+(m[0,1]*p.y)+(m[0,2]*p.z);
  result.y:=(m[1,0]*p.x)+(m[1,1]*p.y)+(m[1,2]*p.z);
  result.z:=(m[2,0]*p.x)+(m[2,1]*p.y)+(m[2,2]*p.z);
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
 end;
 
 function Vector3TermMatrixMulTransposed(const v:TKraftVector3;const m:TKraftMatrix3x3):TKraftVector3; overload;
@@ -5348,6 +5491,9 @@ begin
  result.x:=(m[0,0]*v.x)+(m[0,1]*v.y)+(m[0,2]*v.z);
  result.y:=(m[1,0]*v.x)+(m[1,1]*v.y)+(m[1,2]*v.z);
  result.z:=(m[2,0]*v.x)+(m[2,1]*v.y)+(m[2,2]*v.z);
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
 end;
 
 function Vector3TermMatrixMulTransposed(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; overload;
@@ -5355,6 +5501,9 @@ begin
  result.x:=(m[0,0]*v.x)+(m[0,1]*v.y)+(m[0,2]*v.z)+m[0,3];
  result.y:=(m[1,0]*v.x)+(m[1,1]*v.y)+(m[1,2]*v.z)+m[1,3];
  result.z:=(m[2,0]*v.x)+(m[2,1]*v.y)+(m[2,2]*v.z)+m[2,3];
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
 end;
 
 function Vector3TermMatrixMulTransposedBasis(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; overload;
@@ -5362,6 +5511,9 @@ begin
  result.x:=(m[0,0]*v.x)+(m[0,1]*v.y)+(m[0,2]*v.z);
  result.y:=(m[1,0]*v.x)+(m[1,1]*v.y)+(m[1,2]*v.z);
  result.z:=(m[2,0]*v.x)+(m[2,1]*v.y)+(m[2,2]*v.z);
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
 end;
 
 function Vector3TermMatrixMulHomogen(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3;
@@ -5374,6 +5526,9 @@ begin
  result.x:=result.x/result_w;
  result.y:=result.y/result_w;
  result.z:=result.z/result_w;
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
 end;
 
 function Vector3TermMatrixMulBasis(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; overload; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
@@ -5411,6 +5566,9 @@ begin
  result.x:=(m[0,0]*v.x)+(m[1,0]*v.y)+(m[2,0]*v.z);
  result.y:=(m[0,1]*v.x)+(m[1,1]*v.y)+(m[2,1]*v.z);
  result.z:=(m[0,2]*v.x)+(m[1,2]*v.y)+(m[2,2]*v.z);
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
 end;
 {$ifend}
 
@@ -5427,6 +5585,9 @@ begin
   result.y:=(iw*v1.y)+(w*v2.y);
   result.z:=(iw*v1.z)+(w*v2.z);
  end;
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
 end;
 
 function Vector3Perpendicular(v:TKraftVector3):TKraftVector3;
@@ -5514,7 +5675,7 @@ asm
 {$ifend}
 
 end;
-{$else}
+{$elseif defined(SIMD)}
 var t,qv:TKraftVector3;
 begin
  // t = 2 * cross(q.xyz, v)
@@ -5523,6 +5684,15 @@ begin
  qv.y:=q.y;
  qv.z:=q.z;
  qv.w:=0.0;
+ t:=Vector3ScalarMul(Vector3Cross(qv,v),2.0);
+ result:=Vector3Add(Vector3Add(v,Vector3ScalarMul(t,q.w)),Vector3Cross(qv,t));
+end;
+{$else}
+var t,qv:TKraftVector3;
+begin
+ // t = 2 * cross(q.xyz, v)
+ // v' = v + q.w * t + cross(q.xyz, t)
+ qv:=PKraftVector3(pointer(@q))^;
  t:=Vector3ScalarMul(Vector3Cross(qv,v),2.0);
  result:=Vector3Add(Vector3Add(v,Vector3ScalarMul(t,q.w)),Vector3Cross(qv,t));
 end;
@@ -5546,539 +5716,6 @@ begin
   result:=result+(v.z*MinVector.z);
  end;
 end;
-{$else}
-function Vector3Flip(const v:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
-begin
- result.x:=v.x;
- result.y:=v.z;
- result.z:=-v.y;
-end;
-
-function Vector3Abs(const v:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
-begin
- result.x:=abs(v.x);
- result.y:=abs(v.y);
- result.z:=abs(v.z);
-end;
-
-function Vector3Compare(const v1,v2:TKraftVector3):boolean; {$ifdef caninline}inline;{$endif}
-begin
- result:=(abs(v1.x-v2.x)<EPSILON) and (abs(v1.y-v2.y)<EPSILON) and (abs(v1.z-v2.z)<EPSILON);
-end;
-
-function Vector3CompareEx(const v1,v2:TKraftVector3;const Threshold:TKraftScalar=EPSILON):boolean; {$ifdef caninline}inline;{$endif}
-begin
- result:=(abs(v1.x-v2.x)<Threshold) and (abs(v1.y-v2.y)<Threshold) and (abs(v1.z-v2.z)<Threshold);
-end;
-
-function Vector3DirectAdd(var v1:TKraftVector3;const v2:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
-begin
- v1.x:=v1.x+v2.x;
- v1.y:=v1.y+v2.y;
- v1.z:=v1.z+v2.z;
-end;
-
-function Vector3DirectSub(var v1:TKraftVector3;const v2:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
-begin
- v1.x:=v1.x-v2.x;
- v1.y:=v1.y-v2.y;
- v1.z:=v1.z-v2.z;
-end;
-
-function Vector3Add(const v1,v2:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
-begin
- result.x:=v1.x+v2.x;
- result.y:=v1.y+v2.y;
- result.z:=v1.z+v2.z;
-end;
-
-function Vector3Sub(const v1,v2:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
-begin
- result.x:=v1.x-v2.x;
- result.y:=v1.y-v2.y;
- result.z:=v1.z-v2.z;
-end;
-
-function Vector3Avg(const v1,v2:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
-begin
- result.x:=(v1.x+v2.x)*0.5;
- result.y:=(v1.y+v2.y)*0.5;
- result.z:=(v1.z+v2.z)*0.5;
-end;
-
-function Vector3Avg(const v1,v2,v3:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
-begin
- result.x:=(v1.x+v2.x+v3.x)/3.0;
- result.y:=(v1.y+v2.y+v3.y)/3.0;
- result.z:=(v1.z+v2.z+v3.z)/3.0;
-end;
-
-function Vector3Avg(const va:PKraftVector3s;Count:longint):TKraftVector3; {$ifdef caninline}inline;{$endif}
-var i:longint;
-begin
- result.x:=0.0;
- result.y:=0.0;
- result.z:=0.0;
- if Count>0 then begin
-  for i:=0 to Count-1 do begin
-   result.x:=result.x+va^[i].x;
-   result.y:=result.y+va^[i].y;
-   result.z:=result.z+va^[i].z;
-  end;
-  result.x:=result.x/Count;
-  result.y:=result.y/Count;
-  result.z:=result.z/Count;
- end;
-end;
-
-function Vector3ScalarMul(const v:TKraftVector3;const s:TKraftScalar):TKraftVector3; {$ifdef caninline}inline;{$endif}
-begin
- result.x:=v.x*s;
- result.y:=v.y*s;
- result.z:=v.z*s;
-end;
-
-function Vector3Dot(const v1,v2:TKraftVector3):TKraftScalar; {$ifdef caninline}inline;{$endif}
-begin
- result:=(v1.x*v2.x)+(v1.y*v2.y)+(v1.z*v2.z);
-end;
-
-function Vector3Cos(const v1,v2:TKraftVector3):TKraftScalar; {$ifdef caninline}inline;{$endif}
-var d:extended;
-begin
- d:=SQRT(Vector3LengthSquared(v1)*Vector3LengthSquared(v2));
- if d<>0.0 then begin
-  result:=((v1.x*v2.x)+(v1.y*v2.y)+(v1.z*v2.z))/d; //result:=Vector3Dot(v1,v2)/d;
- end else begin
-  result:=0.0;
- end
-end;
-
-function Vector3GetOneUnitOrthogonalVector(const v:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
-var MinimumAxis:longint;
-    l:TKraftScalar;
-begin
- if abs(v.x)<abs(v.y) then begin
-  if abs(v.x)<abs(v.z) then begin
-   MinimumAxis:=0;
-  end else begin
-   MinimumAxis:=2;
-  end;
- end else begin
-  if abs(v.y)<abs(v.z) then begin
-   MinimumAxis:=1;
-  end else begin
-   MinimumAxis:=2;
-  end;
- end;
- case MinimumAxis of
-  0:begin
-   l:=sqrt(sqr(v.y)+sqr(v.z));
-   result.x:=0.0;
-   result.y:=-(v.z/l);
-   result.z:=v.y/l;
-  end;
-  1:begin
-   l:=sqrt(sqr(v.x)+sqr(v.z));
-   result.x:=-(v.z/l);
-   result.y:=0.0;
-   result.z:=v.x/l;
-  end;
-  else begin
-   l:=sqrt(sqr(v.x)+sqr(v.y));
-   result.x:=-(v.y/l);
-   result.y:=v.x/l;
-   result.z:=0.0;
-  end;
- end;
-end;
-
-function Vector3Cross(const v1,v2:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
-begin
- result.x:=(v1.y*v2.z)-(v1.z*v2.y);
- result.y:=(v1.z*v2.x)-(v1.x*v2.z);
- result.z:=(v1.x*v2.y)-(v1.y*v2.x);
-end;
-
-function Vector3Neg(const v:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
-begin
- result.x:=-v.x;
- result.y:=-v.y;
- result.z:=-v.z;
-end;
-
-procedure Vector3Scale(var v:TKraftVector3;const sx,sy,sz:TKraftScalar); overload; {$ifdef caninline}inline;{$endif}
-begin
- v.x:=v.x*sx;
- v.y:=v.y*sy;
- v.z:=v.z*sz;
-end;
-
-procedure Vector3Scale(var v:TKraftVector3;const s:TKraftScalar); overload; {$ifdef caninline}inline;{$endif}
-begin
- v.x:=v.x*s;
- v.y:=v.y*s;
- v.z:=v.z*s;
-end;
-
-function Vector3Mul(const v1,v2:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
-begin
- result.x:=v1.x*v2.x;
- result.y:=v1.y*v2.y;
- result.z:=v1.z*v2.z;
-end;
-
-function Vector3Length(const v:TKraftVector3):TKraftScalar; {$ifdef caninline}inline;{$endif}
-begin
- result:=sqrt(sqr(v.x)+sqr(v.y)+sqr(v.z));
-end;
-
-function Vector3Dist(const v1,v2:TKraftVector3):TKraftScalar; {$ifdef caninline}inline;{$endif}
-begin
- result:=sqrt(sqr(v2.x-v1.x)+sqr(v2.y-v1.y)+sqr(v2.z-v1.z));
-end;
-
-function Vector3LengthSquared(const v:TKraftVector3):TKraftScalar; {$ifdef caninline}inline;{$endif}
-begin
- result:=sqr(v.x)+sqr(v.y)+sqr(v.z);
-end;
-
-function Vector3DistSquared(const v1,v2:TKraftVector3):TKraftScalar; {$ifdef caninline}inline;{$endif}
-begin
- result:=sqr(v2.x-v1.x)+sqr(v2.y-v1.y)+sqr(v2.z-v1.z);
-end;
-
-function Vector3Angle(const v1,v2,v3:TKraftVector3):TKraftScalar; {$ifdef caninline}inline;{$endif}
-var A1,A2:TKraftVector3;
-    L1,L2:TKraftScalar;
-begin
- A1:=Vector3Sub(v1,v2);
- A2:=Vector3Sub(v3,v2);
- L1:=Vector3Length(A1);
- L2:=Vector3Length(A2);
- if (L1=0) or (L2=0) then begin
-  result:=0;
- end else begin
-  result:=ArcCos(Vector3Dot(A1,A2)/(L1*L2));
- end;
-end;
-
-function Vector3LengthNormalize(var v:TKraftVector3):TKraftScalar; {$ifdef caninline}inline;{$endif}
-var l:TKraftScalar;
-begin
- result:=sqr(v.x)+sqr(v.y)+sqr(v.z);
- if result>0.0 then begin
-  result:=sqrt(result);
-  l:=1.0/result;
-  v.x:=v.x*l;
-  v.y:=v.y*l;
-  v.z:=v.z*l;
- end else begin
-  result:=0.0;
-  v.x:=0.0;
-  v.y:=0.0;
-  v.z:=0.0;
- end;
-end;
-
-procedure Vector3Normalize(var v:TKraftVector3); {$ifdef caninline}inline;{$endif}
-var l:TKraftScalar;
-begin
- l:=sqr(v.x)+sqr(v.y)+sqr(v.z);
- if l>0.0 then begin
-  l:=1.0/sqrt(l);
-  v.x:=v.x*l;
-  v.y:=v.y*l;
-  v.z:=v.z*l;
- end else begin
-  v.x:=0.0;
-  v.y:=0.0;
-  v.z:=0.0;
- end;
-end;
-
-procedure Vector3NormalizeEx(var v:TKraftVector3); {$ifdef caninline}inline;{$endif}
-var l:single;
-begin
- l:=sqr(v.x)+sqr(v.y)+sqr(v.z);
- if l>0.0 then begin
-  l:=sqrt(l);
-  v.x:=v.x/l;
-  v.y:=v.y/l;
-  v.z:=v.z/l;
- end else begin
-  v.x:=0.0;
-  v.y:=0.0;
-  v.z:=0.0;
- end;
-end;
-
-function Vector3SafeNorm(const v:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
-var l:TKraftScalar;
-begin
- l:=sqr(v.x)+sqr(v.y)+sqr(v.z);
- if l>0.0 then begin
-  l:=1.0/sqrt(l);
-  result.x:=v.x*l;
-  result.y:=v.y*l;
-  result.z:=v.z*l;
- end else begin
-  result.x:=1.0;
-  result.y:=0.0;
-  result.z:=0.0;
- end;
-end;
-
-function Vector3Norm(const v:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
-var l:TKraftScalar;
-begin
- l:=sqr(v.x)+sqr(v.y)+sqr(v.z);
- if l>0.0 then begin
-  l:=1.0/sqrt(l);
-  result.x:=v.x*l;
-  result.y:=v.y*l;
-  result.z:=v.z*l;
- end else begin
-  result.x:=0.0;
-  result.y:=0.0;
-  result.z:=0.0;
- end;
-end;
-
-function Vector3NormEx(const v:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
-var l:TKraftScalar;
-begin
- l:=sqr(v.x)+sqr(v.y)+sqr(v.z);
- if l>0.0 then begin
-  l:=sqrt(l);
-  result.x:=v.x/l;
-  result.y:=v.y/l;
-  result.z:=v.z/l;
- end else begin
-  result.x:=0.0;
-  result.y:=0.0;
-  result.z:=0.0;
- end;
-end;
-
-procedure Vector3RotateX(var v:TKraftVector3;a:TKraftScalar); {$ifdef caninline}inline;{$endif}
-var t:TKraftVector3;
-begin
- t.x:=v.x;
- t.y:=(v.y*cos(a))-(v.z*sin(a));
- t.z:=(v.y*sin(a))+(v.z*cos(a));
- v:=t;
-end;
-
-procedure Vector3RotateY(var v:TKraftVector3;a:TKraftScalar); {$ifdef caninline}inline;{$endif}
-var t:TKraftVector3;
-begin
- t.x:=(v.x*cos(a))+(v.z*sin(a));
- t.y:=v.y;
- t.z:=(v.z*cos(a))-(v.x*sin(a));
- v:=t;
-end;
-
-procedure Vector3RotateZ(var v:TKraftVector3;a:TKraftScalar); {$ifdef caninline}inline;{$endif}
-var t:TKraftVector3;
-begin
- t.x:=(v.x*cos(a))-(v.y*sin(a));
- t.y:=(v.x*sin(a))+(v.y*cos(a));
- t.z:=v.z;
- v:=t;
-end;
-
-procedure Vector3MatrixMul(var v:TKraftVector3;const m:TKraftMatrix3x3); overload; {$ifdef caninline}inline;{$endif}
-var t:TKraftVector3;
-begin
- t.x:=(m[0,0]*v.x)+(m[1,0]*v.y)+(m[2,0]*v.z);
- t.y:=(m[0,1]*v.x)+(m[1,1]*v.y)+(m[2,1]*v.z);
- t.z:=(m[0,2]*v.x)+(m[1,2]*v.y)+(m[2,2]*v.z);
- v:=t;
-end;
-
-procedure Vector3MatrixMul(var v:TKraftVector3;const m:TKraftMatrix4x4); overload;
-var t:TKraftVector3;
-begin
- t.x:=(m[0,0]*v.x)+(m[1,0]*v.y)+(m[2,0]*v.z)+m[3,0];
- t.y:=(m[0,1]*v.x)+(m[1,1]*v.y)+(m[2,1]*v.z)+m[3,1];
- t.z:=(m[0,2]*v.x)+(m[1,2]*v.y)+(m[2,2]*v.z)+m[3,2];
- v:=t;
-end;
-
-procedure Vector3MatrixMulBasis(var v:TKraftVector3;const m:TKraftMatrix4x4); overload; {$ifdef caninline}inline;{$endif}
-var t:TKraftVector3;
-begin
- t.x:=(m[0,0]*v.x)+(m[1,0]*v.y)+(m[2,0]*v.z);
- t.y:=(m[0,1]*v.x)+(m[1,1]*v.y)+(m[2,1]*v.z);
- t.z:=(m[0,2]*v.x)+(m[1,2]*v.y)+(m[2,2]*v.z);
- v:=t;
-end;
-
-procedure Vector3MatrixMulInverted(var v:TKraftVector3;const m:TKraftMatrix4x4); overload; {$ifdef caninline}inline;{$endif}
-var p,t:TKraftVector3;
-begin
- p.x:=v.x-m[3,0];
- p.y:=v.y-m[3,1];
- p.z:=v.z-m[3,2];
- t.x:=(m[0,0]*p.x)+(m[0,1]*p.y)+(m[0,2]*p.z);
- t.y:=(m[1,0]*p.x)+(m[1,1]*p.y)+(m[1,2]*p.z);
- t.z:=(m[2,0]*p.x)+(m[2,1]*p.y)+(m[2,2]*p.z);
- v:=t;
-end;
-
-function Vector3TermMatrixMul(const v:TKraftVector3;const m:TKraftMatrix3x3):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
-begin
- result.x:=(m[0,0]*v.x)+(m[1,0]*v.y)+(m[2,0]*v.z);
- result.y:=(m[0,1]*v.x)+(m[1,1]*v.y)+(m[2,1]*v.z);
- result.z:=(m[0,2]*v.x)+(m[1,2]*v.y)+(m[2,2]*v.z);
-end;
-
-function Vector3TermMatrixMulInverse(const v:TKraftVector3;const m:TKraftMatrix3x3):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
-var Determinant:TKraftScalar;
-begin
- Determinant:=((m[0,0]*((m[1,1]*m[2,2])-(m[2,1]*m[1,2])))-
-               (m[0,1]*((m[1,0]*m[2,2])-(m[2,0]*m[1,2]))))+
-               (m[0,2]*((m[1,0]*m[2,1])-(m[2,0]*m[1,1])));
- if Determinant<>0.0 then begin
-  Determinant:=1.0/Determinant;
- end;
- result.x:=((v.x*((m[1,1]*m[2,2])-(m[1,2]*m[2,1])))+(v.y*((m[1,2]*m[2,0])-(m[1,0]*m[2,2])))+(v.z*((m[1,0]*m[2,1])-(m[1,1]*m[2,0]))))*Determinant;
- result.y:=((m[0,0]*((v.y*m[2,2])-(v.z*m[2,1])))+(m[0,1]*((v.z*m[2,0])-(v.x*m[2,2])))+(m[0,2]*((v.x*m[2,1])-(v.y*m[2,0]))))*Determinant;
- result.z:=((m[0,0]*((m[1,1]*v.z)-(m[1,2]*v.y)))+(m[0,1]*((m[1,2]*v.x)-(m[1,0]*v.z)))+(m[0,2]*((m[1,0]*v.y)-(m[1,1]*v.x))))*Determinant;
-end;
-
-function Vector3TermMatrixMulInverted(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
-var p:TKraftVector3;
-begin
- p.x:=v.x-m[3,0];
- p.y:=v.y-m[3,1];
- p.z:=v.z-m[3,2];
- result.x:=(m[0,0]*p.x)+(m[0,1]*p.y)+(m[0,2]*p.z);
- result.y:=(m[1,0]*p.x)+(m[1,1]*p.y)+(m[1,2]*p.z);
- result.z:=(m[2,0]*p.x)+(m[2,1]*p.y)+(m[2,2]*p.z);
-end;
-
-function Vector3TermMatrixMulTransposed(const v:TKraftVector3;const m:TKraftMatrix3x3):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
-begin
- result.x:=(m[0,0]*v.x)+(m[0,1]*v.y)+(m[0,2]*v.z);
- result.y:=(m[1,0]*v.x)+(m[1,1]*v.y)+(m[1,2]*v.z);
- result.z:=(m[2,0]*v.x)+(m[2,1]*v.y)+(m[2,2]*v.z);
-end;
-
-function Vector3TermMatrixMulTransposed(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
-begin
- result.x:=(m[0,0]*v.x)+(m[0,1]*v.y)+(m[0,2]*v.z)+m[0,3];
- result.y:=(m[1,0]*v.x)+(m[1,1]*v.y)+(m[1,2]*v.z)+m[1,3];
- result.z:=(m[2,0]*v.x)+(m[2,1]*v.y)+(m[2,2]*v.z)+m[2,3];
-end;
-
-function Vector3TermMatrixMulTransposedBasis(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
-begin
- result.x:=(m[0,0]*v.x)+(m[0,1]*v.y)+(m[0,2]*v.z);
- result.y:=(m[1,0]*v.x)+(m[1,1]*v.y)+(m[1,2]*v.z);
- result.z:=(m[2,0]*v.x)+(m[2,1]*v.y)+(m[2,2]*v.z);
-end;
-
-function Vector3TermMatrixMulHomogen(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; {$ifdef caninline}inline;{$endif}
-var result_w:TKraftScalar;
-begin
- result.x:=(m[0,0]*v.x)+(m[1,0]*v.y)+(m[2,0]*v.z)+m[3,0];
- result.y:=(m[0,1]*v.x)+(m[1,1]*v.y)+(m[2,1]*v.z)+m[3,1];
- result.z:=(m[0,2]*v.x)+(m[1,2]*v.y)+(m[2,2]*v.z)+m[3,2];
- result_w:=(m[0,3]*v.x)+(m[1,3]*v.y)+(m[2,3]*v.z)+m[3,3];
- result.x:=result.x/result_w;
- result.y:=result.y/result_w;
- result.z:=result.z/result_w;
-end;
-
-function Vector3TermMatrixMulBasis(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; {$ifdef caninline}inline;{$endif}
-begin
- result.x:=(m[0,0]*v.x)+(m[1,0]*v.y)+(m[2,0]*v.z);
- result.y:=(m[0,1]*v.x)+(m[1,1]*v.y)+(m[2,1]*v.z);
- result.z:=(m[0,2]*v.x)+(m[1,2]*v.y)+(m[2,2]*v.z);
-end;
-
-function Vector3TermMatrixMul(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; overload;
-begin
- result.x:=(m[0,0]*v.x)+(m[1,0]*v.y)+(m[2,0]*v.z)+m[3,0];
- result.y:=(m[0,1]*v.x)+(m[1,1]*v.y)+(m[2,1]*v.z)+m[3,1];
- result.z:=(m[0,2]*v.x)+(m[1,2]*v.y)+(m[2,2]*v.z)+m[3,2];
-end;
-
-function Vector3Lerp(const v1,v2:TKraftVector3;w:TKraftScalar):TKraftVector3; {$ifdef caninline}inline;{$endif}
-var iw:TKraftScalar;
-begin
- if w<0.0 then begin
-  result:=v1;
- end else if w>1.0 then begin
-  result:=v2;
- end else begin
-  iw:=1.0-w;
-  result.x:=(iw*v1.x)+(w*v2.x);
-  result.y:=(iw*v1.y)+(w*v2.y);
-  result.z:=(iw*v1.z)+(w*v2.z);
- end;
-end;
-
-function Vector3Perpendicular(v:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
-var p:TKraftVector3;
-begin
- Vector3NormalizeEx(v);
- p.x:=abs(v.x);
- p.y:=abs(v.y);
- p.z:=abs(v.z);
- if (p.x<=p.y) and (p.x<=p.z) then begin
-  p:=Vector3XAxis;
- end else if (p.y<=p.x) and (p.y<=p.z) then begin
-  p:=Vector3YAxis;
- end else begin
-  p:=Vector3ZAxis;
- end;
- result:=Vector3NormEx(Vector3Sub(p,Vector3ScalarMul(v,Vector3Dot(v,p))));
-end;
-
-function Vector3TermQuaternionRotate(const v:TKraftVector3;const q:TKraftQuaternion):TKraftVector3; {$ifdef caninline}inline;{$endif}
-var t,qv:TKraftVector3;
-begin
- // t = 2 * cross(q.xyz, v)
- // v' = v + q.w * t + cross(q.xyz, t)
- qv:=PKraftVector3(pointer(@q))^;
- t:=Vector3ScalarMul(Vector3Cross(qv,v),2.0);
- result:=Vector3Add(Vector3Add(v,Vector3ScalarMul(t,q.w)),Vector3Cross(qv,t));
-end;
-{var vn:TKraftVector3;
-vq,rq:TKraftQuaternion;
-begin
- vq.x:=vn.x;
- vq.y:=vn.y;
- vq.z:=vn.z;
- vq.w:=0.0;
- rq:=QuaternionMul(q,QuaternionMul(vq,QuaternionConjugate(q)));
- result.x:=rq.x;
- result.y:=rq.y;
- result.z:=rq.z;
-end;{}
-
-function Vector3ProjectToBounds(const v:TKraftVector3;const MinVector,MaxVector:TKraftVector3):TKraftScalar; {$ifdef caninline}inline;{$endif}
-begin
- if v.x<0.0 then begin
-  result:=v.x*MaxVector.x;
- end else begin
-  result:=v.x*MinVector.x;
- end;
- if v.y<0.0 then begin
-  result:=result+(v.y*MaxVector.y);
- end else begin
-  result:=result+(v.y*MinVector.y);
- end;
- if v.z<0.0 then begin
-  result:=result+(v.z*MaxVector.z);
- end else begin
-  result:=result+(v.z*MinVector.z);
- end;
-end;
-{$endif}
 
 function Vector3FlushZero(const v:TKraftVector3):TKraftVector3;
 begin
