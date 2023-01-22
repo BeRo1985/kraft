@@ -157,7 +157,7 @@ unit kraft;
  {$endif}
  {$if defined(cpux64) or defined(cpuamd64)}
   {$if not (defined(Darwin) or defined(CompileForWithPIC))}
-   ///{$define CPUAMD64ASMForSinglePrecision}
+   {$define CPUAMD64ASMForSinglePrecision}
   {$ifend}
  {$ifend}
  {$undef SIMD}
@@ -4883,9 +4883,9 @@ asm
  addss xmm1,xmm0         // xmm1 = ?, ?, ?, z*z + x*x
  shufps xmm0,xmm0,$55    // xmm0 = ?, ?, ?, y*y
  addss xmm1,xmm0         // xmm1 = ?, ?, ?, z*z + y*y + x*x
- rsqrtss xmm0,xmm1
+ sqrtss xmm0,xmm1        // not rsqrtss! because rsqrtss has only 12-bit accuracy
  shufps xmm0,xmm0,$00
- mulps xmm2,xmm0
+ divps xmm2,xmm0
  movaps xmm1,xmm2
  subps xmm1,xmm2
  cmpps xmm1,xmm2,7
@@ -4921,7 +4921,7 @@ asm
  addss xmm1,xmm0         // xmm1 = ?, ?, ?, z*z + x*x
  shufps xmm0,xmm0,$55    // xmm0 = ?, ?, ?, y*y
  addss xmm1,xmm0         // xmm1 = ?, ?, ?, z*z + y*y + x*x
- sqrtss xmm0,xmm1
+ sqrtss xmm0,xmm1        // not rsqrtss! because rsqrtss has only 12-bit accuracy
  shufps xmm0,xmm0,$00
  divps xmm2,xmm0
  movaps xmm1,xmm2
@@ -4975,9 +4975,9 @@ asm
  addss xmm1,xmm0         // xmm1 = ?, ?, ?, z*z + x*x
  shufps xmm0,xmm0,$55    // xmm0 = ?, ?, ?, y*y
  addss xmm1,xmm0         // xmm1 = ?, ?, ?, z*z + y*y + x*x
- rsqrtss xmm0,xmm1
+ sqrtss xmm0,xmm1        // not rsqrtss! because rsqrtss has only 12-bit accuracy
  shufps xmm0,xmm0,$00
- mulps xmm2,xmm0
+ divps xmm2,xmm0
  movaps xmm1,xmm2
  subps xmm1,xmm2
  cmpps xmm1,xmm2,7
@@ -5013,7 +5013,7 @@ asm
  addss xmm1,xmm0         // xmm1 = ?, ?, ?, z*z + x*x
  shufps xmm0,xmm0,$55    // xmm0 = ?, ?, ?, y*y
  addss xmm1,xmm0         // xmm1 = ?, ?, ?, z*z + y*y + x*x
- sqrtss xmm0,xmm1
+ sqrtss xmm0,xmm1        // not rsqrtss! because rsqrtss has only 12-bit accuracy
  shufps xmm0,xmm0,$00
  divps xmm2,xmm0
  movaps xmm1,xmm2
