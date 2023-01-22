@@ -12818,7 +12818,16 @@ end;
 
 function SignedDistanceFieldPenetration(const ShapeA,ShapeB:TKraftShape;const TransformA,TransformB:TKraftMatrix4x4;out PositionA,PositionB,Normal:TKraftVector3;out PenetrationDepth:TKraftScalar):boolean;
 begin
+
  result:=false;
+
+ PositionA:=Vector3Origin;
+ PositionB:=Vector3Origin;
+ Normal:=Vector3Origin;
+ PenetrationDepth:=0.0;
+
+
+
 end;
 
 function AABBHasPoint(const aAABBOrigin,aAABBExtents,aPoint:TKraftVector3):boolean;
@@ -34986,8 +34995,10 @@ var Hit:boolean;
   end;
   if InsideSphere and (ClosestFaceIndex>=0) then begin
    // the sphere center is inside the convex hull . . .
-   Normal:=Vector3SafeNorm(Vector3TermMatrixMulBasis(Shape.fConvexHull.fFaces[ClosestFaceIndex].Plane.Normal,Shape.fWorldTransform));
-   SumMinimumTranslationVector:=Vector3Sub(SumMinimumTranslationVector,Vector3ScalarMul(Normal,ClosestDistance-Sphere.Radius));
+   Face:=@Shape.fConvexHull.fFaces[ClosestFaceIndex];
+   Distance:=PlaneVectorDistance(Face^.Plane,SphereCenter);
+   Normal:=Vector3SafeNorm(Vector3TermMatrixMulBasis(Face^.Plane.Normal,Shape.fWorldTransform));
+   SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Normal,Sphere.Radius-Distance));
    inc(Count);
    Hit:=true;
    if assigned(OnPushSphereShapeContactHook) then begin
