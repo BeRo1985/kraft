@@ -160,6 +160,7 @@ unit kraft;
  {$ifend}
  {$if defined(SIMDASM)}
   {$define SIMD}
+  //{$undef SIMDASM}
  {$ifend}
 {$endif}
 
@@ -12450,6 +12451,7 @@ begin
      TimeDirection:=Vector3ScalarMul(aDirection,aTime);
      CapsuleP0:=Vector3Sub(aCapsuleP0,TimeDirection);
      CapsuleP1:=Vector3Sub(aCapsuleP1,TimeDirection);
+     IntersectionPoint:=Vector3Origin;
      SegmentSqrDistance(CapsuleP0,CapsuleP1,aSphereCenter,@IntersectionPoint);
      Normal:=Vector3Norm(Vector3Sub(IntersectionPoint,aSphereCenter));
      aIntersectionPoint:=Vector3Sub(IntersectionPoint,Vector3ScalarMul(Normal,aCapsuleRadius));
