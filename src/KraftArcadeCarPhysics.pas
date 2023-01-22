@@ -1229,6 +1229,7 @@ var LocalWheelPosition:TKraftVector3;
     LocalWheelRotation:TKraftQuaternion;
     WorldSpacePosition:TKraftVector3;
     WorldSpaceRotation:TKraftQuaternion;
+    Scale:TKraftScalar;
 begin
 
  LocalWheelPosition:=Vector3(fAxle.fWidth*fOffset*0.5,fAxle.fOffset.y-fSuspensionLength,fAxle.fOffset.x);
@@ -1238,10 +1239,20 @@ begin
  WorldSpaceRotation:=QuaternionMul(Vehicle.fRigidBody.Sweep.q,LocalWheelRotation);
 
  fWorldTransform:=QuaternionToMatrix4x4(WorldSpaceRotation);
- Vector3Scale(PKraftVector3(@fWorldTransform[0,0])^,fAxle.fRadius*fAxle.fWheelVisualScale);
+ Scale:=fAxle.fRadius*fAxle.fWheelVisualScale;
+ fWorldTransform[0,0]:=fWorldTransform[0,0]*Scale;
+ fWorldTransform[0,1]:=fWorldTransform[0,1]*Scale;
+ fWorldTransform[0,2]:=fWorldTransform[0,2]*Scale;
+ fWorldTransform[1,0]:=fWorldTransform[1,0]*Scale;
+ fWorldTransform[1,1]:=fWorldTransform[1,1]*Scale;
+ fWorldTransform[1,2]:=fWorldTransform[1,2]*Scale;
+ fWorldTransform[2,0]:=fWorldTransform[2,0]*Scale;
+ fWorldTransform[2,1]:=fWorldTransform[2,1]*Scale;
+ fWorldTransform[2,2]:=fWorldTransform[2,2]*Scale;
+{Vector3Scale(PKraftVector3(@fWorldTransform[0,0])^,fAxle.fRadius*fAxle.fWheelVisualScale);
  Vector3Scale(PKraftVector3(@fWorldTransform[1,0])^,fAxle.fRadius*fAxle.fWheelVisualScale);
- Vector3Scale(PKraftVector3(@fWorldTransform[2,0])^,fAxle.fRadius*fAxle.fWheelVisualScale);
- PKraftVector3(@fWorldTransform[3,0])^:=WorldSpacePosition;
+ Vector3Scale(PKraftVector3(@fWorldTransform[2,0])^,fAxle.fRadius*fAxle.fWheelVisualScale);}
+ PKraftVector3(@fWorldTransform[3,0])^.xyz:=WorldSpacePosition.xyz;
 
 end;
 
@@ -1543,13 +1554,13 @@ end;
 procedure TVehicle.UpdateWorldTransformVectors;
 begin
  fWorldTransform:=fRigidBody.WorldTransform;
- fWorldRight:=PKraftVector3(pointer(@fWorldTransform[0,0]))^;
+ fWorldRight:=Vector3(PKraftRawVector3(pointer(@fWorldTransform[0,0]))^);
  fWorldLeft:=Vector3Neg(fWorldRight);
- fWorldUp:=PKraftVector3(pointer(@fWorldTransform[1,0]))^;
+ fWorldUp:=Vector3(PKraftRawVector3(pointer(@fWorldTransform[1,0]))^);
  fWorldDown:=Vector3Neg(fWorldUp);
- fWorldForward:=PKraftVector3(pointer(@fWorldTransform[2,0]))^;
+ fWorldForward:=Vector3(PKraftRawVector3(pointer(@fWorldTransform[2,0]))^);
  fWorldBackward:=Vector3Neg(fWorldForward);
- fWorldPosition:=PKraftVector3(pointer(@fWorldTransform[3,0]))^;
+ fWorldPosition:=Vector3(PKraftRawVector3(pointer(@fWorldTransform[3,0]))^);
 end;
 
 function TVehicle.GetHandBrakeK:TKraftScalar;
@@ -1633,7 +1644,7 @@ var LinearVelocity,WorldSpaceForward,ProjectedVector:TKraftVector3;
     Factor:TKraftScalar;
 begin
  LinearVelocity:=fRigidBody.LinearVelocity;
- WorldSpaceForward:=PKraftVector3(@fRigidBody.WorldTransform[2,0])^;
+ WorldSpaceForward:=Vector3(PKraftRawVector3(@fRigidBody.WorldTransform[2,0])^);
  Factor:=Vector3Dot(WorldSpaceForward,LinearVelocity);
  ProjectedVector:=Vector3ScalarMul(WorldSpaceForward,Factor);
  result:=Vector3Length(ProjectedVector)*Sign(Factor);
@@ -1858,13 +1869,13 @@ begin
  fAxleFront.StoreWorldTransforms;
  fAxleRear.StoreWorldTransforms;
  fLastWorldTransform:=fWorldTransform;
- fLastWorldRight:=PKraftVector3(pointer(@fLastWorldTransform[0,0]))^;
+ fLastWorldRight:=Vector3(PKraftRawVector3(pointer(@fLastWorldTransform[0,0]))^);
  fLastWorldLeft:=Vector3Neg(fLastWorldRight);
- fLastWorldUp:=PKraftVector3(pointer(@fLastWorldTransform[1,0]))^;
+ fLastWorldUp:=Vector3(PKraftRawVector3(pointer(@fLastWorldTransform[1,0]))^);
  fLastWorldDown:=Vector3Neg(fLastWorldUp);
- fLastWorldForward:=PKraftVector3(pointer(@fLastWorldTransform[2,0]))^;
+ fLastWorldForward:=Vector3(PKraftRawVector3(pointer(@fLastWorldTransform[2,0]))^);
  fLastWorldBackward:=Vector3Neg(fLastWorldForward);
- fLastWorldPosition:=PKraftVector3(pointer(@fLastWorldTransform[3,0]))^;
+ fLastWorldPosition:=Vector3(PKraftRawVector3(pointer(@fLastWorldTransform[3,0]))^);
 end;
 
 procedure TVehicle.InterpolateWorldTransforms(const aAlpha:TKraftScalar);
@@ -1874,13 +1885,13 @@ begin
  fAxleFront.InterpolateWorldTransforms(aAlpha);
  fAxleRear.InterpolateWorldTransforms(aAlpha);
  fVisualWorldTransform:=Matrix4x4Lerp(fLastWorldTransform,fWorldTransform,aAlpha);
- fVisualWorldRight:=PKraftVector3(pointer(@fVisualWorldTransform[0,0]))^;
+ fVisualWorldRight:=Vector3(PKraftRawVector3(pointer(@fVisualWorldTransform[0,0]))^);
  fVisualWorldLeft:=Vector3Neg(fVisualWorldRight);
- fVisualWorldUp:=PKraftVector3(pointer(@fVisualWorldTransform[1,0]))^;
+ fVisualWorldUp:=Vector3(PKraftRawVector3(pointer(@fVisualWorldTransform[1,0]))^);
  fVisualWorldDown:=Vector3Neg(fVisualWorldUp);
- fVisualWorldForward:=PKraftVector3(pointer(@fVisualWorldTransform[2,0]))^;
+ fVisualWorldForward:=Vector3(PKraftRawVector3(pointer(@fVisualWorldTransform[2,0]))^);
  fVisualWorldBackward:=Vector3Neg(fVisualWorldForward);
- fVisualWorldPosition:=PKraftVector3(pointer(@fVisualWorldTransform[3,0]))^;
+ fVisualWorldPosition:=Vector3(PKraftRawVector3(pointer(@fVisualWorldTransform[3,0]))^);
 end;
 
 {$ifdef DebugDraw}

@@ -3509,6 +3509,7 @@ const Vector2Origin:TKraftVector2=(x:0.0;y:0.0);
 
 function Vector2(x,y:TKraftScalar):TKraftVector2; {$ifdef caninline}inline;{$endif}
 function Vector3(x,y,z:TKraftScalar):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
+function Vector3(const v:TKraftRawVector3):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
 function Vector3(const v:TKraftVector4):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
 function Matrix3x3(const m:TKraftMatrix4x4):TKraftMatrix3x3; overload; {$ifdef caninline}inline;{$endif}
 function Plane(Normal:TKraftVector3;Distance:TKraftScalar):TKraftPlane; overload; {$ifdef caninline}inline;{$endif}
@@ -4153,6 +4154,14 @@ begin
  result.x:=x;
  result.y:=y;
  result.z:=z;
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
+end;
+
+function Vector3(const v:TKraftRawVector3):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
+begin
+ result.RawVector:=v;
 {$ifdef SIMD}
  result.w:=0.0;
 {$endif}
@@ -7621,9 +7630,9 @@ begin
  mr[2,1]:=ma[1,2];
  mr[2,2]:=ma[2,2];
  mr[2,3]:=ma[2,3];
- mr[3,0]:=-Vector3Dot(PKraftVector3(pointer(@ma[3,0]))^,Vector3(ma[0,0],ma[0,1],ma[0,2]));
- mr[3,1]:=-Vector3Dot(PKraftVector3(pointer(@ma[3,0]))^,Vector3(ma[1,0],ma[1,1],ma[1,2]));
- mr[3,2]:=-Vector3Dot(PKraftVector3(pointer(@ma[3,0]))^,Vector3(ma[2,0],ma[2,1],ma[2,2]));
+ mr[3,0]:=-Vector3Dot(Vector3(PKraftRawVector3(pointer(@ma[3,0]))^),Vector3(ma[0,0],ma[0,1],ma[0,2]));
+ mr[3,1]:=-Vector3Dot(Vector3(PKraftRawVector3(pointer(@ma[3,0]))^),Vector3(ma[1,0],ma[1,1],ma[1,2]));
+ mr[3,2]:=-Vector3Dot(Vector3(PKraftRawVector3(pointer(@ma[3,0]))^),Vector3(ma[2,0],ma[2,1],ma[2,2]));
  mr[3,3]:=ma[3,3];
  result:=true;
 end;
@@ -7642,9 +7651,9 @@ begin
  result[2,1]:=ma[1,2];
  result[2,2]:=ma[2,2];
  result[2,3]:=ma[2,3];
- result[3,0]:=-Vector3Dot(PKraftVector3(pointer(@ma[3,0]))^,Vector3(ma[0,0],ma[0,1],ma[0,2]));
- result[3,1]:=-Vector3Dot(PKraftVector3(pointer(@ma[3,0]))^,Vector3(ma[1,0],ma[1,1],ma[1,2]));
- result[3,2]:=-Vector3Dot(PKraftVector3(pointer(@ma[3,0]))^,Vector3(ma[2,0],ma[2,1],ma[2,2]));
+ result[3,0]:=-Vector3Dot(Vector3(PKraftRawVector3(pointer(@ma[3,0]))^),Vector3(ma[0,0],ma[0,1],ma[0,2]));
+ result[3,1]:=-Vector3Dot(Vector3(PKraftRawVector3(pointer(@ma[3,0]))^),Vector3(ma[1,0],ma[1,1],ma[1,2]));
+ result[3,2]:=-Vector3Dot(Vector3(PKraftRawVector3(pointer(@ma[3,0]))^),Vector3(ma[2,0],ma[2,1],ma[2,2]));
  result[3,3]:=ma[3,3];
 end;
 
@@ -11637,7 +11646,7 @@ end;
 function SweepTransform(const Sweep:TKraftSweep;const Beta:TKraftScalar):TKraftMatrix4x4; {$ifdef caninline}inline;{$endif}
 begin
  result:=QuaternionToMatrix4x4(QuaternionSlerp(Sweep.q0,Sweep.q,Beta));
- PKraftVector3(pointer(@result[3,0]))^:=Vector3Sub(Vector3Lerp(Sweep.c0,Sweep.c,Beta),Vector3TermMatrixMulBasis(Sweep.LocalCenter,result));
+ PKraftVector3(pointer(@result[3,0]))^.xyz:=Vector3Sub(Vector3Lerp(Sweep.c0,Sweep.c,Beta),Vector3TermMatrixMulBasis(Sweep.LocalCenter,result)).xyz;
 end;
 
 function SweepTermAdvance(const Sweep:TKraftSweep;const Alpha:TKraftScalar):TKraftSweep; {$ifdef caninline}inline;{$endif}
@@ -20811,7 +20820,12 @@ end;
 
 function TKraftShapeSphere.GetCenter(const Transform:TKraftMatrix4x4):TKraftVector3;
 begin
+{$ifdef SIMD}
+ result.RawVector:=PKraftRawVector3(pointer(@Transform[3,0]))^;
+ result.w:=0.0;
+{$else}
  result:=PKraftVector3(pointer(@Transform[3,0]))^;
+{$endif}
 end;
 
 function TKraftShapeSphere.TestPoint(const p:TKraftVector3):boolean;
@@ -21178,7 +21192,12 @@ end;
 
 function TKraftShapeCapsule.GetCenter(const Transform:TKraftMatrix4x4):TKraftVector3;
 begin
+{$ifdef SIMD}
+ result.RawVector:=PKraftRawVector3(pointer(@Transform[3,0]))^;
+ result.w:=0.0;
+{$else}
  result:=PKraftVector3(pointer(@Transform[3,0]))^;
+{$endif}
 end;
 
 function TKraftShapeCapsule.TestPoint(const p:TKraftVector3):boolean;
@@ -21955,7 +21974,12 @@ end;
 
 function TKraftShapeBox.GetCenter(const Transform:TKraftMatrix4x4):TKraftVector3;
 begin
+{$ifdef SIMD}
+ result.RawVector:=PKraftRawVector3(pointer(@Transform[3,0]))^;
+ result.w:=0.0;
+{$else}
  result:=PKraftVector3(pointer(@Transform[3,0]))^;
+{$endif}
 end;
 
 function TKraftShapeBox.TestPoint(const p:TKraftVector3):boolean;
@@ -23602,7 +23626,7 @@ var OldManifoldCountContacts:longint;
  var Alpha,HalfLength,Distance:TKraftScalar;
      CenterA,CenterB,Position,GeometryDirection:TKraftVector3;
  begin
-  GeometryDirection:=PKraftVector3(pointer(@ShapeB.fWorldTransform[1,0]))^;
+  GeometryDirection:=Vector3(PKraftRawVector3(pointer(@ShapeB.fWorldTransform[1,0]))^);
   CenterA:=Vector3TermMatrixMul(ShapeA.fLocalCentroid,ShapeA.fWorldTransform);
   CenterB:=Vector3TermMatrixMul(ShapeB.fLocalCentroid,ShapeB.fWorldTransform);
   Alpha:=(GeometryDirection.x*(CenterA.x-CenterB.x))+(GeometryDirection.y*(Centera.y-CenterB.y))+(GeometryDirection.z*(CenterA.z-CenterB.z));
@@ -23914,8 +23938,13 @@ var OldManifoldCountContacts:longint;
   CenterA:=Vector3TermMatrixMul(ShapeA.fLocalCenterOfMass,ShapeA.fWorldTransform);
   CenterB:=Vector3TermMatrixMul(ShapeB.fLocalCenterOfMass,ShapeB.fWorldTransform);
 
+{$ifdef SIMD}
+  GeometryDirectionA:=Vector3(PKraftRawVector3(pointer(@ShapeA.fWorldTransform[1,0]))^);
+  GeometryDirectionB:=Vector3(PKraftRawVector3(pointer(@ShapeB.fWorldTransform[1,0]))^);
+{$else}
   GeometryDirectionA:=PKraftVector3(pointer(@ShapeA.fWorldTransform[1,0]))^;
   GeometryDirectionB:=PKraftVector3(pointer(@ShapeB.fWorldTransform[1,0]))^;
+{$endif}
 
   RadiusA:=ShapeA.fRadius;
   RadiusB:=ShapeB.fRadius;
@@ -24219,7 +24248,7 @@ var OldManifoldCountContacts:longint;
 
   Center:=Vector3TermMatrixMulInverted(Vector3TermMatrixMul(ShapeA.fLocalCentroid,ShapeA.fWorldTransform),ShapeB.fWorldTransform);
 
-  GeometryDirection:=Vector3TermMatrixMulTransposedBasis(PKraftVector3(pointer(@ShapeA.fWorldTransform[1,0]))^,ShapeB.fWorldTransform);
+  GeometryDirection:=Vector3TermMatrixMulTransposedBasis(Vector3(PKraftRawVector3(pointer(@ShapeA.fWorldTransform[1,0]))^),ShapeB.fWorldTransform);
 
   Triangle.Points[0]:=ShapeB.fConvexHull.fVertices[0].Position;
   Triangle.Points[1]:=ShapeB.fConvexHull.fVertices[1].Position;
@@ -24916,11 +24945,11 @@ var OldManifoldCountContacts:longint;
     PerturbationRotationQuaternion2:=QuaternionMul(QuaternionMul(QuaternionInverse(PerturbationRotationQuaternion1),PerturbationRotationQuaternion0),PerturbationRotationQuaternion1);
     PerturbatedTransform:=QuaternionToMatrix4x4(QuaternionMul(UnpreturbedQuaternion,PerturbationRotationQuaternion2));
     if PerturbationA then begin
-     PKraftVector3(pointer(@PerturbatedTransform[3,0]))^:=PKraftVector3(pointer(@ShapeA.fWorldTransform[3,0]))^;
+     PKraftVector3(pointer(@PerturbatedTransform[3,0]))^.xyz:=PKraftVector3(pointer(@ShapeA.fWorldTransform[3,0]))^.xyz;
      ShapeTransformMatrices[0]:=@PerturbatedTransform;
      ShapeTransformMatrices[1]:=@ShapeB.fWorldTransform;
     end else begin
-     PKraftVector3(pointer(@PerturbatedTransform[3,0]))^:=PKraftVector3(pointer(@ShapeB.fWorldTransform[3,0]))^;
+     PKraftVector3(pointer(@PerturbatedTransform[3,0]))^.xyz:=PKraftVector3(pointer(@ShapeB.fWorldTransform[3,0]))^.xyz;
      ShapeTransformMatrices[0]:=@ShapeA.fWorldTransform;
      ShapeTransformMatrices[1]:=@PerturbatedTransform;
     end;
@@ -30301,10 +30330,10 @@ begin
 
  // Extract cos(theta/2) and |sin(theta/2)|
  CosHalfAngle:=RelativeRotation.w;
- SinHalfAngleAbs:=Vector3Length(PKraftVector3(pointer(@RelativeRotation))^);
+ SinHalfAngleAbs:=Vector3Length(Vector3(PKraftVector3(pointer(@RelativeRotation))^.RawVector));
 
  // Compute the dot product of the relative rotation axis and the hinge axis
- DotProduct:=Vector3Dot(PKraftVector3(pointer(@RelativeRotation))^,PKraftVector3(pointer(@fA1))^);
+ DotProduct:=Vector3Dot(Vector3(PKraftVector3(pointer(@RelativeRotation))^.RawVector),Vector3(PKraftVector3(pointer(@fA1))^.RawVector));
 
  // If the relative rotation axis and the hinge axis are pointing the same direction
  if DotProduct>=0.0 then begin

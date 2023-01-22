@@ -359,10 +359,10 @@ var Position:TKraftVector3;
 begin
  LerpFactor:=1.0-exp(-(1.0/20.0));
  Position:=Vector3Add(Vector3Add(Vehicle.WorldPosition,Vector3ScalarMul(Vehicle.WorldForward,-5.0)),Vector3ScalarMul(Vehicle.WorldUp,0.0));
- PKraftVector3(@TargetMatrix[2,0])^:=Vector3Norm(Vector3Sub(Vehicle.WorldPosition,Position));
- PKraftVector3(@TargetMatrix[1,0])^:=Vehicle.WorldUp;
- PKraftVector3(@TargetMatrix[0,0])^:=Vector3Cross(PKraftVector3(@TargetMatrix[1,0])^,PKraftVector3(@TargetMatrix[2,0])^);
- PKraftVector3(@TargetMatrix[1,0])^:=Vector3Cross(PKraftVector3(@TargetMatrix[2,0])^,PKraftVector3(@TargetMatrix[0,0])^);
+ PKraftVector3(@TargetMatrix[2,0])^.xyz:=Vector3Norm(Vector3Sub(Vehicle.WorldPosition,Position)).xyz;
+ PKraftVector3(@TargetMatrix[1,0])^.xyz:=Vehicle.WorldUp.xyz;
+ PKraftVector3(@TargetMatrix[0,0])^.xyz:=Vector3Cross(PKraftVector3(@TargetMatrix[1,0])^,PKraftVector3(@TargetMatrix[2,0])^).xyz;
+ PKraftVector3(@TargetMatrix[1,0])^.xyz:=Vector3Cross(PKraftVector3(@TargetMatrix[2,0])^,PKraftVector3(@TargetMatrix[0,0])^).xyz;
  aCameraPosition:=Vector3Lerp(aCameraPosition,Position,LerpFactor);
  aCameraOrientation:=QuaternionSlerp(aCameraOrientation,QuaternionFromMatrix3x3(TargetMatrix),LerpFactor);
  result:=true;
