@@ -66,6 +66,12 @@ unit kraft;
    {$define cpux64}
   {$endif}
  {$endif}
+ {$ifdef cpuamd64}
+  {$asmmode intel}
+  {$define cpux64}
+  {$define cpux86_64}
+  {$define cpu64}
+ {$endif}
  {$ifdef cpu386}
   {$define cpu386}
   {$asmmode intel}
@@ -81,6 +87,11 @@ unit kraft;
  {$excessprecision off}
 {$else}
  {$define LITTLE_ENDIAN}
+ {$ifdef cpux64}
+  {$define cpuamd64}
+  {$define cpux86_64}
+  {$define cpu64}
+ {$endif}
  {$ifndef cpu64}
   {$define cpu32}
  {$endif}
@@ -144,8 +155,13 @@ unit kraft;
    {$define CPU386ASMForSinglePrecision}
   {$ifend}
  {$endif}
+ {$if defined(cpux64) or defined(cpuamd64)}
+  {$if not (defined(Darwin) or defined(CompileForWithPIC))}
+   ///{$define CPUAMD64ASMForSinglePrecision}
+  {$ifend}
+ {$ifend}
  {$undef SIMD}
- {$ifdef CPU386ASMForSinglePrecision}
+ {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMForSinglePrecision)}
   {$define SIMD}
  {$endif}
 {$endif}
@@ -4382,8 +4398,11 @@ begin
  result:=(abs(v1.x-v2.x)<Threshold) and (abs(v1.y-v2.y)<Threshold) and (abs(v1.z-v2.z)<Threshold);
 end;
 
-procedure Vector3DirectAdd(var v1:TKraftVector3;const v2:TKraftVector3); {$ifdef CPU386ASMForSinglePrecision}assembler;
+procedure Vector3DirectAdd(var v1:TKraftVector3;const v2:TKraftVector3); {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
  movups xmm0,dqword ptr [v1]
  movups xmm1,dqword ptr [v2]
  addps xmm0,xmm1
@@ -4395,10 +4414,13 @@ begin
  v1.y:=v1.y+v2.y;
  v1.z:=v1.z+v2.z;
 end;
-{$endif}
+{$ifend}
 
-procedure Vector3DirectSub(var v1:TKraftVector3;const v2:TKraftVector3); {$ifdef CPU386ASMForSinglePrecision}assembler;
+procedure Vector3DirectSub(var v1:TKraftVector3;const v2:TKraftVector3); {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
  movups xmm0,dqword ptr [v1]
  movups xmm1,dqword ptr [v2]
  subps xmm0,xmm1
@@ -4410,10 +4432,13 @@ begin
  v1.y:=v1.y-v2.y;
  v1.z:=v1.z-v2.z;
 end;
-{$endif}
+{$ifend}
 
-function Vector3Add(const v1,v2:TKraftVector3):TKraftVector3; {$ifdef CPU386ASMForSinglePrecision}assembler;
+function Vector3Add(const v1,v2:TKraftVector3):TKraftVector3; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
  movups xmm0,dqword ptr [v1]
  movups xmm1,dqword ptr [v2]
  addps xmm0,xmm1
@@ -4425,10 +4450,13 @@ begin
  result.y:=v1.y+v2.y;
  result.z:=v1.z+v2.z;
 end;
-{$endif}
+{$ifend}
 
-function Vector3Sub(const v1,v2:TKraftVector3):TKraftVector3; {$ifdef CPU386ASMForSinglePrecision}assembler;
+function Vector3Sub(const v1,v2:TKraftVector3):TKraftVector3; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
  movups xmm0,dqword ptr [v1]
  movups xmm1,dqword ptr [v2]
  subps xmm0,xmm1
@@ -4440,14 +4468,21 @@ begin
  result.y:=v1.y-v2.y;
  result.z:=v1.z-v2.z;
 end;
-{$endif}
+{$ifend}
 
-function Vector3Avg(const v1,v2:TKraftVector3):TKraftVector3; {$ifdef CPU386ASMForSinglePrecision}assembler;
+function Vector3Avg(const v1,v2:TKraftVector3):TKraftVector3; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 const Half:TKraftVector3=(x:0.5;y:0.5;z:0.5;w:0.0);
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
  movups xmm0,dqword ptr [v1]
  movups xmm1,dqword ptr [v2]
+{$if defined(cpuamd64)}
+ movups xmm2,dqword ptr [rip+Half]
+{$else}
  movups xmm2,dqword ptr [Half]
+{$ifend}
  addps xmm0,xmm1
  mulps xmm0,xmm2
  movups dqword ptr [result],xmm0
@@ -4458,7 +4493,7 @@ begin
  result.y:=(v1.y+v2.y)*0.5;
  result.z:=(v1.z+v2.z)*0.5;
 end;
-{$endif}
+{$ifend}
 
 function Vector3Avg(const v1,v2,v3:TKraftVector3):TKraftVector3;
 begin
@@ -4485,8 +4520,11 @@ begin
  end;
 end;
 
-function Vector3ScalarMul(const v:TKraftVector3;const s:TKraftScalar):TKraftVector3; {$ifdef CPU386ASMForSinglePrecision}assembler;
+function Vector3ScalarMul(const v:TKraftVector3;const s:TKraftScalar):TKraftVector3; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
  movups xmm0,dqword ptr [v]
  movss xmm1,dword ptr [s]
  shufps xmm1,xmm1,$00
@@ -4499,10 +4537,13 @@ begin
  result.y:=v.y*s;
  result.z:=v.z*s;
 end;
-{$endif}
+{$ifend}
 
-function Vector3Dot(const v1,v2:TKraftVector3):TKraftScalar; {$ifdef CPU386ASMForSinglePrecision}assembler;
+function Vector3Dot(const v1,v2:TKraftVector3):TKraftScalar; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
  movups xmm0,dqword ptr [v1]
  movups xmm1,dqword ptr [v2]
  mulps xmm0,xmm1         // xmm0 = ?, z1*z2, y1*y2, x1*x2
@@ -4516,7 +4557,7 @@ end;
 begin
  result:=(v1.x*v2.x)+(v1.y*v2.y)+(v1.z*v2.z);
 end;
-{$endif}
+{$ifend}
 
 function Vector3Cos(const v1,v2:TKraftVector3):TKraftScalar;
 var d:extended;
@@ -4569,8 +4610,11 @@ begin
  result.w:=0.0;
 end;
 
-function Vector3Cross(const v1,v2:TKraftVector3):TKraftVector3; {$ifdef CPU386ASMForSinglePrecision}assembler;
+function Vector3Cross(const v1,v2:TKraftVector3):TKraftVector3; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
 {$ifdef SSEVector3CrossOtherVariant}
  movups xmm0,dqword ptr [v1]
  movups xmm2,dqword ptr [v2]
@@ -4605,10 +4649,13 @@ begin
  result.y:=(v1.z*v2.x)-(v1.x*v2.z);
  result.z:=(v1.x*v2.y)-(v1.y*v2.x);
 end;
-{$endif}
+{$ifend}
 
-function Vector3Neg(const v:TKraftVector3):TKraftVector3; {$ifdef CPU386ASMForSinglePrecision}assembler;
+function Vector3Neg(const v:TKraftVector3):TKraftVector3; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
  xorps xmm0,xmm0
  movups xmm1,dqword ptr [v]
  subps xmm0,xmm1
@@ -4620,10 +4667,13 @@ begin
  result.y:=-v.y;
  result.z:=-v.z;
 end;
-{$endif}
+{$ifend}
 
-procedure Vector3Scale(var v:TKraftVector3;const sx,sy,sz:TKraftScalar); overload; {$ifdef CPU386ASMForSinglePrecision}assembler;
+procedure Vector3Scale(var v:TKraftVector3;const sx,sy,sz:TKraftScalar); overload; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
  movss xmm0,dword ptr [v+0]
  movss xmm1,dword ptr [v+4]
  movss xmm2,dword ptr [v+8]
@@ -4640,10 +4690,13 @@ begin
  v.y:=v.y*sy;
  v.z:=v.z*sz;
 end;
-{$endif}
+{$ifend}
 
-procedure Vector3Scale(var v:TKraftVector3;const s:TKraftScalar); overload; {$ifdef CPU386ASMForSinglePrecision}assembler;
+procedure Vector3Scale(var v:TKraftVector3;const s:TKraftScalar); overload; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
  movups xmm0,dqword ptr [v]
  movss xmm1,dword ptr [s]
  shufps xmm1,xmm1,$00
@@ -4656,10 +4709,13 @@ begin
  v.y:=v.y*s;
  v.z:=v.z*s;
 end;
-{$endif}
+{$ifend}
 
-function Vector3Mul(const v1,v2:TKraftVector3):TKraftVector3; {$ifdef CPU386ASMForSinglePrecision}assembler;
+function Vector3Mul(const v1,v2:TKraftVector3):TKraftVector3; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
  movups xmm0,dqword ptr [v1]
  movups xmm1,dqword ptr [v2]
  mulps xmm0,xmm1
@@ -4671,10 +4727,13 @@ begin
  result.y:=v1.y*v2.y;
  result.z:=v1.z*v2.z;
 end;
-{$endif}
+{$ifend}
 
-function Vector3Length(const v:TKraftVector3):TKraftScalar; {$ifdef CPU386ASMForSinglePrecision}assembler;
+function Vector3Length(const v:TKraftVector3):TKraftScalar; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
  movups xmm0,dqword ptr [v]
  mulps xmm0,xmm0         // xmm0 = ?, z*z, y*y, x*x
  movhlps xmm1,xmm0       // xmm1 = ?, ?, ?, z*z
@@ -4688,10 +4747,13 @@ end;
 begin
  result:=sqrt(sqr(v.x)+sqr(v.y)+sqr(v.z));
 end;
-{$endif}
+{$ifend}
 
-function Vector3Dist(const v1,v2:TKraftVector3):TKraftScalar; {$ifdef CPU386ASMForSinglePrecision}assembler;
+function Vector3Dist(const v1,v2:TKraftVector3):TKraftScalar; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
  movups xmm0,dqword ptr [v1]
  movups xmm1,dqword ptr [v2]
  subps xmm0,xmm1
@@ -4707,10 +4769,13 @@ end;
 begin
  result:=sqrt(sqr(v2.x-v1.x)+sqr(v2.y-v1.y)+sqr(v2.z-v1.z));
 end;
-{$endif}
+{$ifend}
 
-function Vector3LengthSquared(const v:TKraftVector3):TKraftScalar; {$ifdef CPU386ASMForSinglePrecision}assembler;
+function Vector3LengthSquared(const v:TKraftVector3):TKraftScalar; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
  movups xmm0,dqword ptr [v]
  mulps xmm0,xmm0         // xmm0 = ?, z*z, y*y, x*x
  movhlps xmm1,xmm0       // xmm1 = ?, ?, ?, z*z
@@ -4723,10 +4788,13 @@ end;
 begin
  result:=sqr(v.x)+sqr(v.y)+sqr(v.z);
 end;
-{$endif}
+{$ifend}
 
-function Vector3DistSquared(const v1,v2:TKraftVector3):TKraftScalar; {$ifdef CPU386ASMForSinglePrecision}assembler;
+function Vector3DistSquared(const v1,v2:TKraftVector3):TKraftScalar; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
  movups xmm0,dqword ptr [v1]
  movups xmm1,dqword ptr [v2]
  subps xmm0,xmm1
@@ -4741,7 +4809,7 @@ end;
 begin
  result:=sqr(v2.x-v1.x)+sqr(v2.y-v1.y)+sqr(v2.z-v1.z);
 end;
-{$endif}
+{$ifend}
 
 function Vector3Angle(const v1,v2,v3:TKraftVector3):TKraftScalar;
 var A1,A2:TKraftVector3;
@@ -4758,8 +4826,11 @@ begin
  end;
 end;
 
-function Vector3LengthNormalize(var v:TKraftVector3):TKraftScalar; {$ifdef CPU386ASMForSinglePrecision}assembler;
+function Vector3LengthNormalize(var v:TKraftVector3):TKraftScalar; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
  movups xmm0,dqword ptr [v]
  movaps xmm1,xmm0
  subps xmm1,xmm0
@@ -4798,10 +4869,13 @@ begin
   v.z:=0.0;
  end;
 end;
-{$endif}
+{$ifend}
 
-procedure Vector3Normalize(var v:TKraftVector3); {$ifdef CPU386ASMForSinglePrecision}assembler;
+procedure Vector3Normalize(var v:TKraftVector3); {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
  movups xmm0,dqword ptr [v]
  movaps xmm2,xmm0
  mulps xmm0,xmm0         // xmm0 = ?, z*z, y*y, x*x
@@ -4833,10 +4907,13 @@ begin
   v.z:=0.0;
  end;
 end;
-{$endif}
+{$ifend}
 
-procedure Vector3NormalizeEx(var v:TKraftVector3); {$ifdef CPU386ASMForSinglePrecision}assembler;
+procedure Vector3NormalizeEx(var v:TKraftVector3); {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
  movups xmm0,dqword ptr [v]
  movaps xmm2,xmm0
  mulps xmm0,xmm0         // xmm0 = ?, z*z, y*y, x*x
@@ -4868,7 +4945,7 @@ begin
   v.z:=0.0;
  end;
 end;
-{$endif}
+{$ifend}
 
 function Vector3SafeNorm(const v:TKraftVector3):TKraftVector3;
 var l:TKraftScalar;
@@ -4886,8 +4963,11 @@ begin
  end;
 end;
 
-function Vector3Norm(const v:TKraftVector3):TKraftVector3; {$ifdef CPU386ASMForSinglePrecision}assembler;
+function Vector3Norm(const v:TKraftVector3):TKraftVector3; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
  movups xmm0,dqword ptr [v]
  movaps xmm2,xmm0
  mulps xmm0,xmm0         // xmm0 = ?, z*z, y*y, x*x
@@ -4919,10 +4999,13 @@ begin
   result.z:=0.0;
  end;
 end;
-{$endif}
+{$ifend}
 
-function Vector3NormEx(const v:TKraftVector3):TKraftVector3; {$ifdef CPU386ASMForSinglePrecision}assembler;
+function Vector3NormEx(const v:TKraftVector3):TKraftVector3; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
  movups xmm0,dqword ptr [v]
  movaps xmm2,xmm0
  mulps xmm0,xmm0         // xmm0 = ?, z*z, y*y, x*x
@@ -4954,7 +5037,7 @@ begin
   result.z:=0.0;
  end;
 end;
-{$endif}
+{$ifend}
 
 procedure Vector3RotateX(var v:TKraftVector3;a:TKraftScalar);
 var t:TKraftVector3;
@@ -4992,12 +5075,20 @@ begin
  v:=t;
 end;
 
-procedure Vector3MatrixMul(var v:TKraftVector3;const m:TKraftMatrix4x4); overload; {$ifdef CPU386ASMForSinglePrecision}assembler;
+procedure Vector3MatrixMul(var v:TKraftVector3;const m:TKraftMatrix4x4); overload; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 const cOne:array[0..3] of TKraftScalar=(0.0,0.0,0.0,1.0);
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
  movups xmm0,dqword ptr [v]     // d c b a
+{$if defined(cpuamd64)}
+ movups xmm1,dqword ptr [rip+Vector3Mask]
+ movups xmm2,dqword ptr [rip+cOne]
+{$else}
  movups xmm1,dqword ptr [Vector3Mask]
  movups xmm2,dqword ptr [cOne]
+{$ifend}
  andps xmm0,xmm1
  addps xmm0,xmm2
  movaps xmm1,xmm0               // d c b a
@@ -5028,7 +5119,7 @@ begin
  t.z:=(m[0,2]*v.x)+(m[1,2]*v.y)+(m[2,2]*v.z)+m[3,2];
  v:=t;
 end;
-{$endif}
+{$ifend}
 
 procedure Vector3MatrixMulBasis(var v:TKraftVector3;const m:TKraftMatrix4x4); overload;
 var t:TKraftVector3;
@@ -5087,10 +5178,22 @@ end;
 {$endif}
 (**)
 
-function Vector3TermMatrixMul(const v:TKraftVector3;const m:TKraftMatrix3x3):TKraftVector3; overload; {$ifdef CPU386ASMForSinglePrecision}assembler;
+function Vector3TermMatrixMul(const v:TKraftVector3;const m:TKraftMatrix3x3):TKraftVector3; overload; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 const cOne:array[0..3] of TKraftScalar=(0.0,0.0,0.0,1.0);
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
  movups xmm0,dqword ptr [v]     // d c b a
+{$if defined(cpuamd64)}
+ movups xmm1,dqword ptr [rip+Vector3Mask]
+ movups xmm2,dqword ptr [rip+cOne]
+{$else}
+ movups xmm1,dqword ptr [Vector3Mask]
+ movups xmm2,dqword ptr [cOne]
+{$ifend}
+ andps xmm0,xmm1
+ addps xmm0,xmm2
  movaps xmm1,xmm0               // d c b a
  movaps xmm2,xmm0               // d c b a
  shufps xmm0,xmm0,$00           // a a a a 00000000b
@@ -5112,14 +5215,22 @@ begin
  result.y:=(m[0,1]*v.x)+(m[1,1]*v.y)+(m[2,1]*v.z);
  result.z:=(m[0,2]*v.x)+(m[1,2]*v.y)+(m[2,2]*v.z);
 end;
-{$endif}
+{$ifend}
 
-function Vector3TermMatrixMul(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; overload; {$ifdef CPU386ASMForSinglePrecision}assembler;
+function Vector3TermMatrixMul(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; overload; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 const cOne:array[0..3] of TKraftScalar=(0.0,0.0,0.0,1.0);
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
  movups xmm0,dqword ptr [v]     // d c b a
+{$if defined(cpuamd64)}
+ movups xmm1,dqword ptr [rip+Vector3Mask]
+ movups xmm2,dqword ptr [rip+cOne]
+{$else}
  movups xmm1,dqword ptr [Vector3Mask]
  movups xmm2,dqword ptr [cOne]
+{$ifend}
  andps xmm0,xmm1
  addps xmm0,xmm2
  movaps xmm1,xmm0               // d c b a
@@ -5148,7 +5259,7 @@ begin
  result.y:=(m[0,1]*v.x)+(m[1,1]*v.y)+(m[2,1]*v.z)+m[3,1];
  result.z:=(m[0,2]*v.x)+(m[1,2]*v.y)+(m[2,2]*v.z)+m[3,2];
 end;
-{$endif}
+{$ifend}
 
 function Vector3TermMatrixMulInverse(const v:TKraftVector3;const m:TKraftMatrix3x3):TKraftVector3; overload;
 var Determinant:TKraftScalar;
@@ -5208,9 +5319,12 @@ begin
  result.z:=result.z/result_w;
 end;
 
-function Vector3TermMatrixMulBasis(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; overload; {$ifdef CPU386ASMForSinglePrecision}assembler;
+function Vector3TermMatrixMulBasis(const v:TKraftVector3;const m:TKraftMatrix4x4):TKraftVector3; overload; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler; {$ifdef fpc}nostackframe;{$endif}
 const Mask:array[0..3] of longword=($ffffffff,$ffffffff,$ffffffff,$00000000);
 asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
  movups xmm0,dqword ptr [v]     // d c b a
  movaps xmm1,xmm0               // d c b a
  movaps xmm2,xmm0               // d c b a
@@ -5220,7 +5334,11 @@ asm
  movups xmm3,dqword ptr [m+0]
  movups xmm4,dqword ptr [m+16]
  movups xmm5,dqword ptr [m+32]
+{$if defined(cpuamd64)}
+ movups xmm6,dqword ptr [rip+Mask]
+{$else}
  movups xmm6,dqword ptr [Mask]
+{$ifend}
  andps xmm3,xmm6
  andps xmm4,xmm6
  andps xmm5,xmm6
@@ -5237,7 +5355,7 @@ begin
  result.y:=(m[0,1]*v.x)+(m[1,1]*v.y)+(m[2,1]*v.z);
  result.z:=(m[0,2]*v.x)+(m[1,2]*v.y)+(m[2,2]*v.z);
 end;
-{$endif}
+{$ifend}
 
 function Vector3Lerp(const v1,v2:TKraftVector3;w:TKraftScalar):TKraftVector3;
 var iw:TKraftScalar;
@@ -5271,10 +5389,16 @@ begin
  result:=Vector3NormEx(Vector3Sub(p,Vector3ScalarMul(v,Vector3Dot(v,p))));
 end;
 
-function Vector3TermQuaternionRotate(const v:TKraftVector3;const q:TKraftQuaternion):TKraftVector3; {$ifdef CPU386ASMForSinglePrecision}assembler;
+function Vector3TermQuaternionRotate(const v:TKraftVector3;const q:TKraftQuaternion):TKraftVector3; {$if defined(CPU386ASMForSinglePrecision) or defined(CPUAMD64ASMFORSINGLEPRECISION)}assembler;
 const Mask:array[0..3] of longword=($ffffffff,$ffffffff,$ffffffff,$00000000);
-var t,qv:TKraftVector3;
+{$if defined(cpuamd64) and defined(Windows)}
+var StackSave0,StackSave1:array[0..3] of single;
+{$ifend}
 asm
+{$if defined(cpuamd64) and defined(Windows)}
+ movups dqword ptr [StackSave0],xmm6
+ movups dqword ptr [StackSave1],xmm7
+{$ifend}
 
  movups xmm4,dqword ptr [q] // xmm4 = q.xyzw
 
@@ -5283,7 +5407,11 @@ asm
  movaps xmm6,xmm4
  shufps xmm6,xmm6,$ff // xmm6 = q.wwww
 
+{$if defined(cpuamd64)}
+ movups xmm7,dqword ptr [rip+Mask] // xmm7 = Mask
+{$else}
  movups xmm7,dqword ptr [Mask] // xmm7 = Mask
+{$ifend}
 
  andps xmm4,xmm7 // xmm4 = q.xyz0
 
@@ -5322,6 +5450,11 @@ asm
  addps xmm1,xmm6
 
  movups dqword ptr [result],xmm1
+
+{$if defined(cpuamd64) and defined(Windows)}
+ movups xmm6,dqword ptr [StackSave0]
+ movups xmm7,dqword ptr [StackSave1]
+{$ifend}
 
 end;
 {$else}
