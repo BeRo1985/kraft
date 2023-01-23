@@ -49,12 +49,12 @@ implementation
 
 uses UnitFormMain,sandboxfile;
 
-const ConvexHullPoints:array[0..5] of TKraftVector3=((x:-2.0;y:1.0;z:1.0),
-                                                (x:2.0;y:0.0;z:0.0),
-                                                (x:1.0;y:-2.0;z:1.0),
-                                                (x:0.0;y:2.0;z:0.0),
-                                                (x:1.0;y:1.0;z:-2.0),
-                                                (x:0.0;y:0.0;z:2.0));{}
+const ConvexHullPoints:array[0..5] of TKraftVector3=((x:-2.0;y:1.0;z:1.0{$if KraftSIMD};w:0.0{$ifend}),
+                                                     (x:2.0;y:0.0;z:0.0{$if KraftSIMD};w:0.0{$ifend}),
+                                                     (x:1.0;y:-2.0;z:1.0{$if KraftSIMD};w:0.0{$ifend}),
+                                                     (x:0.0;y:2.0;z:0.0{$if KraftSIMD};w:0.0{$ifend}),
+                                                     (x:1.0;y:1.0;z:-2.0{$if KraftSIMD};w:0.0{$ifend}),
+                                                     (x:0.0;y:0.0;z:2.0{$if KraftSIMD};w:0.0{$ifend}));{}
 
 constructor TDemoSceneSandBox.Create(const AKraftPhysics:TKraft);
 const ScaleRagDoll=4.0;

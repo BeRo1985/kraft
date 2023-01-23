@@ -52,18 +52,18 @@ const CarWidth=2.0;
       JumpingRampHalfHeight=JumpingRampHeight*0.5;
       JumpingRampHalfLength=JumpingRampLength*0.5;
 
-      JumpingRampConvexHullPoints:array[0..5] of TKraftVector3=((x:-JumpingRampHalfWidth;y:0.0;z:0{$ifdef SIMD};w:0.0{$endif}),
-                                                                (x:JumpingRampHalfWidth;y:0.0;z:0{$ifdef SIMD};w:0.0{$endif}),
-                                                                (x:-JumpingRampHalfWidth;y:JumpingRampHeight;z:0.0{$ifdef SIMD};w:0.0{$endif}),
-                                                                (x:JumpingRampHalfWidth;y:JumpingRampHeight;z:0.0{$ifdef SIMD};w:0.0{$endif}),
-                                                                (x:-JumpingRampHalfWidth;y:0.0;z:JumpingRampLength{$ifdef SIMD};w:0.0{$endif}),
-                                                                (x:JumpingRampHalfWidth;y:0.0;z:JumpingRampLength{$ifdef SIMD};w:0.0{$endif}));{}
+      JumpingRampConvexHullPoints:array[0..5] of TKraftVector3=((x:-JumpingRampHalfWidth;y:0.0;z:0{$if KraftSIMD};w:0.0{$ifend}),
+                                                                (x:JumpingRampHalfWidth;y:0.0;z:0{$if KraftSIMD};w:0.0{$ifend}),
+                                                                (x:-JumpingRampHalfWidth;y:JumpingRampHeight;z:0.0{$if KraftSIMD};w:0.0{$ifend}),
+                                                                (x:JumpingRampHalfWidth;y:JumpingRampHeight;z:0.0{$if KraftSIMD};w:0.0{$ifend}),
+                                                                (x:-JumpingRampHalfWidth;y:0.0;z:JumpingRampLength{$if KraftSIMD};w:0.0{$ifend}),
+                                                                (x:JumpingRampHalfWidth;y:0.0;z:JumpingRampLength{$if KraftSIMD};w:0.0{$ifend}));{}
 
 constructor TDemoSceneConstraintVehicle.Create(const AKraftPhysics:TKraft);
-const WheelPositions:array[0..1,0..1] of TKraftVector3=(((x:CarHalfWidth;y:0.75;z:-CarLength),
-                                                         (x:-CarHalfWidth;y:0.75;z:-CarLength)),
-                                                        ((x:CarHalfWidth;y:0.75;z:0.0),
-                                                         (x:-CarHalfWidth;y:0.75;z:0.0)));
+const WheelPositions:array[0..1,0..1] of TKraftVector3=(((x:CarHalfWidth;y:0.75;z:-CarLength{$if KraftSIMD};w:0.0{$ifend}),
+                                                         (x:-CarHalfWidth;y:0.75;z:-CarLength{$if KraftSIMD};w:0.0{$ifend})),
+                                                        ((x:CarHalfWidth;y:0.75;z:0.0{$if KraftSIMD};w:0.0{$ifend}),
+                                                         (x:-CarHalfWidth;y:0.75;z:0.0{$if KraftSIMD};w:0.0{$ifend})));
 var Index,x,y:longint;
     Shape:TKraftShape;
     ConvexHull, onvexHull:TKraftConvexHull;
