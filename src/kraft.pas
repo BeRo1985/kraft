@@ -4386,7 +4386,7 @@ begin
  result.z:=-v.y;
 {$ifdef SIMD}
  result.w:=0.0;
-{$ifend}
+{$endif}
 end;
 
 {$ifdef SIMD}
