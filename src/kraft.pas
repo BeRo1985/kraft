@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2023-01-23-07-00-0000                       *
+ *                        Version 2023-01-23-07-19-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -163,7 +163,6 @@ unit kraft;
   //{$undef SIMDASM}
  {$ifend}
 {$endif}
-{$optimization off}
 {$if defined(FPC_HAS_CONSTREF) and defined(SIMDASM)}
  {$define USE_CONSTREF} // For to avoid FPC codegen issues with const in connection with "function result is also a function argument" and so on => physics simulation explodes in some cases
 {$else}
