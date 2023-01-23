@@ -1,4 +1,4 @@
-(****************************************************************************** 
+(******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
  *                        Version 2023-01-23-07-00-0000                       *
@@ -102,7 +102,7 @@ unit kraft;
  {$ifdef conditionalexpressions}
   {$if CompilerVersion>=24.0}
    {$legacyifend on}
-  {$ifend} 
+  {$ifend}
  {$endif}
  {$ifdef ver180}
   {$define caninline}
@@ -1017,7 +1017,7 @@ type PKraftForceMode=^TKraftForceMode;
      TKraftConvexHullEdges=array of TKraftConvexHullEdge;
 
      TKraftConvexHull=class(TPersistent)
-      private              
+      private
 
        fPhysics:TKraft;
 
@@ -1812,7 +1812,7 @@ type PKraftForceMode=^TKraftForceMode;
        procedure MoveFromFreeList;
        procedure Query;
        procedure Update;
-       
+
      end;
 
      PKraftMeshContactPairHashTableBucket=^TKraftMeshContactPairHashTableBucket;
@@ -2401,7 +2401,7 @@ type PKraftForceMode=^TKraftForceMode;
        fCountChildren:longint;
 
       public
-      
+
        constructor Create(const APhysics:TKraft);
        destructor Destroy; override;
 
@@ -2854,7 +2854,7 @@ type PKraftForceMode=^TKraftForceMode;
       Normal:TKraftVector3;
       Centers:array[0..1] of TKraftVector3;
       LostSpeculativeBounce:single;
-      SpeculativeVelocity:single;      
+      SpeculativeVelocity:single;
       WorldInverseInertiaTensors:array[0..1] of TKraftMatrix3x3;
       NormalMass:TKraftScalar;
       TangentMass:array[0..1] of TKraftScalar;
@@ -5964,7 +5964,7 @@ begin
  t.w:=(m[0,3]*v.x)+(m[1,3]*v.y)+(m[2,3]*v.z)+(m[3,3]*v.w);
  v:=t;
 end;
-{$endif}
+{$ifend}
 
 function Vector4TermMatrixMul({$ifdef USE_CONSTREF}constref{$else}const{$endif} v:TKraftVector4;{$ifdef USE_CONSTREF}constref{$else}const{$endif} m:TKraftMatrix4x4):TKraftVector4; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
@@ -6002,7 +6002,7 @@ begin
  result.z:=(m[0,2]*v.x)+(m[1,2]*v.y)+(m[2,2]*v.z)+(m[3,2]*v.w);
  result.w:=(m[0,3]*v.x)+(m[1,3]*v.y)+(m[2,3]*v.z)+(m[3,3]*v.w);
 end;
-{$endif}
+{$ifend}
 
 function Vector4TermMatrixMulHomogen({$ifdef USE_CONSTREF}constref{$else}const{$endif} v:TKraftVector4;{$ifdef USE_CONSTREF}constref{$else}const{$endif} m:TKraftMatrix4x4):TKraftVector4;
 begin
@@ -6196,7 +6196,7 @@ begin
 {$endif}
  m1:=t;
 end;
-          
+
 function Matrix3x3TermAdd({$ifdef USE_CONSTREF}constref{$else}const{$endif} m1,m2:TKraftMatrix3x3):TKraftMatrix3x3; {$ifdef caninline}inline;{$endif}
 begin
  result[0,0]:=m1[0,0]+m2[0,0];
@@ -6781,7 +6781,7 @@ var m:TKraftMatrix4x4;
 begin
  m:=Matrix4x4Identity;
  CosinusAngle:=cos(Angle);
- SinusAngle:=sin(Angle);    
+ SinusAngle:=sin(Angle);
  m[0,0]:=CosinusAngle+((1-CosinusAngle)*Axis.x*Axis.x);
  m[1,0]:=((1-CosinusAngle)*Axis.x*Axis.y)-(Axis.z*SinusAngle);
  m[2,0]:=((1-CosinusAngle)*Axis.x*Axis.z)+(Axis.y*SinusAngle);
@@ -6988,7 +6988,7 @@ begin
  t[3,3]:=(m1[3,0]*m2[0,3])+(m1[3,1]*m2[1,3])+(m1[3,2]*m2[2,3])+(m1[3,3]*m2[3,3]);
  m1:=t;
 end;
-{$endif}
+{$ifend}
 
 procedure Matrix4x4Mul(var mr:TKraftMatrix4x4;{$ifdef USE_CONSTREF}constref{$else}const{$endif} m1,m2:TKraftMatrix4x4); overload; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler;
 {$if defined(cpuamd64) and defined(Windows)}
@@ -7086,7 +7086,7 @@ begin
  mr[3,2]:=(m1[3,0]*m2[0,2])+(m1[3,1]*m2[1,2])+(m1[3,2]*m2[2,2])+(m1[3,3]*m2[3,2]);
  mr[3,3]:=(m1[3,0]*m2[0,3])+(m1[3,1]*m2[1,3])+(m1[3,2]*m2[2,3])+(m1[3,3]*m2[3,3]);
 end;
-{$endif}
+{$ifend}
 
 function Matrix4x4TermAdd({$ifdef USE_CONSTREF}constref{$else}const{$endif} m1,m2:TKraftMatrix4x4):TKraftMatrix4x4; {$ifdef caninline}inline;{$endif}
 begin
@@ -7224,7 +7224,7 @@ begin
  result[3,2]:=(m1[3,0]*m2[0,2])+(m1[3,1]*m2[1,2])+(m1[3,2]*m2[2,2])+(m1[3,3]*m2[3,2]);
  result[3,3]:=(m1[3,0]*m2[0,3])+(m1[3,1]*m2[1,3])+(m1[3,2]*m2[2,3])+(m1[3,3]*m2[3,3]);
 end;
-{$endif}
+{$ifend}
 
 function Matrix4x4TermMulInverted({$ifdef USE_CONSTREF}constref{$else}const{$endif} m1,m2:TKraftMatrix4x4):TKraftMatrix4x4; {$ifdef caninline}inline;{$endif}
 begin
@@ -7381,7 +7381,7 @@ begin
  mt[3,3]:=m[3,3];
  m:=mt;
 end;
-{$endif}
+{$ifend}
 
 function Matrix4x4TermTranspose({$ifdef USE_CONSTREF}constref{$else}const{$endif} m:TKraftMatrix4x4):TKraftMatrix4x4; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
@@ -7428,7 +7428,7 @@ begin
  result[3,2]:=m[2,3];
  result[3,3]:=m[3,3];
 end;
-{$endif}
+{$ifend}
 
 function Matrix4x4Determinant({$ifdef USE_CONSTREF}constref{$else}const{$endif} m:TKraftMatrix4x4):TKraftScalar; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler;
 {$if defined(cpuamd64) and defined(Windows)}
@@ -7506,7 +7506,7 @@ begin
  inv[15]:=((((m[0,0]*m[1,1]*m[2,2])-(m[0,0]*m[1,2]*m[2,1]))-(m[1,0]*m[0,1]*m[2,2]))+(m[1,0]*m[0,2]*m[2,1])+(m[2,0]*m[0,1]*m[1,2]))-(m[2,0]*m[0,2]*m[1,1]);
  result:=(m[0,0]*inv[0])+(m[0,1]*inv[4])+(m[0,2]*inv[8])+(m[0,3]*inv[12]);
 end;
-{$endif}
+{$ifend}
 
 procedure Matrix4x4SetColumn(var m:TKraftMatrix4x4;const c:longint;{$ifdef USE_CONSTREF}constref{$else}const{$endif} v:TKraftVector4); {$ifdef caninline}inline;{$endif}
 begin
@@ -7553,7 +7553,7 @@ begin
   end;
  end;
 end;
-                      
+
 function Matrix4x4LengthSquared({$ifdef USE_CONSTREF}constref{$else}const{$endif} m:TKraftMatrix4x4):TKraftScalar;
 begin
  result:=Vector4LengthSquared(PKraftVector4(pointer(@m[0,0]))^)+
@@ -7893,7 +7893,7 @@ begin
   result:=false;
  end;
 end;
-{$endif}
+{$ifend}
 
 function Matrix4x4TermInverse({$ifdef USE_CONSTREF}constref{$else}const{$endif} ma:TKraftMatrix4x4):TKraftMatrix4x4; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler;
 {$if defined(cpuamd64) and defined(Windows)}
@@ -8122,7 +8122,7 @@ begin
   result:=ma;
  end;
 end;
-{$endif}
+{$ifend}
 
 function Matrix4x4InverseOld(var mr:TKraftMatrix4x4;{$ifdef USE_CONSTREF}constref{$else}const{$endif} ma:TKraftMatrix4x4):boolean;
 var Det,IDet:TKraftScalar;
@@ -8333,7 +8333,7 @@ begin
  result[3,1]:=(Top+Bottom)/tmb;
  result[3,2]:=zNear/fmn;
  result[3,3]:=1.0;
-end;            
+end;
 
 function Matrix4x4OrthoOffCenterRH(const Left,Right,Bottom,Top,zNear,zFar:TKraftScalar):TKraftMatrix4x4;
 var rml,tmb,fmn:TKraftScalar;
@@ -8626,8 +8626,8 @@ end;
 begin
  result:=sqrt(sqr(AQuaternion.x)+sqr(AQuaternion.y)+sqr(AQuaternion.z)+sqr(AQuaternion.w));
 end;
-{$endif}
-                            
+{$ifend}
+
 function QuaternionLengthSquared({$ifdef USE_CONSTREF}constref{$else}const{$endif} AQuaternion:TKraftQuaternion):TKraftScalar; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
@@ -8645,7 +8645,7 @@ end;
 begin
  result:=sqr(AQuaternion.x)+sqr(AQuaternion.y)+sqr(AQuaternion.z)+sqr(AQuaternion.w);
 end;
-{$endif}
+{$ifend}
 
 procedure QuaternionNormalize(var AQuaternion:TKraftQuaternion); {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
@@ -8694,7 +8694,7 @@ begin
  AQuaternion.z:=AQuaternion.z*Normal;
  AQuaternion.w:=AQuaternion.w*Normal;
 end;
-{$endif}
+{$ifend}
 
 function QuaternionTermNormalize({$ifdef USE_CONSTREF}constref{$else}const{$endif} AQuaternion:TKraftQuaternion):TKraftQuaternion; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
@@ -8728,7 +8728,7 @@ begin
  result.z:=AQuaternion.z*Normal;
  result.w:=AQuaternion.w*Normal;
 end;
-{$endif}
+{$ifend}
 
 function QuaternionNeg({$ifdef USE_CONSTREF}constref{$else}const{$endif} AQuaternion:TKraftQuaternion):TKraftQuaternion; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
@@ -8747,7 +8747,7 @@ begin
  result.z:=-AQuaternion.z;
  result.w:=-AQuaternion.w;
 end;
-{$endif}
+{$ifend}
 
 function QuaternionConjugate({$ifdef USE_CONSTREF}constref{$else}const{$endif} AQuaternion:TKraftQuaternion):TKraftQuaternion; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 const XORMask:array[0..3] of longword=($80000000,$80000000,$80000000,$00000000);
@@ -8771,7 +8771,7 @@ begin
  result.z:=-AQuaternion.z;
  result.w:=AQuaternion.w;
 end;
-{$endif}
+{$ifend}
 
 function QuaternionInverse({$ifdef USE_CONSTREF}constref{$else}const{$endif} AQuaternion:TKraftQuaternion):TKraftQuaternion; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 const XORMask:array[0..3] of longword=($80000000,$80000000,$80000000,$00000000);
@@ -8809,7 +8809,7 @@ begin
  result.z:=-(AQuaternion.z*Normal);
  result.w:=(AQuaternion.w*Normal);
 end;
-{$endif}
+{$ifend}
 
 function QuaternionAdd({$ifdef USE_CONSTREF}constref{$else}const{$endif} q1,q2:TKraftQuaternion):TKraftQuaternion; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
@@ -8828,7 +8828,7 @@ begin
  result.z:=q1.z+q2.z;
  result.w:=q1.w+q2.w;
 end;
-{$endif}
+{$ifend}
 
 function QuaternionSub({$ifdef USE_CONSTREF}constref{$else}const{$endif} q1,q2:TKraftQuaternion):TKraftQuaternion; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
@@ -8847,7 +8847,7 @@ begin
  result.z:=q1.z-q2.z;
  result.w:=q1.w-q2.w;
 end;
-{$endif}
+{$ifend}
 
 function QuaternionScalarMul({$ifdef USE_CONSTREF}constref{$else}const{$endif} q:TKraftQuaternion;const s:TKraftScalar):TKraftQuaternion; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 asm
@@ -8867,7 +8867,7 @@ begin
  result.z:=q.z*s;
  result.w:=q.w*s;
 end;
-{$endif}
+{$ifend}
 
 function QuaternionMul({$ifdef USE_CONSTREF}constref{$else}const{$endif} q1,q2:TKraftQuaternion):TKraftQuaternion; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$ifdef fpc}nostackframe;{$endif}
 const XORMaskW:array[0..3] of longword=($00000000,$00000000,$00000000,$80000000);
@@ -8912,7 +8912,7 @@ begin
  result.z:=((q1.w*q2.z)+(q1.z*q2.w)+(q1.x*q2.y))-(q1.y*q2.x);
  result.w:=(q1.w*q2.w)-((q1.x*q2.x)+(q1.y*q2.y)+(q1.z*q2.z));
 end;
-{$endif}
+{$ifend}
 
 function QuaternionRotateAroundAxis({$ifdef USE_CONSTREF}constref{$else}const{$endif} q1,q2:TKraftQuaternion):TKraftQuaternion; {$ifdef caninline}inline;{$endif}
 begin
@@ -9532,7 +9532,7 @@ begin
 // result:=(AABB.Max.x-AABB.Min.x)+(AABB.Max.y-AABB.Min.y)+(AABB.Max.z-AABB.Min.z); // Manhattan distance
  result:=(AABB.Max.x-AABB.Min.x)*(AABB.Max.y-AABB.Min.y)*(AABB.Max.z-AABB.Min.z); // Volume
 end;
-                    
+
 function AABBCombine(const AABB,WithAABB:TKraftAABB):TKraftAABB; {$ifdef caninline}inline;{$endif}
 begin
  result.Min.x:=Min(AABB.Min.x,WithAABB.Min.x);
@@ -14748,7 +14748,7 @@ function ConvexHullVectorDot(const v1,v2:TConvexHullVector):double;
 begin
  result:=(v1.x*v2.x)+(v1.y*v2.y)+(v1.z*v2.z);
 end;
-             
+
 function ConvexHullVectorNormalize(const v:TConvexHullVector):TConvexHullVector;
 var l:double;
 begin
@@ -16616,7 +16616,7 @@ begin
  result:=0;
 
  Discarded.Clear;
- 
+
  Discarded.Add(oppFace);
  inc(result);
  oppFace.fMark:=KRAFT_QUICKHULL_FACE_MARK_NON_DELETED;
@@ -16638,7 +16638,7 @@ begin
   hedgeAdjNext:=hedgeAdjNext.fNext;
  end;
 
- hedge:=hedgeOppNext;       
+ hedge:=hedgeOppNext;
  while hedge<>hedgeOppPrev.fNext do begin
   hedge.fFace:=self;
   hedge:=hedge.fNext;
@@ -16977,7 +16977,7 @@ begin
    MaxVector.z:=Point.z;
    fMaxVertices[2]:=Vertex;
   end;
- end;                                                                  
+ end;
  fCharLength:=Max(Max(MaxVector.x-MinVector.x,MaxVector.y-MinVector.y),MaxVector.z-MinVector.z);
  if fExplicitTolerance<0.0 then begin
   fTolerance:=(3.0*DOUBLE_PREC)*(Max(abs(MaxVector.x),abs(MinVector.x))+Max(abs(MaxVector.y),abs(MinVector.y))+Max(abs(MaxVector.z),abs(MinVector.z)));
@@ -16985,7 +16985,7 @@ begin
   fTolerance:=fExplicitTolerance;
  end;
 end;
-                    
+
 procedure TKraftQuickHull.CreateInitialSimplex;
 const ModuloThree:array[0..5] of longint=(0,1,2,0,1,2);
 var MaxIndex,Index,OtherIndex:longint;
@@ -17018,7 +17018,7 @@ begin
  // set third vertex to be the vertex farthest from the line between v0 and v1
  u01.Sub(Vertices[1].Point,Vertices[0].Point);
  u01.Normalize;
-   
+
  MaxSquared:=0.0;
  for Index:=0 to fCountPoints-1 do begin
   Diff02.Sub(TKraftQuickHullVertex(fPointBuffer[Index]).Point,Vertices[0].Point);
@@ -17173,7 +17173,7 @@ begin
  fFaces.Add(Face);
  Face.fhe0.fPrevious.SetOpposite(he.fOpposite);
  result:=Face.fhe0;
-end;                            
+end;
 
 procedure TKraftQuickHull.AddNewFaces(const NewFaces:TKraftQuickHullFaceList;const EyeVertex:TKraftQuickHullVertex;const Horizon:TList);
 var Index:longint;
@@ -17211,7 +17211,7 @@ begin
  Convex:=true;
  repeat
   oppFace:=hedge.OppositeFace;
-  Merge:=false;          
+  Merge:=false;
   if MergeType=KRAFT_QUICKHULL_MERGE_TYPE_NONCONVEX then begin
    // merge faces if they are definitively non-convex
    if (OppFaceDistance(hedge)>(-fTolerance)) or (OppFaceDistance(hedge.fOpposite)>(-fTolerance)) then begin
@@ -18793,7 +18793,7 @@ begin
  fCountSkipListNodes:=0;
 
  fDoubleSided:=true;
- 
+
  if assigned(fPhysics.fMeshLast) then begin
   fPhysics.fMeshLast.fNext:=self;
   fPrevious:=fPhysics.fMeshLast;
@@ -19681,7 +19681,7 @@ begin
         fNodes[Index].Children[1]:=Node^.Children[1];
         fNodes[Index].TriangleIndex:=Node^.TriangleIndex;
         fNodes[Index].AABB:=Node^.AABB;
-       end;          
+       end;
        fCountSkipListNodes:=0;
        Stack[0]:=Root;
        Stack[1]:=0;
@@ -21762,7 +21762,7 @@ begin
 end;
 
 procedure TKraftShapeBox.CalculateMassData;
-begin                                                   
+begin
  fMassData.Volume:=fExtents.x*fExtents.y*fExtents.z;
  if fForcedMass>EPSILON then begin
   fMassData.Mass:=fForcedMass;
@@ -23679,7 +23679,7 @@ var OldManifoldCountContacts:longint;
                              GJK.ClosestPoints[1],
                              ShapeA.fRadius,
                              0.0,
-                             CreateFeatureID(-2),  
+                             CreateFeatureID(-2),
                              false);
    end;
 
@@ -24002,7 +24002,7 @@ var OldManifoldCountContacts:longint;
     if SquaredDistance<SquaredRadiiWithTolerance then begin
      AddImplicitContact(ClosestPointA,ClosestPointB,RadiusA,RadiusB,CreateFeatureID(1),false);
     end;
-    
+
    end;
 
   end;
@@ -24058,7 +24058,7 @@ var OldManifoldCountContacts:longint;
   GJK.UseRadii:=false;
 
   GJK.Run;
-                                
+
   if (GJK.Distance>0.0) and not GJK.Failed then begin
 
    // Shallow contact
@@ -24187,7 +24187,7 @@ var OldManifoldCountContacts:longint;
     end;
 
    end;
-         
+
    if (MaxEdgeIndex>=0) and (MaxEdgeSeparation>(MaxFaceSeparation+0.05)) then begin
     Edge:=@ShapeB.fConvexHull.fEdges[MaxEdgeIndex];
     if GetEdgeContact(ClosestPoints[0],
@@ -25202,7 +25202,7 @@ var OldManifoldCountContacts:longint;
      end;
      dec(Manifold.CountContacts);
     end else begin
-     inc(Index);                                 
+     inc(Index);
     end;
    end;
 
@@ -25215,7 +25215,7 @@ var OldManifoldCountContacts:longint;
   end else begin
    Manifold.ContactManifoldType:=kcmtUnknown;
   end;
-  
+
  end;
  procedure FindSpeculativeContacts(ShapeA,ShapeB:TKraftShape);
  var Index:longint;
@@ -25407,7 +25407,7 @@ begin
 
    Manifold.ContactManifoldType:=kcmtUnknown;
    Manifold.CountContacts:=0;
-    
+
   end else begin
 
    HasContact:=Manifold.CountContacts>0;
@@ -25457,7 +25457,7 @@ begin
     end;
    end;
 
-  end; 
+  end;
 
  end;
 
@@ -25742,7 +25742,7 @@ begin
  FillChar(fConvexMeshTriangleContactPairHashTable,SizeOf(TKraftContactPairHashTable),AnsiChar(#0));
 
  FillChar(fMeshContactPairHashTable,SizeOf(TKraftMeshContactPairHashTable),AnsiChar(#0));
- 
+
 end;
 
 destructor TKraftContactManager.Destroy;
@@ -25824,7 +25824,7 @@ begin
    ContactPair:=ContactPair^.Next;
   end;
  end;
-end;            
+end;
 
 procedure TKraftContactManager.AddConvexContact(const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const AShapeA,AShapeB:TKraftShape;const AElementIndex:longint=-1;const AMeshContactPair:TKraftMeshContactPair=nil);
 var i:longint;
@@ -25926,7 +25926,7 @@ begin
   ARigidBodyB.fContactPairEdgeLast^.Next:=@ContactPair^.Edges[1];
  end else begin
   ContactPair^.Edges[1].Previous:=nil;
-  ARigidBodyB.fContactPairEdgeFirst:=@ContactPair^.Edges[1];                                  
+  ARigidBodyB.fContactPairEdgeFirst:=@ContactPair^.Edges[1];
  end;
  ContactPair^.Edges[1].Next:=nil;
  ARigidBodyB.fContactPairEdgeLast:=@ContactPair^.Edges[1];
@@ -26413,7 +26413,7 @@ begin
   if kcfColliding in ContactPair^.Flags then begin
 
    ContactManifold:=@ContactPair^.Manifold;
-                                                              
+
    ContactPair^.GetSolverContactManifold(SolverContactManifold,ContactPair^.RigidBodies[0].fWorldTransform,ContactPair^.RigidBodies[1].fWorldTransform,kcpcmmBaumgarte);
 
    for i:=0 to ContactManifold^.CountContacts-1 do begin
@@ -26423,7 +26423,7 @@ begin
     Contact:=@ContactManifold.Contacts[i];
 
     f:=(1024-Min(Max(Contact^.WarmStartState,0),1024))/1024.0;
-                                                  
+
     if ContactPair^.Manifold.ContactManifoldType=kcmtSPECULATIVE then begin
 
      if krbfAwake in ContactPair^.Shapes[0].fRigidBody.fFlags then begin
@@ -26575,7 +26575,7 @@ begin
    end;
   end;
 
-  Contacts[2]:=nil;              
+  Contacts[2]:=nil;
   MaxArea:=0.0;
   for Index:=0 to ACountInputContacts-1 do begin
    Contact:=@AInputContacts^[Index];
@@ -26803,7 +26803,7 @@ begin
    SetLength(fContactPairs[ThreadIndex],0);
   end;
   fCountContactPairs[ThreadIndex]:=0;
-  
+
  end;
 
  fStaticMoveBuffer:=TKraftBroadPhaseMoveBuffer.Create(fPhysics.fStaticAABBTree);
@@ -27164,7 +27164,7 @@ begin
  fAngularVelocityAdditionalDamp:=0.01;
  fLinearVelocityAdditionalDampThresholdSqr:=0.01;
  fAngularVelocityAdditionalDampThresholdSqr:=0.01;
- 
+
  fForce:=Vector3Origin;
  fTorque:=Vector3Origin;
 
@@ -27695,7 +27695,7 @@ begin
     ) then begin
   ConstraintEdge:=fConstraintEdgeFirst;
   while assigned(ConstraintEdge) do begin
-   Constraint:=ConstraintEdge^.Constraint;     
+   Constraint:=ConstraintEdge^.Constraint;
    if (assigned(Constraint) and not (kcfCollideConnected in Constraint.fFlags)) and (ConstraintEdge^.OtherRigidBody=OtherRigidBody) then begin
     result:=false;
     exit;
@@ -28624,7 +28624,7 @@ begin
  AbsolutePosition:=Vector3Add(cA^,fRelativePosition);
 
  fWorldPoint:=Vector3Add(AbsolutePosition,Vector3ScalarMul(fWorldPlane.Normal,-PlaneVectorDistance(fWorldPlane,AbsolutePosition)));
-                         
+
  if fDoubleSidedWorldPlane then begin
 
   fmU:=Vector3Sub(fWorldPoint,AbsolutePosition);
@@ -28795,7 +28795,7 @@ begin
   end else begin
    fAccumulatedImpulse:=fAccumulatedImpulse+Impulse;
   end;
-  
+
   P:=Vector3ScalarMul(fmU,Impulse);
 
   Vector3DirectSub(vA^,Vector3Mul(P,Vector3ScalarMul(fSolverLinearFactor^,fInverseMass)));
@@ -28862,7 +28862,7 @@ function TKraftConstraintJointWorldPlaneDistance.GetAnchor:TKraftVector3;
 begin
  result:=Vector3TermMatrixMul(fLocalAnchor,fRigidBodies[0].fWorldTransform);
 end;
-                                         
+
 function TKraftConstraintJointWorldPlaneDistance.GetReactionForce(const InverseDeltaTime:TKraftScalar):TKraftVector3;
 begin
  result:=Vector3ScalarMul(fmU,fAccumulatedImpulse*InverseDeltaTime);
@@ -29271,7 +29271,7 @@ begin
    fAccumulatedImpulse:=0.0;
 
   end;
- 
+
  end else begin
 
   fmU:=Vector3Origin;
@@ -29727,7 +29727,7 @@ destructor TKraftConstraintJointBallSocket.Destroy;
 begin
  inherited Destroy;
 end;
-                                                   
+
 procedure TKraftConstraintJointBallSocket.InitializeConstraintsAndWarmStart(const Island:TKraftIsland;const TimeStep:TKraftTimeStep);
 var cA,vA,wA,cB,vB,wB:PKraftVector3;
     qA,qB:PKraftQuaternion;
@@ -30573,7 +30573,7 @@ begin
  Vector3DirectAdd(wB^,Vector3TermMatrixMul(Vector3Cross(fRelativePositions[1],Impulse),fWorldInverseInertiaTensors[1]));
 
  (**** Rotation ****)
-       
+
  JvRotation.x:=(Vector3Dot(fB2CrossA1,wB^)-Vector3Dot(fB2CrossA1,wA^))+fBiasRotation.x;
  JvRotation.y:=(Vector3Dot(fC2CrossA1,wB^)-Vector3Dot(fC2CrossA1,wA^))+fBiasRotation.y;
 
@@ -30743,7 +30743,7 @@ begin
   QuaternionDirectSpin(qB^,Vector3TermMatrixMul(Impulse,fWorldInverseInertiaTensors[1]),1.0);
 
   (**** Limits ****)
- 
+
   if fLimitState then begin
    if fIsLowerLimitViolated then begin
     ImpulseLower:=fInverseMassMatrixLimitMotor*(-LowerLimitError);
@@ -30764,7 +30764,7 @@ begin
  end else begin
 
   result:=true;
-  
+
  end;
 
 end;
@@ -31401,7 +31401,7 @@ begin
   result:=true;
 
  end;
- 
+
 end;
 
 function TKraftConstraintJointSlider.GetAnchorA:TKraftVector3;
@@ -31660,7 +31660,7 @@ begin
 
   VelocityState^.LostSpeculativeBounce:=ContactPair^.Manifold.LostSpeculativeBounce;
   ContactPair^.Manifold.LostSpeculativeBounce:=0;
-    
+
   for ContactIndex:=0 to ContactPair^.Manifold.CountContacts-1 do begin
 
    Contact:=@ContactPair^.Manifold.Contacts[ContactIndex];
@@ -31818,7 +31818,7 @@ begin
      ContactPoint^.TangentMass[TangentIndex]:=1.0/TangentMass;
     end else begin
      ContactPoint^.TangentMass[TangentIndex]:=0.0;
-    end;    
+    end;
    end;
 
    if fPositionCorrectionMode=kpcmBaumgarte then begin
@@ -31854,7 +31854,7 @@ begin
   IndexB:=SpeculativeContactState^.Indices[1];
 
   iA:=@SpeculativeContactState^.WorldInverseInertiaTensors[0];
-  iB:=@SpeculativeContactState^.WorldInverseInertiaTensors[1];            
+  iB:=@SpeculativeContactState^.WorldInverseInertiaTensors[1];
 
   mA:=SpeculativeContactState^.InverseMasses[0];
   mB:=SpeculativeContactState^.InverseMasses[1];
@@ -32227,7 +32227,7 @@ begin
     K:=mA+mB+Vector3Dot(rnA,Vector3TermMatrixMul(rnA,iA^))+Vector3Dot(rnB,Vector3TermMatrixMul(rnB,iB^));
 
     if K>0.0 then begin
-     Impulse:=-(C/K);   
+     Impulse:=-(C/K);
     end else begin
      Impulse:=0.0;
     end;
@@ -32371,7 +32371,7 @@ begin
  end else begin
 
   result:=true;
-  
+
  end;
 
 end;
@@ -32666,7 +32666,7 @@ begin
      Vector3Scale(GyroscopicForce,RigidBody.fMaximalGyroscopicForce/Vector3Length(GyroscopicForce));
     end;
     RigidBody.fTorque:=Vector3Add(RigidBody.fTorque,GyroscopicForce);
-   end;       
+   end;
 
    // Integrate linear velocity
    RigidBody.fLinearVelocity:=Vector3Add(RigidBody.fLinearVelocity,Vector3Mul(RigidBody.fForce,Vector3ScalarMul(RigidBody.fLinearFactor,RigidBody.InverseMass*TimeStep.DeltaTime)));
@@ -32959,7 +32959,7 @@ begin
 
  // Don't store the TOI contact forces for warm starting
  // because they can be quite large.
-                       
+
  for Index:=0 to fCountRigidBodies-1 do begin
 
   RigidBody:=fRigidBodies[Index];
@@ -33614,7 +33614,7 @@ begin
    Island.AddRigidBody(CurrentRigidBody);
 
    // Awaken all bodies connected to the island
-   CurrentRigidBody.SetToAwake;  
+   CurrentRigidBody.SetToAwake;
 
    // Do not search across static bodies to keep island formations as small as possible, however the static
    // body itself should be apart of the island in order to properly represent a full contact
@@ -33797,7 +33797,7 @@ begin
  LastLambda:=Lambda;
 
  GJKCachedSimplex.Count:=0;
- 
+
  GJK.CachedSimplex:=@GJKCachedSimplex;
  GJK.Simplex.Count:=0;
  GJK.Shapes[0]:=Shapes[0];
@@ -33862,7 +33862,7 @@ begin
  end;
 
 end;
-  
+
 // Bilateral advancement
 function TKraft.GetBilateralAdvancementTimeOfImpact(const ShapeA:TKraftShape;const SweepA:TKraftSweep;const ShapeB:TKraftShape;const ShapeBTriangleIndex:longint;const SweepB:TKraftSweep;const TimeStep:TKraftTimeStep;const ThreadIndex:longint;var Beta:TKraftScalar):boolean;
 const sfmNONE=0;
@@ -33958,7 +33958,7 @@ begin
  Target:=Max(fLinearSlop,TotalRadius-(3.0*fLinearSlop));
 
  Tolerance:=fLinearSlop*0.25;
- 
+
  GJKCachedSimplex.Count:=0;
 
  GJK.CachedSimplex:=@GJKCachedSimplex;
@@ -34841,7 +34841,7 @@ begin
   TimeStep.InverseDeltaTime:=1.0;
  end else begin
   TimeStep.InverseDeltaTime:=1.0/TimeStep.DeltaTime;
- end;                     
+ end;
  TimeStep.DeltaTimeRatio:=fLastInverseDeltaTime*TimeStep.DeltaTime;
  TimeStep.WarmStarting:=fWarmStarting;
 
