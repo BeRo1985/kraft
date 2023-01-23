@@ -4018,7 +4018,7 @@ end;
 begin
  result:=0;
 end;
-{$endif}
+{$ifend}
 
 procedure SIMDSetFlags(const Flags:longword); {$if defined(cpu386) or defined(cpuamd64)}assembler;
 var Temp:longword;
@@ -4035,7 +4035,7 @@ end;
 {$else}
 begin
 end;
-{$endif}
+{$ifend}
 
 procedure SIMDSetOurFlags;{$if defined(cpu386) or defined(cpuamd64)}assembler;
 // Flush to Zero=Bit 15
@@ -4080,7 +4080,7 @@ end;
 {$else}
 begin
 end;
-{$endif}
+{$ifend}
 
 {$if defined(cpu386) or defined(cpuamd64) or defined(cpux86_64) or defined(cpux64)}
 type TCPUIDData=record
