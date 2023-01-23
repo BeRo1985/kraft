@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2023-01-23-14-48-0000                       *
+ *                        Version 2023-01-23-16-27-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -7675,9 +7675,15 @@ asm
  movups dqword ptr [StackSave1],xmm7
 {$ifend}
 
+{$ifdef cpu386}
  mov ecx,esp
  and esp,$fffffff0
  sub esp,$b0
+{$else}
+ mov rax,rsp
+ and rsp,$fffffffffffffff0
+ sub rsp,$b0
+{$endif}
  movlps xmm2,qword ptr [ma+8]
  movlps xmm4,qword ptr [ma+40]
  movhps xmm2,qword ptr [ma+24]
@@ -7709,14 +7715,22 @@ asm
  mulps xmm7,xmm5
  shufps xmm5,xmm5,$4e
  shufps xmm7,xmm7,$b1
+{$ifdef cpu386}
  movaps dqword ptr [esp+16],xmm2
+{$else}
+ movaps dqword ptr [rsp+16],xmm2
+{$endif}
  movaps xmm2,xmm4
  mulps xmm2,xmm7
  addps xmm2,xmm3
  movaps xmm3,xmm7
  shufps xmm7,xmm7,$4e
  mulps xmm3,xmm1
+{$ifdef cpu386}
  movaps dqword ptr [esp+32],xmm3
+{$else}
+ movaps dqword ptr [rsp+32],xmm3
+{$endif}
  movaps xmm3,xmm4
  mulps xmm3,xmm7
  mulps xmm7,xmm1
@@ -7725,14 +7739,22 @@ asm
  shufps xmm3,xmm3,$4e
  mulps xmm3,xmm4
  shufps xmm3,xmm3,$b1
+{$ifdef cpu386}
  movaps dqword ptr [esp+48],xmm7
+{$else}
+ movaps dqword ptr [rsp+48],xmm7
+{$endif}
  movaps xmm7,xmm5
  mulps xmm5,xmm3
  addps xmm5,xmm2
  movaps xmm2,xmm3
  shufps xmm3,xmm3,$4e
  mulps xmm2,xmm1
+{$ifdef cpu386}
  movaps dqword ptr [esp+64],xmm4
+{$else}
+ movaps dqword ptr [rsp+64],xmm4
+{$endif}
  movaps xmm4,xmm7
  mulps xmm7,xmm3
  mulps xmm3,xmm1
@@ -7743,7 +7765,11 @@ asm
  shufps xmm3,xmm3,$4e
  movaps xmm7,xmm1
  shufps xmm1,xmm1,$4e
+{$ifdef cpu386}
  movaps dqword ptr [esp],xmm5
+{$else}
+ movaps dqword ptr [rsp],xmm5
+{$endif}
  addps xmm1,xmm7
  movaps xmm5,xmm1
  shufps xmm1,xmm1,$b1
@@ -7753,9 +7779,15 @@ asm
  shufps xmm5,xmm5,$b1
  movaps xmm7,xmm5
  shufps xmm5,xmm5,$4e
+{$ifdef cpu386}
  movaps dqword ptr [esp+80],xmm4
  movaps xmm4,dqword ptr [esp+64]
  movaps dqword ptr [esp+64],xmm6
+{$else}
+ movaps dqword ptr [rsp+80],xmm4
+ movaps xmm4,dqword ptr [rsp+64]
+ movaps dqword ptr [rsp+64],xmm6
+{$endif}
  movaps xmm6,xmm4
  mulps xmm6,xmm7
  addps xmm6,xmm3
@@ -7765,26 +7797,48 @@ asm
  movaps xmm6,xmm4
  mulps xmm6,xmm2
  shufps xmm6,xmm6,$b1
+{$ifdef cpu386}
  movaps dqword ptr [esp+112],xmm5
  movaps xmm5,dqword ptr [esp+64]
  movaps dqword ptr [esp+128],xmm7
+{$else}
+ movaps dqword ptr [rsp+112],xmm5
+ movaps xmm5,dqword ptr [rsp+64]
+ movaps dqword ptr [rsp+128],xmm7
+{$endif}
  movaps xmm7,xmm6
  mulps xmm7,xmm5
  addps xmm7,xmm3
  movaps xmm3,xmm6
  shufps xmm3,xmm3,$4e
+{$ifdef cpu386}
  movaps dqword ptr [esp+144],xmm4
+{$else}
+ movaps dqword ptr [rsp+144],xmm4
+{$endif}
  movaps xmm4,xmm5
  mulps xmm5,xmm3
+{$ifdef cpu386}
  movaps dqword ptr [esp+160],xmm4
+{$else}
+ movaps dqword ptr [rsp+160],xmm4
+{$endif}
  movaps xmm4,xmm6
  movaps xmm6,xmm7
  subps xmm6,xmm5
  movaps xmm5,xmm0
+{$ifdef cpu386}
  movaps xmm7,dqword ptr [esp+16]
+{$else}
+ movaps xmm7,dqword ptr [rsp+16]
+{$endif}
  subps xmm5,xmm7
  shufps xmm5,xmm5,$4e
+{$ifdef cpu386}
  movaps xmm7,dqword ptr [esp+80]
+{$else}
+ movaps xmm7,dqword ptr [rsp+80]
+{$endif}
  mulps xmm4,xmm7
  mulps xmm3,xmm7
  subps xmm5,xmm4
@@ -7793,7 +7847,11 @@ asm
  shufps xmm2,xmm2,$b1
  movaps xmm4,xmm2
  shufps xmm4,xmm4,$4e
+{$ifdef cpu386}
  movaps xmm5,dqword ptr [esp+144]
+{$else}
+ movaps xmm5,dqword ptr [rsp+144]
+{$endif}
  movaps xmm0,xmm6
  movaps xmm6,xmm5
  mulps xmm5,xmm2
@@ -7802,17 +7860,30 @@ asm
  movaps xmm3,xmm4
  movaps xmm4,xmm5
  subps xmm4,xmm6
+{$ifdef cpu386}
  movaps xmm5,dqword ptr [esp+48]
  movaps xmm6,dqword ptr [esp+32]
+{$else}
+ movaps xmm5,dqword ptr [rsp+48]
+ movaps xmm6,dqword ptr [rsp+32]
+{$endif}
  subps xmm5,xmm6
  shufps xmm5,xmm5,$4e
  movaps xmm6,[esp+128]
  mulps xmm6,xmm7
  subps xmm6,xmm5
+{$ifdef cpu386}
  movaps xmm5,dqword ptr [esp+112]
+{$else}
+ movaps xmm5,dqword ptr [rsp+112]
+{$endif}
  mulps xmm7,xmm5
  subps xmm6,xmm7
+{$ifdef cpu386}
  movaps xmm5,dqword ptr [esp+160]
+{$else}
+ movaps xmm5,dqword ptr [rsp+160]
+{$endif}
  mulps xmm2,xmm5
  mulps xmm5,xmm3
  subps xmm6,xmm2
@@ -7820,7 +7891,11 @@ asm
  addps xmm2,xmm6
  movaps xmm6,xmm0
  movaps xmm0,xmm1
+{$ifdef cpu386}
  movaps xmm1,dqword ptr [esp]
+{$else}
+ movaps xmm1,dqword ptr [rsp]
+{$endif}
  movaps xmm3,xmm0
  rcpss xmm5,xmm0
  mulss xmm0,xmm5
@@ -7841,7 +7916,11 @@ asm
  movups dqword ptr [mr+16],xmm4
  movups dqword ptr [mr+32],xmm6
  movups dqword ptr [mr+48],xmm5
+{$ifdef cpu386}
  mov esp,ecx
+{$else}
+ mov rsp,rax
+{$endif}
  mov eax,1
 
 {$if defined(cpuamd64) and defined(Windows)}
@@ -7905,9 +7984,15 @@ asm
  movups dqword ptr [StackSave1],xmm7
 {$ifend}
 
+{$ifdef cpu386}
  mov ecx,esp
  and esp,$fffffff0
  sub esp,$b0
+{$else}
+ mov rax,rsp
+ and rsp,$fffffffffffffff0
+ sub rsp,$b0
+{$endif}
  movlps xmm2,qword ptr [ma+8]
  movlps xmm4,qword ptr [ma+40]
  movhps xmm2,qword ptr [ma+24]
@@ -7939,14 +8024,22 @@ asm
  mulps xmm7,xmm5
  shufps xmm5,xmm5,$4e
  shufps xmm7,xmm7,$b1
+{$ifdef cpu386}
  movaps dqword ptr [esp+16],xmm2
+{$else}
+ movaps dqword ptr [rsp+16],xmm2
+{$endif}
  movaps xmm2,xmm4
  mulps xmm2,xmm7
  addps xmm2,xmm3
  movaps xmm3,xmm7
  shufps xmm7,xmm7,$4e
  mulps xmm3,xmm1
+{$ifdef cpu386}
  movaps dqword ptr [esp+32],xmm3
+{$else}
+ movaps dqword ptr [rsp+32],xmm3
+{$endif}
  movaps xmm3,xmm4
  mulps xmm3,xmm7
  mulps xmm7,xmm1
@@ -7955,14 +8048,22 @@ asm
  shufps xmm3,xmm3,$4e
  mulps xmm3,xmm4
  shufps xmm3,xmm3,$b1
+{$ifdef cpu386}
  movaps dqword ptr [esp+48],xmm7
+{$else}
+ movaps dqword ptr [rsp+48],xmm7
+{$endif}
  movaps xmm7,xmm5
  mulps xmm5,xmm3
  addps xmm5,xmm2
  movaps xmm2,xmm3
  shufps xmm3,xmm3,$4e
  mulps xmm2,xmm1
+{$ifdef cpu386}
  movaps dqword ptr [esp+64],xmm4
+{$else}
+ movaps dqword ptr [rsp+64],xmm4
+{$endif}
  movaps xmm4,xmm7
  mulps xmm7,xmm3
  mulps xmm3,xmm1
@@ -7973,7 +8074,11 @@ asm
  shufps xmm3,xmm3,$4e
  movaps xmm7,xmm1
  shufps xmm1,xmm1,$4e
+{$ifdef cpu386}
  movaps dqword ptr [esp],xmm5
+{$else}
+ movaps dqword ptr [rsp],xmm5
+{$endif}
  addps xmm1,xmm7
  movaps xmm5,xmm1
  shufps xmm1,xmm1,$b1
@@ -7983,9 +8088,15 @@ asm
  shufps xmm5,xmm5,$b1
  movaps xmm7,xmm5
  shufps xmm5,xmm5,$4e
+{$ifdef cpu386}
  movaps dqword ptr [esp+80],xmm4
  movaps xmm4,dqword ptr [esp+64]
  movaps dqword ptr [esp+64],xmm6
+{$else}
+ movaps dqword ptr [rsp+80],xmm4
+ movaps xmm4,dqword ptr [rsp+64]
+ movaps dqword ptr [rsp+64],xmm6
+{$endif}
  movaps xmm6,xmm4
  mulps xmm6,xmm7
  addps xmm6,xmm3
@@ -7995,26 +8106,48 @@ asm
  movaps xmm6,xmm4
  mulps xmm6,xmm2
  shufps xmm6,xmm6,$b1
+{$ifdef cpu386}
  movaps dqword ptr [esp+112],xmm5
  movaps xmm5,dqword ptr [esp+64]
  movaps dqword ptr [esp+128],xmm7
+{$else}
+ movaps dqword ptr [rsp+112],xmm5
+ movaps xmm5,dqword ptr [rsp+64]
+ movaps dqword ptr [rsp+128],xmm7
+{$endif}
  movaps xmm7,xmm6
  mulps xmm7,xmm5
  addps xmm7,xmm3
  movaps xmm3,xmm6
  shufps xmm3,xmm3,$4e
+{$ifdef cpu386}
  movaps dqword ptr [esp+144],xmm4
+{$else}
+ movaps dqword ptr [rsp+144],xmm4
+{$endif}
  movaps xmm4,xmm5
  mulps xmm5,xmm3
+{$ifdef cpu386}
  movaps dqword ptr [esp+160],xmm4
+{$else}
+ movaps dqword ptr [rsp+160],xmm4
+{$endif}
  movaps xmm4,xmm6
  movaps xmm6,xmm7
  subps xmm6,xmm5
  movaps xmm5,xmm0
+{$ifdef cpu386}
  movaps xmm7,dqword ptr [esp+16]
+{$else}
+ movaps xmm7,dqword ptr [rsp+16]
+{$endif}
  subps xmm5,xmm7
  shufps xmm5,xmm5,$4e
+{$ifdef cpu386}
  movaps xmm7,dqword ptr [esp+80]
+{$else}
+ movaps xmm7,dqword ptr [rsp+80]
+{$endif}
  mulps xmm4,xmm7
  mulps xmm3,xmm7
  subps xmm5,xmm4
@@ -8023,7 +8156,11 @@ asm
  shufps xmm2,xmm2,$b1
  movaps xmm4,xmm2
  shufps xmm4,xmm4,$4e
+{$ifdef cpu386}
  movaps xmm5,dqword ptr [esp+144]
+{$else}
+ movaps xmm5,dqword ptr [rsp+144]
+{$endif}
  movaps xmm0,xmm6
  movaps xmm6,xmm5
  mulps xmm5,xmm2
@@ -8032,17 +8169,30 @@ asm
  movaps xmm3,xmm4
  movaps xmm4,xmm5
  subps xmm4,xmm6
+{$ifdef cpu386}
  movaps xmm5,dqword ptr [esp+48]
  movaps xmm6,dqword ptr [esp+32]
+{$else}
+ movaps xmm5,dqword ptr [rsp+48]
+ movaps xmm6,dqword ptr [rsp+32]
+{$endif}
  subps xmm5,xmm6
  shufps xmm5,xmm5,$4e
  movaps xmm6,[esp+128]
  mulps xmm6,xmm7
  subps xmm6,xmm5
+{$ifdef cpu386}
  movaps xmm5,dqword ptr [esp+112]
+{$else}
+ movaps xmm5,dqword ptr [rsp+112]
+{$endif}
  mulps xmm7,xmm5
  subps xmm6,xmm7
+{$ifdef cpu386}
  movaps xmm5,dqword ptr [esp+160]
+{$else}
+ movaps xmm5,dqword ptr [rsp+160]
+{$endif}
  mulps xmm2,xmm5
  mulps xmm5,xmm3
  subps xmm6,xmm2
@@ -8050,7 +8200,11 @@ asm
  addps xmm2,xmm6
  movaps xmm6,xmm0
  movaps xmm0,xmm1
+{$ifdef cpu386}
  movaps xmm1,dqword ptr [esp]
+{$else}
+ movaps xmm1,dqword ptr [rsp]
+{$endif}
  movaps xmm3,xmm0
  rcpss xmm5,xmm0
  mulss xmm0,xmm5
@@ -8071,7 +8225,11 @@ asm
  movups dqword ptr [result+16],xmm4
  movups dqword ptr [result+32],xmm6
  movups dqword ptr [result+48],xmm5
+{$ifdef cpu386}
  mov esp,ecx
+{$else}
+ mov rsp,rax
+{$endif}
 
 {$if defined(cpuamd64) and defined(Windows)}
  movups xmm6,dqword ptr [StackSave0]
