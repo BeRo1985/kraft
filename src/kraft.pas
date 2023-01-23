@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2023-01-23-16-27-0000                       *
+ *                        Version 2023-01-23-19-47-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -21035,6 +21035,7 @@ function TKraftShapeSphere.SphereCast(var SphereCastData:TKraftSphereCastData):b
 var Origin,Direction:TKraftVector3;
     Time,SecondTime:TKraftScalar;
 begin
+ result:=false;
  if ksfSphereCastable in fFlags then begin
   Origin:=Vector3TermMatrixMulInverted(SphereCastData.Origin,fWorldTransform);
   Direction:=Vector3SafeNorm(Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,fWorldTransform));
@@ -21491,6 +21492,7 @@ function TKraftShapeCapsule.SphereCast(var SphereCastData:TKraftSphereCastData):
 var Origin,Direction,Normal,Point:TKraftVector3;
     Time,HalfHeight:TKraftScalar;
 begin
+ result:=false;
  if ksfSphereCastable in fFlags then begin
   Origin:=Vector3TermMatrixMulInverted(SphereCastData.Origin,fWorldTransform);
   Direction:=Vector3SafeNorm(Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,fWorldTransform));
@@ -23029,6 +23031,7 @@ var Origin,Direction:TKraftVector3;
     Vertices:PPKraftConvexHullVertices;
     Time,u,v:TKraftScalar;
 begin
+ result:=false;
  if ksfSphereCastable in fFlags then begin
   Origin:=Vector3TermMatrixMulInverted(SphereCastData.Origin,fWorldTransform);
   Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,fWorldTransform));
@@ -23250,6 +23253,7 @@ var SkipListNodeIndex,TriangleIndex:longint;
     Radius,Nearest,Time,u,v:TKraftScalar;
     Origin,Direction,p,Normal:TKraftVector3;
 begin
+ result:=false;
  if ksfSphereCastable in fFlags then begin
   Origin:=Vector3TermMatrixMulInverted(SphereCastData.Origin,fWorldTransform);
   Radius:=SphereCastData.Radius;
