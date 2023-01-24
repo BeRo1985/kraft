@@ -261,7 +261,7 @@ const EPSILON={$ifdef UseDouble}1e-14{$else}1e-5{$endif}; // actually {$ifdef Us
 
       KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_SAMPLES=KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES*KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES*KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES;
 
-      KRAFT_LARGEST_DISTANCE=262144.0;
+      KRAFT_SIGNED_DISTANCE_FIELD_LARGEST_SIZE=4096.0;
 
       KRAFT_SIMD={$ifdef SIMD}true{$else}false{$endif};
 
@@ -24449,10 +24449,10 @@ end;
 function TKraftShapeSignedDistanceField.Project(const aDirection:TKraftVector3):TKraftScalar;
 var Current:TKraftVector3;
 begin
- Current:=Vector3ScalarMul(Vector3Norm(aDirection),KRAFT_LARGEST_DISTANCE);
+ Current:=Vector3ScalarMul(Vector3Norm(aDirection),KRAFT_SIGNED_DISTANCE_FIELD_LARGEST_SIZE);
  repeat
   result:=GetLocalSignedDistance(Current);
-  if result>KRAFT_LARGEST_DISTANCE then begin
+  if result>KRAFT_SIGNED_DISTANCE_FIELD_LARGEST_SIZE then begin
    result:=Vector3Length(Current)-result;
    exit;
   end else begin
