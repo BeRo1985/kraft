@@ -13296,7 +13296,9 @@ begin
     PositionA:=Vector3Sub(ClosestPoint,Vector3ScalarMul(NormalA,DistanceA));
     PositionB:=Vector3Sub(ClosestPoint,Vector3ScalarMul(NormalB,DistanceB));
 
-    Normal:=Vector3Norm(Vector3Sub(NormalA,NormalB));
+    Normal:=GetNormal(ClosestPoint);
+
+//  Normal:=Vector3Norm(Vector3Sub(NormalA,NormalB));
 
     PenetrationDepth:=-Min(DistanceA,DistanceB);
 
