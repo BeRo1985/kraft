@@ -24488,72 +24488,28 @@ begin
 
  CalculateAABB;
 
- Accumulator:=0;
+ if fRigidBody.fRigidBodyType=krbtStatic then begin
 
- Total:=0.0;
-
- Position:=Vector3Origin;
-
- CenterOfMassX:=0.0;
- CenterOfMassY:=0.0;
- CenterOfMassZ:=0.0;
-
- for IndexZ:=0 to KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1 do begin
-
-  Time:=IndexZ/(KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1);
-  Position.z:=(fAABB.Min.z*(1.0-Time))+(fAABB.Max.z*Time);
-
-  for IndexY:=0 to KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1 do begin
-
-   Time:=IndexY/(KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1);
-   Position.y:=(fAABB.Min.y*(1.0-Time))+(fAABB.Max.y*Time);
-
-   for IndexX:=0 to KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1 do begin
-
-    Time:=IndexX/(KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1);
-    Position.x:=(fAABB.Min.x*(1.0-Time))+(fAABB.Max.x*Time);
-
-    if GetLocalSignedDistance(Position)<EPSILON then begin
-
-     inc(Accumulator);
-
-     CenterOfMassX:=CenterOfMassX+(Position.x*fDensity);
-     CenterOfMassY:=CenterOfMassY+(Position.y*fDensity);
-     CenterOfMassZ:=CenterOfMassZ+(Position.z*fDensity);
-
-     Total:=Total+fDensity;
-
-    end;
-
-   end;
-
-  end;
-
- end;
-
- if Accumulator>0 then begin
-
-  fMassData.Volume:=(((fAABB.Max.x-fAABB.Min.x)*(fAABB.Max.y-fAABB.Min.y)*(fAABB.Max.z-fAABB.Min.z))*Accumulator)/KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_SAMPLES;
-
+  fMassData.Volume:=0.0;
   if fForcedMass>EPSILON then begin
    fMassData.Mass:=fForcedMass;
   end else begin
    fMassData.Mass:=fMassData.Volume*fDensity;
   end;
+  fMassData.Center:=Vector3Origin;
+  fMassData.Inertia:=Matrix3x3Null;
 
-  fMassData.Center.x:=CenterOfMassX/Total;
-  fMassData.Center.y:=CenterOfMassY/Total;
-  fMassData.Center.z:=CenterOfMassZ/Total;
-
-  for MatrixY:=0 to 2 do begin
-   for MatrixX:=0 to 2 do begin
-    InertiaTensor[MatrixY,MatrixX]:=0.0;
-   end;
-  end;
+ end else begin
 
   Accumulator:=0;
 
   Total:=0.0;
+
+  Position:=Vector3Origin;
+
+  CenterOfMassX:=0.0;
+  CenterOfMassY:=0.0;
+  CenterOfMassZ:=0.0;
 
   for IndexZ:=0 to KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1 do begin
 
@@ -24574,19 +24530,11 @@ begin
 
       inc(Accumulator);
 
+      CenterOfMassX:=CenterOfMassX+(Position.x*fDensity);
+      CenterOfMassY:=CenterOfMassY+(Position.y*fDensity);
+      CenterOfMassZ:=CenterOfMassZ+(Position.z*fDensity);
+
       Total:=Total+fDensity;
-
-      RelativePosition:=Vector3Sub(Position,fMassData.Center);
-
-      for MatrixY:=0 to 2 do begin
-       for MatrixX:=0 to 2 do begin
-        Value:=(-RelativePosition.xyz[MatrixY])*RelativePosition.xyz[MatrixX];
-        if MatrixX=MatrixY then begin
-         Value:=Value+Vector3LengthSquared(RelativePosition);
-        end;
-        InertiaTensor[MatrixY,MatrixX]:=InertiaTensor[MatrixY,MatrixX]+(Value*fDensity);
-       end;
-      end;
 
      end;
 
@@ -24596,26 +24544,93 @@ begin
 
   end;
 
-  if Total>0.0 then begin
+  if Accumulator>0 then begin
+
+   fMassData.Volume:=(((fAABB.Max.x-fAABB.Min.x)*(fAABB.Max.y-fAABB.Min.y)*(fAABB.Max.z-fAABB.Min.z))*Accumulator)/KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_SAMPLES;
+
+   if fForcedMass>EPSILON then begin
+    fMassData.Mass:=fForcedMass;
+   end else begin
+    fMassData.Mass:=fMassData.Volume*fDensity;
+   end;
+
+   fMassData.Center.x:=CenterOfMassX/Total;
+   fMassData.Center.y:=CenterOfMassY/Total;
+   fMassData.Center.z:=CenterOfMassZ/Total;
+
    for MatrixY:=0 to 2 do begin
     for MatrixX:=0 to 2 do begin
-     fMassData.Inertia[MatrixY,MatrixX]:=(InertiaTensor[MatrixY,MatrixX]/Total)*fMassData.Mass;
+     InertiaTensor[MatrixY,MatrixX]:=0.0;
     end;
    end;
+
+   Accumulator:=0;
+
+   Total:=0.0;
+
+   for IndexZ:=0 to KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1 do begin
+
+    Time:=IndexZ/(KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1);
+    Position.z:=(fAABB.Min.z*(1.0-Time))+(fAABB.Max.z*Time);
+
+    for IndexY:=0 to KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1 do begin
+
+     Time:=IndexY/(KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1);
+     Position.y:=(fAABB.Min.y*(1.0-Time))+(fAABB.Max.y*Time);
+
+     for IndexX:=0 to KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1 do begin
+
+      Time:=IndexX/(KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1);
+      Position.x:=(fAABB.Min.x*(1.0-Time))+(fAABB.Max.x*Time);
+
+      if GetLocalSignedDistance(Position)<EPSILON then begin
+
+       inc(Accumulator);
+
+       Total:=Total+fDensity;
+
+       RelativePosition:=Vector3Sub(Position,fMassData.Center);
+
+       for MatrixY:=0 to 2 do begin
+        for MatrixX:=0 to 2 do begin
+         Value:=(-RelativePosition.xyz[MatrixY])*RelativePosition.xyz[MatrixX];
+         if MatrixX=MatrixY then begin
+          Value:=Value+Vector3LengthSquared(RelativePosition);
+         end;
+         InertiaTensor[MatrixY,MatrixX]:=InertiaTensor[MatrixY,MatrixX]+(Value*fDensity);
+        end;
+       end;
+
+      end;
+
+     end;
+
+    end;
+
+   end;
+
+   if Total>0.0 then begin
+    for MatrixY:=0 to 2 do begin
+     for MatrixX:=0 to 2 do begin
+      fMassData.Inertia[MatrixY,MatrixX]:=(InertiaTensor[MatrixY,MatrixX]/Total)*fMassData.Mass;
+     end;
+    end;
+   end else begin
+    fMassData.Inertia:=Matrix3x3Null;
+   end;
+
   end else begin
+
+   fMassData.Volume:=0.0;
+   if fForcedMass>EPSILON then begin
+    fMassData.Mass:=fForcedMass;
+   end else begin
+    fMassData.Mass:=fMassData.Volume*fDensity;
+   end;
+   fMassData.Center:=Vector3Origin;
    fMassData.Inertia:=Matrix3x3Null;
-  end;
 
- end else begin
-
-  fMassData.Volume:=0.0;
-  if fForcedMass>EPSILON then begin
-   fMassData.Mass:=fForcedMass;
-  end else begin
-   fMassData.Mass:=fMassData.Volume*fDensity;
   end;
-  fMassData.Center:=Vector3Origin;
-  fMassData.Inertia:=Matrix3x3Null;
 
  end;
 
