@@ -24618,6 +24618,7 @@ begin
   fMassData.Inertia:=Matrix3x3Null;
 
  end;
+
 end;
 
 function TKraftShapeSignedDistanceField.GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
