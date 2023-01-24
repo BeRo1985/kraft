@@ -13548,6 +13548,10 @@ var CountSaved,Index,iA,iB:longint;
     TempVertex:PKraftGJKSimplexVertex;
 begin
 
+ Failed:=false;
+
+ Initialized:=false;
+
  if (Shapes[0].fShapeType=kstSignedDistanceField) or
     (Shapes[1].fShapeType=kstSignedDistanceField) then begin
 
@@ -13573,15 +13577,16 @@ begin
      ClosestPoints[1]:=ClosestPoints[0];
     end;
    end;
+
+  end else begin
+
+   Failed:=true;
+
   end;
 
   exit;
 
  end;
-
- Failed:=false;
-
- Initialized:=false;
 
  // Initialize simplex vertex permutation order
  Simplex.Vertices[0]:=@Simplex.VerticesData[0];
