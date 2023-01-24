@@ -257,6 +257,14 @@ const EPSILON={$ifdef UseDouble}1e-14{$else}1e-5{$endif}; // actually {$ifdef Us
       KRAFT_QUICKHULL_HASHSIZE=1 shl KRAFT_QUICKHULL_HASHBITS;
       KRAFT_QUICKHULL_HASHMASK=KRAFT_QUICKHULL_HASHSIZE-1;
 
+      KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES=16;
+
+      KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_SAMPLES=KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES*KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES*KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES;
+
+      KRAFT_LARGEST_DISTANCE=262144.0;
+
+      KRAFT_SIMD={$ifdef SIMD}true{$else}false{$endif};
+
       KraftSIMD={$ifdef SIMD}true{$else}false{$endif};
 
 type PKraftForceMode=^TKraftForceMode;
@@ -1600,8 +1608,10 @@ type PKraftForceMode=^TKraftForceMode;
      TKraftShapeSignedDistanceField=class(TKraftShape)
       private
        fAABB:TKraftAABB;
+       function Project(const aDirection:TKraftVector3):TKraftScalar;
+       procedure CalculateAABB;
       public
-       constructor Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody;const aAABB:TKraftAABB); reintroduce;
+       constructor Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody;const aAABB:PKraftAABB=nil); reintroduce;
        destructor Destroy; override;
        procedure UpdateShapeAABB; override;
        procedure CalculateMassData; override;
@@ -22000,7 +22010,7 @@ begin
 {$endif}
  end;
  fMassData.Inertia:=Matrix3x3TermAdd(InertiaTensorTransform(fMassData.Inertia,Matrix3x3(fLocalTransform)),
-                                    InertiaTensorParallelAxisTheorem(fMassData.Center,fMassData.Mass));
+                                     InertiaTensorParallelAxisTheorem(fMassData.Center,fMassData.Mass));
 end;
 {$else}
 procedure TKraftShapeCapsule.CalculateMassData;
@@ -24413,7 +24423,7 @@ begin
 end;
 {$endif}
 
-constructor TKraftShapeSignedDistanceField.Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody;const aAABB:TKraftAABB);
+constructor TKraftShapeSignedDistanceField.Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody;const aAABB:PKraftAABB=nil);
 begin
 
  inherited Create(APhysics,ARigidBody);
@@ -24422,7 +24432,12 @@ begin
 
  fFeatureRadius:=0.0;
 
- fAABB:=aAABB;
+ if assigned(aAABB) then begin
+  fAABB:=aAABB^;
+ end else begin
+  fAABB.Min:=Vector3(1.0,1.0,1.0);
+  fAABB.Max:=Vector3(-1.0,-1.0,-1.0);
+ end;
 
 end;
 
@@ -24431,13 +24446,178 @@ begin
  inherited Destroy;
 end;
 
+function TKraftShapeSignedDistanceField.Project(const aDirection:TKraftVector3):TKraftScalar;
+var Current:TKraftVector3;
+begin
+ Current:=Vector3ScalarMul(Vector3Norm(aDirection),KRAFT_LARGEST_DISTANCE);
+ repeat
+  result:=GetLocalSignedDistance(Current);
+  if result>KRAFT_LARGEST_DISTANCE then begin
+   result:=Vector3Length(Current)-result;
+   exit;
+  end else begin
+   Vector3Scale(Current,2.0);
+  end;
+ until false;
+end;
+
+procedure TKraftShapeSignedDistanceField.CalculateAABB;
+begin
+ if (Vector3CompareEx(fAABB.Min,Vector3Origin) and Vector3CompareEx(fAABB.Max,Vector3Origin)) or
+    (fAABB.Min.x>fAABB.Max.x) or
+    (fAABB.Min.y>fAABB.Max.y) or
+    (fAABB.Min.z>fAABB.Max.z) then begin
+  fAABB.Min:=Vector3(-Project(Vector3(-1.0,0.0,0.0)),-Project(Vector3(0.0,-1.0,0.0)),-Project(Vector3(0.0,0.0,-1.0)));
+  fAABB.Max:=Vector3(Project(Vector3(1.0,0.0,0.0)),Project(Vector3(0.0,1.0,0.0)),Project(Vector3(0.0,0.0,1.0)));
+ end;
+end;
+
 procedure TKraftShapeSignedDistanceField.UpdateShapeAABB;
 begin
+ CalculateAABB;
  fShapeAABB:=fAABB;
 end;
 
 procedure TKraftShapeSignedDistanceField.CalculateMassData;
+var IndexZ,IndexY,IndexX,Accumulator,MatrixX,MatrixY:longint;
+    Time:TKraftScalar;
+    Total,CenterOfMassX,CenterOfMassY,CenterOfMassZ,Value:Double;
+    InertiaTensor:array[0..2,0..2] of Double;
+    Position,RelativePosition:TKraftVector3;
 begin
+
+ CalculateAABB;
+
+ Accumulator:=0;
+
+ Total:=0.0;
+
+ Position:=Vector3Origin;
+
+ CenterOfMassX:=0.0;
+ CenterOfMassY:=0.0;
+ CenterOfMassZ:=0.0;
+
+ for IndexZ:=0 to KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1 do begin
+
+  Time:=IndexZ/(KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1);
+  Position.z:=(fAABB.Min.z*(1.0-Time))+(fAABB.Max.z*Time);
+
+  for IndexY:=0 to KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1 do begin
+
+   Time:=IndexY/(KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1);
+   Position.y:=(fAABB.Min.y*(1.0-Time))+(fAABB.Max.y*Time);
+
+   for IndexX:=0 to KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1 do begin
+
+    Time:=IndexX/(KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1);
+    Position.x:=(fAABB.Min.x*(1.0-Time))+(fAABB.Max.x*Time);
+
+    if GetLocalSignedDistance(Position)<EPSILON then begin
+
+     inc(Accumulator);
+
+     CenterOfMassX:=CenterOfMassX+(Position.x*fDensity);
+     CenterOfMassY:=CenterOfMassY+(Position.y*fDensity);
+     CenterOfMassZ:=CenterOfMassZ+(Position.z*fDensity);
+
+     Total:=Total+fDensity;
+
+    end;
+
+   end;
+
+  end;
+
+ end;
+
+ if Accumulator>0 then begin
+
+  fMassData.Volume:=(((fAABB.Max.x-fAABB.Min.x)*(fAABB.Max.y-fAABB.Min.y)*(fAABB.Max.z-fAABB.Min.z))*Accumulator)/KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_SAMPLES;
+
+  if fForcedMass>EPSILON then begin
+   fMassData.Mass:=fForcedMass;
+  end else begin
+   fMassData.Mass:=fMassData.Volume*fDensity;
+  end;
+
+  fMassData.Center.x:=CenterOfMassX/Total;
+  fMassData.Center.y:=CenterOfMassY/Total;
+  fMassData.Center.z:=CenterOfMassZ/Total;
+
+  for MatrixY:=0 to 2 do begin
+   for MatrixX:=0 to 2 do begin
+    InertiaTensor[MatrixY,MatrixX]:=0.0;
+   end;
+  end;
+
+  Accumulator:=0;
+
+  Total:=0.0;
+
+  for IndexZ:=0 to KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1 do begin
+
+   Time:=IndexZ/(KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1);
+   Position.z:=(fAABB.Min.z*(1.0-Time))+(fAABB.Max.z*Time);
+
+   for IndexY:=0 to KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1 do begin
+
+    Time:=IndexY/(KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1);
+    Position.y:=(fAABB.Min.y*(1.0-Time))+(fAABB.Max.y*Time);
+
+    for IndexX:=0 to KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1 do begin
+
+     Time:=IndexX/(KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1);
+     Position.x:=(fAABB.Min.x*(1.0-Time))+(fAABB.Max.x*Time);
+
+     if GetLocalSignedDistance(Position)<EPSILON then begin
+
+      inc(Accumulator);
+
+      Total:=Total+fDensity;
+
+      RelativePosition:=Vector3Sub(Position,fMassData.Center);
+
+      for MatrixY:=0 to 2 do begin
+       for MatrixX:=0 to 2 do begin
+        Value:=(-RelativePosition.xyz[MatrixY])*RelativePosition.xyz[MatrixX];
+        if MatrixX=MatrixY then begin
+         Value:=Value+Vector3LengthSquared(RelativePosition);
+        end;
+        InertiaTensor[MatrixY,MatrixX]:=InertiaTensor[MatrixY,MatrixX]+(Value*fDensity);
+       end;
+      end;
+
+     end;
+
+    end;
+
+   end;
+
+  end;
+
+  if Total>0.0 then begin
+   for MatrixY:=0 to 2 do begin
+    for MatrixX:=0 to 2 do begin
+     fMassData.Inertia[MatrixY,MatrixX]:=(InertiaTensor[MatrixY,MatrixX]/Total)*fMassData.Mass;
+    end;
+   end;
+  end else begin
+   fMassData.Inertia:=Matrix3x3Null;
+  end;
+
+ end else begin
+
+  fMassData.Volume:=0.0;
+  if fForcedMass>EPSILON then begin
+   fMassData.Mass:=fForcedMass;
+  end else begin
+   fMassData.Mass:=fMassData.Volume*fDensity;
+  end;
+  fMassData.Center:=Vector3Origin;
+  fMassData.Inertia:=Matrix3x3Null;
+
+ end;
 end;
 
 function TKraftShapeSignedDistanceField.GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
