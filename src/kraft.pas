@@ -13196,25 +13196,8 @@ const Delta=1e-3;
       DescentRate=5e-3;
       Epsilon=1e-3;
 var Iteration:longint;
-    ClosestPoint,Gradient,GradientA,GradientB,DirectionA,DirectionB:TKraftVector3;
+    ClosestPoint,Gradient,NormalA,NormalB:TKraftVector3;
     DistanceA,DistanceB:TKraftScalar;
- function Map(const aPosition:TKraftVector3):TKraftScalar;
- begin
-  result:=Min(ShapeA.GetLocalSignedDistance(Vector3TermMatrixMulInverted(aPosition,TransformA)),
-              ShapeB.GetLocalSignedDistance(Vector3TermMatrixMulInverted(aPosition,TransformB)));
- end;
- function GetNormal(const aPosition:TKraftVector3):TKraftVector3;
- var Center:TKraftScalar;
- begin
-  Center:=Map(aPosition);
-  result.x:=Map(Vector3Add(aPosition,Vector3(Epsilon,0.0,0.0)))-Center{Map(Vector3Add(aPosition,Vector3(-Epsilon,0.0,0.0)))};
-  result.y:=Map(Vector3Add(aPosition,Vector3(0.0,Epsilon,0.0)))-Center{Map(Vector3Add(aPosition,Vector3(0.0,-Epsilon,0.0)))};
-  result.z:=Map(Vector3Add(aPosition,Vector3(0.0,0.0,Epsilon)))-Center{Map(Vector3Add(aPosition,Vector3(0.0,0.0,-Epsilon)))};
-{$ifdef SIMD}
-  result.w:=0;
-{$endif}
-  Vector3Normalize(result);
- end;
 begin
 
  result:=false;
@@ -13237,10 +13220,19 @@ begin
     DistanceA:=ShapeA.GetLocalSignedDistance(Vector3TermMatrixMulInverted(ClosestPoint,TransformA));
 
     if DistanceA<TKraftShapeSphere(ShapeB).fRadius then begin
-     Normal:=GetNormal(ClosestPoint);
-     PenetrationDepth:=TKraftShapeSphere(ShapeB).fRadius-DistanceA;
-     PositionA:=Vector3Add(ClosestPoint,Vector3ScalarMul(Normal,PenetrationDepth));
-     PositionB:=PositionA;
+
+     DistanceB:=ShapeB.GetLocalSignedDistance(Vector3TermMatrixMulInverted(ClosestPoint,TransformB));
+
+     NormalA:=Vector3TermMatrixMulBasis(ShapeA.GetLocalSignedDistanceNormal(Vector3TermMatrixMulInverted(ClosestPoint,TransformA)),TransformA);
+     NormalB:=Vector3TermMatrixMulBasis(ShapeB.GetLocalSignedDistanceNormal(Vector3TermMatrixMulInverted(ClosestPoint,TransformB)),TransformB);
+
+     PositionA:=Vector3Sub(ClosestPoint,Vector3ScalarMul(NormalA,DistanceA));
+     PositionB:=Vector3Sub(ClosestPoint,Vector3ScalarMul(NormalB,DistanceB));
+
+     Normal:=Vector3Norm(Vector3Sub(NormalA,NormalB));
+
+     PenetrationDepth:=-Min(DistanceA,DistanceB);
+
      result:=true;
     end;
 
@@ -13276,60 +13268,29 @@ begin
 
   for Iteration:=1 to 2048 do begin
 
-{$if true}
-   GradientA:=Vector3TermMatrixMulBasis(ShapeA.GetLocalSignedDistanceGradient(Vector3TermMatrixMulInverted(ClosestPoint,TransformA)),TransformA);
-   GradientB:=Vector3TermMatrixMulBasis(ShapeB.GetLocalSignedDistanceGradient(Vector3TermMatrixMulInverted(ClosestPoint,TransformB)),TransformB);
-{$if true}
-   Gradient:=Vector3ScalarMul(Vector3Avg(GradientA,GradientB),Delta);
-{$else}
-   if Vector3Length(GradientA)>Vector3Length(GradientB) then begin
-    Gradient:=Vector3ScalarMul(GradientA,Delta);
-   end else begin
-    Gradient:=Vector3ScalarMul(GradientB,Delta);
-   end;
-{$ifend}
-
-   if Vector3Length(Gradient)<Epsilon then begin
-
-    PositionA:=ClosestPoint;
-    PositionB:=ClosestPoint;
-    Normal:=Vector3Norm(Vector3Sub(Vector3TermMatrixMulBasis(ShapeA.GetLocalSignedDistanceNormal(Vector3TermMatrixMulInverted(ClosestPoint,TransformA)),TransformA),
-                                   Vector3TermMatrixMulBasis(ShapeB.GetLocalSignedDistanceNormal(Vector3TermMatrixMulInverted(ClosestPoint,TransformB)),TransformB)));
-    PenetrationDepth:=-Min(ShapeA.GetLocalSignedDistance(Vector3TermMatrixMulInverted(ClosestPoint,TransformA)),
-                           ShapeB.GetLocalSignedDistance(Vector3TermMatrixMulInverted(ClosestPoint,TransformB)));
-    result:=true;
-    exit;
-
-   end else begin
-
-    Vector3DirectSub(ClosestPoint,Vector3ScalarMul(Gradient,DescentRate));
-
-   end;
-
-{$elseif true}
-
    DistanceA:=ShapeA.GetLocalSignedDistance(Vector3TermMatrixMulInverted(ClosestPoint,TransformA));
    DistanceB:=ShapeB.GetLocalSignedDistance(Vector3TermMatrixMulInverted(ClosestPoint,TransformB));
+
    if DistanceA>DistanceB then begin
-    Gradient.x:=(ShapeA.GetLocalSignedDistance(Vector3TermMatrixMulInverted(Vector3Add(ClosestPoint,Vector3(Delta,0.0,0.0)),TransformA))-DistanceA)*OneOverDelta;
-    Gradient.y:=(ShapeA.GetLocalSignedDistance(Vector3TermMatrixMulInverted(Vector3Add(ClosestPoint,Vector3(0.0,Delta,0.0)),TransformA))-DistanceA)*OneOverDelta;
-    Gradient.z:=(ShapeA.GetLocalSignedDistance(Vector3TermMatrixMulInverted(Vector3Add(ClosestPoint,Vector3(0.0,0.0,Delta)),TransformA))-DistanceA)*OneOverDelta;
+    Gradient:=Vector3ScalarMul(Vector3TermMatrixMulBasis(ShapeA.GetLocalSignedDistanceGradient(Vector3TermMatrixMulInverted(ClosestPoint,TransformA)),TransformA),Delta);
    end else begin
-    Gradient.x:=(ShapeB.GetLocalSignedDistance(Vector3TermMatrixMulInverted(Vector3Add(ClosestPoint,Vector3(Delta,0.0,0.0)),TransformB))-DistanceB)*OneOverDelta;
-    Gradient.y:=(ShapeB.GetLocalSignedDistance(Vector3TermMatrixMulInverted(Vector3Add(ClosestPoint,Vector3(0.0,Delta,0.0)),TransformB))-DistanceB)*OneOverDelta;
-    Gradient.z:=(ShapeB.GetLocalSignedDistance(Vector3TermMatrixMulInverted(Vector3Add(ClosestPoint,Vector3(0.0,0.0,Delta)),TransformB))-DistanceB)*OneOverDelta;
+    Gradient:=Vector3ScalarMul(Vector3TermMatrixMulBasis(ShapeB.GetLocalSignedDistanceGradient(Vector3TermMatrixMulInverted(ClosestPoint,TransformB)),TransformB),Delta);
    end;
-{$ifdef SIMD}
-   Gradient.w:=0;
-{$endif}
 
    if Vector3Length(Gradient)<Epsilon then begin
 
-    PositionA:=ClosestPoint;
-    PositionB:=ClosestPoint;
-    Normal:=Vector3Norm(Gradient);
+    NormalA:=Vector3TermMatrixMulBasis(ShapeA.GetLocalSignedDistanceNormal(Vector3TermMatrixMulInverted(ClosestPoint,TransformA)),TransformA);
+    NormalB:=Vector3TermMatrixMulBasis(ShapeB.GetLocalSignedDistanceNormal(Vector3TermMatrixMulInverted(ClosestPoint,TransformB)),TransformB);
+
+    PositionA:=Vector3Sub(ClosestPoint,Vector3ScalarMul(NormalA,DistanceA));
+    PositionB:=Vector3Sub(ClosestPoint,Vector3ScalarMul(NormalB,DistanceB));
+
+    Normal:=Vector3Norm(Vector3Sub(NormalA,NormalB));
+
     PenetrationDepth:=-Min(DistanceA,DistanceB);
+
     result:=true;
+
     exit;
 
    end else begin
@@ -13337,50 +13298,6 @@ begin
     Vector3DirectSub(ClosestPoint,Vector3ScalarMul(Gradient,DescentRate));
 
    end;
-
-{$else}
-{$if true}
-   DistanceA:=ShapeA.GetLocalSignedDistanceAndDirection(Vector3TermMatrixMulInverted(ClosestPoint,TransformA),DirectionA);
-   DistanceB:=ShapeB.GetLocalSignedDistanceAndDirection(Vector3TermMatrixMulInverted(ClosestPoint,TransformB),DirectionB);
-   Vector3MatrixMulBasis(DirectionA,TransformA);
-   Vector3MatrixMulBasis(DirectionB,TransformB);
-   Vector3Normalize(DirectionA);
-   Vector3Normalize(DirectionB);
-   Gradient:=Vector3Sub(Vector3ScalarMul(DirectionA,DistanceA),Vector3ScalarMul(DirectionB,DistanceB));
-{$else}
-   Gradient.x:=(Max(ShapeA.GetLocalSignedDistance(Vector3TermMatrixMulInverted(Vector3Add(ClosestPoint,Vector3(Delta,0.0,0.0)),TransformA)),
-                    ShapeB.GetLocalSignedDistance(Vector3TermMatrixMulInverted(Vector3Add(ClosestPoint,Vector3(Delta,0.0,0.0)),TransformB)))-
-                Max(ShapeA.GetLocalSignedDistance(Vector3TermMatrixMulInverted(Vector3Add(ClosestPoint,Vector3(-Delta,0.0,0.0)),TransformA)),
-                    ShapeB.GetLocalSignedDistance(Vector3TermMatrixMulInverted(Vector3Add(ClosestPoint,Vector3(-Delta,0.0,0.0)),TransformB))))*OneOverTwoDelta;
-
-   Gradient.<:=(Max(ShapeA.GetLocalSignedDistance(Vector3TermMatrixMulInverted(Vector3Add(ClosestPoint,Vector3(0.0,Delta,0.0)),TransformA)),
-                    ShapeB.GetLocalSignedDistance(Vector3TermMatrixMulInverted(Vector3Add(ClosestPoint,Vector3(0.0,Delta,0.0)),TransformB)))-
-                Max(ShapeA.GetLocalSignedDistance(Vector3TermMatrixMulInverted(Vector3Add(ClosestPoint,Vector3(0.0,-Delta,0.0)),TransformA)),
-                    ShapeB.GetLocalSignedDistance(Vector3TermMatrixMulInverted(Vector3Add(ClosestPoint,Vector3(0.0,-Delta,0.0)),TransformB))))*OneOverTwoDelta;
-
-   Gradient.z:=(Max(ShapeA.GetLocalSignedDistance(Vector3TermMatrixMulInverted(Vector3Add(ClosestPoint,Vector3(0.0,0.0,Delta)),TransformA)),
-                    ShapeB.GetLocalSignedDistance(Vector3TermMatrixMulInverted(Vector3Add(ClosestPoint,Vector3(0.0,0.0,Delta)),TransformB)))-
-                Max(ShapeA.GetLocalSignedDistance(Vector3TermMatrixMulInverted(Vector3Add(ClosestPoint,Vector3(0.0,0.0,-Delta)),TransformA)),
-                    ShapeB.GetLocalSignedDistance(Vector3TermMatrixMulInverted(Vector3Add(ClosestPoint,Vector3(0.0,0.0,-Delta)),TransformB))))*OneOverTwoDelta;
-
-{$endif}
-
-   if Vector3Length(Gradient)<Epsilon then begin
-
-    PositionA:=ClosestPoint;
-    PositionB:=ClosestPoint;
-    Normal:=Vector3Norm(Gradient);
-    PenetrationDepth:=-Min(ShapeA.GetLocalSignedDistance(Vector3TermMatrixMulInverted(ClosestPoint,ShapeA.fWorldTransform)),
-                           ShapeB.GetLocalSignedDistance(Vector3TermMatrixMulInverted(ClosestPoint,ShapeB.fWorldTransform)));
-    result:=true;
-    exit;
-
-   end else begin
-
-    Vector3DirectSub(ClosestPoint,Vector3ScalarMul(Gradient,DescentRate));
-
-   end;
-{$endif}
 
   end;
 
