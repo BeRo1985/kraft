@@ -13269,7 +13269,20 @@ begin
  // Slow fallback general case per gradient descent
  begin
 
-  ClosestPoint:=Vector3Lerp(ShapeA.GetCenter(TransformA),ShapeB.GetCenter(TransformB),0.5);
+  // Get a seed starting point
+  if ShapeA.fRigidBody.fRigidBodyType=TKraftRigidBodyType.krbtStatic then begin
+   if ShapeB.fRigidBody.fRigidBodyType=TKraftRigidBodyType.krbtStatic then begin
+    ClosestPoint:=Vector3Avg(ShapeA.GetCenter(TransformA),ShapeB.GetCenter(TransformB));
+   end else begin
+    ClosestPoint:=ShapeB.GetCenter(TransformB);
+   end;
+  end else begin
+   if ShapeB.fRigidBody.fRigidBodyType=TKraftRigidBodyType.krbtStatic then begin
+    ClosestPoint:=ShapeA.GetCenter(TransformA);
+   end else begin
+    ClosestPoint:=Vector3Avg(ShapeA.GetCenter(TransformA),ShapeB.GetCenter(TransformB));
+   end;
+  end;
 
 {$ifdef SIMD}
   Gradient.w:=0;
@@ -13332,7 +13345,20 @@ var Iteration,CountIterations:longint;
     DistanceA,DistanceB:TKraftScalar;
 begin
 
- ClosestPoint:=Vector3Lerp(ShapeA.GetCenter(TransformA),ShapeB.GetCenter(TransformB),0.5);
+ // Get a seed starting point
+ if ShapeA.fRigidBody.fRigidBodyType=TKraftRigidBodyType.krbtStatic then begin
+  if ShapeB.fRigidBody.fRigidBodyType=TKraftRigidBodyType.krbtStatic then begin
+   ClosestPoint:=Vector3Avg(ShapeA.GetCenter(TransformA),ShapeB.GetCenter(TransformB));
+  end else begin
+   ClosestPoint:=ShapeB.GetCenter(TransformB);
+  end;
+ end else begin
+  if ShapeB.fRigidBody.fRigidBodyType=TKraftRigidBodyType.krbtStatic then begin
+   ClosestPoint:=ShapeA.GetCenter(TransformA);
+  end else begin
+   ClosestPoint:=Vector3Avg(ShapeA.GetCenter(TransformA),ShapeB.GetCenter(TransformB));
+  end;
+ end;
 
 {$ifdef SIMD}
  Gradient.w:=0;
