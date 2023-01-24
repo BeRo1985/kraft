@@ -13321,6 +13321,55 @@ begin
 
 end;
 
+function SignedDistanceFieldClosestPoints(const ShapeA,ShapeB:TKraftShape;const TransformA,TransformB:TKraftMatrix4x4;out PositionA,PositionB:TKraftVector3):boolean;
+const Delta=1e-3;
+      OneOverDelta=1.0/Delta;
+      OneOverTwoDelta=0.5/Delta; // 1.0/(2.0*Delta)
+      DescentRate=5e-2;
+      Epsilon=1e-3;
+var Iteration,CountIterations:longint;
+    ClosestPoint,Gradient:TKraftVector3;
+    DistanceA,DistanceB:TKraftScalar;
+begin
+
+ ClosestPoint:=Vector3Lerp(ShapeA.GetCenter(TransformA),ShapeB.GetCenter(TransformB),0.5);
+
+{$ifdef SIMD}
+ Gradient.w:=0;
+{$endif}
+
+ CountIterations:=128;
+
+ for Iteration:=1 to CountIterations do begin
+
+  DistanceA:=ShapeA.GetLocalSignedDistance(Vector3TermMatrixMulInverted(ClosestPoint,TransformA));
+  DistanceB:=ShapeB.GetLocalSignedDistance(Vector3TermMatrixMulInverted(ClosestPoint,TransformB));
+
+  if DistanceA>DistanceB then begin
+   Gradient:=Vector3ScalarMul(Vector3TermMatrixMulBasis(ShapeA.GetLocalSignedDistanceGradient(Vector3TermMatrixMulInverted(ClosestPoint,TransformA)),TransformA),Delta);
+  end else begin
+   Gradient:=Vector3ScalarMul(Vector3TermMatrixMulBasis(ShapeB.GetLocalSignedDistanceGradient(Vector3TermMatrixMulInverted(ClosestPoint,TransformB)),TransformB),Delta);
+  end;
+
+  if Vector3Length(Gradient)<Epsilon then begin
+
+   break;
+
+  end else begin
+
+   Vector3DirectSub(ClosestPoint,Vector3ScalarMul(Gradient,DescentRate));
+
+  end;
+
+ end;
+
+ PositionA:=Vector3Sub(ClosestPoint,Vector3ScalarMul(Vector3TermMatrixMulBasis(ShapeA.GetLocalSignedDistanceNormal(Vector3TermMatrixMulInverted(ClosestPoint,TransformA)),TransformA),DistanceA));
+ PositionB:=Vector3Sub(ClosestPoint,Vector3ScalarMul(Vector3TermMatrixMulBasis(ShapeB.GetLocalSignedDistanceNormal(Vector3TermMatrixMulInverted(ClosestPoint,TransformB)),TransformB),DistanceB));
+
+ result:=true;
+
+end;
+
 function AABBHasPoint(const aAABBOrigin,aAABBExtents,aPoint:TKraftVector3):boolean;
 begin
  result:=((aPoint.x>=(aAABBOrigin.x-aAABBExtents.x)) and (aPoint.x<=(aAABBOrigin.x+aAABBExtents.x))) and
@@ -13498,6 +13547,37 @@ var CountSaved,Index,iA,iB:longint;
     uABC,vABC,wABC,uABCD,vABCD,wABCD,xABCD,Denominator:TKraftScalar;
     TempVertex:PKraftGJKSimplexVertex;
 begin
+
+ if (Shapes[0].fShapeType=kstSignedDistanceField) or
+    (Shapes[1].fShapeType=kstSignedDistanceField) then begin
+
+  result:=SignedDistanceFieldClosestPoints(Shapes[0],Shapes[1],Transforms[0]^,Transforms[1]^,ClosestPoints[0],ClosestPoints[1]);
+
+  if result then begin
+
+   // Get the normal direction
+   Normal:=Vector3Sub(ClosestPoints[0],ClosestPoints[1]);
+
+   // Normalize normal direction to a normalized normal vector, and get the distance at the same time
+   Distance:=Vector3LengthNormalize(Normal);
+
+   // Apply the radius stuff, if requested and needed
+   if UseRadii then begin
+    if (Distance>(Shapes[0].fFeatureRadius+Shapes[1].fFeatureRadius)) and (Distance>EPSILON) then begin
+     Distance:=Distance-(Shapes[0].fFeatureRadius+Shapes[1].fFeatureRadius);
+     ClosestPoints[0]:=Vector3Sub(ClosestPoints[0],Vector3ScalarMul(Normal,Shapes[0].fFeatureRadius));
+     ClosestPoints[1]:=Vector3Add(ClosestPoints[1],Vector3ScalarMul(Normal,Shapes[1].fFeatureRadius));
+    end else begin
+     Distance:=0.0;
+     ClosestPoints[0]:=Vector3Avg(ClosestPoints[0],ClosestPoints[1]);
+     ClosestPoints[1]:=ClosestPoints[0];
+    end;
+   end;
+  end;
+
+  exit;
+
+ end;
 
  Failed:=false;
 
