@@ -13196,7 +13196,7 @@ const Delta=1e-3;
       DescentRate=5e-2;
       Epsilon=1e-3;
 var Iteration,CountIterations:longint;
-    ClosestPoint,Gradient,NormalA,NormalB:TKraftVector3;
+    ClosestPoint,Gradient{,NormalA,NormalB}:TKraftVector3;
     DistanceA,DistanceB:TKraftScalar;
  function Map(const aPosition:TKraftVector3):TKraftScalar;
  begin
@@ -13290,11 +13290,14 @@ begin
 
    if Vector3Length(Gradient)<Epsilon then begin
 
-    NormalA:=Vector3TermMatrixMulBasis(ShapeA.GetLocalSignedDistanceNormal(Vector3TermMatrixMulInverted(ClosestPoint,TransformA)),TransformA);
+{   NormalA:=Vector3TermMatrixMulBasis(ShapeA.GetLocalSignedDistanceNormal(Vector3TermMatrixMulInverted(ClosestPoint,TransformA)),TransformA);
     NormalB:=Vector3TermMatrixMulBasis(ShapeB.GetLocalSignedDistanceNormal(Vector3TermMatrixMulInverted(ClosestPoint,TransformB)),TransformB);
 
     PositionA:=Vector3Sub(ClosestPoint,Vector3ScalarMul(NormalA,DistanceA));
-    PositionB:=Vector3Sub(ClosestPoint,Vector3ScalarMul(NormalB,DistanceB));
+    PositionB:=Vector3Sub(ClosestPoint,Vector3ScalarMul(NormalB,DistanceB));}
+
+    PositionA:=ClosestPoint;
+    PositionB:=ClosestPoint;
 
     Normal:=GetNormal(ClosestPoint);
 
