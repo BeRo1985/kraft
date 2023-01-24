@@ -9723,7 +9723,7 @@ begin
 {$endif}
 end;
 
-function AABBIntersect(const AABB,WithAABB:TKraftAABB;Threshold:TKraftScalar=EPSILON):boolean; {$ifdef caninline}inline;{$endif}
+function AABBIntersect(const AABB,WithAABB:TKraftAABB;const Threshold:TKraftScalar=EPSILON):boolean; {$ifdef caninline}inline;{$endif}
 begin
  result:=(((AABB.Max.x+Threshold)>=(WithAABB.Min.x-Threshold)) and ((AABB.Min.x-Threshold)<=(WithAABB.Max.x+Threshold))) and
          (((AABB.Max.y+Threshold)>=(WithAABB.Min.y-Threshold)) and ((AABB.Min.y-Threshold)<=(WithAABB.Max.y+Threshold))) and
@@ -9738,7 +9738,7 @@ begin
          ((InAABB.Max.x+EPSILON)>=(AABB.Max.x-EPSILON)) and ((InAABB.Max.y+EPSILON)>=(AABB.Max.y-EPSILON)) and ((InAABB.Max.z+EPSILON)>=(AABB.Max.z-EPSILON));
 end;
 
-function AABBContains(const AABB:TKraftAABB;Vector:TKraftVector3):boolean; overload; {$ifdef caninline}inline;{$endif}
+function AABBContains(const AABB:TKraftAABB;const Vector:TKraftVector3):boolean; overload; {$ifdef caninline}inline;{$endif}
 begin
  result:=((Vector.x>=(AABB.Min.x-EPSILON)) and (Vector.x<=(AABB.Max.x+EPSILON))) and
          ((Vector.y>=(AABB.Min.y-EPSILON)) and (Vector.y<=(AABB.Max.y+EPSILON))) and
@@ -23602,24 +23602,28 @@ begin
   Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform));
   if Vector3LengthSquared(Direction)>EPSILON then begin
    Time:=0.0;
-   for Step:=0 to 511 do begin
+   for Step:=1 to 2048 do begin
     Current:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time));
-    Distance:=GetLocalSignedDistance(Current);
-    if abs(Distance)<EPSILON then begin
-     RayCastData.TimeOfImpact:=Time;
-     RayCastData.Point:=Vector3TermMatrixMul(Current,fWorldTransform);
-     Center:=GetLocalSignedDistance(RayCastData.Point);
-     RayCastData.Normal.x:=Center-GetLocalSignedDistance(Vector3(RayCastData.Point.x+EPSILON,RayCastData.Point.y,RayCastData.Point.z));
-     RayCastData.Normal.y:=Center-GetLocalSignedDistance(Vector3(RayCastData.Point.x,RayCastData.Point.y+EPSILON,RayCastData.Point.z));
-     RayCastData.Normal.z:=Center-GetLocalSignedDistance(Vector3(RayCastData.Point.x,RayCastData.Point.y,RayCastData.Point.z+EPSILON));
+    if AABBContains(fShapeAABB,Current) then begin
+     Distance:=GetLocalSignedDistance(Current);
+     if abs(Distance)<EPSILON then begin
+      RayCastData.TimeOfImpact:=Time;
+      RayCastData.Point:=Vector3TermMatrixMul(Current,fWorldTransform);
+      Center:=GetLocalSignedDistance(RayCastData.Point);
+      RayCastData.Normal.x:=Center-GetLocalSignedDistance(Vector3(RayCastData.Point.x+EPSILON,RayCastData.Point.y,RayCastData.Point.z));
+      RayCastData.Normal.y:=Center-GetLocalSignedDistance(Vector3(RayCastData.Point.x,RayCastData.Point.y+EPSILON,RayCastData.Point.z));
+      RayCastData.Normal.z:=Center-GetLocalSignedDistance(Vector3(RayCastData.Point.x,RayCastData.Point.y,RayCastData.Point.z+EPSILON));
 {$ifdef SIMD}
-     RayCastData.Normal.w:=0.0;
+      RayCastData.Normal.w:=0.0;
 {$endif}
-     Vector3Normalize(RayCastData.Normal);
-     result:=true;
-     break;
+      Vector3Normalize(RayCastData.Normal);
+      result:=true;
+      break;
+     end else begin
+      Time:=Time+Distance;
+     end;
     end else begin
-     Time:=Time+Distance;
+     break;
     end;
    end;
   end;
@@ -23637,24 +23641,28 @@ begin
   Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,fWorldTransform));
   if Vector3LengthSquared(Direction)>EPSILON then begin
    Time:=0.0;
-   for Step:=0 to 511 do begin
+   for Step:=1 to 2048 do begin
     Current:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time+SphereCastData.Radius));
-    Distance:=GetLocalSignedDistance(Current);
-    if abs(Distance)<EPSILON then begin
-     SphereCastData.TimeOfImpact:=Time;
-     SphereCastData.Point:=Vector3TermMatrixMul(Current,fWorldTransform);
-     Center:=GetLocalSignedDistance(SphereCastData.Point);
-     SphereCastData.Normal.x:=Center-GetLocalSignedDistance(Vector3(SphereCastData.Point.x+EPSILON,SphereCastData.Point.y,SphereCastData.Point.z));
-     SphereCastData.Normal.y:=Center-GetLocalSignedDistance(Vector3(SphereCastData.Point.x,SphereCastData.Point.y+EPSILON,SphereCastData.Point.z));
-     SphereCastData.Normal.z:=Center-GetLocalSignedDistance(Vector3(SphereCastData.Point.x,SphereCastData.Point.y,SphereCastData.Point.z+EPSILON));
-{$ifdef SIMD}
-     SphereCastData.Normal.w:=0.0;
-{$endif}
-     Vector3Normalize(SphereCastData.Normal);
-     result:=true;
-     break;
+    if AABBContains(fShapeAABB,Current) then begin
+     Distance:=GetLocalSignedDistance(Current);
+     if abs(Distance)<EPSILON then begin
+      SphereCastData.TimeOfImpact:=Time;
+      SphereCastData.Point:=Vector3TermMatrixMul(Current,fWorldTransform);
+      Center:=GetLocalSignedDistance(SphereCastData.Point);
+      SphereCastData.Normal.x:=Center-GetLocalSignedDistance(Vector3(SphereCastData.Point.x+EPSILON,SphereCastData.Point.y,SphereCastData.Point.z));
+      SphereCastData.Normal.y:=Center-GetLocalSignedDistance(Vector3(SphereCastData.Point.x,SphereCastData.Point.y+EPSILON,SphereCastData.Point.z));
+      SphereCastData.Normal.z:=Center-GetLocalSignedDistance(Vector3(SphereCastData.Point.x,SphereCastData.Point.y,SphereCastData.Point.z+EPSILON));
+ {$ifdef SIMD}
+      SphereCastData.Normal.w:=0.0;
+ {$endif}
+      Vector3Normalize(SphereCastData.Normal);
+      result:=true;
+      break;
+     end else begin
+      Time:=Time+Distance;
+     end;
     end else begin
-     Time:=Time+Distance;
+     break;
     end;
    end;
   end;
