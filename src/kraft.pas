@@ -13196,7 +13196,7 @@ const Delta=1e-3;
       DescentRate=5e-3;
       Epsilon=1e-3;
 var Iteration:longint;
-    ClosestPoint,Gradient,DirectionA,DirectionB:TKraftVector3;
+    ClosestPoint,Gradient,GradientA,GradientB,DirectionA,DirectionB:TKraftVector3;
     DistanceA,DistanceB:TKraftScalar;
  function Map(const aPosition:TKraftVector3):TKraftScalar;
  begin
@@ -13277,6 +13277,36 @@ begin
   for Iteration:=1 to 2048 do begin
 
 {$if true}
+   GradientA:=Vector3TermMatrixMulBasis(ShapeA.GetLocalSignedDistanceGradient(Vector3TermMatrixMulInverted(ClosestPoint,TransformA)),TransformA);
+   GradientB:=Vector3TermMatrixMulBasis(ShapeB.GetLocalSignedDistanceGradient(Vector3TermMatrixMulInverted(ClosestPoint,TransformB)),TransformB);
+{$if true}
+   Gradient:=Vector3ScalarMul(Vector3Avg(GradientA,GradientB),Delta);
+{$else}
+   if Vector3Length(GradientA)>Vector3Length(GradientB) then begin
+    Gradient:=Vector3ScalarMul(GradientA,Delta);
+   end else begin
+    Gradient:=Vector3ScalarMul(GradientB,Delta);
+   end;
+{$ifend}
+
+   if Vector3Length(Gradient)<Epsilon then begin
+
+    PositionA:=ClosestPoint;
+    PositionB:=ClosestPoint;
+    Normal:=Vector3Norm(Vector3Sub(Vector3TermMatrixMulBasis(ShapeA.GetLocalSignedDistanceNormal(Vector3TermMatrixMulInverted(ClosestPoint,TransformA)),TransformA),
+                                   Vector3TermMatrixMulBasis(ShapeB.GetLocalSignedDistanceNormal(Vector3TermMatrixMulInverted(ClosestPoint,TransformB)),TransformB)));
+    PenetrationDepth:=-Min(ShapeA.GetLocalSignedDistance(Vector3TermMatrixMulInverted(ClosestPoint,TransformA)),
+                           ShapeB.GetLocalSignedDistance(Vector3TermMatrixMulInverted(ClosestPoint,TransformB)));
+    result:=true;
+    exit;
+
+   end else begin
+
+    Vector3DirectSub(ClosestPoint,Vector3ScalarMul(Gradient,DescentRate));
+
+   end;
+
+{$elseif true}
 
    DistanceA:=ShapeA.GetLocalSignedDistance(Vector3TermMatrixMulInverted(ClosestPoint,TransformA));
    DistanceB:=ShapeB.GetLocalSignedDistance(Vector3TermMatrixMulInverted(ClosestPoint,TransformB));
