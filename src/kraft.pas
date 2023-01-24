@@ -1073,6 +1073,8 @@ type PKraftForceMode=^TKraftForceMode;
 
        function GetLocalSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar;
 
+       function GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3;
+
        function GetLocalClosestPointTo(const Position:TKraftVector3):TKraftVector3;
 
        function GetLocalFeatureSupportVertex(const Index:longint):TKraftVector3;
@@ -1190,6 +1192,8 @@ type PKraftForceMode=^TKraftForceMode;
        function GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
 
        function GetLocalSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar;
+
+       function GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3;
 
        function GetLocalClosestPointTo(const Position:TKraftVector3):TKraftVector3;
 
@@ -1317,11 +1321,17 @@ type PKraftForceMode=^TKraftForceMode;
 
        function GetLocalSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar; virtual;
 
+       function GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3; virtual;
+
        function GetLocalClosestPointTo(const Position:TKraftVector3):TKraftVector3; virtual;
 
-       function GetSignedDistance(const Position:TKraftVector3):TKraftScalar; virtual;
+       function GetSignedDistance(const Position:TKraftVector3;const Transform:TKraftMatrix4x4):TKraftScalar; overload; virtual;
 
-       function GetSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar; virtual;
+       function GetSignedDistance(const Position:TKraftVector3):TKraftScalar; overload; virtual;
+
+       function GetSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3;const Transform:TKraftMatrix4x4):TKraftScalar; overload; virtual;
+
+       function GetSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar; overload; virtual;
 
        function GetClosestPointTo(const Position:TKraftVector3):TKraftVector3; virtual;
 
@@ -1429,6 +1439,7 @@ type PKraftForceMode=^TKraftForceMode;
        procedure CalculateMassData; override;
        function GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar; override;
        function GetLocalSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar; override;
+       function GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3; override;
        function GetLocalClosestPointTo(const Position:TKraftVector3):TKraftVector3; override;
        function GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3; override;
        function GetLocalFeatureSupportVertex(const Index:longint):TKraftVector3; override;
@@ -1454,6 +1465,7 @@ type PKraftForceMode=^TKraftForceMode;
        procedure CalculateMassData; override;
        function GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar; override;
        function GetLocalSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar; override;
+       function GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3; override;
        function GetLocalClosestPointTo(const Position:TKraftVector3):TKraftVector3; override;
        function GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3; override;
        function GetLocalFeatureSupportVertex(const Index:longint):TKraftVector3; override;
@@ -1479,6 +1491,7 @@ type PKraftForceMode=^TKraftForceMode;
        procedure CalculateMassData; override;
        function GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar; override;
        function GetLocalSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar; override;
+       function GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3; override;
        function GetLocalClosestPointTo(const Position:TKraftVector3):TKraftVector3; override;
        function GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3; override;
        function GetLocalFeatureSupportVertex(const Index:longint):TKraftVector3; override;
@@ -1504,6 +1517,7 @@ type PKraftForceMode=^TKraftForceMode;
        procedure CalculateMassData; override;
        function GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar; override;
        function GetLocalSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar; override;
+       function GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3; override;
        function GetLocalClosestPointTo(const Position:TKraftVector3):TKraftVector3; override;
        function GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3; override;
        function GetLocalFeatureSupportVertex(const Index:longint):TKraftVector3; override;
@@ -1531,6 +1545,7 @@ type PKraftForceMode=^TKraftForceMode;
        procedure CalculateMassData; override;
        function GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar; override;
        function GetLocalSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar; override;
+       function GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3; override;
        function GetLocalClosestPointTo(const Position:TKraftVector3):TKraftVector3; override;
        function GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3; override;
        function GetLocalFeatureSupportVertex(const Index:longint):TKraftVector3; override;
@@ -1555,6 +1570,7 @@ type PKraftForceMode=^TKraftForceMode;
        procedure CalculateMassData; override;
        function GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar; override;
        function GetLocalSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar; override;
+       function GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3; override;
        function GetLocalClosestPointTo(const Position:TKraftVector3):TKraftVector3; override;
        function GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3; override;
        function GetLocalFeatureSupportVertex(const Index:longint):TKraftVector3; override;
@@ -1579,6 +1595,7 @@ type PKraftForceMode=^TKraftForceMode;
        procedure CalculateMassData; override;
        function GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar; override;
        function GetLocalSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar; override;
+       function GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3; override;
        function GetLocalClosestPointTo(const Position:TKraftVector3):TKraftVector3; override;
        function GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3; override;
        function GetLocalFeatureSupportVertex(const Index:longint):TKraftVector3; override;
@@ -3849,6 +3866,24 @@ begin
  end;
 end;
 {$ifend}
+
+function SignNonZero(const aValue:TKraftScalar):longint; overload; {$ifdef caninline}inline;{$endif}
+begin
+ if aValue<0.0 then begin
+  result:=-1;
+ end else begin
+  result:=1;
+ end;
+end;
+
+function SignNonZero(const aValue:longint):longint; overload; {$ifdef caninline}inline;{$endif}
+begin
+ if aValue<0 then begin
+  result:=-1;
+ end else begin
+  result:=1;
+ end;
+end;
 
 type TUInt128=packed record
 {$ifdef BIG_ENDIAN}
@@ -11544,6 +11579,7 @@ type TKraftShapeTriangle=class(TKraftShapeConvexHull)
        procedure CalculateMassData; override;
        function GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar; override;
        function GetLocalSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar; override;
+       function GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3; override;
        function GetLocalClosestPointTo(const Position:TKraftVector3):TKraftVector3; override;
        function GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3; override;
        function GetLocalFeatureSupportVertex(const Index:longint):TKraftVector3; override;
@@ -18946,11 +18982,43 @@ begin
   end else begin
    // Point lies inside convex hull
   end;
-  Direction:=Vector3Neg(fFaces[BestIndex].Plane.Normal);
+  Direction:=fFaces[BestIndex].Plane.Normal;
   result:=Distance;
  end else begin
   Direction:=Vector3XAxis;
   result:=MAX_SCALAR;
+ end;
+end;
+
+function TKraftConvexHull.GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3;
+var Index,BestIndex:longint;
+    BestDistance,Distance:TKraftScalar;
+begin
+ if fCountFaces>0 then begin
+  BestDistance:=PlaneVectorDistance(fFaces[0].Plane,Position);
+  BestIndex:=0;
+  for Index:=1 to fCountFaces-1 do begin
+   Distance:=PlaneVectorDistance(fFaces[Index].Plane,Position);
+   if BestDistance<Distance then begin
+    BestDistance:=Distance;
+    BestIndex:=Index;
+   end;
+  end;
+  if BestDistance>=0.0 then begin
+   // Point lies on or outside convex hull
+   for Index:=0 to fCountFaces-1 do begin
+    Distance:=PlaneVectorDistance(fFaces[Index].Plane,Position);
+    if BestDistance>Distance then begin
+     BestDistance:=Distance;
+     BestIndex:=Index;
+    end;
+   end;
+  end else begin
+   // Point lies inside convex hull
+  end;
+  result:=Vector3ScalarMul(fFaces[BestIndex].Plane.Normal,Distance);
+ end else begin
+  result:=Vector3(MAX_SCALAR,MAX_SCALAR,MAX_SCALAR);
  end;
 end;
 
@@ -18980,7 +19048,7 @@ begin
   end else begin
    // Point lies inside convex hull
   end;
-  result:=Vector3Add(Position,Vector3ScalarMul(fFaces[BestIndex].Plane.Normal,-Distance));
+  result:=Vector3Sub(Position,Vector3ScalarMul(fFaces[BestIndex].Plane.Normal,Distance));
  end else begin
   result:=Vector3Origin;
  end;
@@ -20369,10 +20437,13 @@ begin
   BestDistance:=sqrt(BestDistance);
   if assigned(BestTriangle) then begin
    if SIMDTriangleClosestPointTo(self,BestTriangle^,Position,Direction) then begin
-    Direction:=Vector3Sub(Direction,Position);
+    Direction:=Vector3Sub(Position,Direction);
     result:=Vector3LengthNormalize(Direction);
+    if fDoubleSided then begin
+     result:=result-(2.0*Physics.fLinearSlop);
+    end;
    end else begin
-    Direction:=Vector3Neg(BestTriangle^.Plane.Normal);
+    Direction:=BestTriangle^.Plane.Normal;
     result:=BestDistance;
    end;
   end else begin
@@ -20459,10 +20530,13 @@ begin
   end;
   if assigned(BestTriangle) then begin
    if SIMDTriangleClosestPointTo(self,BestTriangle^,Position,Direction) then begin
-    Direction:=Vector3Sub(Direction,Position);
+    Direction:=Vector3Sub(Position,Direction);
     result:=Vector3LengthNormalize(Direction);
+    if fDoubleSided then begin
+     result:=result-(2.0*Physics.fLinearSlop);
+    end;
    end else begin
-    Direction:=Vector3Neg(BestTriangle^.Plane.Normal);
+    Direction:=BestTriangle^.Plane.Normal;
     result:=BestDistance;
    end;
   end else begin
@@ -20472,6 +20546,213 @@ begin
  end else begin
   Direction:=Vector3XAxis;
   result:=MAX_SCALAR;
+ end;
+end;
+{$endif}
+
+function TKraftMesh.GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3;
+{$ifdef KraftSingleThreadedUsage}
+type PStackItem=^TStackItem;
+     TStackItem=record
+      NodeIndex:longint;
+      SquaredDistance:TKraftScalar;
+     end;
+     TStackItems=array[0..31] of TStackItem;
+var LocalStack:TStackItems;
+    LocalStackPointer,TriangleIndex:longint;
+    Node:PKraftMeshNode;
+    Triangle,BestTriangle:PKraftMeshTriangle;
+    StackItem:PStackItem;
+    SquaredDistances:array[0..1] of TKraftScalar;
+    BestDistance,SquaredDistance,SquaredThickness,SquaredThicknessEpsilon:TKraftScalar;
+begin
+ if fCountNodes>0 then begin
+  BestDistance:=MAX_SCALAR;
+  BestTriangle:=nil;
+  if fDoubleSided then begin
+   SquaredThickness:=sqr(2.0*Physics.fLinearSlop);
+  end else begin
+   SquaredThickness:=0.0;
+  end;
+  SquaredThicknessEpsilon:=SquaredThickness+sqr(EPSILON);
+  LocalStackPointer:=0;
+  StackItem:=@LocalStack[LocalStackPointer];
+  inc(LocalStackPointer);
+  StackItem^.NodeIndex:=0;
+  StackItem^.SquaredDistance:=SquaredDistanceFromPointToAABB(fNodes[0].AABB,Position);
+  while LocalStackPointer>0 do begin
+   dec(LocalStackPointer);
+   StackItem:=@LocalStack[LocalStackPointer];
+   if (StackItem^.SquaredDistance-SquaredThicknessEpsilon)<BestDistance then begin
+    if StackItem^.NodeIndex>=0 then begin
+     Node:=@fNodes[StackItem^.NodeIndex];
+     TriangleIndex:=Node^.TriangleIndex;
+     while TriangleIndex>=0 do begin
+      Triangle:=@fTriangles[TriangleIndex];
+      SquaredDistance:=SquaredDistanceFromPointToTriangle(Position,fVertices[Triangle^.Vertices[0]],fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[2]]);
+      if BestDistance>SquaredDistance then begin
+       BestDistance:=SquaredDistance;
+       BestTriangle:=Triangle;
+      end;
+      TriangleIndex:=Triangle^.Next;
+     end;
+     if (Node^.Children[0]>=0) and (Node^.Children[1]>=0) then begin
+      SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[0]].AABB,Position);
+      SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[1]].AABB,Position);
+      if SquaredDistances[0]<SquaredDistances[1] then begin
+       if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
+        StackItem:=@LocalStack[LocalStackPointer];
+        inc(LocalStackPointer);
+        StackItem^.NodeIndex:=Node^.Children[0];
+        StackItem^.SquaredDistance:=SquaredDistances[0];
+       end;
+       if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
+        StackItem:=@LocalStack[LocalStackPointer];
+        inc(LocalStackPointer);
+        StackItem^.NodeIndex:=Node^.Children[1];
+        StackItem^.SquaredDistance:=SquaredDistances[1];
+       end;
+      end else begin
+       if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
+        StackItem:=@LocalStack[LocalStackPointer];
+        inc(LocalStackPointer);
+        StackItem^.NodeIndex:=Node^.Children[1];
+        StackItem^.SquaredDistance:=SquaredDistances[1];
+       end;
+       if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
+        StackItem:=@LocalStack[LocalStackPointer];
+        inc(LocalStackPointer);
+        StackItem^.NodeIndex:=Node^.Children[0];
+        StackItem^.SquaredDistance:=SquaredDistances[0];
+       end;
+      end;
+     end else begin
+      if Node^.Children[0]>=0 then begin
+       SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[0]].AABB,Position);
+       if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
+        StackItem:=@LocalStack[LocalStackPointer];
+        inc(LocalStackPointer);
+        StackItem^.NodeIndex:=Node^.Children[0];
+        StackItem^.SquaredDistance:=SquaredDistances[0];
+       end;
+      end;
+      if Node^.Children[1]>=0 then begin
+       SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[1]].AABB,Position);
+       if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
+        StackItem:=@LocalStack[LocalStackPointer];
+        inc(LocalStackPointer);
+        StackItem^.NodeIndex:=Node^.Children[1];
+        StackItem^.SquaredDistance:=SquaredDistances[1];
+       end;
+      end;
+     end;
+    end;
+   end;
+  end;
+  BestDistance:=sqrt(BestDistance);
+  if assigned(BestTriangle) then begin
+   if SIMDTriangleClosestPointTo(self,BestTriangle^,Position,result) then begin
+    result:=Vector3Sub(Position,result);
+    if fDoubleSided and assigned(BestTriangle) and (PlaneVectorDistance(BestTriangle^.Plane,Position)<0.0) then begin
+     result:=Vector3Neg(result);
+    end;
+   end else begin
+    result:=Vector3ScalarMul(BestTriangle^.Plane.Normal,BestDistance);
+   end;
+  end else begin
+   result:=Vector3(MAX_SCALAR,MAX_SCALAR,MAX_SCALAR);
+  end;
+ end else begin
+  result:=Vector3(MAX_SCALAR,MAX_SCALAR,MAX_SCALAR);
+ end;
+end;
+{$else}
+var TriangleIndex:longint;
+    Triangle,BestTriangle:PKraftMeshTriangle;
+    SquaredDistances:array[0..1] of TKraftScalar;
+    BestDistance,SquaredThickness,SquaredThicknessEpsilon:TKraftScalar;
+ procedure ProcessNode(const NodeIndex:longint;SquaredDistance:TKraftScalar);
+ var Node:PKraftMeshNode;
+ begin
+  if (NodeIndex>=0) and ((SquaredDistance-SquaredThicknessEpsilon)<BestDistance) then begin
+   Node:=@fNodes[NodeIndex];
+   TriangleIndex:=Node^.TriangleIndex;
+   while TriangleIndex>=0 do begin
+    Triangle:=@fTriangles[TriangleIndex];
+    SquaredDistance:=SquaredDistanceFromPointToTriangle(Position,fVertices[Triangle^.Vertices[0]],fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[2]]);
+    if BestDistance>SquaredDistance then begin
+     BestDistance:=SquaredDistance;
+     BestTriangle:=Triangle;
+    end;
+    TriangleIndex:=Triangle^.Next;
+   end;
+   if (Node^.Children[0]>=0) and (Node^.Children[1]>=0) then begin
+    SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[0]].AABB,Position);
+    SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[1]].AABB,Position);
+    if SquaredDistances[0]<SquaredDistances[1] then begin
+     if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
+      ProcessNode(Node^.Children[0],SquaredDistances[0]);
+     end;
+     if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
+      ProcessNode(Node^.Children[1],SquaredDistances[1]);
+     end;
+    end else begin
+     if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
+      ProcessNode(Node^.Children[1],SquaredDistances[1]);
+     end;
+     if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
+      ProcessNode(Node^.Children[0],SquaredDistances[0]);
+     end;
+    end;
+   end else begin
+    if Node^.Children[0]>=0 then begin
+     SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[0]].AABB,Position);
+     if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
+      ProcessNode(Node^.Children[0],SquaredDistances[0]);
+     end;
+    end;
+    if Node^.Children[1]>=0 then begin
+     SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[1]].AABB,Position);
+     if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
+      ProcessNode(Node^.Children[0],SquaredDistances[1]);
+     end;
+    end;
+   end;
+  end;
+ end;
+begin
+ if fCountNodes>0 then begin
+  BestDistance:=MAX_SCALAR;
+  BestTriangle:=nil;
+  if fDoubleSided then begin
+   SquaredThickness:=sqr(2.0*Physics.fLinearSlop);
+  end else begin
+   SquaredThickness:=0.0;
+  end;
+  SquaredThicknessEpsilon:=SquaredThickness+sqr(EPSILON);
+  ProcessNode(0,SquaredDistanceFromPointToAABB(fNodes[0].AABB,Position));
+  BestDistance:=sqrt(BestDistance);
+  if fDoubleSided then begin
+   BestDistance:=BestDistance-(2.0*Physics.fLinearSlop);
+  end else begin
+   if assigned(BestTriangle) and (PlaneVectorDistance(BestTriangle^.Plane,Position)<0.0) then begin
+    BestDistance:=-BestDistance;
+   end;
+  end;
+  if assigned(BestTriangle) then begin
+   if SIMDTriangleClosestPointTo(self,BestTriangle^,Position,result) then begin
+    result:=Vector3Sub(Position,result);
+    if fDoubleSided and assigned(BestTriangle) and (PlaneVectorDistance(BestTriangle^.Plane,Position)<0.0) then begin
+     result:=Vector3Neg(result);
+    end;
+   end else begin
+    result:=Vector3ScalarMul(BestTriangle^.Plane.Normal,BestDistance);
+   end;
+  end else begin
+   result:=Vector3(MAX_SCALAR,MAX_SCALAR,MAX_SCALAR);
+  end;
+ end else begin
+  result:=Vector3(MAX_SCALAR,MAX_SCALAR,MAX_SCALAR);
  end;
 end;
 {$endif}
@@ -20964,9 +21245,9 @@ function TKraftShape.GetLocalSignedDistanceAndDirection(const Position:TKraftVec
 var Center:TKraftScalar;
 begin
  Center:=GetLocalSignedDistance(Position);
- Direction.x:=Center-GetLocalSignedDistance(Vector3(Position.x+EPSILON,Position.y,Position.z));
- Direction.y:=Center-GetLocalSignedDistance(Vector3(Position.x,Position.y+EPSILON,Position.z));
- Direction.z:=Center-GetLocalSignedDistance(Vector3(Position.x,Position.y,Position.z+EPSILON));
+ Direction.x:=GetLocalSignedDistance(Vector3(Position.x+EPSILON,Position.y,Position.z))-Center;
+ Direction.y:=GetLocalSignedDistance(Vector3(Position.x,Position.y+EPSILON,Position.z))-Center;
+ Direction.z:=GetLocalSignedDistance(Vector3(Position.x,Position.y,Position.z+EPSILON))-Center;
 {$ifdef SIMD}
  Direction.w:=0.0;
 {$endif}
@@ -20974,17 +21255,40 @@ begin
  result:=Center;
 end;
 
+function TKraftShape.GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftScalar;
+var Center:TKraftScalar;
+begin
+ Center:=GetLocalSignedDistance(Position);
+ result.x:=GetLocalSignedDistance(Vector3(Position.x+EPSILON,Position.y,Position.z))-Center;
+ result.y:=GetLocalSignedDistance(Vector3(Position.x,Position.y+EPSILON,Position.z))-Center;
+ result.z:=GetLocalSignedDistance(Vector3(Position.x,Position.y,Position.z+EPSILON))-Center;
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
+end;
+
 function TKraftShape.GetLocalClosestPointTo(const Position:TKraftVector3):TKraftVector3;
 var Distance:TKraftScalar;
     Direction:TKraftVector3;
 begin
  Distance:=GetLocalSignedDistanceAndDirection(Position,Direction);
- result:=Vector3Add(Position,Vector3ScalarMul(Direction,Distance));
+ result:=Vector3Sub(Position,Vector3ScalarMul(Direction,Distance));
+end;
+
+function TKraftShape.GetSignedDistance(const Position:TKraftVector3;const Transform:TKraftMatrix4x4):TKraftScalar;
+begin
+ result:=GetLocalSignedDistance(Vector3TermMatrixMulInverted(Position,Transform));
 end;
 
 function TKraftShape.GetSignedDistance(const Position:TKraftVector3):TKraftScalar;
 begin
  result:=GetLocalSignedDistance(Vector3TermMatrixMulInverted(Position,fWorldTransform));
+end;
+
+function TKraftShape.GetSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3;const Transform:TKraftMatrix4x4):TKraftScalar;
+begin
+ result:=GetLocalSignedDistanceAndDirection(Vector3TermMatrixMulInverted(Position,Transform),Direction);
+ Vector3MatrixMulBasis(Direction,Transform);
 end;
 
 function TKraftShape.GetSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar;
@@ -21115,8 +21419,13 @@ end;
 
 function TKraftShapeSphere.GetLocalSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar;
 begin
- Direction:=Vector3Neg(Position);
+ Direction:=Position;
  result:=Vector3LengthNormalize(Direction)-fRadius;
+end;
+
+function TKraftShapeSphere.GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3;
+begin
+ result:=Vector3Sub(Position,Vector3ScalarMul(Vector3Norm(Position),fRadius));
 end;
 
 function TKraftShapeSphere.GetLocalClosestPointTo(const Position:TKraftVector3):TKraftVector3;
@@ -21433,8 +21742,32 @@ begin
 {$endif}
  pa:=Vector3Sub(p,a);
  ba:=Vector3Sub(b,a);
- Direction:=Vector3Sub(Vector3ScalarMul(ba,Min(Max(Vector3Dot(pa,ba)/Vector3Dot(ba,ba),0.0),1.0)),pa);
+ Direction:=Vector3Sub(pa,Vector3ScalarMul(ba,Min(Max(Vector3Dot(pa,ba)/Vector3Dot(ba,ba),0.0),1.0)));
  result:=Vector3LengthNormalize(Direction)-fRadius;
+end;
+
+function TKraftShapeCapsule.GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3;
+var p,a,b,pa,ba:TKraftVector3;
+    HalfHeight:TKraftScalar;
+begin
+ HalfHeight:=fHeight*0.5;
+ p:=Position;
+ a.x:=0.0;
+ a.y:=-HalfHeight;
+ a.z:=0.0;
+{$ifdef SIMD}
+ a.w:=0.0;
+{$endif}
+ b.x:=0.0;
+ b.y:=HalfHeight;
+ b.z:=0.0;
+{$ifdef SIMD}
+ b.w:=0.0;
+{$endif}
+ pa:=Vector3Sub(p,a);
+ ba:=Vector3Sub(b,a);
+ result:=Vector3ScalarMul(ba,Min(Max(Vector3Dot(pa,ba)/Vector3Dot(ba,ba),0.0),1.0));
+ result:=Vector3Sub(Position,Vector3Add(result,Vector3ScalarMul(Vector3Norm(Vector3Sub(pa,result)),Radius)));
 end;
 
 function TKraftShapeCapsule.GetLocalClosestPointTo(const Position:TKraftVector3):TKraftVector3;
@@ -21810,6 +22143,11 @@ begin
  result:=fConvexHull.GetLocalSignedDistanceAndDirection(Position,Direction);
 end;
 
+function TKraftShapeConvexHull.GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3);
+begin
+ result:=fConvexHull.GetLocalSignedDistanceGradient(Position);
+end;
+
 function TKraftShapeConvexHull.GetLocalClosestPointTo(const Position:TKraftVector3):TKraftVector3;
 begin
  result:=fConvexHull.GetLocalClosestPointTo(Position);
@@ -22176,15 +22514,91 @@ begin
    end;
   end;
 
-  Direction:=Vector3Sub(Position,ClosestPoint);
+  Direction:=Vector3Sub(ClosestPoint,Position);
 
   result:=-Vector3LengthNormalize(Direction);
 
  end else begin
 
-  Direction:=Vector3Sub(ClosestPoint,Position);
+  // Outside or on box
+
+  Direction:=Vector3Sub(Position,ClosestPoint);
 
   result:=Vector3LengthNormalize(Direction);
+
+ end;
+
+end;
+
+function TKraftShapeBox.GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3;
+var ClosestPoint:TKraftVector3;
+    Distance,BestDistance:TKraftScalar;
+    Axis:longint;
+begin
+
+ ClosestPoint:=Vector3(Min(Max(Position.x,-Extents.x),Extents.x),
+                       Min(Max(Position.y,-Extents.y),Extents.y),
+                       Min(Max(Position.z,-Extents.z),Extents.z));
+
+ if (abs(Position.x)<Extents.x) or (abs(Position.y)<Extents.y) or (abs(Position.z)<Extents.z) then begin
+
+  // Inside box
+
+  Distance:=Extents.x-Position.x;
+  BestDistance:=Distance;
+  Axis:=1;
+
+  Distance:=Position.x-Extents.x;
+  if BestDistance<Distance then begin
+   BestDistance:=Distance;
+   Axis:=-1;
+  end;
+
+  Distance:=Extents.y-Position.y;
+  if BestDistance<Distance then begin
+   BestDistance:=Distance;
+   Axis:=2;
+  end;
+
+  Distance:=Position.y-Extents.y;
+  if BestDistance<Distance then begin
+   BestDistance:=Distance;
+   Axis:=-2;
+  end;
+
+  Distance:=Extents.z-Position.z;
+  if BestDistance<Distance then begin
+   BestDistance:=Distance;
+   Axis:=3;
+  end;
+
+  Distance:=Position.z-Extents.z;
+  if BestDistance<Distance then begin
+   BestDistance:=Distance;
+   Axis:=-3;
+  end;
+
+  case abs(Axis) of
+   1:begin
+    ClosestPoint:=Vector3(Extents.x*Sign(Axis),Position.y,Position.z);
+   end;
+   2:begin
+    ClosestPoint:=Vector3(Position.x,Extents.y*Sign(Axis),Position.z);
+   end;
+   3:begin
+    ClosestPoint:=Vector3(Position.x,Position.y,Extents.z*Sign(Axis));
+   end;
+   else begin
+   end;
+  end;
+
+  result:=Vector3Sub(ClosestPoint,Position);
+
+ end else begin
+
+  // Outside or on box
+
+  result:=Vector3Sub(Position,ClosestPoint);
 
  end;
 
@@ -22653,13 +23067,18 @@ end;
 
 function TKraftShapePlane.GetLocalSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar;
 begin
- Direction:=Vector3Neg(Plane.Normal);
+ Direction:=Plane.Normal;
  result:=PlaneVectorDistance(Plane,Position);
+end;
+
+function TKraftShapePlane.GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3;
+begin
+ result:=Vector3ScalarMul(Plane.Normal,PlaneVectorDistance(Plane,Position));
 end;
 
 function TKraftShapePlane.GetLocalClosestPointTo(const Position:TKraftVector3):TKraftVector3;
 begin
- result:=Vector3ScalarMul(Plane.Normal,PlaneVectorDistance(Plane,Position));
+ result:=Vector3Sub(Position,Vector3ScalarMul(Plane.Normal,PlaneVectorDistance(Plane,Position)));
 end;
 
 function TKraftShapePlane.GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3;
@@ -23054,25 +23473,41 @@ end;
 
 function TKraftShapeTriangle.GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
 begin
- result:=sqrt(SquaredDistanceFromPointToTriangle(Position,
-                                                 fConvexHull.fVertices[0].Position,
-                                                 fConvexHull.fVertices[1].Position,
-                                                 fConvexHull.fVertices[2].Position))-(2.0*Physics.fLinearSlop);
+ result:=(sqrt(SquaredDistanceFromPointToTriangle(Position,
+                                                  fConvexHull.fVertices[0].Position,
+                                                  fConvexHull.fVertices[1].Position,
+                                                  fConvexHull.fVertices[2].Position)){-(2.0*Physics.fLinearSlop)})*
+          SignNonZero(PlaneVectorDistance(fConvexHull.fFaces[0].Plane,Position));
 end;
 
 function TKraftShapeTriangle.GetLocalSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar;
 var ClosestPoint:TKraftVector3;
+    SignDirection:TKraftScalar;
 begin
  if SIMDTriangleClosestPointTo(fConvexHull.fVertices[0].Position,
                                fConvexHull.fVertices[1].Position,
                                fConvexHull.fVertices[2].Position,
                                Position,
                                ClosestPoint) then begin
-  Direction:=Vector3Neg(ClosestPoint);
-  result:=Vector3LengthNormalize(Direction);
+  SignDirection:=SignNonZero(PlaneVectorDistance(fConvexHull.fFaces[0].Plane,Position));
+  Direction:=Vector3ScalarMul(Vector3Sub(Position,ClosestPoint),SignDirection);
+  result:=(Vector3LengthNormalize(Direction){-(2.0*Physics.fLinearSlop)})*SignDirection;
  end else begin
   Direction:=Vector3Origin;
   result:=MAX_SCALAR;
+ end;
+end;
+
+function TKraftShapeTriangle.GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3;
+begin
+ if SIMDTriangleClosestPointTo(fConvexHull.fVertices[0].Position,
+                               fConvexHull.fVertices[1].Position,
+                               fConvexHull.fVertices[2].Position,
+                               Position,
+                               result) then begin
+  result:=Vector3Sub(Position,result);
+ end else begin
+  result:=Vector3(MAX_SCALAR,MAX_SCALAR,MAX_SCALAR);
  end;
 end;
 
@@ -23312,6 +23747,11 @@ begin
  result:=fMesh.GetLocalSignedDistanceAndDirection(Position,Direction);
 end;
 
+function TKraftShapeMesh.GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3;
+begin
+ result:=fMesh.GetLocalSignedDistanceGradient(Position);
+end;
+
 function TKraftShapeMesh.GetLocalClosestPointTo(const Position:TKraftVector3):TKraftVector3;
 begin
  result:=fMesh.GetLocalClosestPointTo(Position);
@@ -23548,9 +23988,9 @@ function TKraftShapeSignedDistanceField.GetLocalSignedDistanceAndDirection(const
 var Center:TKraftScalar;
 begin
  Center:=GetLocalSignedDistance(Position);
- Direction.x:=Center-GetLocalSignedDistance(Vector3(Position.x+EPSILON,Position.y,Position.z));
- Direction.y:=Center-GetLocalSignedDistance(Vector3(Position.x,Position.y+EPSILON,Position.z));
- Direction.z:=Center-GetLocalSignedDistance(Vector3(Position.x,Position.y,Position.z+EPSILON));
+ Direction.x:=GetLocalSignedDistance(Vector3(Position.x+EPSILON,Position.y,Position.z))-Center;
+ Direction.y:=GetLocalSignedDistance(Vector3(Position.x,Position.y+EPSILON,Position.z))-Center;
+ Direction.z:=GetLocalSignedDistance(Vector3(Position.x,Position.y,Position.z+EPSILON))-Center;
 {$ifdef SIMD}
  Direction.w:=0.0;
 {$endif}
@@ -23558,12 +23998,24 @@ begin
  result:=Center;
 end;
 
+function TKraftShapeSignedDistanceField.GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3;
+var Center:TKraftScalar;
+begin
+ Center:=GetLocalSignedDistance(Position);
+ result.x:=GetLocalSignedDistance(Vector3(Position.x+EPSILON,Position.y,Position.z))-Center;
+ result.y:=GetLocalSignedDistance(Vector3(Position.x,Position.y+EPSILON,Position.z))-Center;
+ result.z:=GetLocalSignedDistance(Vector3(Position.x,Position.y,Position.z+EPSILON))-Center;
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
+end;
+
 function TKraftShapeSignedDistanceField.GetLocalClosestPointTo(const Position:TKraftVector3):TKraftVector3;
 var Distance:TKraftScalar;
-    Normal:TKraftVector3;
+    Direction:TKraftVector3;
 begin
- Distance:=GetLocalSignedDistanceAndDirection(Position,Normal);
- result:=Vector3Sub(Position,Vector3ScalarMul(Normal,Distance));
+ Distance:=GetLocalSignedDistanceAndDirection(Position,Direction);
+ result:=Vector3Sub(Position,Vector3ScalarMul(Direction,Distance));
 end;
 
 function TKraftShapeSignedDistanceField.GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3;
@@ -23609,10 +24061,10 @@ begin
      if abs(Distance)<EPSILON then begin
       RayCastData.TimeOfImpact:=Time;
       RayCastData.Point:=Vector3TermMatrixMul(Current,fWorldTransform);
-      Center:=GetLocalSignedDistance(RayCastData.Point);
-      RayCastData.Normal.x:=Center-GetLocalSignedDistance(Vector3(RayCastData.Point.x+EPSILON,RayCastData.Point.y,RayCastData.Point.z));
-      RayCastData.Normal.y:=Center-GetLocalSignedDistance(Vector3(RayCastData.Point.x,RayCastData.Point.y+EPSILON,RayCastData.Point.z));
-      RayCastData.Normal.z:=Center-GetLocalSignedDistance(Vector3(RayCastData.Point.x,RayCastData.Point.y,RayCastData.Point.z+EPSILON));
+      Center:=GetSignedDistance(RayCastData.Point);
+      RayCastData.Normal.x:=Center-GetSignedDistance(Vector3(RayCastData.Point.x+EPSILON,RayCastData.Point.y,RayCastData.Point.z));
+      RayCastData.Normal.y:=Center-GetSignedDistance(Vector3(RayCastData.Point.x,RayCastData.Point.y+EPSILON,RayCastData.Point.z));
+      RayCastData.Normal.z:=Center-GetSignedDistance(Vector3(RayCastData.Point.x,RayCastData.Point.y,RayCastData.Point.z+EPSILON));
 {$ifdef SIMD}
       RayCastData.Normal.w:=0.0;
 {$endif}
@@ -23648,10 +24100,10 @@ begin
      if abs(Distance)<EPSILON then begin
       SphereCastData.TimeOfImpact:=Time;
       SphereCastData.Point:=Vector3TermMatrixMul(Current,fWorldTransform);
-      Center:=GetLocalSignedDistance(SphereCastData.Point);
-      SphereCastData.Normal.x:=Center-GetLocalSignedDistance(Vector3(SphereCastData.Point.x+EPSILON,SphereCastData.Point.y,SphereCastData.Point.z));
-      SphereCastData.Normal.y:=Center-GetLocalSignedDistance(Vector3(SphereCastData.Point.x,SphereCastData.Point.y+EPSILON,SphereCastData.Point.z));
-      SphereCastData.Normal.z:=Center-GetLocalSignedDistance(Vector3(SphereCastData.Point.x,SphereCastData.Point.y,SphereCastData.Point.z+EPSILON));
+      Center:=GetSignedDistance(SphereCastData.Point);
+      SphereCastData.Normal.x:=Center-GetSignedDistance(Vector3(SphereCastData.Point.x+EPSILON,SphereCastData.Point.y,SphereCastData.Point.z));
+      SphereCastData.Normal.y:=Center-GetSignedDistance(Vector3(SphereCastData.Point.x,SphereCastData.Point.y+EPSILON,SphereCastData.Point.z));
+      SphereCastData.Normal.z:=Center-GetSignedDistance(Vector3(SphereCastData.Point.x,SphereCastData.Point.y,SphereCastData.Point.z+EPSILON));
  {$ifdef SIMD}
       SphereCastData.Normal.w:=0.0;
  {$endif}
@@ -35568,7 +36020,7 @@ var Hit:boolean;
   Radius:=Sphere.Radius;
   Distance:=Shape.GetLocalSignedDistanceAndDirection(SphereCenter,Direction);
   if Distance<Radius then begin
-   SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Direction,Distance-Radius));
+   SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Direction,Radius-Distance));
    inc(Count);
    if assigned(OnPushSphereShapeContactHook) then begin
     OnPushSphereShapeContactHook(Shape);
