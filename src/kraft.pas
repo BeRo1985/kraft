@@ -13193,9 +13193,9 @@ function SignedDistanceFieldPenetration(const ShapeA,ShapeB:TKraftShape;const Tr
 const Delta=1e-3;
       OneOverDelta=1.0/Delta;
       OneOverTwoDelta=0.5/Delta; // 1.0/(2.0*Delta)
-      DescentRate=5e-3;
+      DescentRate=5e-2;
       Epsilon=1e-3;
-var Iteration:longint;
+var Iteration,CountIterations:longint;
     ClosestPoint,Gradient,NormalA,NormalB:TKraftVector3;
     DistanceA,DistanceB:TKraftScalar;
 begin
@@ -13266,7 +13266,9 @@ begin
   Gradient.w:=0;
 {$endif}
 
-  for Iteration:=1 to 2048 do begin
+  CountIterations:=128;
+
+  for Iteration:=1 to CountIterations do begin
 
    DistanceA:=ShapeA.GetLocalSignedDistance(Vector3TermMatrixMulInverted(ClosestPoint,TransformA));
    DistanceB:=ShapeB.GetLocalSignedDistance(Vector3TermMatrixMulInverted(ClosestPoint,TransformB));
