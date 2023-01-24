@@ -23600,7 +23600,7 @@ begin
  if ksfRayCastable in fFlags then begin
   Origin:=Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform);
   Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform));
-  if Vector3LengthSquared(Direction)>EPSILON then begin
+  if (Vector3LengthSquared(Direction)>EPSILON) and AABBRayIntersect(fShapeAABB,Origin,Direction) then begin
    Time:=0.0;
    for Step:=1 to 2048 do begin
     Current:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time));
@@ -23639,7 +23639,7 @@ begin
  if ksfSphereCastable in fFlags then begin
   Origin:=Vector3TermMatrixMulInverted(SphereCastData.Origin,fWorldTransform);
   Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,fWorldTransform));
-  if Vector3LengthSquared(Direction)>EPSILON then begin
+  if (Vector3LengthSquared(Direction)>EPSILON) and AABBRayIntersect(fShapeAABB,Origin,Direction) then begin
    Time:=0.0;
    for Step:=1 to 2048 do begin
     Current:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time+SphereCastData.Radius));
