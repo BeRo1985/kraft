@@ -13198,6 +13198,19 @@ const Delta=1e-3;
 var Iteration,CountIterations:longint;
     ClosestPoint,Gradient,NormalA,NormalB:TKraftVector3;
     DistanceA,DistanceB:TKraftScalar;
+ function Map(const aPosition:TKraftVector3):TKraftScalar;
+ begin
+  result:=Min(ShapeA.GetLocalSignedDistance(Vector3TermMatrixMulInverted(ClosestPoint,TransformA)),ShapeB.GetLocalSignedDistance(Vector3TermMatrixMulInverted(ClosestPoint,TransformB)));
+ end;
+ function GetNormal(const aPosition:TKraftVector3):TKraftVector3;
+ const Epsilon=1e-4;
+ var Center:TKraftScalar;
+ begin
+  Center:=Map(aPosition);
+  result:=Vector3Norm(Vector3(Map(Vector3(aPosition.x+Epsilon,aPosition.y,aPosition.z))-Center,
+                              Map(Vector3(aPosition.x,aPosition.y+Epsilon,aPosition.z))-Center,
+                              Map(Vector3(aPosition.x,aPosition.y,aPosition.z+Epsilon))-Center));
+ end;
 begin
 
  result:=false;
@@ -13221,19 +13234,15 @@ begin
 
     if DistanceA<TKraftShapeSphere(ShapeB).fRadius then begin
 
-     DistanceB:=ShapeB.GetLocalSignedDistance(Vector3TermMatrixMulInverted(ClosestPoint,TransformB));
+     Normal:=GetNormal(ClosestPoint);
 
-     NormalA:=Vector3TermMatrixMulBasis(ShapeA.GetLocalSignedDistanceNormal(Vector3TermMatrixMulInverted(ClosestPoint,TransformA)),TransformA);
-     NormalB:=Vector3TermMatrixMulBasis(ShapeB.GetLocalSignedDistanceNormal(Vector3TermMatrixMulInverted(ClosestPoint,TransformB)),TransformB);
+     PenetrationDepth:=DistanceA-TKraftShapeSphere(ShapeB).fRadius;
 
-     PositionA:=Vector3Sub(ClosestPoint,Vector3ScalarMul(NormalA,DistanceA));
-     PositionB:=Vector3Sub(ClosestPoint,Vector3ScalarMul(NormalB,DistanceB));
-
-     Normal:=Vector3Norm(Vector3Sub(NormalA,NormalB));
-
-     PenetrationDepth:=-Min(DistanceA,DistanceB);
+     PositionA:=ClosestPoint;
+     PositionB:=ClosestPoint;
 
      result:=true;
+
     end;
 
     exit;
