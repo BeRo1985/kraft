@@ -1,11 +1,11 @@
 object FormMain: TFormMain
   Left = -8
-  Height = 703
+  Height = 726
   Top = -8
   Width = 1009
-  Caption = 'Kraft physics engine sandbox - Copyright (C) 2015-2016, Benjamin ''BeRo'' Rosseaux'
-  ClientHeight = 680
-  ClientWidth = 1009
+  Caption = 'Kraft physics engine sandbox - Copyright (C) 2015-2023, Benjamin ''BeRo'' Rosseaux'
+  ClientHeight = 719
+  ClientWidth = 1025
   Color = clBtnFace
   Font.Color = clWindowText
   Font.Height = -11
@@ -19,14 +19,14 @@ object FormMain: TFormMain
   WindowState = wsMaximized
   object sSplitter1: TSplitter
     Left = 305
-    Height = 680
+    Height = 719
     Top = 0
     Width = 5
     ResizeStyle = rsLine
   end
   object sSplitter3: TSplitter
-    Left = 819
-    Height = 680
+    Left = 835
+    Height = 719
     Top = 0
     Width = 5
     Align = alRight
@@ -35,12 +35,12 @@ object FormMain: TFormMain
   end
   object sPanelLeft: TPanel
     Left = 0
-    Height = 680
+    Height = 719
     Top = 0
     Width = 305
     Align = alLeft
     BevelOuter = bvNone
-    ClientHeight = 680
+    ClientHeight = 719
     ClientWidth = 305
     TabOrder = 0
     object sSplitter2: TSplitter
@@ -96,17 +96,17 @@ object FormMain: TFormMain
     end
     object sPanelLeftBottom: TPanel
       Left = 0
-      Height = 377
+      Height = 416
       Top = 303
       Width = 305
       Align = alClient
       BevelOuter = bvNone
-      ClientHeight = 377
+      ClientHeight = 416
       ClientWidth = 305
       TabOrder = 1
       object sGroupBoxPropertyEditor: TGroupBox
         Left = 0
-        Height = 377
+        Height = 416
         Top = 0
         Width = 305
         Align = alClient
@@ -116,28 +116,28 @@ object FormMain: TFormMain
     end
   end
   object sPanelRight: TPanel
-    Left = 824
-    Height = 680
+    Left = 840
+    Height = 719
     Top = 0
     Width = 185
     Align = alRight
     BevelOuter = bvNone
-    ClientHeight = 680
+    ClientHeight = 719
     ClientWidth = 185
     TabOrder = 1
     object sGroupBoxDemos: TGroupBox
       Left = 0
-      Height = 680
+      Height = 719
       Top = 0
       Width = 185
       Align = alClient
       Caption = 'Demos'
-      ClientHeight = 662
+      ClientHeight = 701
       ClientWidth = 181
       TabOrder = 0
       object sTreeViewDemos: TTreeView
         Left = 0
-        Height = 662
+        Height = 701
         Top = 0
         Width = 181
         Align = alClient
@@ -159,21 +159,21 @@ object FormMain: TFormMain
   end
   object sPanelMiddle: TPanel
     Left = 310
-    Height = 680
+    Height = 719
     Top = 0
-    Width = 509
+    Width = 525
     Align = alClient
     BevelOuter = bvNone
-    ClientHeight = 680
-    ClientWidth = 509
+    ClientHeight = 719
+    ClientWidth = 525
     FullRepaint = False
     TabOrder = 2
     object sSplitter4: TSplitter
       Cursor = crVSplit
       Left = 0
       Height = 6
-      Top = 506
-      Width = 509
+      Top = 545
+      Width = 525
       Align = alBottom
       ResizeAnchor = akBottom
       ResizeStyle = rsLine
@@ -181,18 +181,18 @@ object FormMain: TFormMain
     object sPanelMiddleBottom: TPanel
       Left = 0
       Height = 168
-      Top = 512
-      Width = 509
+      Top = 551
+      Width = 525
       Align = alBottom
       BevelOuter = bvNone
       ClientHeight = 168
-      ClientWidth = 509
+      ClientWidth = 525
       TabOrder = 0
       object sPageControl1: TPageControl
         Left = 0
         Height = 168
         Top = 0
-        Width = 509
+        Width = 525
         ActivePage = sTabSheetInfo
         Align = alClient
         TabIndex = 0
@@ -200,12 +200,12 @@ object FormMain: TFormMain
         object sTabSheetInfo: TTabSheet
           Caption = 'Info'
           ClientHeight = 142
-          ClientWidth = 501
+          ClientWidth = 517
           object sMemoInfo: TMemo
             Left = 0
             Height = 142
             Top = 0
-            Width = 501
+            Width = 517
             Align = alClient
             Color = clWhite
             Font.Color = clBlack
@@ -229,7 +229,7 @@ object FormMain: TFormMain
         object sTabSheetPerformance: TTabSheet
           Caption = 'Performance'
           ClientHeight = 142
-          ClientWidth = 501
+          ClientWidth = 517
           object sLabelBroadPhaseTime: TLabel
             Left = 8
             Height = 13
@@ -237,6 +237,7 @@ object FormMain: TFormMain
             Width = 657
             AutoSize = False
             Caption = '0 '
+            Color = clDefault
             ParentColor = False
           end
           object sLabelMidPhaseTime: TLabel
@@ -246,6 +247,7 @@ object FormMain: TFormMain
             Width = 721
             AutoSize = False
             Caption = '0 '
+            Color = clDefault
             ParentColor = False
           end
           object sLabelNarrowPhaseTime: TLabel
@@ -255,6 +257,7 @@ object FormMain: TFormMain
             Width = 721
             AutoSize = False
             Caption = '0 '
+            Color = clDefault
             ParentColor = False
           end
           object sLabelSolverTime: TLabel
@@ -264,6 +267,7 @@ object FormMain: TFormMain
             Width = 721
             AutoSize = False
             Caption = '0 '
+            Color = clDefault
             ParentColor = False
           end
           object sLabelContinuousTime: TLabel
@@ -273,6 +277,7 @@ object FormMain: TFormMain
             Width = 721
             AutoSize = False
             Caption = '0 '
+            Color = clDefault
             ParentColor = False
           end
           object sLabelTotalTime: TLabel
@@ -282,26 +287,27 @@ object FormMain: TFormMain
             Width = 721
             AutoSize = False
             Caption = '0 '
+            Color = clDefault
             ParentColor = False
           end
         end
         object sTabSheetSettings: TTabSheet
           Caption = 'Settings'
           ClientHeight = 142
-          ClientWidth = 501
+          ClientWidth = 517
           object sCheckBoxDrawDynamicAABBTree: TCheckBox
             Left = 8
-            Height = 19
+            Height = 17
             Top = 8
-            Width = 142
+            Width = 140
             Caption = 'Draw dynamic AABB tree '
             TabOrder = 0
           end
           object sCheckBoxDrawContacts: TCheckBox
             Left = 8
-            Height = 19
+            Height = 17
             Top = 32
-            Width = 89
+            Width = 87
             Caption = 'Draw contacts'
             Checked = True
             State = cbChecked
@@ -309,17 +315,17 @@ object FormMain: TFormMain
           end
           object sCheckBoxDrawWireFrame: TCheckBox
             Left = 8
-            Height = 19
+            Height = 17
             Top = 56
-            Width = 93
+            Width = 91
             Caption = 'Draw wireframe'
             TabOrder = 2
           end
           object sCheckBoxDrawSolid: TCheckBox
             Left = 8
-            Height = 19
+            Height = 17
             Top = 80
-            Width = 69
+            Width = 67
             Caption = 'Draw solid'
             Checked = True
             State = cbChecked
@@ -327,9 +333,9 @@ object FormMain: TFormMain
           end
           object sCheckBoxDrawConstraints: TCheckBox
             Left = 8
-            Height = 19
+            Height = 17
             Top = 104
-            Width = 99
+            Width = 97
             Caption = 'Draw constraints'
             Checked = True
             State = cbChecked
@@ -340,22 +346,22 @@ object FormMain: TFormMain
     end
     object sPageControl2: TPageControl
       Left = 0
-      Height = 506
+      Height = 545
       Top = 0
-      Width = 509
+      Width = 525
       ActivePage = sTabSheetWorld
       Align = alClient
       TabIndex = 0
       TabOrder = 1
       object sTabSheetWorld: TTabSheet
         Caption = 'World'
-        ClientHeight = 480
-        ClientWidth = 501
+        ClientHeight = 519
+        ClientWidth = 517
         object OpenGLControlWorld: TOpenGLControl
           Left = 0
-          Height = 480
+          Height = 519
           Top = 0
-          Width = 501
+          Width = 517
           Align = alClient
           OpenGLMajorVersion = 2
           DepthBits = 32
