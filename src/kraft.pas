@@ -24793,7 +24793,180 @@ end;
 
 {$ifdef DebugDraw}
 procedure TKraftShapeSignedDistanceField.Draw(const CameraMatrix:TKraftMatrix4x4);
+ function GetOffset(a,b,t:TKraftScalar):TKraftScalar;
+ var d:Double;
+ begin
+  d:=b-a;
+  if abs(d)<EPSILON then begin
+   result:=0.5;
+  end else begin
+   result:=(t-a)/d;
+  end;
+ end;
+ procedure GetNormal(out n:TKraftVector3;const p:TKraftVector3;const Scale:TKraftScalar);
+ begin
+  n:=Vector3Norm(Vector3(GetLocalSignedDistance(Vector3(p.x-Scale,p.y,p.z))-GetLocalSignedDistance(Vector3(p.x+Scale,p.y,p.z)),
+                         GetLocalSignedDistance(Vector3(p.x,p.y-Scale,p.z))-GetLocalSignedDistance(Vector3(p.x,p.y+Scale,p.z)),
+                         GetLocalSignedDistance(Vector3(p.x,p.y,p.z-Scale))-GetLocalSignedDistance(Vector3(p.x,p.y,p.z+Scale))));
+ end;
+ procedure MarchTetrahedron(const fX,fY,fZ,Scale,Threshold:TKraftScalar);
+ const TetrahedronEdgeFlags:array[$0..$f] of byte=($00,$0d,$13,$1e,
+                                                   $26,$2b,$35,$38,
+                                                   $38,$35,$2b,$26,
+                                                   $1e,$13,$0d,$00);
+       TetrahedronTriangles:array[$0..$f,0..6] of shortint=
+        ((-1, -1, -1, -1, -1, -1, -1),
+         ( 0,  3,  2, -1, -1, -1, -1),
+         ( 0,  1,  4, -1, -1, -1, -1),
+         ( 1,  4,  2,  2,  4,  3, -1),
+         ( 1,  2,  5, -1, -1, -1, -1),
+         ( 0,  3,  5,  0,  5,  1, -1),
+         ( 0,  2,  5,  0,  5,  4, -1),
+         ( 5,  4,  3, -1, -1, -1, -1),
+         ( 3,  4,  5, -1, -1, -1, -1),
+         ( 4,  5,  0,  5,  2,  0, -1),
+         ( 1,  5,  0,  5,  3,  0, -1),
+         ( 5,  2,  1, -1, -1, -1, -1),
+         ( 3,  4,  2,  2,  4,  1, -1),
+         ( 4,  1,  0, -1, -1, -1, -1),
+         ( 2,  3,  0, -1, -1, -1, -1),
+         (-1, -1, -1, -1, -1, -1, -1));
+        TetrahedronEdgeConnection:array[0..5,0..1] of byte=
+         ((0,1),(1,2),(2,0),(0,3),(1,3),(2,3));
+        TetrahedronsInACube:array[0..5,0..3] of byte=
+         ((0,5,1,6),
+          (0,1,2,6),
+          (0,2,3,6),
+          (0,3,7,6),
+          (0,7,4,6),
+          (0,4,5,6));
+ var TetrahedronPosition:array[0..3] of PKraftVector3;
+     TetrahedronValue:array[0..7] of TKraftScalar;
+  procedure FlushTetrahedron;
+  var Edge,v0,v1,EdgeFlags,Triangle,Corner,Vertex,Flags:longint;
+      Offset,InvOffset:TKraftScalar;
+      EdgeVertex,EdgeNormal:array[0..5] of TKraftVector3;
+      //FaceIndices:array[0..2] of longint;
+  begin
+   Flags:=0;
+   for Vertex:=0 to 3 do begin
+    if TetrahedronValue[Vertex]<=Threshold then begin
+     Flags:=Flags or (1 shl Vertex);
+    end;
+   end;
+   EdgeFlags:=TetrahedronEdgeFlags[Flags];
+   if EdgeFlags=0 then begin
+    exit;
+   end;
+   for Edge:=0 to 5 do begin
+    if (EdgeFlags and (1 shl Edge))<>0 then begin
+     v0:=TetrahedronEdgeConnection[Edge,0];
+     v1:=TetrahedronEdgeConnection[Edge,1];
+     Offset:=GetOffset(TetrahedronValue[v0],TetrahedronValue[v1],Threshold);
+     InvOffset:=1.0-Offset;
+     EdgeVertex[Edge].x:=(InvOffset*TetrahedronPosition[v0]^.x)+(Offset*TetrahedronPosition[v1]^.x);
+     EdgeVertex[Edge].y:=(InvOffset*TetrahedronPosition[v0]^.y)+(Offset*TetrahedronPosition[v1]^.y);
+     EdgeVertex[Edge].z:=(InvOffset*TetrahedronPosition[v0]^.z)+(Offset*TetrahedronPosition[v1]^.z);
+     GetNormal(EdgeNormal[Edge],EdgeVertex[Edge],Scale);
+    end;
+   end;
+   for Triangle:=0 to 1 do begin
+    if TetrahedronTriangles[Flags,3*Triangle]<0 then begin
+     break;
+    end;
+    for Corner:=0 to 2 do begin
+     Vertex:=TetrahedronTriangles[Flags,(3*Triangle)+Corner];
+     glNormal3f(EdgeNormal[Vertex].x,EdgeNormal[Vertex].y,EdgeNormal[Vertex].z);
+     glVertex3f(EdgeVertex[Vertex].x,EdgeVertex[Vertex].y,EdgeVertex[Vertex].z);
+//   FaceIndices[Corner]:=PutVertex(EdgeVertex[Vertex],EdgeNormal[Vertex]);
+    end;
+//  PutFace(FaceIndices[0],FaceIndices[1],FaceIndices[2]);
+   end;
+  end;
+ const VertexOffset:array[0..7,0..2] of byte=((0,0,0),(1,0,0),(1,1,0),(0,1,0),(0,0,1),(1,0,1),(1,1,1),(0,1,1));
+ var Vertex,Tetrahedron,VertexInACube:longint;
+     CubePosition:array[0..7] of TKraftVector3;
+     CubeValue:array[0..7] of TKraftScalar;
+     sX,sY,sZ,InvScale:TKraftScalar;
+ begin
+  InvScale:=1.0/Scale;
+  for Vertex:=0 to 7 do begin
+   sX:=fX+(VertexOffset[Vertex,0]*Scale);
+   sY:=fY+(VertexOffset[Vertex,1]*Scale);
+   sZ:=fZ+(VertexOffset[Vertex,2]*Scale);
+   CubePosition[Vertex].x:=sX;
+   CubePosition[Vertex].y:=sY;
+   CubePosition[Vertex].z:=sZ;
+   CubeValue[Vertex]:=GetLocalSignedDistance(Vector3(sX,sY,sZ))*InvScale;
+  end;
+  for Tetrahedron:=0 to 6 do begin
+   for Vertex:=0 to 3 do begin
+    VertexInACube:=TetrahedronsInACube[Tetrahedron,Vertex];
+    TetrahedronPosition[Vertex]:=@CubePosition[VertexInACube];
+    TetrahedronValue[Vertex]:=CubeValue[VertexInACube];
+   end;
+   FlushTetrahedron;
+  end;
+ end;
+var ModelViewMatrix:TKraftMatrix4x4;
+    IndexZ,IndexY,IndexX:longint;
+    Time,MinT,MaxT,Scale:Double;
+    Position:TKraftVector3;
 begin
+
+ glPushMatrix;
+ glMatrixMode(GL_MODELVIEW);
+ ModelViewMatrix:=Matrix4x4TermMul(fInterpolatedWorldTransform,CameraMatrix);
+{$ifdef UseDouble}
+ glLoadMatrixd(pointer(@ModelViewMatrix));
+{$else}
+ glLoadMatrixf(pointer(@ModelViewMatrix));
+{$endif}
+
+ if fDrawDisplayList=0 then begin
+  fDrawDisplayList:=glGenLists(1);
+  glNewList(fDrawDisplayList,GL_COMPILE);
+
+  MinT:=Min(fAABB.Min.x,Min(fAABB.Min.y,fAABB.Min.z));
+  MaxT:=Max(fAABB.Max.x,Max(fAABB.Max.y,fAABB.Max.z));
+
+  Scale:=(MaxT-MinT)/KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES;
+
+  glBegin(GL_TRIANGLES);
+
+  for IndexZ:=0 to KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES do begin
+
+   Time:=IndexZ/KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES;
+   Position.z:=(MinT*(1.0-Time))+(MaxT*Time);
+
+   for IndexY:=0 to KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES do begin
+
+    Time:=IndexY/KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES;
+    Position.y:=(MinT*(1.0-Time))+(MaxT*Time);
+
+    for IndexX:=0 to KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES do begin
+
+     Time:=IndexX/KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES;
+     Position.x:=(MinT*(1.0-Time))+(MaxT*Time);
+
+     MarchTetrahedron(Position.x,Position.y,Position.z,Scale,0.5);
+
+    end;
+
+   end;
+
+  end;
+
+  glEnd;
+
+  glEndList;
+ end;
+
+ if fDrawDisplayList<>0 then begin
+  glCallList(fDrawDisplayList);
+ end;
+
+ glPopMatrix;
 end;
 {$endif}
 
