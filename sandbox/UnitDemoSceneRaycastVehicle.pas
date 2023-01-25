@@ -174,6 +174,9 @@ begin
 
  Vehicle.DownForce:=10.0;
 
+ Vehicle.AccelerationCurveEnvelope:=TVehicle.TEnvelope.CreateLinear(0.0,0.0,5.0,200.0);
+ Vehicle.ReverseAccelerationCurveEnvelope:=TVehicle.TEnvelope.CreateLinear(0.0,0.0,5.0,50.0);
+
  Vehicle.FlightStabilizationForce:=6.0;
  Vehicle.FlightStabilizationDamping:=0.7;
 
@@ -240,7 +243,7 @@ begin
  Vehicle.RigidBody.CollisionGroups:=[1];
  Vehicle.RigidBody.CollideWithCollisionGroups:=[0,1];
  Vehicle.RigidBody.AngularVelocityDamp:=10.0;//10.0;
- Vehicle.RigidBody.LinearVelocityDamp:=0.05;
+ Vehicle.RigidBody.LinearVelocityDamp:=0.3275;
 {Vehicle.RigidBody.Flags:=Vehicle.RigidBody.Flags+[TKraftRigidBodyFlag.krbfHasOwnGravity];
  Vehicle.RigidBody.Gravity.x:=0.0;
  Vehicle.RigidBody.Gravity.y:=0.0;
