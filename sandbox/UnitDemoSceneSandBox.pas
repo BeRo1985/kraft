@@ -150,7 +150,7 @@ begin
  ObjectShape[1].Density:=1.0;
  //ObjectRigidBody[1].ForcedMass:=1;
  ObjectRigidBody[1].Finish;
- ObjectRigidBody[1].SetWorldTransformation(Matrix4x4Translate(4.0,4.0,0.0));
+ ObjectRigidBody[1].SetWorldTransformation(Matrix4x4Translate(4.0,4.0,-1.0));
 // ObjectRigidBody[1].SetWorldTransformation(Matrix4x4Translate(2.0,2.0,-12.0));
  ObjectRigidBody[1].SetToAwake;
  ObjectRigidBody[1].CollisionGroups:=[2];
@@ -169,7 +169,7 @@ begin
  ObjectShape[19].Density:=1.0;
  //ObjectRigidBody[18].ForcedMass:=1;
  ObjectRigidBody[18].Finish;
- ObjectRigidBody[18].SetWorldTransformation(Matrix4x4Translate(4.0,4.0,2.0));
+ ObjectRigidBody[18].SetWorldTransformation(Matrix4x4Translate(4.0,4.0,1.5));
 // ObjectRigidBody[18].SetWorldTransformation(Matrix4x4Translate(2.0,2.0,-12.0));
  ObjectRigidBody[18].SetToAwake;
  ObjectRigidBody[18].CollisionGroups:=[2];
