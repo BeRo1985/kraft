@@ -1912,6 +1912,7 @@ type PKraftForceMode=^TKraftForceMode;
 {$ifdef DebugDraw}
        fDebugClipVertexLists:array[0..255] of TKraftClipVertexList;
        fCountDebugClipVertexLists:longint;
+       fDebugClipVertexListLock:{$ifdef KraftPasMP}TPasMPSlimReaderWriterLock{$else}TCriticalSection{$endif};
 {$endif}
 
        fTemporaryContacts:array[0..MAX_THREADS-1,0..MAX_TEMPORARY_CONTACTS-1] of TKraftContact;
@@ -26153,7 +26154,10 @@ var OldManifoldCountContacts:longint;
   end;
   procedure ClipFaceContactPoints(const ReferenceHull:TKraftShapeConvexHull;const ReferenceFaceIndex:longint;const IncidentHull:TKraftShapeConvexHull;const IncidentFaceIndex:longint;const Flip:boolean);
   var Contact:PKraftContact;
-      ReferenceVertexIndex,OtherReferenceVertexIndex,IncidentVertexIndex,CliVertexIndex,ReferenceEdgeIndexOffset,IncidentEdgeIndexOffset:longint;
+      ReferenceVertexIndex,OtherReferenceVertexIndex,IncidentVertexIndex,CliVertexIndex,
+      ReferenceEdgeIndexOffset,IncidentEdgeIndexOffset{$ifdef DebugDraw},
+      DebugClipVertexListIndex{$endif}:longint;
+      {$ifdef DebugDraw}DebugClipVertexListOK:boolean;{$endif}
       ReferenceFace,IncidentFace:PKraftConvexHullFace;
       ClipVertex,PreviousClipVertex,CurrentClipVertex:PKraftClipVertex;
       PreviousClipVertexDistance,CurrentClipVertexDistance,Distance:TKraftScalar;
@@ -26183,31 +26187,43 @@ var OldManifoldCountContacts:longint;
    end;
 
 {$ifdef DebugDraw}
-    if (ContactManager.fPhysics.SingleThreaded or (ContactManager.fPhysics.fCountThreads<2)) and (ContactManager.fCountDebugClipVertexLists<length(ContactManager.fDebugClipVertexLists)) then begin
-     ContactManager.fDebugClipVertexLists[ContactManager.fCountDebugClipVertexLists].fColor.r:=0.5;
-     ContactManager.fDebugClipVertexLists[ContactManager.fCountDebugClipVertexLists].fColor.g:=1.0;
-     ContactManager.fDebugClipVertexLists[ContactManager.fCountDebugClipVertexLists].fColor.b:=0.5;
-     ContactManager.fDebugClipVertexLists[ContactManager.fCountDebugClipVertexLists].fColor.a:=1.0;
-     ContactManager.fDebugClipVertexLists[ContactManager.fCountDebugClipVertexLists].Clear;
-     for CliVertexIndex:=0 to ClipVertices[0].Count-1 do begin
-      ContactManager.fDebugClipVertexLists[ContactManager.fCountDebugClipVertexLists].Add(ClipVertices[0].Vertices[CliVertexIndex]);
+   if (ContactManager.fCountDebugClipVertexLists+1)<length(ContactManager.fDebugClipVertexLists) then begin
+    ContactManager.fDebugClipVertexListLock.Acquire;
+    try
+     DebugClipVertexListOK:=(ContactManager.fCountDebugClipVertexLists+1)<length(ContactManager.fDebugClipVertexLists);
+     if DebugClipVertexListOK then begin
+      DebugClipVertexListIndex:=InterlockedExchangeAdd(ContactManager.fCountDebugClipVertexLists,2);
      end;
-     inc(ContactManager.fCountDebugClipVertexLists);
+    finally
+     ContactManager.fDebugClipVertexListLock.Release;
     end;
-    if (ContactManager.fPhysics.SingleThreaded or (ContactManager.fPhysics.fCountThreads<2)) and (ContactManager.fCountDebugClipVertexLists<length(ContactManager.fDebugClipVertexLists)) then begin
-     ContactManager.fDebugClipVertexLists[ContactManager.fCountDebugClipVertexLists].fColor.r:=1.0;
-     ContactManager.fDebugClipVertexLists[ContactManager.fCountDebugClipVertexLists].fColor.g:=0.5;
-     ContactManager.fDebugClipVertexLists[ContactManager.fCountDebugClipVertexLists].fColor.b:=1.0;
-     ContactManager.fDebugClipVertexLists[ContactManager.fCountDebugClipVertexLists].fColor.a:=1.0;
-     ContactManager.fDebugClipVertexLists[ContactManager.fCountDebugClipVertexLists].Clear;
-     for ReferenceVertexIndex:=0 to ReferenceFace^.CountVertices-1 do begin
-      ReferencePoint:=Vector3TermMatrixMul(ReferenceHull.fConvexHull.fVertices[ReferenceFace^.Vertices[ReferenceVertexIndex]].Position,ReferenceHull.fWorldTransform);
-      FeatureID.ElementA:=ReferenceEdgeIndexOffset+ReferenceVertexIndex;
-      FeatureID.ElementB:=ReferenceEdgeIndexOffset+(ReferenceVertexIndex+1);
-      ContactManager.fDebugClipVertexLists[ContactManager.fCountDebugClipVertexLists].Add(ReferencePoint,FeatureID);
+    if DebugClipVertexListOK then begin
+     begin
+      ContactManager.fDebugClipVertexLists[DebugClipVertexListIndex].fColor.r:=0.5;
+      ContactManager.fDebugClipVertexLists[DebugClipVertexListIndex].fColor.g:=1.0;
+      ContactManager.fDebugClipVertexLists[DebugClipVertexListIndex].fColor.b:=0.5;
+      ContactManager.fDebugClipVertexLists[DebugClipVertexListIndex].fColor.a:=1.0;
+      ContactManager.fDebugClipVertexLists[DebugClipVertexListIndex].Clear;
+      for CliVertexIndex:=0 to ClipVertices[0].Count-1 do begin
+       ContactManager.fDebugClipVertexLists[DebugClipVertexListIndex].Add(ClipVertices[0].Vertices[CliVertexIndex]);
+      end;
      end;
-     inc(ContactManager.fCountDebugClipVertexLists);
+     inc(DebugClipVertexListIndex);
+     begin
+      ContactManager.fDebugClipVertexLists[DebugClipVertexListIndex].fColor.r:=1.0;
+      ContactManager.fDebugClipVertexLists[DebugClipVertexListIndex].fColor.g:=0.5;
+      ContactManager.fDebugClipVertexLists[DebugClipVertexListIndex].fColor.b:=1.0;
+      ContactManager.fDebugClipVertexLists[DebugClipVertexListIndex].fColor.a:=1.0;
+      ContactManager.fDebugClipVertexLists[DebugClipVertexListIndex].Clear;
+      for ReferenceVertexIndex:=0 to ReferenceFace^.CountVertices-1 do begin
+       ReferencePoint:=Vector3TermMatrixMul(ReferenceHull.fConvexHull.fVertices[ReferenceFace^.Vertices[ReferenceVertexIndex]].Position,ReferenceHull.fWorldTransform);
+       FeatureID.ElementA:=ReferenceEdgeIndexOffset+ReferenceVertexIndex;
+       FeatureID.ElementB:=ReferenceEdgeIndexOffset+(ReferenceVertexIndex+1);
+       ContactManager.fDebugClipVertexLists[DebugClipVertexListIndex].Add(ReferencePoint,FeatureID);
+      end;
+     end;
     end;
+   end;
 {$endif}
 
    ClipVertices[1]:=ContactManager.fClipVertexLists[ThreadIndex,1];
@@ -26258,17 +26274,27 @@ var OldManifoldCountContacts:longint;
    end;
 
 {$ifdef DebugDraw}
-    if (ContactManager.fPhysics.SingleThreaded or (ContactManager.fPhysics.fCountThreads<2)) and (ContactManager.fCountDebugClipVertexLists<length(ContactManager.fDebugClipVertexLists)) then begin
-     ContactManager.fDebugClipVertexLists[ContactManager.fCountDebugClipVertexLists].fColor.r:=0.5;
-     ContactManager.fDebugClipVertexLists[ContactManager.fCountDebugClipVertexLists].fColor.g:=0.5;
-     ContactManager.fDebugClipVertexLists[ContactManager.fCountDebugClipVertexLists].fColor.b:=1.0;
-     ContactManager.fDebugClipVertexLists[ContactManager.fCountDebugClipVertexLists].fColor.a:=1.0;
-     ContactManager.fDebugClipVertexLists[ContactManager.fCountDebugClipVertexLists].Clear;
-     for CliVertexIndex:=0 to ClipVertices[0].Count-1 do begin
-      ContactManager.fDebugClipVertexLists[ContactManager.fCountDebugClipVertexLists].Add(ClipVertices[0].Vertices[CliVertexIndex]);
+   if ContactManager.fCountDebugClipVertexLists<length(ContactManager.fDebugClipVertexLists) then begin
+    ContactManager.fDebugClipVertexListLock.Acquire;
+    try
+     DebugClipVertexListOK:=ContactManager.fCountDebugClipVertexLists<length(ContactManager.fDebugClipVertexLists);
+     if DebugClipVertexListOK then begin
+      DebugClipVertexListIndex:=InterlockedExchangeAdd(ContactManager.fCountDebugClipVertexLists,1);
      end;
-     inc(ContactManager.fCountDebugClipVertexLists);
+    finally
+     ContactManager.fDebugClipVertexListLock.Release;
     end;
+    if DebugClipVertexListOK then begin
+     ContactManager.fDebugClipVertexLists[DebugClipVertexListIndex].fColor.r:=0.5;
+     ContactManager.fDebugClipVertexLists[DebugClipVertexListIndex].fColor.g:=0.5;
+     ContactManager.fDebugClipVertexLists[DebugClipVertexListIndex].fColor.b:=1.0;
+     ContactManager.fDebugClipVertexLists[DebugClipVertexListIndex].fColor.a:=1.0;
+     ContactManager.fDebugClipVertexLists[DebugClipVertexListIndex].Clear;
+     for CliVertexIndex:=0 to ClipVertices[0].Count-1 do begin
+      ContactManager.fDebugClipVertexLists[DebugClipVertexListIndex].Add(ClipVertices[0].Vertices[CliVertexIndex]);
+     end;
+    end;
+   end;
 {$endif}
 
    for CliVertexIndex:=0 to ClipVertices[0].Count-1 do begin
@@ -27351,6 +27377,7 @@ begin
  for ThreadIndex:=0 to high(fDebugClipVertexLists) do begin
   fDebugClipVertexLists[ThreadIndex]:=TKraftClipVertexList.Create;
  end;
+ fDebugClipVertexListLock:={$ifdef KraftPasMP}TPasMPSlimReaderWriterLock{$else}TCriticalSection{$endif}.Create;
 {$endif}
 
  fActiveContactPairs:=nil;
@@ -27400,8 +27427,9 @@ begin
 
 {$ifdef DebugDraw}
  for ThreadIndex:=0 to high(fDebugClipVertexLists) do begin
-  fDebugClipVertexLists[ThreadIndex].Free;
+  FreeAndNil(fDebugClipVertexLists[ThreadIndex]);
  end;
+ FreeAndNil(fDebugClipVertexListLock);
 {$endif}
 
  inherited Destroy;
