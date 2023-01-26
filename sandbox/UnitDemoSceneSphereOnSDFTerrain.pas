@@ -12,6 +12,7 @@ uses {$ifdef DebugDraw}
        OpenGL,
       {$endif}
      {$endif}
+     Math,
      Kraft,
      UnitDemoScene;
 
@@ -54,6 +55,7 @@ uses UnitFormMain;
 constructor TKraftShapeSignedDistanceFieldTerrain.Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody;const aSize,aHeight:TKraftScalar;const aResolution:Int32);
 var AABB:TKraftAABB;
     x,y:Int32;
+    k1,k2:TKraftScalar;
 begin
 
  fSize:=aSize;
@@ -70,7 +72,9 @@ begin
 
  for y:=0 to fResolution-1 do begin
   for x:=0 to fResolution-1 do begin
-   fData[(y*fResolution)+x]:=0.0;
+   k1:=sin(x*pi*4/fResolution)*2;
+   k2:=cos(y*pi*4/fResolution)*2;
+   fData[(y*fResolution)+x]:=(Min(((((cos(x*pi*k1/fResolution)*sin(y*pi*k2/fResolution)))+(k1*0.5)-(k2*0.5)))*64,32)/32.0)*fHeight;
   end;
  end;
 
