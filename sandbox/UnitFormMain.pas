@@ -607,7 +607,8 @@ begin
   for Index:=0 to DemoScenes.Count-1 do begin
    sTreeViewDemos.Items.AddChildObject(TreeNodeDemos,DemoScenes.Strings[Index],DemoScenes.Objects[Index]);
   end;
-  TreeNodeDemoDefault:=TreeNodeDemos.FindNode('Raycast vehicle');
+  TreeNodeDemoDefault:=TreeNodeDemos.FindNode('Sphere on SDF terrain');
+//TreeNodeDemoDefault:=TreeNodeDemos.FindNode('Raycast vehicle');
   if not assigned(TreeNodeDemoDefault) then begin
    TreeNodeDemoDefault:=TreeNodeDemos.GetFirstChild;
   end;

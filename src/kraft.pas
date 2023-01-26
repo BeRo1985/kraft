@@ -433,6 +433,8 @@ type PKraftForceMode=^TKraftForceMode;
      TKraftScalars=array[0..1] of TKraftScalar;
      PKraftScalars=^TKraftScalars;
 
+     TKraftScalarArray=array of TKraftScalar;
+
      TKraftLongInts=array[0..0] of longint;
      PKraftLongInts=^TKraftLongInts;
 

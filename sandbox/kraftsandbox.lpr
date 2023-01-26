@@ -23,6 +23,7 @@ uses
   UnitDemoSceneCarousel in 'UnitDemoSceneCarousel.pas',
   UnitDemoSceneBoxOnPlane in 'UnitDemoSceneBoxOnPlane.pas',
   UnitDemoSceneSandBox in 'UnitDemoSceneSandBox.pas',
+  UnitDemoSceneSphereOnSDFTerrain in 'UnitDemoSceneSphereOnSDFTerrain.pas',
   UnitDemoSceneBoxStacking in 'UnitDemoSceneBoxStacking.pas',
   UnitDemoSceneBoxPyramidStacking in 'UnitDemoSceneBoxPyramidStacking.pas',
   UnitDemoSceneBridge in 'UnitDemoSceneBridge.pas',
