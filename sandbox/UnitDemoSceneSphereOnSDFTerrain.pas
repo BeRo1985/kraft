@@ -74,12 +74,12 @@ begin
   for x:=0 to fResolution-1 do begin
    k1:=sin(x*pi*4/fResolution)*2;
    k2:=cos(y*pi*4/fResolution)*2;
-   fData[(y*fResolution)+x]:=(Min(((((cos(x*pi*k1/fResolution)*sin(y*pi*k2/fResolution)))+(k1*0.5)-(k2*0.5)))*64,32)/32.0)*fHeight;
+   fData[(y*fResolution)+x]:=(Min(Max(((((cos(x*pi*k1/fResolution)*sin(y*pi*k2/fResolution)))+(k1*0.5)-(k2*0.5)))*64,-64),32)/64.0)*fHeight;
   end;
  end;
 
- AABB.Min:=Vector3(-fSize,-fSize,-fHeight);
- AABB.Max:=Vector3(fSize,fSize,fHeight);
+ AABB.Min:=Vector3(-fSize,-fHeight,-fSize);
+ AABB.Max:=Vector3(fSize,fHeight,fSize);
  inherited Create(APhysics,ARigidBody,@AABB);
 
 end;
