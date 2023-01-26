@@ -100,7 +100,7 @@ begin
  if dx<=0.0 then begin
   dx:=0.0;
  end else if dx>=fResolution then begin
-  dx:=fResolution
+  dx:=fResolution;
  end;
  if dy<=0.0 then begin
   dy:=0.0;
