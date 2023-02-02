@@ -204,21 +204,21 @@ type { TVehicle }
                    TPoints=array of TPoint;
              private
               fPoints:TPoints;
-              fCount:Int32;
+              fCount:TKraftInt32;
              public
               constructor Create; reintroduce;
               constructor CreateLinear(const aTimeStart,aValueStart,aTimeEnd,aValueEnd:TKraftScalar);
-              constructor CreateEaseInOut(const aTimeStart,aValueStart,aTimeEnd,aValueEnd:TKraftScalar;const aSteps:Int32=16);
+              constructor CreateEaseInOut(const aTimeStart,aValueStart,aTimeEnd,aValueEnd:TKraftScalar;const aSteps:TKraftInt32=16);
               destructor Destroy; override;
               procedure Clear;
               procedure Assign(const aFrom:TEnvelope);
               procedure Insert(const aTime,aValue:TKraftScalar);
-              function GetTimeAtIndex(const aIndex:Int32):TKraftScalar;
-              function GetValueAtIndex(const aIndex:Int32):TKraftScalar;
-              function GetIndexFromTime(const aTime:TKraftScalar):Int32;
+              function GetTimeAtIndex(const aIndex:TKraftInt32):TKraftScalar;
+              function GetValueAtIndex(const aIndex:TKraftInt32):TKraftScalar;
+              function GetIndexFromTime(const aTime:TKraftScalar):TKraftInt32;
               function GetValueAtTime(const aTime:TKraftScalar):TKraftScalar;
              published
-              property Count:Int32 read fCount;
+              property Count:TKraftInt32 read fCount;
             end;
             { TAxle }
             TAxle=class
@@ -275,7 +275,7 @@ type { TVehicle }
                      constructor Create(const aAxle:TAxle;const aOffset:TKraftScalar); reintroduce;
                      destructor Destroy; override;
                      procedure UpdateSuspensionLength;
-                     procedure Update(const aWorldSpacePosition:TKraftVector3;const aTotalWheelsCount,aCountPoweredWheels:Int32;const aLeft:boolean);
+                     procedure Update(const aWorldSpacePosition:TKraftVector3;const aTotalWheelsCount,aCountPoweredWheels:TKraftInt32;const aLeft:boolean);
                      procedure CalculateWheelRotationFromSpeed;
                      procedure UpdateVisual;
                      procedure StoreWorldTransforms;
@@ -341,7 +341,7 @@ type { TVehicle }
               destructor Destroy; override;
               procedure ApplyAntiRoll;
               procedure UpdateSuspensionLengths;
-              procedure Update(const aTotalWheelsCount,aCountPoweredWheels:Int32);
+              procedure Update(const aTotalWheelsCount,aCountPoweredWheels:TKraftInt32);
               procedure UpdateVisual;
               procedure StoreWorldTransforms;
               procedure InterpolateWorldTransforms(const aAlpha:TKraftScalar);
@@ -376,7 +376,7 @@ type { TVehicle }
        fKraftPhysics:TKraft;
        fAccelerationCurveEnvelope:TEnvelope;
        fReverseAccelerationCurveEnvelope:TEnvelope;
-       fReverseEvaluationAccuracy:Int32;
+       fReverseEvaluationAccuracy:TKraftInt32;
        fSteerAngleLimitEnvelope:TEnvelope;
        fSteeringResetSpeedEnvelope:TEnvelope;
        fSteeringSpeedEnvelope:TEnvelope;
@@ -451,7 +451,7 @@ type { TVehicle }
       published
        property AccelerationCurveEnvelope:TEnvelope read fAccelerationCurveEnvelope write fAccelerationCurveEnvelope;
        property ReverseAccelerationCurveEnvelope:TEnvelope read fReverseAccelerationCurveEnvelope write fReverseAccelerationCurveEnvelope;
-       property ReverseEvaluationAccuracy:Int32 read fReverseEvaluationAccuracy write fReverseEvaluationAccuracy;
+       property ReverseEvaluationAccuracy:TKraftInt32 read fReverseEvaluationAccuracy write fReverseEvaluationAccuracy;
        property SteerAngleLimitEnvelope:TEnvelope read fSteerAngleLimitEnvelope write fSteerAngleLimitEnvelope;
        property SteeringResetSpeedEnvelope:TEnvelope read fSteeringResetSpeedEnvelope write fSteeringResetSpeedEnvelope;
        property SteeringSpeedEnvelope:TEnvelope read fSteeringSpeedEnvelope write fSteeringSpeedEnvelope;
@@ -574,8 +574,8 @@ begin
  Insert(aTimeEnd,aValueEnd);
 end;
 
-constructor TVehicle.TEnvelope.CreateEaseInOut(const aTimeStart,aValueStart,aTimeEnd,aValueEnd:TKraftScalar;const aSteps:Int32=16);
-var Index,Last:Int32;
+constructor TVehicle.TEnvelope.CreateEaseInOut(const aTimeStart,aValueStart,aTimeEnd,aValueEnd:TKraftScalar;const aSteps:TKraftInt32=16);
+var Index,Last:TKraftInt32;
     x,Time,Value:TKraftScalar;
 begin
  Create;
@@ -612,7 +612,7 @@ begin
 end;
 
 procedure TVehicle.TEnvelope.Insert(const aTime,aValue:TKraftScalar);
-var Index,LowIndex,HighIndex,MidIndex:Int32;
+var Index,LowIndex,HighIndex,MidIndex:TKraftInt32;
     Point:PPoint;
 begin
  if fCount>0 then begin
@@ -658,7 +658,7 @@ begin
  Point^.fValue:=aValue;
 end;
 
-function TVehicle.TEnvelope.GetTimeAtIndex(const aIndex:Int32):TKraftScalar;
+function TVehicle.TEnvelope.GetTimeAtIndex(const aIndex:TKraftInt32):TKraftScalar;
 begin
  if (aIndex>=0) and (aIndex<fCount) then begin
   result:=fPoints[aIndex].fTime;
@@ -667,7 +667,7 @@ begin
  end;
 end;
 
-function TVehicle.TEnvelope.GetValueAtIndex(const aIndex:Int32):TKraftScalar;
+function TVehicle.TEnvelope.GetValueAtIndex(const aIndex:TKraftInt32):TKraftScalar;
 begin
  if (aIndex>=0) and (aIndex<fCount) then begin
   result:=fPoints[aIndex].fValue;
@@ -676,8 +676,8 @@ begin
  end;
 end;
 
-function TVehicle.TEnvelope.GetIndexFromTime(const aTime:TKraftScalar):Int32;
-var LowIndex,HighIndex,MidIndex:Int32;
+function TVehicle.TEnvelope.GetIndexFromTime(const aTime:TKraftScalar):TKraftInt32;
+var LowIndex,HighIndex,MidIndex:TKraftInt32;
     Point:PPoint;
 begin
  if fCount>0 then begin
@@ -728,7 +728,7 @@ begin
 end;
 
 function TVehicle.TEnvelope.GetValueAtTime(const aTime:TKraftScalar):TKraftScalar;
-var LowIndex,HighIndex,MidIndex:Int32;
+var LowIndex,HighIndex,MidIndex:TKraftInt32;
     Point:PPoint;
 begin
  if fCount>0 then begin
@@ -818,7 +818,7 @@ begin
  result:=Vector3Dot(aNormal,fRayCastFilterDirection)<=-0.5;
 end;
 
-procedure TVehicle.TAxle.TWheel.Update(const aWorldSpacePosition:TKraftVector3;const aTotalWheelsCount,aCountPoweredWheels:Int32;const aLeft:boolean);
+procedure TVehicle.TAxle.TWheel.Update(const aWorldSpacePosition:TKraftVector3;const aTotalWheelsCount,aCountPoweredWheels:TKraftInt32;const aLeft:boolean);
 {$define SphereCastResult}
 const RelaxSpeed=1.0;
 type TRayResult=record
@@ -860,7 +860,7 @@ var LocalWheelRotation,WorldSpaceWheelRotation:TKraftQuaternion;
  function WheelRayCast(const aRayOrigin,aRayDirection,aRayOtherDirection:TKraftVector3;const aFromAngle,aToAngle:TKraftScalar;const aRelaxedSuspensionLength,aWheelRadius:TKraftScalar):TRayResult;
  const CountRays=32; // +1 primary ray
        DivFactor=1.0/(CountRays-1);
- var Index,Count:Int32;
+ var Index,Count:TKraftInt32;
      Temporary:TRayResult;
      Time,Angle,Sinus,Cosinus,MaxTime:TKraftScalar;
      PointXSum,PointYSum,PointZSum,NormalXSum,NormalYSum,NormalZSum,TimeSum,WeightSum,Weight:Double;
@@ -1318,7 +1318,7 @@ end;
 
 {$ifdef DebugDraw}
 procedure TVehicle.TAxle.TWheel.DebugDraw;
-var Index:Int32;
+var Index:TKraftInt32;
     v:TKraftVector3;
 begin
  if true then begin
@@ -1425,7 +1425,7 @@ begin
  fWheelRight.UpdateSuspensionLength;
 end;
 
-procedure TVehicle.TAxle.Update(const aTotalWheelsCount,aCountPoweredWheels:Int32);
+procedure TVehicle.TAxle.Update(const aTotalWheelsCount,aCountPoweredWheels:TKraftInt32);
 begin
  fWheelLeft.Update(Vector3TermMatrixMul(Vector3(fWidth*-0.5,fOffset.y,fOffset.x),fVehicle.fWorldTransform),aTotalWheelsCount,aCountPoweredWheels,true);
  fWheelRight.Update(Vector3TermMatrixMul(Vector3(fWidth*0.5,fOffset.y,fOffset.x),fVehicle.fWorldTransform),aTotalWheelsCount,aCountPoweredWheels,false);
@@ -1576,7 +1576,7 @@ end;
 
 function TVehicle.GetAccelerationForceMagnitude(const aEnvelope:TEnvelope;const aSpeedMetersPerSec,aDeltaTime:TKraftScalar):TKraftScalar;
 const Inv3d6=1/3.6;
-var Index,Count:Int32;
+var Index,Count:TKraftInt32;
     SpeedKMH,Mass,MinTime,MaxTime,TimeNow,CurrentSpeed,CurrentSpeedDifference,
     Step,StepTime,StepSpeed,StepSpeedDifference:TKraftScalar;
 begin
@@ -1787,7 +1787,7 @@ end;
 
 procedure TVehicle.Update;
 const TotalWheelsCount=2 shl 1;
-var CountPoweredWheels:Int32;
+var CountPoweredWheels:TKraftInt32;
     Axis,AngularVelocity,AngularVelocityDamping,VehicleUp,AntiGravityUp:TKraftVector3;
     DownForceAmount:TKraftScalar;
 begin
