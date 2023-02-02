@@ -26,10 +26,13 @@ type { TKraftShapeSignedDistanceFieldTerrain }
        fScale:Double;
        fInverseScale:Double;
        fData:TKraftScalarArray;
+       fGradientData:TKraftScalarArray;
       public
        constructor Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody;const aSize,aHeight:TKraftScalar;const aResolution:Int32); reintroduce;
        destructor Destroy; override;
        function GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar; override;
+//     function GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3; override;
+       function GetLocalClosestPointTo(const Position:TKraftVector3):TKraftVector3; override;
 {$ifdef DebugDraw}
        procedure Draw(const CameraMatrix:TKraftMatrix4x4); override;
 {$endif}
@@ -70,11 +73,14 @@ begin
  fData:=nil;
  SetLength(fData,fResolution*fResolution);
 
+ fGradientData:=nil;
+ SetLength(fGradientData,fResolution*fResolution);
+
  for y:=0 to fResolution-1 do begin
   for x:=0 to fResolution-1 do begin
    k1:=sin(x*pi*4/fResolution)*2;
    k2:=cos(y*pi*4/fResolution)*2;
-   fData[(y*fResolution)+x]:=(Min(Max(((((cos(x*pi*k1/fResolution)*sin(y*pi*k2/fResolution)))+(k1*0.5)-(k2*0.5)))*64,-64),32)/64.0)*fHeight;
+   fData[(y*fResolution)+x]:=-10.0;//(Min(Max(((((cos(x*pi*k1/fResolution)*sin(y*pi*k2/fResolution)))+(k1*0.5)-(k2*0.5)))*64,-64),32)/64.0)*fHeight;
   end;
  end;
 
@@ -87,6 +93,7 @@ end;
 destructor TKraftShapeSignedDistanceFieldTerrain.Destroy;
 begin
  fData:=nil;
+ fGradientData:=nil;
  inherited Destroy;
 end;
 
@@ -109,6 +116,12 @@ begin
  end;
  ix:=trunc(dx);
  iy:=trunc(dy);
+ if ix>=(fResolution-1) then begin
+  ix:=fResolution-2;
+ end;
+ if iy>=(fResolution-1) then begin
+  iy:=fResolution-2;
+ end;
  fx:=dx-ix;
  fy:=dy-iy;
  nx:=ix+1;
@@ -121,6 +134,92 @@ begin
  end;
  result:=Position.y-((((fData[(iy*fResolution)+ix]*(1.0-fx))+(fData[(iy*fResolution)+nx]*fx))*(1.0-fy))+
                      (((fData[(ny*fResolution)+ix]*(1.0-fx))+(fData[(ny*fResolution)+nx]*fx))*fy));
+end;
+
+(*function TKraftShapeSignedDistanceFieldTerrain.GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3;
+var dx,dy:Double;
+    ix,iy,nx,ny:Int32;
+    fx,fy:Single;
+begin
+ dx:=(Position.x+fHalfSize)*fScale;
+ dy:=(Position.z+fHalfSize)*fScale;
+ if dx<=0.0 then begin
+  dx:=0.0;
+ end else if dx>=fResolution then begin
+  dx:=fResolution;
+ end;
+ if dy<=0.0 then begin
+  dy:=0.0;
+ end else if dy>=fResolution then begin
+  dy:=fResolution;
+ end;
+ ix:=trunc(dx);
+ iy:=trunc(dy);
+ if ix>=(fResolution-1) then begin
+  ix:=fResolution-2;
+ end;
+ if iy>=(fResolution-1) then begin
+  iy:=fResolution-2;
+ end;
+ fx:=dx-ix;
+ fy:=dy-iy;
+ nx:=ix+1;
+ ny:=iy+1;
+ if nx>=fResolution then begin
+  nx:=fResolution-1;
+ end;
+ if ny>=fResolution then begin
+  ny:=fResolution-1;
+ end;
+ result:=Vector3Norm(Vector3(1.0,
+                             (fData[(iy*fResolution)+ix]*Data[(iy*fResolution)+nx]*fx))*(1.0-fy))+
+                                         (((fData[(ny*fResolution)+ix]*(1.0-fx))+(fData[(ny*fResolution)+nx]*fx))*fy)),
+                             1.0)));
+{result:=Vector3Norm(Vector3(Position.X-((dx*fInverseScale)-fHalfSize),
+                             Position.Y-((((fData[(iy*fResolution)+ix]*(1.0-fx))+(fData[(iy*fResolution)+nx]*fx))*(1.0-fy))+
+                                         (((fData[(ny*fResolution)+ix]*(1.0-fx))+(fData[(ny*fResolution)+nx]*fx))*fy)),
+                             Position.Z-((dy*fInverseScale)-fHalfSize)));}
+end;         *)
+
+function TKraftShapeSignedDistanceFieldTerrain.GetLocalClosestPointTo(const Position:TKraftVector3):TKraftVector3;
+var dx,dy:Double;
+    ix,iy,nx,ny:Int32;
+    fx,fy:Single;
+begin
+ dx:=(Position.x+fHalfSize)*fScale;
+ dy:=(Position.z+fHalfSize)*fScale;
+ if dx<=0.0 then begin
+  dx:=0.0;
+ end else if dx>=fResolution then begin
+  dx:=fResolution;
+ end;
+ if dy<=0.0 then begin
+  dy:=0.0;
+ end else if dy>=fResolution then begin
+  dy:=fResolution;
+ end;
+ ix:=trunc(dx);
+ iy:=trunc(dy);
+ if ix>=(fResolution-1) then begin
+  ix:=fResolution-2;
+ end;
+ if iy>=(fResolution-1) then begin
+  iy:=fResolution-2;
+ end;
+ fx:=dx-ix;
+ fy:=dy-iy;
+ nx:=ix+1;
+ ny:=iy+1;
+ if nx>=fResolution then begin
+  nx:=fResolution-1;
+ end;
+ if ny>=fResolution then begin
+  ny:=fResolution-1;
+ end;
+ result:=Vector3((dx*fInverseScale)-fHalfSize,
+                 ((((fData[(iy*fResolution)+ix]*(1.0-fx))+(fData[(iy*fResolution)+nx]*fx))*(1.0-fy))+
+                  (((fData[(ny*fResolution)+ix]*(1.0-fx))+(fData[(ny*fResolution)+nx]*fx))*fy)),
+                 (dy*fInverseScale)-fHalfSize);
 end;
 
 {$ifdef DebugDraw}
@@ -197,15 +296,16 @@ begin
  RigidBodyFloor.SetRigidBodyType(krbtSTATIC);
  ShapeSignedDistanceFieldTerrain:=TKraftShapeSignedDistanceFieldTerrain.Create(KraftPhysics,RigidBodyFloor,512,16,128);
  ShapeSignedDistanceFieldTerrain.Restitution:=0.3;
+ ShapeSignedDistanceFieldTerrain.Density:=100.0;
  RigidBodyFloor.Finish;
- RigidBodyFloor.SetWorldTransformation(Matrix4x4Translate(0.0,0.0,0.0));
+ RigidBodyFloor.SetWorldTransformation(Matrix4x4Translate(64.0,14.0,0.0));
  RigidBodyFloor.CollisionGroups:=[0];
 
  RigidBodySphere:=TKraftRigidBody.Create(KraftPhysics);
  RigidBodySphere.SetRigidBodyType(krbtDYNAMIC);
  ShapeSphere:=TKraftShapeSphere.Create(KraftPhysics,RigidBodySphere,1.0);
  ShapeSphere.Restitution:=0.3;
- ShapeSphere.Density:=100.0;
+ ShapeSphere.Density:=1.0;
  RigidBodySphere.Finish;
  RigidBodySphere.SetWorldTransformation(Matrix4x4Translate(0.0,8.0,0.0));
  RigidBodySphere.CollisionGroups:=[0];

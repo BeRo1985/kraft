@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2023-01-23-19-47-0000                       *
+ *                        Version 2023-02-02-02-17-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -144,7 +144,9 @@ unit kraft;
  {$define NonSIMD}
 {$endif}
 
-{-$define NonSIMD}
+{$if (not defined(fpc)) and defined(cpuamd64)}
+ {$define NonSIMD} // Due to inline assembler bugs at the Delphi compiler
+{$ifend}
 
 {$ifdef NonSIMD}
  {$undef SIMD}
@@ -257,9 +259,9 @@ const EPSILON={$ifdef UseDouble}1e-14{$else}1e-5{$endif}; // actually {$ifdef Us
       KRAFT_QUICKHULL_HASHSIZE=1 shl KRAFT_QUICKHULL_HASHBITS;
       KRAFT_QUICKHULL_HASHMASK=KRAFT_QUICKHULL_HASHSIZE-1;
 
-      KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES=16;
+      KRAFT_COUNT_SIGNED_DISTANCE_FIELD_VOLUME_AXIS_SAMPLES=16;
 
-      KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_SAMPLES=KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES*KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES*KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES;
+      KRAFT_COUNT_SIGNED_DISTANCE_FIELD_VOLUME_SAMPLES=KRAFT_COUNT_SIGNED_DISTANCE_FIELD_VOLUME_AXIS_SAMPLES*KRAFT_COUNT_SIGNED_DISTANCE_FIELD_VOLUME_AXIS_SAMPLES*KRAFT_COUNT_SIGNED_DISTANCE_FIELD_VOLUME_AXIS_SAMPLES;
 
       KRAFT_SIGNED_DISTANCE_FIELD_LARGEST_SIZE=4096.0;
 
@@ -13202,21 +13204,150 @@ begin
  result:=MPRAreSweptShapesIntersecting(ShapeA,ShapeB,Sweep,LocalTransformBinA,HitPosition);
 end;
 
-function SignedDistanceFieldPenetration(const ShapeA,ShapeB:TKraftShape;const TransformA,TransformB:TKraftMatrix4x4;out PositionA,PositionB,Normal:TKraftVector3;out PenetrationDepth:TKraftScalar):boolean;
+function SignedDistanceFieldClosestPoints(const ShapeA,ShapeB:TKraftShape;const TransformA,TransformB:TKraftMatrix4x4;out PositionA,PositionB,ClosestPoint:TKraftVector3;out DistanceA,DistanceB:TKraftScalar):boolean;
 const Delta=1e-3;
       OneOverDelta=1.0/Delta;
       OneOverTwoDelta=0.5/Delta; // 1.0/(2.0*Delta)
       DescentRate=5e-2;
       Epsilon=1e-3;
 var Iteration,CountIterations:longint;
-    ClosestPoint,Gradient{,NormalA,NormalB}:TKraftVector3;
-    DistanceA,DistanceB:TKraftScalar;
+    Gradient,Normal:TKraftVector3;
+    LastGradientLength,GradientLength,StepSize,Distance:TKraftScalar;
+ function MaxMap(const aPosition:TKraftVector3):TKraftScalar;
+ begin
+  result:=Max(ShapeA.GetLocalSignedDistance(Vector3TermMatrixMulInverted(aPosition,TransformA)),
+              ShapeB.GetLocalSignedDistance(Vector3TermMatrixMulInverted(aPosition,TransformB)));
+ end;
+ function GetGradient(const aPosition:TKraftVector3):TKraftVector3;
+ var Center:TKraftScalar;
+ begin
+  Center:=MaxMap(aPosition);
+  result:=Vector3ScalarMul(Vector3(MaxMap(Vector3(aPosition.x+Delta,aPosition.y,aPosition.z))-Center,
+                                   MaxMap(Vector3(aPosition.x,aPosition.y+Delta,aPosition.z))-Center,
+                                   MaxMap(Vector3(aPosition.x,aPosition.y,aPosition.z+Delta))-Center),1.0/Delta);
+ end;{}
+ function GetGradientA(const aPosition:TKraftVector3;const aCenter:TKraftScalar):TKraftVector3;
+ begin
+  result:=Vector3Norm(Vector3(ShapeA.GetLocalSignedDistance(Vector3TermMatrixMulInverted(Vector3(aPosition.x+Delta,aPosition.y,aPosition.z),TransformA))-aCenter,
+                              ShapeA.GetLocalSignedDistance(Vector3TermMatrixMulInverted(Vector3(aPosition.x,aPosition.y+Delta,aPosition.z),TransformA))-aCenter,
+                              ShapeA.GetLocalSignedDistance(Vector3TermMatrixMulInverted(Vector3(aPosition.x,aPosition.y,aPosition.z+Delta),TransformA))-aCenter));
+ end;{}
+ function GetGradientB(const aPosition:TKraftVector3;const aCenter:TKraftScalar):TKraftVector3;
+ begin
+  result:=Vector3Norm(Vector3(ShapeB.GetLocalSignedDistance(Vector3TermMatrixMulInverted(Vector3(aPosition.x+Delta,aPosition.y,aPosition.z),TransformB))-aCenter,
+                              ShapeB.GetLocalSignedDistance(Vector3TermMatrixMulInverted(Vector3(aPosition.x,aPosition.y+Delta,aPosition.z),TransformB))-aCenter,
+                              ShapeB.GetLocalSignedDistance(Vector3TermMatrixMulInverted(Vector3(aPosition.x,aPosition.y,aPosition.z+Delta),TransformB))-aCenter));
+ end;{}
+begin
+(*
+ if ShapeA.fShapeType=kstSignedDistanceField then begin
+
+  case ShapeB.fShapeType of
+
+   kstSphere:begin
+
+    // Fast signed distance field versus sphere case
+
+    ClosestPoint:=ShapeB.GetCenter(TransformB);
+
+    PositionA:=Vector3TermMatrixMulBasis(ShapeA.GetLocalClosestPointTo(Vector3TermMatrixMulInverted(ClosestPoint,TransformA)),TransformA);
+    PositionB:=Vector3TermMatrixMulBasis(ShapeB.GetLocalClosestPointTo(Vector3TermMatrixMulInverted(PositionA,TransformB)),TransformB);
+
+    ClosestPoint:=Vector3Avg(PositionA,PositionB);
+
+    DistanceA:=ShapeA.GetLocalSignedDistance(Vector3TermMatrixMulInverted(ClosestPoint,TransformA));
+    DistanceB:=ShapeB.GetLocalSignedDistance(Vector3TermMatrixMulInverted(ClosestPoint,TransformB));
+
+    result:=true;
+
+    exit; //}
+
+   end;
+
+   kstCapsule:begin
+    // TODO
+   end;
+
+   kstConvexHull,kstBox,kstPlane,kstTriangle:begin
+    // TODO
+   end;
+
+   else begin
+   end;
+
+  end;
+
+ end else begin
+  Assert(false);
+ end;          *)
+
+ // Get a seed starting point
+ ClosestPoint:=Vector3Avg(ShapeA.GetCenter(TransformA),ShapeB.GetCenter(TransformB));
+{if ShapeA.fRigidBody.fRigidBodyType=TKraftRigidBodyType.krbtStatic then begin
+  if ShapeB.fRigidBody.fRigidBodyType=TKraftRigidBodyType.krbtStatic then begin
+   ClosestPoint:=Vector3Avg(ShapeA.GetCenter(TransformA),ShapeB.GetCenter(TransformB));
+  end else begin
+   ClosestPoint:=ShapeB.GetCenter(TransformB);
+   ClosestPoint:=Vector3TermMatrixMul(ShapeA.GetLocalClosestPointTo(Vector3TermMatrixMulInverted(ClosestPoint,TransformA)),TransformA);
+   ClosestPoint:=Vector3TermMatrixMul(ShapeB.GetLocalClosestPointTo(Vector3TermMatrixMulInverted(ClosestPoint,TransformB)),TransformB);
+  end;
+ end else begin
+  if ShapeB.fRigidBody.fRigidBodyType=TKraftRigidBodyType.krbtStatic then begin
+   ClosestPoint:=ShapeA.GetCenter(TransformA);
+   ClosestPoint:=Vector3TermMatrixMul(ShapeB.GetLocalClosestPointTo(Vector3TermMatrixMulInverted(ClosestPoint,TransformB)),TransformB);
+   ClosestPoint:=Vector3TermMatrixMul(ShapeA.GetLocalClosestPointTo(Vector3TermMatrixMulInverted(ClosestPoint,TransformA)),TransformA);
+  end else begin
+   ClosestPoint:=Vector3Avg(ShapeA.GetCenter(TransformA),ShapeB.GetCenter(TransformB));
+  end;
+ end;}
+
+{$ifdef SIMD}
+ Gradient.w:=0;
+{$endif}
+
+ CountIterations:=1024;
+
+ LastGradientLength:=-1.0;
+
+ for Iteration:=1 to CountIterations do begin
+  DistanceA:=ShapeA.GetLocalSignedDistance(Vector3TermMatrixMulInverted(ClosestPoint,TransformA));
+  DistanceB:=ShapeB.GetLocalSignedDistance(Vector3TermMatrixMulInverted(ClosestPoint,TransformB));
+  if DistanceA>DistanceB then begin
+   Distance:=DistanceA;
+   Gradient:=Vector3TermMatrixMulBasis(ShapeA.GetLocalSignedDistanceGradient(Vector3TermMatrixMulInverted(ClosestPoint,TransformA)),TransformA);
+//Gradient:=GetGradientA(ClosestPoint,DistanceA);
+  end else begin
+   Distance:=DistanceB;
+   Gradient:=Vector3TermMatrixMulBasis(ShapeB.GetLocalSignedDistanceGradient(Vector3TermMatrixMulInverted(ClosestPoint,TransformB)),TransformB);
+// Gradient:=GetGradientB(ClosestPoint,DistanceB);
+  end;
+{ if Vector3Length(Gradient)<Epsilon then begin
+   break;
+  end else}begin
+   if Distance<0.0 then begin
+    StepSize:=0.1;
+   end else begin
+    StepSize:=(abs(Distance)*0.95)+0.1;
+   end;
+   Vector3DirectSub(ClosestPoint,Vector3ScalarMul(Gradient,StepSize));
+  end;
+ end;
+
+ PositionA:=Vector3TermMatrixMul(ShapeA.GetLocalClosestPointTo(Vector3TermMatrixMulInverted(ClosestPoint,TransformA)),TransformA);
+ PositionB:=Vector3TermMatrixMul(ShapeB.GetLocalClosestPointTo(Vector3TermMatrixMulInverted(ClosestPoint,TransformB)),TransformB);
+
+ result:=true;
+
+end;
+
+function SignedDistanceFieldPenetration(const ShapeA,ShapeB:TKraftShape;const TransformA,TransformB:TKraftMatrix4x4;out PositionA,PositionB,Normal:TKraftVector3;out PenetrationDepth:TKraftScalar):boolean;
  function Map(const aPosition:TKraftVector3):TKraftScalar;
  begin
-  result:=Min(ShapeA.GetLocalSignedDistance(Vector3TermMatrixMulInverted(ClosestPoint,TransformA)),ShapeB.GetLocalSignedDistance(Vector3TermMatrixMulInverted(ClosestPoint,TransformB)));
+  result:=Min(ShapeA.GetLocalSignedDistance(Vector3TermMatrixMulInverted(aPosition,TransformA)),
+              ShapeB.GetLocalSignedDistance(Vector3TermMatrixMulInverted(aPosition,TransformB)));
  end;
  function GetNormal(const aPosition:TKraftVector3):TKraftVector3;
- const Epsilon=1e-4;
+ const Epsilon=1e-3;
  var Center:TKraftScalar;
  begin
   Center:=Map(aPosition);
@@ -13224,6 +13355,134 @@ var Iteration,CountIterations:longint;
                               Map(Vector3(aPosition.x,aPosition.y+Epsilon,aPosition.z))-Center,
                               Map(Vector3(aPosition.x,aPosition.y,aPosition.z+Epsilon))-Center));
  end;
+var ClosestPointA,ClosestPointB,ClosestPoint:TKraftVector3;
+    DistanceA,DistanceB:TKraftScalar;
+begin
+
+ result:=false;
+
+ result:=false;
+
+ PositionA:=Vector3Origin;
+ PositionB:=Vector3Origin;
+ Normal:=Vector3Origin;
+ PenetrationDepth:=0.0;
+
+(*if ShapeA.fShapeType=kstSignedDistanceField then begin
+
+  case ShapeB.fShapeType of
+
+   kstSphere:begin
+
+    // Fast signed distance field versus sphere case
+
+    ClosestPoint:=ShapeB.GetCenter(TransformB);
+
+    DistanceA:=ShapeA.GetLocalSignedDistance(Vector3TermMatrixMulInverted(ClosestPoint,TransformA));
+
+    if DistanceA<TKraftShapeSphere(ShapeB).fRadius then begin
+
+     PenetrationDepth:=TKraftShapeSphere(ShapeB).fRadius-DistanceA;
+
+     Normal:=ShapeA.GetLocalSignedDistanceNormal(ClosestPoint);
+
+     PositionA:=Vector3Add(ClosestPoint,Vector3ScalarMul(Normal,DistanceA));
+
+     Normal:=Vector3Neg(GetNormal(PositionB));//Vector3Neg(Vector3TermMatrixMulBasis(ShapeA.GetLocalSignedDistanceNormal(ClosestPoint),TransformA));
+
+     PositionB:=Vector3Add(ClosestPoint,Vector3ScalarMul(Normal,TKraftShapeSphere(ShapeB).fRadius));
+
+     result:=true;
+
+    end;
+
+    exit;  //}
+
+   end;
+
+   kstCapsule:begin
+    // TODO
+   end;
+
+   kstConvexHull,kstBox,kstPlane,kstTriangle:begin
+    // TODO
+   end;
+
+   else begin
+   end;
+
+  end;
+
+ end else begin
+  Assert(false);
+ end;        *)
+
+ if SignedDistanceFieldClosestPoints(ShapeA,ShapeB,
+                                     TransformA,TransformB,
+                                     ClosestPointA,ClosestPointB,ClosestPoint,
+                                     DistanceA,DistanceB) then begin
+  PenetrationDepth:=Max(DistanceA,DistanceB);
+  if PenetrationDepth<=EPSILON then begin
+   Normal:=Vector3Norm(Vector3Sub(ClosestPointB,ClosestPointA));
+   PositionA:=ClosestPointA;
+   PositionB:=ClosestPointB;
+   result:=true;
+  end;
+ end;
+
+end;
+
+(*const Delta=1e-3;
+      OneOverDelta=1.0/Delta;
+      OneOverTwoDelta=0.5/Delta; // 1.0/(2.0*Delta)
+      DescentRate=1e-1;
+      Epsilon=1e-3;
+var Iteration,CountIterations:longint;
+    ClosestPointA,ClosestPointB,
+    ClosestPoint,Gradient,
+    GradientA,GradientB,
+    NormalA,NormalB,DirectionA,DirectionB:TKraftVector3;
+    DistanceA,DistanceB,
+    QueryDistanceA,
+    QueryDistanceB,
+    QueryDistance:TKraftScalar;
+ function Map(const aPosition:TKraftVector3):TKraftScalar;
+ begin
+  result:=Min(ShapeA.GetLocalSignedDistance(Vector3TermMatrixMulInverted(aPosition,TransformA)),
+              ShapeB.GetLocalSignedDistance(Vector3TermMatrixMulInverted(aPosition,TransformB)));
+ end;
+ function GetNormal(const aPosition:TKraftVector3):TKraftVector3;
+ const Epsilon=1e-3;
+ var Center:TKraftScalar;
+ begin
+  Center:=Map(aPosition);
+  result:=Vector3Norm(Vector3(Map(Vector3(aPosition.x+Epsilon,aPosition.y,aPosition.z))-Center,
+                              Map(Vector3(aPosition.x,aPosition.y+Epsilon,aPosition.z))-Center,
+                              Map(Vector3(aPosition.x,aPosition.y,aPosition.z+Epsilon))-Center));
+ end;
+{function GetGradient(const aPosition:TKraftVector3):TKraftVector3;
+ const Epsilon=1e-3;
+ var Center:TKraftScalar;
+ begin
+  Center:=Map(aPosition);
+  result:=Vector3Norm(Vector3(Map(Vector3(aPosition.x+Epsilon,aPosition.y,aPosition.z))-Center,
+                              Map(Vector3(aPosition.x,aPosition.y+Epsilon,aPosition.z))-Center,
+                              Map(Vector3(aPosition.x,aPosition.y,aPosition.z+Epsilon))-Center));
+ end;}
+ function MaxMap(const aPosition:TKraftVector3):TKraftScalar;
+ begin
+  result:=Max(ShapeA.GetLocalSignedDistance(Vector3TermMatrixMulInverted(aPosition,TransformA)),
+              ShapeB.GetLocalSignedDistance(Vector3TermMatrixMulInverted(aPosition,TransformB)));
+ end;
+ function GetGradient(const aPosition:TKraftVector3):TKraftVector3;
+ var Center:TKraftScalar;
+ begin
+  Center:=MaxMap(aPosition);
+  result:=Vector3ScalarMul(Vector3(MaxMap(Vector3(aPosition.x+Delta,aPosition.y,aPosition.z))-Center,
+                                   MaxMap(Vector3(aPosition.x,aPosition.y+Delta,aPosition.z))-Center,
+                                   MaxMap(Vector3(aPosition.x,aPosition.y,aPosition.z+Delta))-Center),1.0/Delta);
+ end;{}
+var Which:boolean;
 begin
 
  result:=false;
@@ -13239,6 +13498,7 @@ begin
 
    kstSphere:begin
 
+   {
     // Fast signed distance field versus sphere case
 
     ClosestPoint:=ShapeB.GetCenter(TransformB);
@@ -13247,18 +13507,18 @@ begin
 
     if DistanceA<TKraftShapeSphere(ShapeB).fRadius then begin
 
-     Normal:=GetNormal(ClosestPoint);
+     Normal:=Vector3Neg(Vector3TermMatrixMulBasis(ShapeA.GetLocalSignedDistanceNormal(ClosestPoint),TransformA));
 
-     PenetrationDepth:=DistanceA-TKraftShapeSphere(ShapeB).fRadius;
+     PenetrationDepth:=TKraftShapeSphere(ShapeB).fRadius-DistanceA;
 
-     PositionA:=ClosestPoint;
-     PositionB:=ClosestPoint;
+     PositionA:=Vector3Add(ClosestPoint,Vector3ScalarMul(Normal,DistanceA-TKraftShapeSphere(ShapeB).fRadius));
+     PositionB:=Vector3Add(ClosestPoint,Vector3ScalarMul(Normal,TKraftShapeSphere(ShapeB).fRadius-DistanceA));
 
      result:=true;
 
     end;
 
-    exit;
+    exit;  //}
 
    end;
 
@@ -13288,10 +13548,14 @@ begin
     ClosestPoint:=Vector3Avg(ShapeA.GetCenter(TransformA),ShapeB.GetCenter(TransformB));
    end else begin
     ClosestPoint:=ShapeB.GetCenter(TransformB);
+    ClosestPointA:=Vector3TermMatrixMul(ShapeA.GetLocalClosestPointTo(Vector3TermMatrixMulInverted(ClosestPoint,TransformA)),TransformA);
+    ClosestPoint:=Vector3TermMatrixMul(ShapeB.GetLocalClosestPointTo(Vector3TermMatrixMulInverted(ClosestPointA,TransformB)),TransformB);
    end;
   end else begin
    if ShapeB.fRigidBody.fRigidBodyType=TKraftRigidBodyType.krbtStatic then begin
     ClosestPoint:=ShapeA.GetCenter(TransformA);
+    ClosestPointB:=Vector3TermMatrixMul(ShapeB.GetLocalClosestPointTo(Vector3TermMatrixMulInverted(ClosestPoint,TransformB)),TransformB);
+    ClosestPoint:=Vector3TermMatrixMul(ShapeA.GetLocalClosestPointTo(Vector3TermMatrixMulInverted(ClosestPointB,TransformA)),TransformA);
    end else begin
     ClosestPoint:=Vector3Avg(ShapeA.GetCenter(TransformA),ShapeB.GetCenter(TransformB));
    end;
@@ -13301,39 +13565,82 @@ begin
   Gradient.w:=0;
 {$endif}
 
-  CountIterations:=128;
+  CountIterations:=512;
 
   for Iteration:=1 to CountIterations do begin
 
    DistanceA:=ShapeA.GetLocalSignedDistance(Vector3TermMatrixMulInverted(ClosestPoint,TransformA));
    DistanceB:=ShapeB.GetLocalSignedDistance(Vector3TermMatrixMulInverted(ClosestPoint,TransformB));
 
-   if DistanceA>DistanceB then begin
-    Gradient:=Vector3ScalarMul(Vector3TermMatrixMulBasis(ShapeA.GetLocalSignedDistanceGradient(Vector3TermMatrixMulInverted(ClosestPoint,TransformA)),TransformA),Delta);
+{  ClosestPointA:=Vector3TermMatrixMul(ShapeA.GetLocalClosestPointTo(Vector3TermMatrixMulInverted(ClosestPoint,TransformA)),TransformA);
+   ClosestPointB:=Vector3TermMatrixMul(ShapeB.GetLocalClosestPointTo(Vector3TermMatrixMulInverted(ClosestPoint,TransformB)),TransformB);
+
+   QueryDistanceA:=Vector3Dist(ClosestPointA,ClosestPoint)*DistanceA;
+   QueryDistanceB:=Vector3Dist(ClosestPointB,ClosestPoint)*DistanceB;
+
+   if QueryDistanceA>QueryDistanceB then begin
+    QueryDistance:=QueryDistanceA;
+    Gradient:=Vector3ScalarMul(Vector3Norm(Vector3Sub(ClosestPoint,ClosestPointA)),DistanceA);
    end else begin
-    Gradient:=Vector3ScalarMul(Vector3TermMatrixMulBasis(ShapeB.GetLocalSignedDistanceGradient(Vector3TermMatrixMulInverted(ClosestPoint,TransformB)),TransformB),Delta);
-   end;
+    QueryDistance:=QueryDistanceB;
+    Gradient:=Vector3ScalarMul(Vector3Norm(Vector3Sub(ClosestPoint,ClosestPointB)),DistanceB);
+   end;}
 
-   if Vector3Length(Gradient)<Epsilon then begin
+{  GradientA:=Vector3TermMatrixMulBasis(ShapeA.GetLocalSignedDistanceGradient(Vector3TermMatrixMulInverted(ClosestPoint,TransformA),Delta),TransformA);
+   GradientB:=Vector3TermMatrixMulBasis(ShapeB.GetLocalSignedDistanceGradient(Vector3TermMatrixMulInverted(ClosestPoint,TransformB),Delta),TransformB);
 
-{   NormalA:=Vector3TermMatrixMulBasis(ShapeA.GetLocalSignedDistanceNormal(Vector3TermMatrixMulInverted(ClosestPoint,TransformA)),TransformA);
-    NormalB:=Vector3TermMatrixMulBasis(ShapeB.GetLocalSignedDistanceNormal(Vector3TermMatrixMulInverted(ClosestPoint,TransformB)),TransformB);
+   Gradient:=Vector3Avg(GradientA,GradientB);}
 
-    PositionA:=Vector3Sub(ClosestPoint,Vector3ScalarMul(NormalA,DistanceA));
-    PositionB:=Vector3Sub(ClosestPoint,Vector3ScalarMul(NormalB,DistanceB));}
+   Gradient:=GetGradient(ClosestPoint);
 
-    PositionA:=ClosestPoint;
-    PositionB:=ClosestPoint;
+   if Vector3Length(Gradient)<EPSILON then begin
 
-    Normal:=GetNormal(ClosestPoint);
+{   PenetrationDepth:=;
 
-//  Normal:=Vector3Norm(Vector3Sub(NormalA,NormalB));
+    result:=PenetrationDepth<0.0;
 
-    PenetrationDepth:=-Min(DistanceA,DistanceB);
+    if result then} begin
 
-    result:=true;
+{    NormalA:=Vector3TermMatrixMulBasis(ShapeA.GetLocalSignedDistanceNormal(Vector3TermMatrixMulInverted(ClosestPoint,TransformA)),TransformA);
+     NormalB:=Vector3TermMatrixMulBasis(ShapeB.GetLocalSignedDistanceNormal(Vector3TermMatrixMulInverted(ClosestPoint,TransformB)),TransformB);
 
-    exit;
+     PositionA:=Vector3Sub(ClosestPoint,Vector3ScalarMul(NormalA,DistanceA));
+     PositionB:=Vector3Sub(ClosestPoint,Vector3ScalarMul(NormalB,DistanceB));
+
+     Normal:=Vector3Norm(Vector3Sub(PositionA,PositionB));
+
+{    PositionA:=ClosestPoint;
+     PositionB:=ClosestPoint;
+
+     Normal:=Vector3Neg(GetNormal(ClosestPoint));//}
+
+{    if Which then begin
+      Normal:=Vector3Neg(NormalB);
+     end else begin
+      Normal:=Vector3Neg(NormalA);
+     end;}
+
+     PositionA:=ClosestPoint;
+     PositionB:=ClosestPoint;
+
+     //Normal:=Vector3Neg(Vector3TermMatrixMulBasis(ShapeA.GetLocalSignedDistanceNormal(ClosestPoint),TransformA));
+
+     Normal:=Vector3Neg(Vector3Norm(Gradient));
+
+     PenetrationDepth:=Min(DistanceA,DistanceB);//Vector3Dot(Vector3Sub(ClosestPointB,ClosestPointA),Normal);
+
+     //PenetrationDepth:=0.1+PenetrationDepth;
+
+     writeln(Normal.x:4:3,' ',Normal.y:4:3,' ',Normal.z:4:3,' ',PenetrationDepth:4:3);
+
+     result:=true;
+     exit;
+
+ {   end else begin
+
+     Vector3DirectSub(ClosestPoint,Vector3ScalarMul(Gradient,0.05));}
+
+    end;
 
    end else begin
 
@@ -13345,69 +13652,7 @@ begin
 
  end;
 
-end;
-
-function SignedDistanceFieldClosestPoints(const ShapeA,ShapeB:TKraftShape;const TransformA,TransformB:TKraftMatrix4x4;out PositionA,PositionB:TKraftVector3):boolean;
-const Delta=1e-3;
-      OneOverDelta=1.0/Delta;
-      OneOverTwoDelta=0.5/Delta; // 1.0/(2.0*Delta)
-      DescentRate=5e-2;
-      Epsilon=1e-3;
-var Iteration,CountIterations:longint;
-    ClosestPoint,Gradient:TKraftVector3;
-    DistanceA,DistanceB:TKraftScalar;
-begin
-
- // Get a seed starting point
- if ShapeA.fRigidBody.fRigidBodyType=TKraftRigidBodyType.krbtStatic then begin
-  if ShapeB.fRigidBody.fRigidBodyType=TKraftRigidBodyType.krbtStatic then begin
-   ClosestPoint:=Vector3Avg(ShapeA.GetCenter(TransformA),ShapeB.GetCenter(TransformB));
-  end else begin
-   ClosestPoint:=ShapeB.GetCenter(TransformB);
-  end;
- end else begin
-  if ShapeB.fRigidBody.fRigidBodyType=TKraftRigidBodyType.krbtStatic then begin
-   ClosestPoint:=ShapeA.GetCenter(TransformA);
-  end else begin
-   ClosestPoint:=Vector3Avg(ShapeA.GetCenter(TransformA),ShapeB.GetCenter(TransformB));
-  end;
- end;
-
-{$ifdef SIMD}
- Gradient.w:=0;
-{$endif}
-
- CountIterations:=128;
-
- for Iteration:=1 to CountIterations do begin
-
-  DistanceA:=ShapeA.GetLocalSignedDistance(Vector3TermMatrixMulInverted(ClosestPoint,TransformA));
-  DistanceB:=ShapeB.GetLocalSignedDistance(Vector3TermMatrixMulInverted(ClosestPoint,TransformB));
-
-  if DistanceA>DistanceB then begin
-   Gradient:=Vector3ScalarMul(Vector3TermMatrixMulBasis(ShapeA.GetLocalSignedDistanceGradient(Vector3TermMatrixMulInverted(ClosestPoint,TransformA)),TransformA),Delta);
-  end else begin
-   Gradient:=Vector3ScalarMul(Vector3TermMatrixMulBasis(ShapeB.GetLocalSignedDistanceGradient(Vector3TermMatrixMulInverted(ClosestPoint,TransformB)),TransformB),Delta);
-  end;
-
-  if Vector3Length(Gradient)<Epsilon then begin
-
-   break;
-
-  end else begin
-
-   Vector3DirectSub(ClosestPoint,Vector3ScalarMul(Gradient,DescentRate));
-
-  end;
-
- end;
-
- PositionA:=Vector3Sub(ClosestPoint,Vector3ScalarMul(Vector3TermMatrixMulBasis(ShapeA.GetLocalSignedDistanceNormal(Vector3TermMatrixMulInverted(ClosestPoint,TransformA)),TransformA),DistanceA));
- PositionB:=Vector3Sub(ClosestPoint,Vector3ScalarMul(Vector3TermMatrixMulBasis(ShapeB.GetLocalSignedDistanceNormal(Vector3TermMatrixMulInverted(ClosestPoint,TransformB)),TransformB),DistanceB));
-
- result:=true;
-
-end;
+end;*)
 
 function AABBHasPoint(const aAABBOrigin,aAABBExtents,aPoint:TKraftVector3):boolean;
 begin
@@ -13581,7 +13826,8 @@ var CountSaved,Index,iA,iB:longint;
     CachedSimplexVertex:PKraftGJKCachedSimplexVertex;
     Metrics,SquaredDistances:array[0..1] of TKraftScalar;
     Saved:array[0..3,0..1] of longint;
-    Direction,a,b,c,d,ba,ab,cb,bc,ac,ca,db,bd,cd,dc,da,ad,baxca,daxba,bcxdc,caxda:TKraftVector3;
+    Direction,a,b,c,d,ba,ab,cb,bc,ac,ca,db,bd,cd,dc,da,ad,baxca,daxba,bcxdc,caxda,
+    ClosestPoint:TKraftVector3;
     uAB,vAB,uBC,vBC,uCA,vCA,uBD,vBD,uDC,vDC,uAD,vAD,uADB,vADB,wADB,uACD,vACD,wACD,uCBD,vCBD,wCBD,
     uABC,vABC,wABC,uABCD,vABCD,wABCD,xABCD,Denominator:TKraftScalar;
     TempVertex:PKraftGJKSimplexVertex;
@@ -13594,7 +13840,7 @@ begin
  if (Shapes[0].fShapeType=kstSignedDistanceField) or
     (Shapes[1].fShapeType=kstSignedDistanceField) then begin
 
-  result:=SignedDistanceFieldClosestPoints(Shapes[0],Shapes[1],Transforms[0]^,Transforms[1]^,ClosestPoints[0],ClosestPoints[1]);
+  result:=SignedDistanceFieldClosestPoints(Shapes[0],Shapes[1],Transforms[0]^,Transforms[1]^,ClosestPoints[0],ClosestPoints[1],ClosestPoint,uAB,vAB);
 
   if result then begin
 
@@ -13612,8 +13858,8 @@ begin
      ClosestPoints[1]:=Vector3Add(ClosestPoints[1],Vector3ScalarMul(Normal,Shapes[1].fFeatureRadius));
     end else begin
      Distance:=0.0;
-     ClosestPoints[0]:=Vector3Avg(ClosestPoints[0],ClosestPoints[1]);
-     ClosestPoints[1]:=ClosestPoints[0];
+     ClosestPoints[0]:=ClosestPoint;
+     ClosestPoints[1]:=ClosestPoint;
     end;
    end;
 
@@ -19117,7 +19363,8 @@ begin
   end else begin
    // Point lies inside convex hull
   end;
-  result:=Vector3ScalarMul(fFaces[BestIndex].Plane.Normal,Distance);
+//result:=Vector3ScalarMul(Vector3Norm(Vector3Sub(Position,Vector3Sub(Position,Vector3ScalarMul(fFaces[BestIndex].Plane.Normal,PlaneVectorDistance(fFaces[Index].Plane,Position))))),Delta);
+  result:=Faces[BestIndex].Plane.Normal;
  end else begin
   result:=Vector3(MAX_SCALAR,MAX_SCALAR,MAX_SCALAR);
  end;
@@ -20798,6 +21045,7 @@ begin
  end else begin
   result:=Vector3(MAX_SCALAR,MAX_SCALAR,MAX_SCALAR);
  end;
+ Vector3Normalize(result);
 end;
 {$else}
 var TriangleIndex:longint;
@@ -20887,6 +21135,7 @@ begin
  end else begin
   result:=Vector3(MAX_SCALAR,MAX_SCALAR,MAX_SCALAR);
  end;
+ Vector3Normalize(result);
 end;
 {$endif}
 
@@ -21596,6 +21845,7 @@ begin
 {$ifdef SIMD}
  result.w:=0.0;
 {$endif}
+ Vector3Normalize(result);
 end;
 
 function TKraftShape.GetLocalSignedDistanceNormal(const Position:TKraftVector3):TKraftVector3;
@@ -21769,7 +22019,7 @@ end;
 
 function TKraftShapeSphere.GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3;
 begin
- result:=Vector3Sub(Position,Vector3ScalarMul(Vector3Norm(Position),fRadius));
+ result:=Vector3Norm(Vector3Sub(Position,Vector3ScalarMul(Vector3Norm(Position),fRadius)));
 end;
 
 function TKraftShapeSphere.GetLocalSignedDistanceNormal(const Position:TKraftVector3):TKraftVector3;
@@ -22116,7 +22366,7 @@ begin
  pa:=Vector3Sub(p,a);
  ba:=Vector3Sub(b,a);
  result:=Vector3ScalarMul(ba,Min(Max(Vector3Dot(pa,ba)/Vector3Dot(ba,ba),0.0),1.0));
- result:=Vector3Sub(Position,Vector3Add(result,Vector3ScalarMul(Vector3Norm(Vector3Sub(pa,result)),Radius)));
+ result:=Vector3Norm(Vector3Sub(Position,Vector3Add(result,Vector3ScalarMul(Vector3Norm(Vector3Sub(pa,result)),Radius))));
 end;
 
 function TKraftShapeCapsule.GetLocalSignedDistanceNormal(const Position:TKraftVector3):TKraftVector3;
@@ -22969,13 +23219,13 @@ begin
    end;
   end;
 
-  result:=Vector3Sub(ClosestPoint,Position);
+  result:=Vector3Norm(Vector3Sub(ClosestPoint,Position));
 
  end else begin
 
   // Outside or on box
 
-  result:=Vector3Sub(Position,ClosestPoint);
+  result:=Vector3Norm(Vector3Sub(Position,ClosestPoint));
 
  end;
 
@@ -23524,7 +23774,7 @@ end;
 
 function TKraftShapePlane.GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3;
 begin
- result:=Vector3ScalarMul(Plane.Normal,PlaneVectorDistance(Plane,Position));
+ result:=Vector3Norm(Vector3ScalarMul(Plane.Normal,PlaneVectorDistance(Plane,Position)));
 end;
 
 function TKraftShapePlane.GetLocalSignedDistanceNormal(const Position:TKraftVector3):TKraftVector3;
@@ -23961,7 +24211,7 @@ begin
                                fConvexHull.fVertices[2].Position,
                                Position,
                                result) then begin
-  result:=Vector3Sub(Position,result);
+  result:=Vector3Norm(Vector3Sub(Position,result));
  end else begin
   result:=Vector3(MAX_SCALAR,MAX_SCALAR,MAX_SCALAR);
  end;
@@ -24493,14 +24743,14 @@ begin
 
  if fRigidBody.fRigidBodyType=krbtStatic then begin
 
-  fMassData.Volume:=0.0;
+  fMassData.Volume:=(fAABB.Max.x-fAABB.Min.x)*(fAABB.Max.y-fAABB.Min.y)*(fAABB.Max.z-fAABB.Min.z);
   if fForcedMass>EPSILON then begin
    fMassData.Mass:=fForcedMass;
   end else begin
    fMassData.Mass:=fMassData.Volume*fDensity;
   end;
   fMassData.Center:=Vector3Origin;
-  fMassData.Inertia:=Matrix3x3Null;
+  fMassData.Inertia:=Matrix3x3Identity;
 
  end else begin
 
@@ -24514,19 +24764,19 @@ begin
   CenterOfMassY:=0.0;
   CenterOfMassZ:=0.0;
 
-  for IndexZ:=0 to KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1 do begin
+  for IndexZ:=0 to KRAFT_COUNT_SIGNED_DISTANCE_FIELD_VOLUME_AXIS_SAMPLES-1 do begin
 
-   Time:=IndexZ/(KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1);
+   Time:=IndexZ/(KRAFT_COUNT_SIGNED_DISTANCE_FIELD_VOLUME_AXIS_SAMPLES-1);
    Position.z:=(fAABB.Min.z*(1.0-Time))+(fAABB.Max.z*Time);
 
-   for IndexY:=0 to KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1 do begin
+   for IndexY:=0 to KRAFT_COUNT_SIGNED_DISTANCE_FIELD_VOLUME_AXIS_SAMPLES-1 do begin
 
-    Time:=IndexY/(KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1);
+    Time:=IndexY/(KRAFT_COUNT_SIGNED_DISTANCE_FIELD_VOLUME_AXIS_SAMPLES-1);
     Position.y:=(fAABB.Min.y*(1.0-Time))+(fAABB.Max.y*Time);
 
-    for IndexX:=0 to KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1 do begin
+    for IndexX:=0 to KRAFT_COUNT_SIGNED_DISTANCE_FIELD_VOLUME_AXIS_SAMPLES-1 do begin
 
-     Time:=IndexX/(KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1);
+     Time:=IndexX/(KRAFT_COUNT_SIGNED_DISTANCE_FIELD_VOLUME_AXIS_SAMPLES-1);
      Position.x:=(fAABB.Min.x*(1.0-Time))+(fAABB.Max.x*Time);
 
      if GetLocalSignedDistance(Position)<EPSILON then begin
@@ -24549,7 +24799,7 @@ begin
 
   if Accumulator>0 then begin
 
-   fMassData.Volume:=(((fAABB.Max.x-fAABB.Min.x)*(fAABB.Max.y-fAABB.Min.y)*(fAABB.Max.z-fAABB.Min.z))*Accumulator)/KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_SAMPLES;
+   fMassData.Volume:=(((fAABB.Max.x-fAABB.Min.x)*(fAABB.Max.y-fAABB.Min.y)*(fAABB.Max.z-fAABB.Min.z))*Accumulator)/KRAFT_COUNT_SIGNED_DISTANCE_FIELD_VOLUME_SAMPLES;
 
    if fForcedMass>EPSILON then begin
     fMassData.Mass:=fForcedMass;
@@ -24571,19 +24821,19 @@ begin
 
    Total:=0.0;
 
-   for IndexZ:=0 to KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1 do begin
+   for IndexZ:=0 to KRAFT_COUNT_SIGNED_DISTANCE_FIELD_VOLUME_AXIS_SAMPLES-1 do begin
 
-    Time:=IndexZ/(KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1);
+    Time:=IndexZ/(KRAFT_COUNT_SIGNED_DISTANCE_FIELD_VOLUME_AXIS_SAMPLES-1);
     Position.z:=(fAABB.Min.z*(1.0-Time))+(fAABB.Max.z*Time);
 
-    for IndexY:=0 to KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1 do begin
+    for IndexY:=0 to KRAFT_COUNT_SIGNED_DISTANCE_FIELD_VOLUME_AXIS_SAMPLES-1 do begin
 
-     Time:=IndexY/(KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1);
+     Time:=IndexY/(KRAFT_COUNT_SIGNED_DISTANCE_FIELD_VOLUME_AXIS_SAMPLES-1);
      Position.y:=(fAABB.Min.y*(1.0-Time))+(fAABB.Max.y*Time);
 
-     for IndexX:=0 to KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1 do begin
+     for IndexX:=0 to KRAFT_COUNT_SIGNED_DISTANCE_FIELD_VOLUME_AXIS_SAMPLES-1 do begin
 
-      Time:=IndexX/(KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES-1);
+      Time:=IndexX/(KRAFT_COUNT_SIGNED_DISTANCE_FIELD_VOLUME_AXIS_SAMPLES-1);
       Position.x:=(fAABB.Min.x*(1.0-Time))+(fAABB.Max.x*Time);
 
       if GetLocalSignedDistance(Position)<EPSILON then begin
@@ -24659,6 +24909,7 @@ begin
 end;
 
 function TKraftShapeSignedDistanceField.GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3;
+const EPSILON=1e-3;
 var Center:TKraftScalar;
 begin
  Center:=GetLocalSignedDistance(Position);
@@ -24668,6 +24919,7 @@ begin
 {$ifdef SIMD}
  result.w:=0.0;
 {$endif}
+ Vector3Normalize(result);
 end;
 
 function TKraftShapeSignedDistanceField.GetLocalSignedDistanceNormal(const Position:TKraftVector3):TKraftVector3;
@@ -24933,23 +25185,23 @@ begin
   MinT:=Min(fAABB.Min.x,Min(fAABB.Min.y,fAABB.Min.z));
   MaxT:=Max(fAABB.Max.x,Max(fAABB.Max.y,fAABB.Max.z));
 
-  Scale:=(MaxT-MinT)/KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES;
+  Scale:=(MaxT-MinT)/KRAFT_COUNT_SIGNED_DISTANCE_FIELD_VOLUME_AXIS_SAMPLES;
 
   glBegin(GL_TRIANGLES);
 
-  for IndexZ:=0 to KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES do begin
+  for IndexZ:=0 to KRAFT_COUNT_SIGNED_DISTANCE_FIELD_VOLUME_AXIS_SAMPLES do begin
 
-   Time:=IndexZ/KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES;
+   Time:=IndexZ/KRAFT_COUNT_SIGNED_DISTANCE_FIELD_VOLUME_AXIS_SAMPLES;
    Position.z:=(MinT*(1.0-Time))+(MaxT*Time);
 
-   for IndexY:=0 to KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES do begin
+   for IndexY:=0 to KRAFT_COUNT_SIGNED_DISTANCE_FIELD_VOLUME_AXIS_SAMPLES do begin
 
-    Time:=IndexY/KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES;
+    Time:=IndexY/KRAFT_COUNT_SIGNED_DISTANCE_FIELD_VOLUME_AXIS_SAMPLES;
     Position.y:=(MinT*(1.0-Time))+(MaxT*Time);
 
-    for IndexX:=0 to KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES do begin
+    for IndexX:=0 to KRAFT_COUNT_SIGNED_DISTANCE_FIELD_VOLUME_AXIS_SAMPLES do begin
 
-     Time:=IndexX/KRAFT_COUNT_SIGNED_DISTANNCE_FIELD_VOLUME_AXIS_SAMPLES;
+     Time:=IndexX/KRAFT_COUNT_SIGNED_DISTANCE_FIELD_VOLUME_AXIS_SAMPLES;
      Position.x:=(MinT*(1.0-Time))+(MaxT*Time);
 
      MarchTetrahedron(Position.x,Position.y,Position.z,Scale,0.5);
@@ -26563,6 +26815,9 @@ var OldManifoldCountContacts:longint;
   if OK then begin
 
    Manifold.LocalNormal:=Vector3TermMatrixMulTransposedBasis(Vector3Neg(Normal),Shapes[1].fWorldTransform);
+   if Vector3LengthSquared(Manifold.LocalNormal)<EPSILON then begin
+    Manifold.LocalNormal:=Vector3YAxis;
+   end;
 
    SeperateNormalWorldSpace:=Normal;
    GetPlaneSpace(SeperateNormalWorldSpace,v0,v1);
@@ -26736,7 +26991,8 @@ var OldManifoldCountContacts:longint;
    PreprocessTriangle;
   end;
 {$endif}
-  if ((OldManifoldCountContacts=0) or ContactManager.fPhysics.fAlwaysPerturbating) and (ContactManager.fPhysics.fPerturbationIterations>0) then begin
+  if ((OldManifoldCountContacts=0) or ContactManager.fPhysics.fAlwaysPerturbating) and
+     (ContactManager.fPhysics.fPerturbationIterations>0) then begin
    CollideWithMPROrSignedDistanceFieldAndPerturbation(ShapeA,ShapeB);
   end else begin
 
@@ -26763,6 +27019,9 @@ var OldManifoldCountContacts:longint;
     PenetrationDepth:=-PenetrationDepth;
 
     Manifold.LocalNormal:=Vector3TermMatrixMulTransposedBasis(Normal,Shapes[1].fWorldTransform);
+    if Vector3LengthSquared(Manifold.LocalNormal)<EPSILON then begin
+     Manifold.LocalNormal:=Vector3YAxis;
+    end;
 
 //  writeln(PenetrationDepth:1:8,' ',Vector3Dot(Manifold.Normal,Vector3Sub(WorldPositions[1],WorldPositions[0])):1:8);
 
@@ -26915,6 +27174,9 @@ var OldManifoldCountContacts:longint;
         Manifold.ContactManifoldType:=kcmtSpeculative;
         Manifold.CountContacts:=1;
         Manifold.LocalNormal:=Vector3SafeNorm(Vector3TermMatrixMulTransposedBasis(Vector3Neg(GJK.Normal),Shapes[1].fWorldTransform));
+        if Vector3LengthSquared(Manifold.LocalNormal)<EPSILON then begin
+         Manifold.LocalNormal:=Vector3YAxis;
+        end;
         Contact:=@Manifold.Contacts[0];
         Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(GJK.ClosestPoints[0],Shapes[0].fWorldTransform);
         Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(GJK.ClosestPoints[1],Shapes[1].fWorldTransform);
