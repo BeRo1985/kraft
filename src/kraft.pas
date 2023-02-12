@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2023-02-02-21-10-0000                       *
+ *                        Version 2023-02-12-18-26-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -3949,6 +3949,8 @@ const daabbtNULLNODE=-1;
        );
 
       pi2=pi*2.0;
+
+      DoubleSidedTriangleVertexOrderIndices:array[boolean,0..2] of TKraftInt32=((0,1,2),(2,1,0));
 
 {$if defined(cpu386) or defined(cpuamd64)}
 var {%H-}MMXExt:longbool=false;
@@ -24629,6 +24631,13 @@ begin
      RayCastData.Normal:=Vector3TermMatrixMulBasis(Vector3NormEx(Vector3Cross(Vector3Sub(Vertices^[1].Position,Vertices^[0].Position),Vector3Sub(Vertices^[2].Position,Vertices^[0].Position))),fWorldTransform);
      result:=true;
     end;
+   end else if RayIntersectTriangle(Origin,Direction,Vertices^[2].Position,Vertices^[1].Position,Vertices^[0].Position,Time,u,v) then begin
+    if (Time>=0.0) and (Time<=RayCastData.MaxTime) then begin
+     RayCastData.TimeOfImpact:=Time;
+     RayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
+     RayCastData.Normal:=Vector3TermMatrixMulBasis(Vector3NormEx(Vector3Cross(Vector3Sub(Vertices^[1].Position,Vertices^[2].Position),Vector3Sub(Vertices^[0].Position,Vertices^[2].Position))),fWorldTransform);
+     result:=true;
+    end;
    end;
   end;
  end;
@@ -24658,6 +24667,21 @@ begin
      SphereCastData.TimeOfImpact:=Time;
      SphereCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
      SphereCastData.Normal:=Vector3TermMatrixMulBasis(Vector3NormEx(Vector3Cross(Vector3Sub(Vertices^[1].Position,Vertices^[0].Position),Vector3Sub(Vertices^[2].Position,Vertices^[0].Position))),fWorldTransform);
+     result:=true;
+    end;
+   end else if SphereCastTriangle(Origin,
+                                  SphereCastData.Radius,
+                                  Direction,
+                                  Vertices^[2].Position,
+                                  Vertices^[1].Position,
+                                  Vertices^[0].Position,
+                                  Time,
+                                  u,
+                                  v) then begin
+    if (Time>=0.0) and (Time<=SphereCastData.MaxTime) then begin
+     SphereCastData.TimeOfImpact:=Time;
+     SphereCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
+     SphereCastData.Normal:=Vector3TermMatrixMulBasis(Vector3NormEx(Vector3Cross(Vector3Sub(Vertices^[1].Position,Vertices^[2].Position),Vector3Sub(Vertices^[0].Position,Vertices^[2].Position))),fWorldTransform);
      result:=true;
     end;
    end;
@@ -24809,7 +24833,7 @@ function TKraftShapeMesh.RayCast(var RayCastData:TKraftRayCastData):boolean;
 var SkipListNodeIndex,TriangleIndex:TKraftInt32;
     SkipListNode:PKraftMeshSkipListNode;
     Triangle:PKraftMeshTriangle;
-    First:boolean;
+    First,SidePass:boolean;
     Nearest,Time,u,v:TKraftScalar;
     Origin,Direction,p,Normal:TKraftVector3;
 begin
@@ -24827,25 +24851,31 @@ begin
      TriangleIndex:=SkipListNode^.TriangleIndex;
      while TriangleIndex>=0 do begin
       Triangle:=@fMesh.fTriangles[TriangleIndex];
-      if RayIntersectTriangle(Origin,
-                              Direction,
-                              fMesh.fVertices[Triangle^.Vertices[0]],
-                              fMesh.fVertices[Triangle^.Vertices[1]],
-                              fMesh.fVertices[Triangle^.Vertices[2]],
-                              Time,
-                              u,
-                              v) then begin
-       p:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time));
-       if ((Time>=0.0) and (Time<=RayCastData.MaxTime)) and (First or (Time<Nearest)) then begin
-        First:=false;
-        Nearest:=Time;
-        Normal:=Vector3Norm(Vector3Add(Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[0]],1.0-(u+v)),
-                            Vector3Add(Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[1]],u),
-                                       Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[2]],v))));
-        RayCastData.TimeOfImpact:=Time;
-        RayCastData.Point:=p;
-        RayCastData.Normal:=Normal;
-        result:=true;
+      for SidePass:=false to fMesh.fDoubleSided do begin
+       if RayIntersectTriangle(Origin,
+                               Direction,
+                               fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],
+                               fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],
+                               fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],
+                               Time,
+                               u,
+                               v) then begin
+        p:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time));
+        if ((Time>=0.0) and (Time<=RayCastData.MaxTime)) and (First or (Time<Nearest)) then begin
+         First:=false;
+         Nearest:=Time;
+         Normal:=Vector3Norm(Vector3Add(Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],1.0-(u+v)),
+                             Vector3Add(Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],u),
+                                        Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],v))));
+         RayCastData.TimeOfImpact:=Time;
+         RayCastData.Point:=p;
+         if SidePass then begin
+          RayCastData.Normal:=Vector3Neg(Normal);
+         end else begin
+          RayCastData.Normal:=Normal;
+         end;
+         result:=true;
+        end;
        end;
       end;
       TriangleIndex:=Triangle^.Next;
@@ -24867,7 +24897,7 @@ function TKraftShapeMesh.SphereCast(var SphereCastData:TKraftSphereCastData):boo
 var SkipListNodeIndex,TriangleIndex:TKraftInt32;
     SkipListNode:PKraftMeshSkipListNode;
     Triangle:PKraftMeshTriangle;
-    First:boolean;
+    First,SidePass:boolean;
     Radius,Nearest,Time,u,v:TKraftScalar;
     Origin,Direction,p,Normal:TKraftVector3;
 begin
@@ -24886,26 +24916,32 @@ begin
      TriangleIndex:=SkipListNode^.TriangleIndex;
      while TriangleIndex>=0 do begin
       Triangle:=@fMesh.fTriangles[TriangleIndex];
-      if SphereCastTriangle(Origin,
-                            Radius,
-                            Direction,
-                            fMesh.fVertices[Triangle^.Vertices[0]],
-                            fMesh.fVertices[Triangle^.Vertices[1]],
-                            fMesh.fVertices[Triangle^.Vertices[2]],
-                            Time,
-                            u,
-                            v) then begin
-       p:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time));
-       if ((Time>=0.0) and (Time<=SphereCastData.MaxTime)) and (First or (Time<Nearest)) then begin
-        First:=false;
-        Nearest:=Time;
-        Normal:=Vector3Norm(Vector3Add(Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[0]],1.0-(u+v)),
-                            Vector3Add(Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[1]],u),
-                                       Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[2]],v))));
-        SphereCastData.TimeOfImpact:=Time;
-        SphereCastData.Point:=p;
-        SphereCastData.Normal:=Normal;
-        result:=true;
+      for SidePass:=false to fMesh.fDoubleSided do begin
+       if SphereCastTriangle(Origin,
+                             Radius,
+                             Direction,
+                             fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],
+                             fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],
+                             fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],
+                             Time,
+                             u,
+                             v) then begin
+        p:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time));
+        if ((Time>=0.0) and (Time<=SphereCastData.MaxTime)) and (First or (Time<Nearest)) then begin
+         First:=false;
+         Nearest:=Time;
+         Normal:=Vector3Norm(Vector3Add(Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],1.0-(u+v)),
+                             Vector3Add(Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],u),
+                                        Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],v))));
+         SphereCastData.TimeOfImpact:=Time;
+         SphereCastData.Point:=p;
+         if SidePass then begin
+          SphereCastData.Normal:=Vector3Neg(Normal);
+         end else begin
+          SphereCastData.Normal:=Normal;
+         end;
+         result:=true;
+        end;
        end;
       end;
       TriangleIndex:=Triangle^.Next;
