@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2023-02-12-21-43-0000                       *
+ *                        Version 2023-02-12-21-51-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -1157,6 +1157,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        constructor Create(const APhysics:TKraft);
        destructor Destroy; override;
 
+       procedure Clear;
+
        procedure LoadFromStream(const AStream:TStream);
        procedure SaveToStream(const AStream:TStream);
 
@@ -1280,6 +1282,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        constructor Create(const APhysics:TKraft);
        destructor Destroy; override;
+
+       procedure Clear;
 
        procedure LoadFromStream(const AStream:TStream);
        procedure SaveToStream(const AStream:TStream);
@@ -18374,11 +18378,11 @@ end;
 destructor TKraftConvexHull.Destroy;
 begin
 
- SetLength(fVertices,0);
+ fVertices:=nil;
 
- SetLength(fFaces,0);
+ fFaces:=nil;
 
- SetLength(fEdges,0);
+ fEdges:=nil;
 
  if assigned(fPrevious) then begin
   fPrevious.fNext:=fNext;
@@ -18394,6 +18398,26 @@ begin
  fNext:=nil;
 
  inherited Destroy;
+
+end;
+
+procedure TKraftConvexHull.Clear;
+begin
+
+ fVertices:=nil;
+ fCountVertices:=0;
+
+ fFaces:=nil;
+ fCountFaces:=0;
+
+ fEdges:=nil;
+ fCountEdges:=0;
+
+ FillChar(fSphere,SizeOf(TKraftSphere),AnsiChar(#0));
+
+ FillChar(fAABB,SizeOf(TKraftAABB),AnsiChar(#0));
+
+ fAngularMotionDisc:=0.0;
 
 end;
 
@@ -19691,15 +19715,15 @@ end;
 destructor TKraftMesh.Destroy;
 begin
 
- SetLength(fVertices,0);
+ fVertices:=nil;
 
- SetLength(fNormals,0);
+ fNormals:=nil;
 
- SetLength(fTriangles,0);
+ fTriangles:=nil;
 
- SetLength(fNodes,0);
+ fNodes:=nil;
 
- SetLength(fSkipListNodes,0);
+ fSkipListNodes:=nil;
 
  if assigned(fPrevious) then begin
   fPrevious.fNext:=fNext;
@@ -19715,6 +19739,26 @@ begin
  fNext:=nil;
 
  inherited Destroy;
+
+end;
+
+procedure TKraftMesh.Clear;
+begin
+
+ fVertices:=nil;
+ fCountVertices:=0;
+
+ fNormals:=nil;
+ fCountNormals:=0;
+
+ fTriangles:=nil;
+ fCountTriangles:=0;
+
+ fNodes:=nil;
+ fCountNodes:=0;
+
+ fSkipListNodes:=nil;
+ fCountSkipListNodes:=0;
 
 end;
 
