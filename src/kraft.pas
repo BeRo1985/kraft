@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2023-02-12-18-26-0000                       *
+ *                        Version 2023-02-12-21-43-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -28496,7 +28496,9 @@ begin
    continue;
   end;
 
-  if assigned(ContactPair^.MeshContactPair) and (ContactPair^.ElementIndex>=0) then begin
+  if assigned(ContactPair^.MeshContactPair) and
+     (ContactPair^.ElementIndex>=0) and
+     (ContactPair^.ElementIndex<TKraftShapeMesh(ContactPair^.MeshContactPair.fShapeMesh).fMesh.fCountTriangles) then begin
    if not AABBIntersect(TKraftShapeMesh(ContactPair^.MeshContactPair.fShapeMesh).fMesh.fTriangles[ContactPair^.ElementIndex].AABB,
                         ContactPair^.MeshContactPair.fConvexAABBInMeshLocalSpace) then begin
     if (ContactPair^.Flags*[kcfColliding,kcfWasColliding])<>[] then begin
