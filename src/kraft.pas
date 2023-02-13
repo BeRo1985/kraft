@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2023-02-12-02-36-0000                       *
+ *                        Version 2023-02-13-16-26-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -1157,7 +1157,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        constructor Create(const APhysics:TKraft);
        destructor Destroy; override;
 
-       procedure Clear;
+       procedure Clear(const aFreeMemory:boolean=true);
 
        procedure LoadFromStream(const AStream:TStream);
        procedure SaveToStream(const AStream:TStream);
@@ -1283,7 +1283,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        constructor Create(const APhysics:TKraft);
        destructor Destroy; override;
 
-       procedure Clear;
+       procedure Clear(const aFreeMemory:boolean=true);
 
        procedure LoadFromStream(const AStream:TStream);
        procedure SaveToStream(const AStream:TStream);
@@ -3462,6 +3462,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure StoreWorldTransforms;
 
        procedure InterpolateWorldTransforms(const Alpha:TKraftScalar);
+
+       procedure InvalidateShapes;
 
        procedure Step(const ADeltaTime:TKraftScalar=0);
 
@@ -18403,16 +18405,22 @@ begin
 
 end;
 
-procedure TKraftConvexHull.Clear;
+procedure TKraftConvexHull.Clear(const aFreeMemory:boolean);
 begin
 
- fVertices:=nil;
+ if aFreeMemory then begin
+  fVertices:=nil;
+ end;
  fCountVertices:=0;
 
- fFaces:=nil;
+ if aFreeMemory then begin
+  fFaces:=nil;
+ end;
  fCountFaces:=0;
 
- fEdges:=nil;
+ if aFreeMemory then begin
+  fEdges:=nil;
+ end;
  fCountEdges:=0;
 
  FillChar(fSphere,SizeOf(TKraftSphere),AnsiChar(#0));
@@ -18420,6 +18428,8 @@ begin
  FillChar(fAABB,SizeOf(TKraftAABB),AnsiChar(#0));
 
  fAngularMotionDisc:=0.0;
+
+ fPhysics.InvalidateShapes;
 
 end;
 
@@ -19744,23 +19754,35 @@ begin
 
 end;
 
-procedure TKraftMesh.Clear;
+procedure TKraftMesh.Clear(const aFreeMemory:boolean);
 begin
 
- fVertices:=nil;
+ if aFreeMemory then begin
+  fVertices:=nil;
+ end;
  fCountVertices:=0;
 
- fNormals:=nil;
+ if aFreeMemory then begin
+  fNormals:=nil;
+ end;
  fCountNormals:=0;
 
- fTriangles:=nil;
+ if aFreeMemory then begin
+  fTriangles:=nil;
+ end;
  fCountTriangles:=0;
 
- fNodes:=nil;
+ if aFreeMemory then begin
+  fNodes:=nil;
+ end;
  fCountNodes:=0;
 
- fSkipListNodes:=nil;
+ if aFreeMemory then begin
+  fSkipListNodes:=nil;
+ end;
  fCountSkipListNodes:=0;
+
+ fPhysics.InvalidateShapes;
 
 end;
 
@@ -21880,7 +21902,7 @@ begin
 
  fPhysics:=APhysics;
 
- fPhysics.fNewShapes:=true;
+ fPhysics.InvalidateShapes;
 
  fRigidBody:=ARigidBody;
 
@@ -37121,6 +37143,11 @@ begin
   RigidBody.InterpolateWorldTransform(Alpha);
   RigidBody:=RigidBody.fRigidBodyNext;
  end;
+end;
+
+procedure TKraft.InvalidateShapes;
+begin
+ fNewShapes:=true;
 end;
 
 procedure TKraft.Step(const ADeltaTime:TKraftScalar=0);
