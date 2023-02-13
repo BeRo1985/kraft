@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2023-02-12-21-51-0000                       *
+ *                        Version 2023-02-12-02-36-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -1424,6 +1424,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        constructor Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody);
        destructor Destroy; override;
+
+       procedure RemoveContactPairEdges; virtual;
 
        procedure UpdateShapeAABB; virtual;
 
@@ -21954,8 +21956,6 @@ begin
 end;
 
 destructor TKraftShape.Destroy;
-var ContactPairEdge,NextContactPairEdge:PKraftContactPairEdge;
-    ContactPair:PKraftContactPair;
 begin
 
 {$ifdef DebugDraw}
@@ -21965,17 +21965,7 @@ begin
  end;
 {$endif}
 
- if assigned(fRigidBody) then begin
-  ContactPairEdge:=fRigidBody.fContactPairEdgeFirst;
-  while assigned(ContactPairEdge) do begin
-   ContactPair:=ContactPairEdge^.ContactPair;
-   NextContactPairEdge:=ContactPairEdge^.Next;
-   if (ContactPair^.Shapes[0]=self) or (ContactPair^.Shapes[1]=self) then begin
-    fPhysics.fContactManager.RemoveContact(ContactPair);
-   end;
-   ContactPairEdge:=NextContactPairEdge;
-  end;
- end;
+ RemoveContactPairEdges;
 
  if fStaticAABBTreeProxy>=0 then begin
   fPhysics.fBroadPhase.StaticMoveBuffer.Remove(fStaticAABBTreeProxy);
@@ -22034,6 +22024,23 @@ begin
   result:=@fPhysics.fKinematicAABBTree.fNodes[fKinematicAABBTreeProxy].AABB;
  end else begin
   result:=@fWorldAABB;
+ end;
+end;
+
+procedure TKraftShape.RemoveContactPairEdges;
+var ContactPairEdge,NextContactPairEdge:PKraftContactPairEdge;
+    ContactPair:PKraftContactPair;
+begin
+ if assigned(fRigidBody) then begin
+  ContactPairEdge:=fRigidBody.fContactPairEdgeFirst;
+  while assigned(ContactPairEdge) do begin
+   ContactPair:=ContactPairEdge^.ContactPair;
+   NextContactPairEdge:=ContactPairEdge^.Next;
+   if (ContactPair^.Shapes[0]=self) or (ContactPair^.Shapes[1]=self) then begin
+    fPhysics.fContactManager.RemoveContact(ContactPair);
+   end;
+   ContactPairEdge:=NextContactPairEdge;
+  end;
  end;
 end;
 
@@ -27594,7 +27601,7 @@ begin
  ShapeB:=Shapes[1];
 
  if assigned(MeshContactPair) then begin
-  if (ElementIndex>=0) and assigned(TriangleShape) and (ShapeB is TKraftShapeMesh) then begin
+  if (ElementIndex>=0) and assigned(TriangleShape) and (ShapeB is TKraftShapeMesh) and (ElementIndex<TKraftShapeMesh(ShapeB).fMesh.fCountTriangles) then begin
    MeshShape:=TKraftShapeMesh(ShapeB);
    ShapeB:=TriangleShape;
    ShapeTriangle:=TKraftShapeTriangle(TriangleShape);
@@ -36049,15 +36056,19 @@ begin
 
  if (ShapeBTriangleIndex>=0) and (ShapeB is TKraftShapeMesh) then begin
   MeshShape:=TKraftShapeMesh(ShapeB);
-  ShapeTriangle:=TKraftShapeTriangle(fTriangleShapes[ThreadIndex]);
-  Shapes[1]:=ShapeTriangle;
-  MeshTriangle:=@MeshShape.fMesh.fTriangles[ShapeBTriangleIndex];
-  ShapeTriangle.fLocalTransform:=MeshShape.fLocalTransform;
-  ShapeTriangle.fWorldTransform:=MeshShape.fWorldTransform;
-  ShapeTriangle.fConvexHull.fVertices[0].Position:=MeshShape.fMesh.fVertices[MeshTriangle^.Vertices[0]];
-  ShapeTriangle.fConvexHull.fVertices[1].Position:=MeshShape.fMesh.fVertices[MeshTriangle^.Vertices[1]];
-  ShapeTriangle.fConvexHull.fVertices[2].Position:=MeshShape.fMesh.fVertices[MeshTriangle^.Vertices[2]];
-  ShapeTriangle.UpdateData;
+  if ShapeBTriangleIndex<=MeshShape.fMesh.fCountTriangles then begin
+   ShapeTriangle:=TKraftShapeTriangle(fTriangleShapes[ThreadIndex]);
+   Shapes[1]:=ShapeTriangle;
+   MeshTriangle:=@MeshShape.fMesh.fTriangles[ShapeBTriangleIndex];
+   ShapeTriangle.fLocalTransform:=MeshShape.fLocalTransform;
+   ShapeTriangle.fWorldTransform:=MeshShape.fWorldTransform;
+   ShapeTriangle.fConvexHull.fVertices[0].Position:=MeshShape.fMesh.fVertices[MeshTriangle^.Vertices[0]];
+   ShapeTriangle.fConvexHull.fVertices[1].Position:=MeshShape.fMesh.fVertices[MeshTriangle^.Vertices[1]];
+   ShapeTriangle.fConvexHull.fVertices[2].Position:=MeshShape.fMesh.fVertices[MeshTriangle^.Vertices[2]];
+   ShapeTriangle.UpdateData;
+  end else begin
+   exit;
+  end;
  end else begin
   Shapes[1]:=ShapeB;
  end;
@@ -36227,15 +36238,19 @@ begin
 
  if (ShapeBTriangleIndex>=0) and (ShapeB is TKraftShapeMesh) then begin
   MeshShape:=TKraftShapeMesh(ShapeB);
-  ShapeTriangle:=TKraftShapeTriangle(fTriangleShapes[ThreadIndex]);
-  Shapes[1]:=ShapeTriangle;
-  MeshTriangle:=@MeshShape.fMesh.fTriangles[ShapeBTriangleIndex];
-  ShapeTriangle.fLocalTransform:=MeshShape.fLocalTransform;
-  ShapeTriangle.fWorldTransform:=MeshShape.fWorldTransform;
-  ShapeTriangle.fConvexHull.fVertices[0].Position:=MeshShape.fMesh.fVertices[MeshTriangle^.Vertices[0]];
-  ShapeTriangle.fConvexHull.fVertices[1].Position:=MeshShape.fMesh.fVertices[MeshTriangle^.Vertices[1]];
-  ShapeTriangle.fConvexHull.fVertices[2].Position:=MeshShape.fMesh.fVertices[MeshTriangle^.Vertices[2]];
-  ShapeTriangle.UpdateData;
+  if ShapeBTriangleIndex<=MeshShape.fMesh.fCountTriangles then begin
+   ShapeTriangle:=TKraftShapeTriangle(fTriangleShapes[ThreadIndex]);
+   Shapes[1]:=ShapeTriangle;
+   MeshTriangle:=@MeshShape.fMesh.fTriangles[ShapeBTriangleIndex];
+   ShapeTriangle.fLocalTransform:=MeshShape.fLocalTransform;
+   ShapeTriangle.fWorldTransform:=MeshShape.fWorldTransform;
+   ShapeTriangle.fConvexHull.fVertices[0].Position:=MeshShape.fMesh.fVertices[MeshTriangle^.Vertices[0]];
+   ShapeTriangle.fConvexHull.fVertices[1].Position:=MeshShape.fMesh.fVertices[MeshTriangle^.Vertices[1]];
+   ShapeTriangle.fConvexHull.fVertices[2].Position:=MeshShape.fMesh.fVertices[MeshTriangle^.Vertices[2]];
+   ShapeTriangle.UpdateData;
+  end else begin
+   exit;
+  end;
  end else begin
   Shapes[1]:=ShapeB;
  end;
