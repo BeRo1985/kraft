@@ -35484,7 +35484,7 @@ var Index:TKraftInt32;
          Flags:TKraftUInt8;
         );
         1:(
-         NodeNumber:dwotf;
+         NodeNumber:dword;
         );
         2:(
          Cache:TCacheDescriptor;
