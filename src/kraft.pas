@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2023-02-13-16-26-0000                       *
+ *                        Version 2023-02-17-04-21-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -291,6 +291,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      TKraftPositionCorrectionMode=(kpcmBaumgarte,                     // Faster but it can be inaccurate in some situations
                                    kpcmNonLinearGaussSeidel);         // Slower but it's more precise (default)
      PKraftPositionCorrectionMode=^TKraftPositionCorrectionMode;
+
+     TKraftGravityMode=(kgmNORMAL,         // Normal gravity in a common direction vector
+                        kgmMIDPOINT);      // A world midpoint as gravity target
+     PKraftGravityMode=^TKraftGravityMode;
 
      TKraftContactFlag=(kcfEnabled,       // To disable contacts by users and for internal usage for processing continuous collection detection
                         kcfColliding,     // Set when contact collides during a step
@@ -2233,6 +2237,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fSweep:TKraftSweep;
 
+       fGravityMode:TKraftGravityMode;
+
+       fGravitySpeed:TKraftScalar;
+
        fGravity:TKraftVector3;
 
        fGravityProperty:TKraftVector3Property;
@@ -2456,6 +2464,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property RigidBodyType:TKraftRigidBodyType read fRigidBodyType write fRigidBodyType;
 
        property Flags:TKraftRigidBodyFlags read fFlags write fFlags;
+
+       property GravityMode:TKraftGravityMode read fGravityMode write fGravityMode;
+
+       property GravitySpeed:TKraftScalar read fGravitySpeed write fGravitySpeed;
 
        property Gravity:TKraftVector3Property read fGravityProperty write fGravityProperty;
 
@@ -3343,6 +3355,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fAllowedPenetration:TKraftScalar;
 
+       fGravityMode:TKraftGravityMode;
+
+       fGravitySpeed:TKraftScalar;
+
        fGravity:TKraftVector3;
 
        fGravityProperty:TKraftVector3Property;
@@ -3551,6 +3567,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property AllowSleep:boolean read fAllowSleep write fAllowSleep;
 
        property AllowedPenetration:TKraftScalar read fAllowedPenetration write fAllowedPenetration;
+
+       property GravityMode:TKraftGravityMode read fGravityMode write fGravityMode;
+
+       property GravitySpeed:TKraftScalar read fGravitySpeed write fGravitySpeed;
 
        property Gravity:TKraftVector3Property read fGravityProperty;
 
@@ -29436,6 +29456,10 @@ begin
 
  fWorldTransform:=Matrix4x4Identity;
 
+ fGravityMode:=kgmNORMAL;
+
+ fGravitySpeed:=9.83;
+
  fGravity.x:=0.0;
  fGravity.y:=-9.83;
  fGravity.z:=0.0;
@@ -34962,9 +34986,23 @@ begin
 
    // Apply gravity force
    if krbfHasOwnGravity in RigidBody.fFlags then begin
-    RigidBody.fForce:=Vector3Add(RigidBody.fForce,Vector3ScalarMul(RigidBody.fGravity,RigidBody.fMass*RigidBody.fGravityScale));
+    case RigidBody.fGravityMode of
+     kgmMIDPOINT:begin
+      RigidBody.fForce:=Vector3Add(RigidBody.fForce,Vector3ScalarMul(Vector3Norm(Vector3Sub(RigidBody.fGravity,Position)),RigidBody.fGravitySpeed*RigidBody.fMass*RigidBody.fGravityScale));
+     end;
+     else begin
+      RigidBody.fForce:=Vector3Add(RigidBody.fForce,Vector3ScalarMul(RigidBody.fGravity,RigidBody.fMass*RigidBody.fGravityScale));
+     end;
+    end;
    end else begin
-    RigidBody.fForce:=Vector3Add(RigidBody.fForce,Vector3ScalarMul(fPhysics.fGravity,RigidBody.fMass*RigidBody.fGravityScale));
+    case fPhysics.fGravityMode of
+     kgmMIDPOINT:begin
+      RigidBody.fForce:=Vector3Add(RigidBody.fForce,Vector3ScalarMul(Vector3Norm(Vector3Sub(fPhysics.fGravity,Position)),fPhysics.fGravitySpeed*RigidBody.fMass*RigidBody.fGravityScale));
+     end;
+     else begin
+      RigidBody.fForce:=Vector3Add(RigidBody.fForce,Vector3ScalarMul(fPhysics.fGravity,RigidBody.fMass*RigidBody.fGravityScale));
+     end;
+    end;
    end;
 
    // Calculate world space inertia tensor
@@ -35633,6 +35671,10 @@ begin
  fAllowSleep:=true;
 
  fAllowedPenetration:=0.0;
+
+ fGravityMode:=kgmNORMAL;
+
+ fGravitySpeed:=9.83;
 
  fGravity.x:=0.0;
  fGravity.y:=-9.83;
