@@ -148,6 +148,10 @@ unit kraft;
  {$define NonSIMD} // Due to inline assembler bugs at the Delphi compiler
 {$ifend}
 
+{$if not defined(Windows)}
+ {$define NonSIMD} // Due to inline assembler issues
+{$ifend}
+
 {$ifdef NonSIMD}
  {$undef SIMD}
  {$undef SIMDASM}
