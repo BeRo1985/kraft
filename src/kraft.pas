@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2023-02-17-07-10-0000                       *
+ *                        Version 2023-02-21-23-27-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -140,7 +140,7 @@ unit kraft;
 
 {-$define memdebug}
 
-{$ifdef UseDouble}
+{$ifdef KraftUseDouble}
  {$define NonSIMD}
 {$endif}
 
@@ -205,9 +205,9 @@ uses {$ifdef windows}
 {$endif}
      Math;
 
-const EPSILON={$ifdef UseDouble}1e-14{$else}1e-5{$endif}; // actually {$ifdef UseDouble}1e-16{$else}1e-7{$endif}; but we are conservative here
+const EPSILON={$ifdef KraftUseDouble}1e-14{$else}1e-5{$endif}; // actually {$ifdef KraftUseDouble}1e-16{$else}1e-7{$endif}; but we are conservative here
 
-      MAX_SCALAR={$ifdef UseDouble}1.7e+308{$else}3.4e+28{$endif};
+      MAX_SCALAR={$ifdef KraftUseDouble}1.7e+308{$else}3.4e+28{$endif};
 
       DEG2RAD=pi/180.0;
       RAD2DEG=180.0/PI;
@@ -478,7 +478,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property HourInterval:TKraftInt64 read fHourInterval;
      end;
 
-     TKraftScalar={$ifdef UseDouble}TKraftDouble{$else}TKraftFloat{$endif};
+     TKraftScalar={$ifdef KraftUseDouble}TKraftDouble{$else}TKraftFloat{$endif};
      PKraftScalar=^TKraftScalar;
 
      TKraftScalars=array[0..1] of TKraftScalar;
@@ -4626,7 +4626,7 @@ asm
  movss dword ptr [result+8],xmm2
  movss dword ptr [result+12],xmm3
 end;
-{$elseif defined(SIMD) and defined(SIMDASM) and defined(cpuamd64) and defined(Windows)}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
+{$elseif defined(SIMD) and defined(SIMDASM) and defined(cpuamd64)}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
 asm
 {$ifndef fpc}
  .noframe
@@ -4712,7 +4712,7 @@ begin
 end;
 {$ifend}
 
-function Vector3Add({$ifdef USE_CONSTREF}constref{$else}const{$endif} v1,v2:TKraftVector3):TKraftVector3; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64) and defined(Windows)}nostackframe;{$ifend}
+function Vector3Add({$ifdef USE_CONSTREF}constref{$else}const{$endif} v1,v2:TKraftVector3):TKraftVector3; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -4733,7 +4733,7 @@ begin
 end;
 {$ifend}
 
-function Vector3Sub({$ifdef USE_CONSTREF}constref{$else}const{$endif} v1,v2:TKraftVector3):TKraftVector3; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64) and defined(Windows)}nostackframe;{$ifend}
+function Vector3Sub({$ifdef USE_CONSTREF}constref{$else}const{$endif} v1,v2:TKraftVector3):TKraftVector3; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -4754,7 +4754,7 @@ begin
 end;
 {$ifend}
 
-function Vector3Avg({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3):TKraftVector3; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64) and defined(Windows)}nostackframe;{$ifend}
+function Vector3Avg({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3):TKraftVector3; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
 const Half:TKraftVector3=(x:0.5;y:0.5;z:0.5;w:0.0);
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
@@ -4813,7 +4813,7 @@ begin
 {$endif}
 end;
 
-function Vector3ScalarMul({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3;const s:TKraftScalar):TKraftVector3; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64) and defined(Windows)}nostackframe;{$ifend}
+function Vector3ScalarMul({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3;const s:TKraftScalar):TKraftVector3; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -4944,7 +4944,7 @@ begin
 {$endif}
 end;
 
-function Vector3Cross({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3):TKraftVector3; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64) and defined(Windows)}nostackframe;{$ifend}
+function Vector3Cross({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3):TKraftVector3; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -5002,7 +5002,7 @@ begin
 end;
 {$ifend}
 
-function Vector3Neg({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3):TKraftVector3; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64) and defined(Windows)}nostackframe;{$ifend}
+function Vector3Neg({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3):TKraftVector3; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -5071,7 +5071,7 @@ begin
 end;
 {$ifend}
 
-function Vector3Mul({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3):TKraftVector3; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64) and defined(Windows)}nostackframe;{$ifend}
+function Vector3Mul({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3):TKraftVector3; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -5338,7 +5338,7 @@ begin
 {$endif}
 end;
 
-function Vector3Norm({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3):TKraftVector3; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64) and defined(Windows)}nostackframe;{$ifend}
+function Vector3Norm({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3):TKraftVector3; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -5379,7 +5379,7 @@ begin
 end;
 {$ifend}
 
-function Vector3NormEx({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3):TKraftVector3; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64) and defined(Windows)}nostackframe;{$ifend}
+function Vector3NormEx({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3):TKraftVector3; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -5589,7 +5589,7 @@ end;
 {$endif}
 (**)
 
-function Vector3TermMatrixMul(const v:TKraftVector3;const m:TKraftMatrix3x3):TKraftVector3; overload; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64) and defined(Windows)}nostackframe;{$ifend}
+function Vector3TermMatrixMul(const v:TKraftVector3;const m:TKraftMatrix3x3):TKraftVector3; overload; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
 const cOne:array[0..3] of TKraftScalar=(0.0,0.0,0.0,1.0);
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
@@ -5762,7 +5762,7 @@ begin
 {$endif}
 end;
 
-function Vector3TermMatrixMulBasis({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix4x4):TKraftVector3; overload; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64) and defined(Windows)}nostackframe;{$ifend}
+function Vector3TermMatrixMulBasis({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix4x4):TKraftVector3; overload; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
 const Mask:array[0..3] of TKraftUInt32=($ffffffff,$ffffffff,$ffffffff,$00000000);
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
@@ -6176,7 +6176,7 @@ begin
 end;
 {$ifend}
 
-function Vector4TermMatrixMul({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector4;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix4x4):TKraftVector4; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64) and defined(Windows)}nostackframe;{$ifend}
+function Vector4TermMatrixMul({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector4;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix4x4):TKraftVector4; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -9064,7 +9064,7 @@ begin
 end;
 {$ifend}
 
-function QuaternionTermNormalize({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} AQuaternion:TKraftQuaternion):TKraftQuaternion; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64) and defined(Windows)}nostackframe;{$ifend}
+function QuaternionTermNormalize({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} AQuaternion:TKraftQuaternion):TKraftQuaternion; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -9098,7 +9098,7 @@ begin
 end;
 {$ifend}
 
-function QuaternionNeg({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} AQuaternion:TKraftQuaternion):TKraftQuaternion; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64) and defined(Windows)}nostackframe;{$ifend}
+function QuaternionNeg({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} AQuaternion:TKraftQuaternion):TKraftQuaternion; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -9117,7 +9117,7 @@ begin
 end;
 {$ifend}
 
-function QuaternionConjugate({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} AQuaternion:TKraftQuaternion):TKraftQuaternion; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64) and defined(Windows)}nostackframe;{$ifend}
+function QuaternionConjugate({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} AQuaternion:TKraftQuaternion):TKraftQuaternion; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
 const XORMask:array[0..3] of TKraftUInt32=($80000000,$80000000,$80000000,$00000000);
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
@@ -9141,7 +9141,7 @@ begin
 end;
 {$ifend}
 
-function QuaternionInverse({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} AQuaternion:TKraftQuaternion):TKraftQuaternion; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64) and defined(Windows)}nostackframe;{$ifend}
+function QuaternionInverse({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} AQuaternion:TKraftQuaternion):TKraftQuaternion; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
 const XORMask:array[0..3] of TKraftUInt32=($80000000,$80000000,$80000000,$00000000);
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
@@ -9179,7 +9179,7 @@ begin
 end;
 {$ifend}
 
-function QuaternionAdd({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} q1,q2:TKraftQuaternion):TKraftQuaternion; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64) and defined(Windows)}nostackframe;{$ifend}
+function QuaternionAdd({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} q1,q2:TKraftQuaternion):TKraftQuaternion; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -9198,7 +9198,7 @@ begin
 end;
 {$ifend}
 
-function QuaternionSub({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} q1,q2:TKraftQuaternion):TKraftQuaternion; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64) and defined(Windows)}nostackframe;{$ifend}
+function QuaternionSub({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} q1,q2:TKraftQuaternion):TKraftQuaternion; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -9217,7 +9217,7 @@ begin
 end;
 {$ifend}
 
-function QuaternionScalarMul({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} q:TKraftQuaternion;const s:TKraftScalar):TKraftQuaternion; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64) and defined(Windows)}nostackframe;{$ifend}
+function QuaternionScalarMul({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} q:TKraftQuaternion;const s:TKraftScalar):TKraftQuaternion; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -9237,7 +9237,7 @@ begin
 end;
 {$ifend}
 
-function QuaternionMul({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} q1,q2:TKraftQuaternion):TKraftQuaternion; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64) and defined(Windows)}nostackframe;{$ifend}
+function QuaternionMul({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} q1,q2:TKraftQuaternion):TKraftQuaternion; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
 const XORMaskW:array[0..3] of TKraftUInt32=($00000000,$00000000,$00000000,$80000000);
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
@@ -11771,7 +11771,7 @@ type TKraftShapeTriangle=class(TKraftShapeConvexHull)
 
 function IsSameValue(const a,b:TKraftScalar):boolean;
 const FuzzFactor=1000.0;
-      Resolution={$ifdef UseDouble}1e-15{$else}1e-7{$endif}*FuzzFactor;
+      Resolution={$ifdef KraftUseDouble}1e-15{$else}1e-7{$endif}*FuzzFactor;
 var EpsilonTolerance:double;
 begin
  EpsilonTolerance:=abs(a);
@@ -22541,7 +22541,7 @@ begin
  glPushMatrix;
  glMatrixMode(GL_MODELVIEW);
  ModelViewMatrix:=Matrix4x4TermMul(fInterpolatedWorldTransform,CameraMatrix);
-{$ifdef UseDouble}
+{$ifdef KraftUseDouble}
  glLoadMatrixd(pointer(@ModelViewMatrix));
 {$else}
  glLoadMatrixf(pointer(@ModelViewMatrix));
@@ -23058,7 +23058,7 @@ begin
  glPushMatrix;
  glMatrixMode(GL_MODELVIEW);
  ModelViewMatrix:=Matrix4x4TermMul(fInterpolatedWorldTransform,CameraMatrix);
-{$ifdef UseDouble}
+{$ifdef KraftUseDouble}
  glLoadMatrixd(pointer(@ModelViewMatrix));
 {$else}
  glLoadMatrixf(pointer(@ModelViewMatrix));
@@ -23338,7 +23338,7 @@ begin
  glPushMatrix;
  glMatrixMode(GL_MODELVIEW);
  ModelViewMatrix:=Matrix4x4TermMul(fInterpolatedWorldTransform,CameraMatrix);
-{$ifdef UseDouble}
+{$ifdef KraftUseDouble}
  glLoadMatrixd(pointer(@ModelViewMatrix));
 {$else}
  glLoadMatrixf(pointer(@ModelViewMatrix));
@@ -23352,7 +23352,7 @@ begin
   glBegin(GL_TRIANGLES);
   for i:=0 to fConvexHull.CountFaces-1 do begin
    Face:=@fConvexHull.fFaces[i];
-{$ifdef UseDouble}
+{$ifdef KraftUseDouble}
    glNormal3dv(@Face^.Plane.Normal);
    for j:=1 to Face^.CountVertices-2 do begin
     glVertex3dv(@fConvexHull.fVertices[Face^.Vertices[0]].Position);
@@ -24051,7 +24051,7 @@ begin
  glPushMatrix;
  glMatrixMode(GL_MODELVIEW);
  ModelViewMatrix:=Matrix4x4TermMul(fInterpolatedWorldTransform,CameraMatrix);
-{$ifdef UseDouble}
+{$ifdef KraftUseDouble}
  glLoadMatrixd(pointer(@ModelViewMatrix));
 {$else}
  glLoadMatrixf(pointer(@ModelViewMatrix));
@@ -24356,7 +24356,7 @@ begin
  glPushMatrix;
  glMatrixMode(GL_MODELVIEW);
  ModelViewMatrix:=Matrix4x4TermMul(fInterpolatedWorldTransform,CameraMatrix);
-{$ifdef UseDouble}
+{$ifdef KraftUseDouble}
  glLoadMatrixd(pointer(@ModelViewMatrix));
 {$else}
  glLoadMatrixf(pointer(@ModelViewMatrix));
@@ -24376,7 +24376,7 @@ begin
 
   n:=Vector3NormEx(Vector3Cross(Vector3Sub(PlaneVertices[1],PlaneVertices[0]),Vector3Sub(PlaneVertices[2],PlaneVertices[0])));
 
-{$ifdef UseDouble}
+{$ifdef KraftUseDouble}
   glBegin(GL_TRIANGLES);
   glNormal3dv(@n);
   glVertex3dv(@PlaneVertices[0]);
@@ -24806,7 +24806,7 @@ begin
  glPushMatrix;
  glMatrixMode(GL_MODELVIEW);
  ModelViewMatrix:=Matrix4x4TermMul(fInterpolatedWorldTransform,CameraMatrix);
-{$ifdef UseDouble}
+{$ifdef KraftUseDouble}
  glLoadMatrixd(pointer(@ModelViewMatrix));
 {$else}
  glLoadMatrixf(pointer(@ModelViewMatrix));
@@ -24820,7 +24820,7 @@ begin
 
   n:=Vector3NormEx(Vector3Cross(Vector3Sub(Vertices^[1].Position,Vertices^[0].Position),Vector3Sub(Vertices^[2].Position,Vertices^[0].Position)));
 
-{$ifdef UseDouble}
+{$ifdef KraftUseDouble}
   glBegin(GL_TRIANGLES);
   glNormal3dv(@n);
   glVertex3dv(@Vertices^[0].Position);
@@ -25075,7 +25075,7 @@ begin
  glPushMatrix;
  glMatrixMode(GL_MODELVIEW);
  ModelViewMatrix:=Matrix4x4TermMul(fInterpolatedWorldTransform,CameraMatrix);
-{$ifdef UseDouble}
+{$ifdef KraftUseDouble}
  glLoadMatrixd(pointer(@ModelViewMatrix));
 {$else}
  glLoadMatrixf(pointer(@ModelViewMatrix));
@@ -25088,7 +25088,7 @@ begin
   glBegin(GL_TRIANGLES);
   for i:=0 to fMesh.fCountTriangles-1 do begin
    Triangle:=@fMesh.fTriangles[i];
-{$ifdef UseDouble}
+{$ifdef KraftUseDouble}
    glNormal3dv(@fMesh.fNormals[Triangle^.Normals[0]]);
    glVertex3dv(@fMesh.fVertices[Triangle^.Vertices[0]]);
    glNormal3dv(@fMesh.fNormals[Triangle^.Normals[1]]);
@@ -25614,7 +25614,7 @@ begin
  glPushMatrix;
  glMatrixMode(GL_MODELVIEW);
  ModelViewMatrix:=Matrix4x4TermMul(fInterpolatedWorldTransform,CameraMatrix);
-{$ifdef UseDouble}
+{$ifdef KraftUseDouble}
  glLoadMatrixd(pointer(@ModelViewMatrix));
 {$else}
  glLoadMatrixf(pointer(@ModelViewMatrix));
@@ -28756,7 +28756,7 @@ begin
  glPushMatrix;
  glMatrixMode(GL_MODELVIEW);
 
-{$ifdef UseDouble}
+{$ifdef KraftUseDouble}
  glLoadMatrixd(pointer(@CameraMatrix));
 {$else}
  glLoadMatrixf(pointer(@CameraMatrix));
@@ -28788,7 +28788,7 @@ begin
       glColor4f(0.0,1.0,0.0,1.0);
      end;
      glBegin(GL_POINTS);
-{$ifdef UseDouble}
+{$ifdef KraftUseDouble}
      glVertex3fd(@SolverContactManifold.Points[0]);
      glVertex3fd(@SolverContactManifold.Points[1]);
 {$else}
@@ -28803,7 +28803,7 @@ begin
       glColor4f(0.2,0.2,0.2,1.0);
      end;
      glBegin(GL_LINES);
-{$ifdef UseDouble}
+{$ifdef KraftUseDouble}
      glVertex3fd(@SolverContactManifold.Points[0]);
      glVertex3fd(@SolverContactManifold.Points[1]);
 {$else}
@@ -28820,7 +28820,7 @@ begin
       glColor4f(1.0,1.0,0.0,1.0);
      end;
      glBegin(GL_POINTS);
-{$ifdef UseDouble}
+{$ifdef KraftUseDouble}
      glVertex3dv(@SolverContact^.Point);
 {$else}
      glVertex3fv(@SolverContact^.Point);
@@ -28833,7 +28833,7 @@ begin
       glColor4f(0.2,0.2,0.2,1.0);
      end;
      glBegin(GL_LINES);
-{$ifdef UseDouble}
+{$ifdef KraftUseDouble}
      glVertex3dv(@SolverContact^.Point);
 {$else}
      glVertex3fv(@SolverContact^.Point);
@@ -28856,7 +28856,7 @@ begin
  glLineWidth(2);
  glBegin(GL_LINES);
  for i:=0 to fCountDebugClipVertexLists-1 do begin
-{$ifdef UseDouble}
+{$ifdef KraftUseDouble}
   glColor4dv(@fDebugClipVertexLists[i].Color);
   for j:=0 to fDebugClipVertexLists[i].Count-1 do begin
    if j=0 then begin
