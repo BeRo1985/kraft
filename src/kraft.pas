@@ -85,6 +85,7 @@ unit kraft;
   {$endif}
  {$endif}
  {$excessprecision off}
+ {$define KraftAdvancedRecords}
 {$else}
  {$define LITTLE_ENDIAN}
  {$ifdef cpux64}
@@ -102,6 +103,7 @@ unit kraft;
  {$ifdef conditionalexpressions}
   {$if CompilerVersion>=24.0}
    {$legacyifend on}
+   {$define KraftAdvancedRecords}
   {$ifend}
  {$endif}
  {$ifdef ver180}
@@ -372,6 +374,32 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      TKraftRigidBodyFlags=set of TKraftRigidBodyFlag;
      PKraftRigidBodyFlags=^TKraftRigidBodyFlags;
 
+     TKraftParticleFlag=
+      (
+       kpfWater,
+       kpfZombie,
+       kpfWall,
+       kpfSpring,
+       kpfElastic,
+       kpfViscous,
+       kpfPowder,
+       kpfTensile,
+       kpfColorMixing,
+       kpfDestructionListener,
+       kpfBarrier,
+       kpfStaticPressure,
+       kpfReactive,
+       kpfRepulsive,
+       kpfShapeContactListener,
+       kpfParticleContactListener,
+       kpfShapeContactFilter,
+       kpfParticleContactFilter
+      );
+     PKraftParticleFlag=^TKraftParticleFlag;
+
+     TKraftParticleFlags=set of TKraftParticleFlag;
+     PKraftParticleFlags=^TKraftParticleFlags;
+
      TKraftRigidBodyCollisionGroup={$ifdef UseMoreCollisionGroups}0..255{$else}0..31{$endif};
      PKraftRigidBodyCollisionGroup=^TKraftRigidBodyCollisionGroup;
 
@@ -409,6 +437,22 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      TKraftUInt64={$if declared(UInt64)}UInt64{$else}QWord{$ifend};
      PKraftUInt64=^TKraftUInt64;
      PPKraftUInt64=^PKraftUInt64;
+
+     TKraftSizeInt={$if declared(PtrInt)}PtrInt{$elseif declared(SizeInt)}SizeInt{$elseif defined(CPU64)}TKraftInt64{$else}TKraftInt32{$ifend};
+     PKraftSizeInt=^TKraftSizeInt;
+     PPKraftSizeInt=^PKraftSizeInt;
+
+     TKraftSizeUInt={$if declared(PtrUInt)}PtrUInt{$elseif declared(SizeUInt)}SizeUInt{$elseif defined(CPU64)}TKraftUInt64{$else}TKraftUInt32{$ifend};
+     PKraftSizeUInt=^TKraftSizeUInt;
+     PPKraftSizeUInt=^PKraftSizeUInt;
+
+     TKraftPtrInt={$if declared(PtrInt)}PtrInt{$elseif declared(SizeInt)}SizeInt{$elseif defined(CPU64)}TKraftInt64{$else}TKraftInt32{$ifend};
+     PKraftPtrInt=^TKraftPtrInt;
+     PPKraftPtrInt=^PKraftPtrInt;
+
+     TKraftPtrUInt={$if declared(PtrUInt)}PtrUInt{$elseif declared(SizeUInt)}SizeUInt{$elseif defined(CPU64)}TKraftUInt64{$else}TKraftUInt32{$ifend};
+     PKraftPtrUInt=^TKraftPtrUInt;
+     PPKraftPtrUInt=^PKraftPtrUInt;
 
      TKraftFloat=Single;
      PKraftFloat=^TKraftFloat;
@@ -3175,6 +3219,212 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      end;
 
+     TKraftParticleColor=record
+      public
+       constructor Create(const aR,aG,aB,aA:TKraftUInt8);
+       function IsZero:boolean;
+       procedure SetColor(const aR,aG,aB,aA:TKraftUInt8);
+       procedure MulFloat(const aValue:TKraftScalar);
+       procedure MulUInt(const aValue:TKraftUInt8);
+       procedure Add(const aColor:TKraftParticleColor);
+       function Equals(const aColor:TKraftParticleColor):boolean;
+       class procedure MixColors(var aColor0,aColor1:TKraftParticleColor;const aStrength:TKraftInt32); static;
+       procedure Mix(const aColor:TKraftParticleColor;const aStrength:TKraftInt32);
+      public
+       case boolean of
+        false:(
+         r:TKraftUInt8;
+         g:TKraftUInt8;
+         b:TKraftUInt8;
+         a:TKraftUInt8;
+        );
+        true:(
+         Value:TKraftUInt32;
+        );
+     end;
+
+     TKraftParticleSystem=class;
+
+     TKraftParticleGroup=class;
+
+     TKraftParticleParticleContact=record
+      public
+       Index0:TKraftInt32;
+       Index1:TKraftInt32;
+       Weight:TKraftScalar;
+       Normal:TKraftVector3;
+       Flags:TKraftParticleFlags;
+     end;
+
+     PKraftParticleParticleContact=^TKraftParticleParticleContact;
+
+     TKraftParticleParticleContacts=array of TKraftParticleParticleContact;
+
+     TKraftParticleParticleContactList=record
+      Items:TKraftParticleParticleContacts;
+      Count:TKraftSizeInt;
+     end;
+
+     PKraftParticleParticleContactList=^TKraftParticleParticleContactList;
+
+     TKraftParticleRigidBodyContact=record
+      public
+       Index:TKraftInt32;
+       RigidBody:TKraftRigidBody;
+       Shape:TKraftShape;
+       TriangleIndex:TKraftInt32;
+       Mass:TKraftScalar;
+       Weight:TKraftScalar;
+       Normal:TKraftVector3;
+     end;
+
+     PKraftParticleRigidBodyContact=^TKraftParticleRigidBodyContact;
+
+     TKraftParticleRigidBodyContacts=array of TKraftParticleRigidBodyContact;
+
+     TKraftParticleRigidBodyContactList=record
+      Items:TKraftParticleRigidBodyContacts;
+      Count:TKraftSizeInt;
+     end;
+
+     PKraftParticleRigidBodyContactList=^TKraftParticleRigidBodyContactList;
+
+     TKraftParticle=record
+      public
+       Flags:TKraftParticleFlags;
+       Position:TKraftVector3;
+       Velocity:TKraftVector3;
+       Color:TKraftParticleColor;
+       LifeTime:TKraftScalar;
+       UserData:Pointer;
+       Group:TKraftParticleGroup;
+       class function Create:TKraftParticle; static;
+     end;
+
+     PKraftParticle=^TKraftParticle;
+
+     TKraftParticles=array of TKraftParticle;
+
+     TKraftParticleList=record
+      Items:TKraftParticles;
+      Count:TKraftSizeInt;
+     end;
+
+     PKraftParticleList=^TKraftParticleList;
+
+     TKraftParticleSpatialHashTableItem=TKraftUInt32;
+
+     PKraftParticleSpatialHashTableItem=^TKraftParticleSpatialHashTableItem;
+
+     TKraftParticleSpatialHashTableItems=array of TKraftParticleSpatialHashTableItem;
+
+     TKraftParticleSpatialHashTableItemList=record
+      Items:TKraftParticleSpatialHashTableItems;
+      Count:TKraftSizeInt;
+     end;
+
+     PKraftParticleSpatialHashTableItemList=^TKraftParticleSpatialHashTableItemList;
+
+     TKraftParticleSpatialHashTableBucket=TKraftParticleSpatialHashTableItemList;
+
+     PKraftParticleSpatialHashTableBucket=^TKraftParticleSpatialHashTableBucket;
+
+     TKraftParticleSpatialHashTableBuckets=array of TKraftParticleSpatialHashTableBucket;
+
+     TKraftParticleSpatialHashTableBucketLock=TKraftInt32;
+
+     PKraftParticleSpatialHashTableBucketLock=^TKraftParticleSpatialHashTableBucketLock;
+
+     TKraftParticleSpatialHashTableBucketLocks=array of TKraftParticleSpatialHashTableBucketLock;
+
+     TKraftParticleSpatialHashTableBucketGeneration=TKraftUInt64;
+
+     PKraftParticleSpatialHashTableBucketGeneration=^TKraftParticleSpatialHashTableBucketGeneration;
+
+     TKraftParticleSpatialHashTableBucketGenerations=array of TKraftParticleSpatialHashTableBucketGeneration;
+
+     TKraftParticleSpatialHashTable=class
+      private
+       fParticleSystem:TKraftParticleSystem;
+       fCellSize:TKraftScalar;
+       fCellOffset:TKraftScalar;
+       fHashBits:TKraftUInt32;
+       fHashSize:TKraftUInt32;
+       fHashMask:TKraftUInt32;
+       fBuckets:TKraftParticleSpatialHashTableBuckets;
+       fBucketLocks:TKraftParticleSpatialHashTableBucketLocks;
+       fBucketGenerations:TKraftParticleSpatialHashTableBucketGenerations;
+       fGeneration:TKraftUInt64;
+      public
+       constructor Create(const aParticleSystem:TKraftParticleSystem;const aCellSize:TKraftScalar=0.1;const aHashBits:TKraftUInt32=16); reintroduce;
+       destructor Destroy; override;
+       procedure Update;
+       procedure LookUp(var aItemList:TKraftParticleSpatialHashTableItemList;const aPosition:TKraftVector3);
+     end;
+
+     TKraftParticleGroup=class
+      public
+
+     end;
+
+     TKraftParticleSystem=class(TPersistent)
+      private
+       fPhysics:TKraft;
+       fParticleRadius:TKraftScalar;
+       fParticles:TKraftParticleList;
+       fPointerToParticles:PKraftParticleList;
+       fSpatialHashTable:TKraftParticleSpatialHashTable;
+       fStrictContactCheck:boolean;
+       fDensity:TKraftScalar;
+       fGravityScale:TKraftScalar;
+       fMaxCount:TKraftSizeInt;
+       fPressureStrength:TKraftScalar;
+       fDampingStrength:TKraftScalar;
+       fElasticStrength:TKraftScalar;
+       fSpringStrength:TKraftScalar;
+       fViscousStrength:TKraftScalar;
+       fSurfaceTensionPressureStrength:TKraftScalar;
+       fSurfaceTensionNormalStrength:TKraftScalar;
+       fRepulsiveStrength:TKraftScalar;
+       fPowderStrength:TKraftScalar;
+       fEjectionStrength:TKraftScalar;
+       fStaticPressureStrength:TKraftScalar;
+       fStaticPressureRelaxation:TKraftScalar;
+       fStaticPressureIterations:TKraftScalar;
+       fColorMixingStrength:TKraftScalar;
+       fDestroyByAge:boolean;
+       fLifetimeGranularity:TKraftScalar;
+      public
+       constructor Create(const aPhysics:TKraft;const aParticleRadius:TKraftScalar=0.1); reintroduce;
+       destructor Destroy; override;
+       function CreateParticle:TKraftSizeInt;
+       procedure DestroyParticle(const aIndex:TKraftSizeInt);
+       procedure Step(const aDeltaTime:TKraftScalar=0);
+      public
+       property Particles:PKraftParticleList read fPointerToParticles;
+      published
+       property StrictContactCheck:boolean read fStrictContactCheck write fStrictContactCheck;
+       property Density:TKraftScalar read fDensity write fDensity;
+       property GravityScale:TKraftScalar read fGravityScale write fGravityScale;
+       property MaxCount:TKraftSizeInt read fMaxCount write fMaxCount;
+       property PressureStrength:TKraftScalar read fPressureStrength write fPressureStrength;
+       property DampingStrength:TKraftScalar read fDampingStrength write fDampingStrength;
+       property ElasticStrength:TKraftScalar read fElasticStrength write fElasticStrength;
+       property SpringStrength:TKraftScalar read fSpringStrength write fSpringStrength;
+       property ViscousStrength:TKraftScalar read fViscousStrength write fViscousStrength;
+       property SurfaceTensionPressureStrength:TKraftScalar read fSurfaceTensionPressureStrength write fSurfaceTensionPressureStrength;
+       property SurfaceTensionNormalStrength:TKraftScalar read fSurfaceTensionNormalStrength write fSurfaceTensionNormalStrength;
+       property RepulsiveStrength:TKraftScalar read fRepulsiveStrength write fRepulsiveStrength;
+       property PowderStrength:TKraftScalar read fPowderStrength write fPowderStrength;
+       property EjectionStrength:TKraftScalar read fEjectionStrength write fEjectionStrength;
+       property StaticPressureStrength:TKraftScalar read fStaticPressureStrength write fStaticPressureStrength;
+       property StaticPressureRelaxation:TKraftScalar read fStaticPressureRelaxation write fStaticPressureRelaxation;
+       property StaticPressureIterations:TKraftScalar read fStaticPressureIterations write fStaticPressureIterations;
+       property ColorMixingStrength:TKraftScalar read fColorMixingStrength write fColorMixingStrength;
+       property DestroyByAge:boolean read fDestroyByAge write fDestroyByAge;
+       property LifetimeGranularity:TKraftScalar read fLifetimeGranularity write fLifetimeGranularity;
+     end;
+
      TKraftIsland=class
       private
 
@@ -3703,6 +3953,8 @@ const KraftSignatureConvexHull:TKraftSignature=('K','R','P','H','C','O','H','U')
 
       QuaternionIdentity:TKraftQuaternion=(x:0.0;y:0.0;z:0.0;w:1.0);
 
+function SpatialHashVector(const aX,aY,aZ:TKraftInt32{;const aW:TKraftInt32=0}):TKraftUInt32;
+
 function Vector2(const x,y:TKraftScalar):TKraftVector2; {$ifdef caninline}inline;{$endif}
 function Vector3(const x,y,z:TKraftScalar):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
 function Vector3({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftRawVector3):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
@@ -4027,6 +4279,11 @@ type qword=TKraftInt64;
      ptrint=TKraftInt32;
 {$endif}
 {$endif}
+
+function SpatialHashVector(const aX,aY,aZ:TKraftInt32{;const aW:TKraftInt32=0}):TKraftUInt32;
+begin
+ result:=(((TKraftUInt32(aX)*73856093) xor (TKraftUInt32(aY)*{19349663}19349669)) xor (TKraftUInt32(aZ)*83492791)) {xor (TKraftUInt32(aW)*67867979)};
+end;
 
 {$if defined(fpc) and (defined(cpu386) or defined(cpux64) or defined(cpuamd64))}
 // For to avoid "Fatal: Internal error 200604201" at the FreePascal compiler, when >= -O2 is used
@@ -34857,6 +35114,258 @@ begin
   Contact^.TangentImpulse[0]:=SpeculativeContactState^.TangentImpulse[0];
   Contact^.TangentImpulse[1]:=SpeculativeContactState^.TangentImpulse[1];
  end;
+end;
+
+constructor TKraftParticleColor.Create(const aR,aG,aB,aA:TKraftUInt8);
+begin
+ r:=aR;
+ g:=aG;
+ b:=aB;
+ a:=aA;
+end;
+
+function TKraftParticleColor.IsZero:boolean;
+begin
+ result:=Value=0;
+end;
+
+procedure TKraftParticleColor.SetColor(const aR,aG,aB,aA:TKraftUInt8);
+begin
+ r:=aR;
+ g:=aG;
+ b:=aB;
+ a:=aA;
+end;
+
+procedure TKraftParticleColor.MulFloat(const aValue:TKraftScalar);
+begin
+ r:=Min(Max(trunc(r*aValue),0),255);
+ g:=Min(Max(trunc(g*aValue),0),255);
+ b:=Min(Max(trunc(b*aValue),0),255);
+ a:=Min(Max(trunc(a*aValue),0),255);
+end;
+
+procedure TKraftParticleColor.MulUInt(const aValue:TKraftUInt8);
+begin
+ r:=Min(Max((r*(aValue+1)) shr 8,0),255);
+ g:=Min(Max((g*(aValue+1)) shr 8,0),255);
+ b:=Min(Max((b*(aValue+1)) shr 8,0),255);
+ a:=Min(Max((a*(aValue+1)) shr 8,0),255);
+end;
+
+procedure TKraftParticleColor.Add(const aColor:TKraftParticleColor);
+begin
+ r:=Min(r+aColor.r,255);
+ g:=Min(g+aColor.g,255);
+ b:=Min(b+aColor.b,255);
+ a:=Min(a+aColor.a,255);
+end;
+
+function TKraftParticleColor.Equals(const aColor:TKraftParticleColor):boolean;
+begin
+ result:=Value=aColor.Value;
+end;
+
+class procedure TKraftParticleColor.MixColors(var aColor0,aColor1:TKraftParticleColor;const aStrength:TKraftInt32);
+var dr,dg,db,da:TKraftUInt8;
+begin
+ dr:=((aColor1.r-aColor0.r)*aStrength) shr 8;
+ dg:=((aColor1.g-aColor0.g)*aStrength) shr 8;
+ db:=((aColor1.b-aColor0.b)*aStrength) shr 8;
+ da:=((aColor1.a-aColor0.a)*aStrength) shr 8;
+ aColor0.r:=aColor0.r+dr;
+ aColor0.g:=aColor0.g+dg;
+ aColor0.b:=aColor0.b+db;
+ aColor0.a:=aColor0.a+da;
+ aColor1.r:=aColor1.r-dr;
+ aColor1.g:=aColor1.g-dg;
+ aColor1.b:=aColor1.b-db;
+ aColor1.a:=aColor1.a-da;
+end;
+
+procedure TKraftParticleColor.Mix(const aColor:TKraftParticleColor;const aStrength:TKraftInt32);
+var dr,dg,db,da:TKraftUInt8;
+begin
+ dr:=((aColor.r-r)*aStrength) shr 8;
+ dg:=((aColor.g-g)*aStrength) shr 8;
+ db:=((aColor.b-b)*aStrength) shr 8;
+ da:=((aColor.a-a)*aStrength) shr 8;
+ r:=r+dr;
+ g:=g+dg;
+ b:=b+db;
+ a:=a+da;
+end;
+
+class function TKraftParticle.Create:TKraftParticle;
+begin
+ FillChar(result,SizeOf(TKraftParticle),#0);
+end;
+
+constructor TKraftParticleSpatialHashTable.Create(const aParticleSystem:TKraftParticleSystem;const aCellSize:TKraftScalar;const aHashBits:TKraftUInt32);
+var Index:TKraftSizeInt;
+begin
+ inherited Create;
+ fParticleSystem:=aParticleSystem;
+ fCellSize:=aCellSize;
+ fCellOffset:=aCellSize*0.5;
+ fHashBits:=aHashBits;
+ fHashSize:=1 shl fHashBits;
+ fHashMask:=fHashSize-1;
+ fBuckets:=nil;
+ fBucketLocks:=nil;
+ SetLength(fBuckets,fHashSize);
+ for Index:=0 to TKraftSizeInt(fHashSize)-1 do begin
+  fBuckets[Index].Count:=0;
+ end;
+ SetLength(fBucketLocks,fHashSize);
+ FillChar(fBucketLocks[0],fHashSize*SizeOf(TKraftParticleSpatialHashTableBucketLock),#0);
+ SetLength(fBucketGenerations,fHashSize);
+ FillChar(fBucketGenerations[0],fHashSize*SizeOf(TKraftParticleSpatialHashTableBucketGeneration),#0);
+ fGeneration:=0;
+end;
+
+destructor TKraftParticleSpatialHashTable.Destroy;
+begin
+ fBuckets:=nil;
+ fBucketLocks:=nil;
+ inherited Destroy;
+end;
+
+procedure TKraftParticleSpatialHashTable.Update;
+var Index:TKraftSizeInt;
+    Particle:PKraftParticle;
+    x,y,z:TKraftInt32;
+    BucketIndex:TKraftUInt32;
+    Bucket:PKraftParticleSpatialHashTableBucket;
+begin
+ inc(fGeneration);
+ for Index:=0 to fParticleSystem.fParticles.Count-1 do begin
+  Particle:=@fParticleSystem.fParticles.Items[Index];
+  x:=Floor((Particle^.Position.x-fCellOffset)/fCellSize);
+  y:=Floor((Particle^.Position.y-fCellOffset)/fCellSize);
+  z:=Floor((Particle^.Position.z-fCellOffset)/fCellSize);
+  BucketIndex:=SpatialHashVector(x,y,z) and fHashMask;
+  Bucket:=@fBuckets[BucketIndex];
+  if fBucketGenerations[BucketIndex]<>fGeneration then begin
+   fBucketGenerations[BucketIndex]:=fGeneration;
+   Bucket^.Count:=0;
+  end;
+  if length(Bucket^.Items)<=Bucket^.Count then begin
+   SetLength(Bucket^.Items,(Bucket^.Count+1)+((Bucket^.Count+1) shr 1));
+  end;
+  Bucket^.Items[Bucket^.Count]:=Index;
+  inc(Bucket^.Count);
+ end;
+end;
+
+procedure TKraftParticleSpatialHashTable.LookUp(var aItemList:TKraftParticleSpatialHashTableItemList;const aPosition:TKraftVector3);
+var x,y,z,rx,ry,rz:TKraftInt32;
+    BucketIndex:TKraftUInt32;
+    Bucket:PKraftParticleSpatialHashTableBucket;
+begin
+ x:=Floor((aPosition.x-fCellOffset)/fCellSize);
+ y:=Floor((aPosition.y-fCellOffset)/fCellSize);
+ z:=Floor((aPosition.z-fCellOffset)/fCellSize);
+ aItemList.Count:=0;
+ for rz:=-1 to 1 do begin
+  for ry:=-1 to 1 do begin
+   for rx:=-1 to 1 do begin
+    BucketIndex:=SpatialHashVector(x+rx,y+ry,z+rz) and fHashMask;
+    Bucket:=@fBuckets[BucketIndex];
+    if (fBucketGenerations[BucketIndex]=fGeneration) and (Bucket^.Count>0) then begin
+     if length(aItemList.Items)<=(aItemList.Count+Bucket^.Count) then begin
+      SetLength(aItemList.Items,(aItemList.Count+Bucket^.Count)+((aItemList.Count+Bucket^.Count) shr 1));
+     end;
+     Move(Bucket^.Items[0],aItemList.Items[aItemList.Count],Bucket^.Count*SizeOf(TKraftParticleSpatialHashTableItem));
+     inc(aItemList.Count,Bucket^.Count);
+    end;
+   end;
+  end;
+ end;
+end;
+
+constructor TKraftParticleSystem.Create(const aPhysics:TKraft;const aParticleRadius:TKraftScalar);
+begin
+
+ inherited Create;
+
+ fPhysics:=aPhysics;
+
+ fParticleRadius:=aParticleRadius;
+
+ fParticles.Items:=nil;
+ fParticles.Count:=0;
+
+ fSpatialHashTable:=TKraftParticleSpatialHashTable.Create(self,fParticleRadius*2.0);
+
+ fStrictContactCheck:=false;
+ fDensity:=1.0;
+ fGravityScale:=1.0;
+ fMaxCount:=0;
+
+ fPressureStrength:=0.05;
+ fDampingStrength:=1.0;
+ fElasticStrength:=0.25;
+ fSpringStrength:=0.25;
+ fViscousStrength:=0.25;
+ fSurfaceTensionPressureStrength:=0.2;
+ fSurfaceTensionNormalStrength:=0.2;
+ fRepulsiveStrength:=1.0;
+ fPowderStrength:=0.5;
+ fEjectionStrength:=0.5;
+ fStaticPressureStrength:=0.2;
+ fStaticPressureRelaxation:=0.2;
+ fStaticPressureIterations:=8;
+ fColorMixingStrength:=0.5;
+ fDestroyByAge:=true;
+ fLifetimeGranularity:=1.0/60.0;
+
+end;
+
+destructor TKraftParticleSystem.Destroy;
+begin
+ FreeAndNil(fSpatialHashTable);
+ fParticles.Items:=nil;
+ inherited Destroy;
+end;
+
+function TKraftParticleSystem.CreateParticle:TKraftSizeInt;
+begin
+ result:=fParticles.Count;
+ inc(fParticles.Count);
+ if length(fParticles.Items)<fParticles.Count then begin
+  SetLength(fParticles.Items,fParticles.Count+(fParticles.Count shr 1));
+ end;
+ fParticles.Items[result]:=TKraftParticle.Create;
+end;
+
+procedure TKraftParticleSystem.DestroyParticle(const aIndex:TKraftSizeInt);
+begin
+ if (aIndex>=0) and (aIndex<fParticles.Count) then begin
+  dec(fParticles.Count);
+  if aIndex<fParticles.Count then begin
+   fParticles.Items[aIndex]:=fParticles.Items[fParticles.Count];
+  end;
+ end;
+end;
+
+procedure TKraftParticleSystem.Step(const aDeltaTime:TKraftScalar=0);
+begin
+
+ // Broadphase
+ begin
+  fSpatialHashTable.Update;
+ end;
+
+ // Narrowphase
+ begin
+ end;
+
+ // Solver
+ begin
+
+ end;
+
 end;
 
 constructor TKraftIsland.Create(const APhysics:TKraft;const AIndex:TKraftInt32);
