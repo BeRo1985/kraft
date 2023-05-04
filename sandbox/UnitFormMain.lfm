@@ -4,7 +4,7 @@ object FormMain: TFormMain
   Top = -8
   Width = 1009
   Caption = 'Kraft physics engine sandbox - Copyright (C) 2015-2023, Benjamin ''BeRo'' Rosseaux'
-  ClientHeight = 706
+  ClientHeight = 726
   ClientWidth = 1009
   Color = clBtnFace
   Font.Color = clWindowText
@@ -43,6 +43,7 @@ object FormMain: TFormMain
     BevelOuter = bvNone
     ClientHeight = 719
     ClientWidth = 305
+    ParentBackground = False
     TabOrder = 0
     object sSplitter2: TSplitter
       Cursor = crVSplit
@@ -63,6 +64,7 @@ object FormMain: TFormMain
       BevelOuter = bvNone
       ClientHeight = 297
       ClientWidth = 305
+      ParentBackground = False
       TabOrder = 0
       object sGroupBoxTree: TGroupBox
         Left = 0
@@ -73,6 +75,7 @@ object FormMain: TFormMain
         Caption = 'Tree'
         ClientHeight = 279
         ClientWidth = 301
+        ParentBackground = False
         TabOrder = 0
         object sTreeViewMain: TTreeView
           Left = 0
@@ -89,6 +92,7 @@ object FormMain: TFormMain
           Indent = 19
           ParentFont = False
           ReadOnly = True
+          ShowSeparators = False
           TabOrder = 0
           OnChange = sTreeViewMainChange
           Options = [tvoAutoItemHeight, tvoKeepCollapsedNodes, tvoReadOnly, tvoShowButtons, tvoShowLines, tvoShowRoot, tvoToolTips, tvoThemedDraw]
@@ -104,6 +108,7 @@ object FormMain: TFormMain
       BevelOuter = bvNone
       ClientHeight = 416
       ClientWidth = 305
+      ParentBackground = False
       TabOrder = 1
       object sGroupBoxPropertyEditor: TGroupBox
         Left = 0
@@ -112,6 +117,7 @@ object FormMain: TFormMain
         Width = 305
         Align = alClient
         Caption = 'Property editor'
+        ParentBackground = False
         TabOrder = 0
       end
     end
@@ -125,6 +131,7 @@ object FormMain: TFormMain
     BevelOuter = bvNone
     ClientHeight = 719
     ClientWidth = 185
+    ParentBackground = False
     TabOrder = 1
     object sGroupBoxDemos: TGroupBox
       Left = 0
@@ -135,6 +142,7 @@ object FormMain: TFormMain
       Caption = 'Demos'
       ClientHeight = 701
       ClientWidth = 181
+      ParentBackground = False
       TabOrder = 0
       object sTreeViewDemos: TTreeView
         Left = 0
@@ -151,6 +159,7 @@ object FormMain: TFormMain
         Indent = 19
         ParentFont = False
         ReadOnly = True
+        ShowSeparators = False
         TabOrder = 0
         OnDblClick = sTreeViewDemosDblClick
         OnKeyPress = sTreeViewDemosKeyPress
@@ -168,6 +177,7 @@ object FormMain: TFormMain
     ClientHeight = 719
     ClientWidth = 525
     FullRepaint = False
+    ParentBackground = False
     TabOrder = 2
     object sSplitter4: TSplitter
       Cursor = crVSplit
@@ -188,6 +198,7 @@ object FormMain: TFormMain
       BevelOuter = bvNone
       ClientHeight = 168
       ClientWidth = 525
+      ParentBackground = False
       TabOrder = 0
       object sPageControl1: TPageControl
         Left = 0
@@ -238,7 +249,6 @@ object FormMain: TFormMain
             Width = 657
             AutoSize = False
             Caption = '0 '
-            Color = clDefault
             ParentColor = False
           end
           object sLabelMidPhaseTime: TLabel
@@ -248,7 +258,6 @@ object FormMain: TFormMain
             Width = 721
             AutoSize = False
             Caption = '0 '
-            Color = clDefault
             ParentColor = False
           end
           object sLabelNarrowPhaseTime: TLabel
@@ -258,7 +267,6 @@ object FormMain: TFormMain
             Width = 721
             AutoSize = False
             Caption = '0 '
-            Color = clDefault
             ParentColor = False
           end
           object sLabelSolverTime: TLabel
@@ -268,7 +276,6 @@ object FormMain: TFormMain
             Width = 721
             AutoSize = False
             Caption = '0 '
-            Color = clDefault
             ParentColor = False
           end
           object sLabelContinuousTime: TLabel
@@ -278,7 +285,6 @@ object FormMain: TFormMain
             Width = 721
             AutoSize = False
             Caption = '0 '
-            Color = clDefault
             ParentColor = False
           end
           object sLabelTotalTime: TLabel
@@ -288,7 +294,6 @@ object FormMain: TFormMain
             Width = 721
             AutoSize = False
             Caption = '0 '
-            Color = clDefault
             ParentColor = False
           end
         end

@@ -322,5 +322,5 @@ begin
 end;
 
 initialization
- RegisterDemoScene('Sphere on SDF terrain',TDemoSceneSphereOnSDFTerrain);
+//RegisterDemoScene('Sphere on SDF terrain',TDemoSceneSphereOnSDFTerrain);
 end.
