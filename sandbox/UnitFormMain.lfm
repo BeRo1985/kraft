@@ -72,18 +72,18 @@ object FormMain: TFormMain
         Width = 305
         Align = alClient
         Caption = 'Tree'
-        ClientHeight = 281
+        ClientHeight = 269
         ClientWidth = 301
         ParentBackground = False
         TabOrder = 0
         object sTreeViewMain: TTreeView
           Left = 0
-          Height = 281
+          Height = 269
           Top = 0
           Width = 301
           Align = alClient
-          BackgroundColor = clWhite
-          Color = clWhite
+          BackgroundColor = clDefault
+          Color = clDefault
           Font.Color = clBlack
           Font.Height = -11
           Font.Name = 'MS Sans Serif'
@@ -139,18 +139,18 @@ object FormMain: TFormMain
       Width = 185
       Align = alClient
       Caption = 'Demos'
-      ClientHeight = 710
+      ClientHeight = 698
       ClientWidth = 181
       ParentBackground = False
       TabOrder = 0
       object sTreeViewDemos: TTreeView
         Left = 0
-        Height = 710
+        Height = 698
         Top = 0
         Width = 181
         Align = alClient
-        BackgroundColor = clWhite
-        Color = clWhite
+        BackgroundColor = clDefault
+        Color = clDefault
         Font.Color = clBlack
         Font.Height = -11
         Font.Name = 'MS Sans Serif'
@@ -210,16 +210,14 @@ object FormMain: TFormMain
         TabOrder = 0
         object sTabSheetInfo: TTabSheet
           Caption = 'Info'
-          ClientHeight = 140
+          ClientHeight = 133
           ClientWidth = 505
           object sMemoInfo: TMemo
             Left = 0
-            Height = 140
+            Height = 133
             Top = 0
             Width = 505
             Align = alClient
-            Color = clWhite
-            Font.Color = clBlack
             Font.Height = -11
             Font.Name = 'MS Sans Serif'
             Lines.Strings = (
@@ -239,7 +237,7 @@ object FormMain: TFormMain
         end
         object sTabSheetPerformance: TTabSheet
           Caption = 'Performance'
-          ClientHeight = 140
+          ClientHeight = 133
           ClientWidth = 505
           object sLabelBroadPhaseTime: TLabel
             Left = 8
@@ -298,21 +296,21 @@ object FormMain: TFormMain
         end
         object sTabSheetSettings: TTabSheet
           Caption = 'Settings'
-          ClientHeight = 140
+          ClientHeight = 133
           ClientWidth = 505
           object sCheckBoxDrawDynamicAABBTree: TCheckBox
             Left = 8
-            Height = 21
+            Height = 20
             Top = 8
-            Width = 192
+            Width = 160
             Caption = 'Draw dynamic AABB tree '
             TabOrder = 0
           end
           object sCheckBoxDrawContacts: TCheckBox
             Left = 8
-            Height = 21
+            Height = 20
             Top = 32
-            Width = 116
+            Width = 102
             Caption = 'Draw contacts'
             Checked = True
             State = cbChecked
@@ -320,17 +318,17 @@ object FormMain: TFormMain
           end
           object sCheckBoxDrawWireFrame: TCheckBox
             Left = 8
-            Height = 21
+            Height = 20
             Top = 56
-            Width = 128
+            Width = 111
             Caption = 'Draw wireframe'
             TabOrder = 2
           end
           object sCheckBoxDrawSolid: TCheckBox
             Left = 8
-            Height = 21
+            Height = 20
             Top = 80
-            Width = 92
+            Width = 83
             Caption = 'Draw solid'
             Checked = True
             State = cbChecked
@@ -338,9 +336,9 @@ object FormMain: TFormMain
           end
           object sCheckBoxDrawConstraints: TCheckBox
             Left = 8
-            Height = 21
+            Height = 20
             Top = 104
-            Width = 133
+            Width = 116
             Caption = 'Draw constraints'
             Checked = True
             State = cbChecked
@@ -360,11 +358,11 @@ object FormMain: TFormMain
       TabOrder = 1
       object sTabSheetWorld: TTabSheet
         Caption = 'World'
-        ClientHeight = 524
+        ClientHeight = 517
         ClientWidth = 505
         object OpenGLControlWorld: TOpenGLControl
           Left = 0
-          Height = 524
+          Height = 517
           Top = 0
           Width = 505
           Align = alClient
