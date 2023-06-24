@@ -1332,7 +1332,7 @@ end;
 {$ifdef DebugDraw}
 procedure TVehicle.TAxle.TWheel.DebugDraw;
 var Index:TKraftInt32;
-    v{$ifdef NoOpenGL},l,m{$endif}:TKraftVector3;
+    v{$ifdef NoOpenGL},v0,v1,v2{$endif}:TKraftVector3;
 begin
  if true then begin
 
@@ -1362,14 +1362,15 @@ begin
 
 {$ifdef NoOpenGL}
   v:=Vector3TermMatrixMul(Vector3Origin,fVisualWorldTransform);
-  l:=v;
+  v0:=v;
   for Index:=0 to 16 do begin
    if assigned(fVehicle.fDebugDrawLine) then begin
-    v:=Vector3TermMatrixMul(Vector3Add(Vector3Add(Vector3Origin,Vector3ScalarMul(Vector3YAxis,Sin((Index/16)*PI*2))),Vector3ScalarMul(Vector3ZAxis,Cos((Index/16)*PI*2))),fVisualWorldTransform);
-    m:=Vector3TermMatrixMul(Vector3Add(Vector3Add(Vector3Origin,Vector3ScalarMul(Vector3YAxis,Sin(((Index+1)/16)*PI*2))),Vector3ScalarMul(Vector3ZAxis,Cos((Index/16)*PI*2))),fVisualWorldTransform);
-    fVehicle.fDebugDrawLine(l,v,Vector4(1.0,1.0,1.0,1.0));
-    fVehicle.fDebugDrawLine(l,m,Vector4(1.0,1.0,1.0,1.0));
-    fVehicle.fDebugDrawLine(v,m,Vector4(1.0,1.0,1.0,1.0));
+    v1:=v0;
+    v0:=Vector3TermMatrixMul(Vector3Add(Vector3Add(Vector3Origin,Vector3ScalarMul(Vector3YAxis,Sin((Index/16)*PI*2))),Vector3ScalarMul(Vector3ZAxis,Cos((Index/16)*PI*2))),fVisualWorldTransform);
+    if Index>0 then begin
+     fVehicle.fDebugDrawLine(v,v0,Vector4(1.0,1.0,1.0,1.0));
+     fVehicle.fDebugDrawLine(v0,v1,Vector4(1.0,1.0,1.0,1.0));
+    end;
    end;
   end;
 {$else}
