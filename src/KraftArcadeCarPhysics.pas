@@ -169,11 +169,13 @@ uses {$ifdef windows}
       {$endif}
      {$endif}
      {$ifdef DebugDraw}
-      {$ifdef fpc}
-       GL,
-       GLext,
-      {$else}
-       OpenGL,
+      {$ifndef NoOpenGL}
+       {$ifdef fpc}
+        GL,
+        GLext,
+       {$else}
+        OpenGL,
+       {$endif}
       {$endif}
      {$endif}
      SysUtils,
@@ -189,7 +191,8 @@ type { TVehicle }
      TVehicle=class
       public
        const WheelWidth=0.085;
-       type { TEnvelope }
+       type TDebugDrawLine=procedure(const aP0,aP1:TKraftVector3;const aColor:TKraftVector4) of object;
+            { TEnvelope }
             TEnvelope=class
              public
               type TPoint=record
@@ -428,6 +431,7 @@ type { TVehicle }
        fInputHandBrake:Boolean;
        fSpeed:TKraftScalar;
        fSpeedKMH:TKraftScalar;
+       fDebugDrawLine:TDebugDrawLine;
       public
        constructor Create(const aKraftPhysics:TKraft); reintroduce;
        destructor Destroy; override;
@@ -505,6 +509,7 @@ type { TVehicle }
        property InputHandBrake:Boolean read fInputHandBrake write fInputHandBrake;
        property Speed:TKraftScalar read fSpeed write fSpeed;
        property SpeedKMH:TKraftScalar read fSpeedKMH write fSpeedKMH;
+       property DebugDrawLine:TDebugDrawLine read fDebugDrawLine write fDebugDrawLine;
      end;
 
 implementation
@@ -543,10 +548,17 @@ begin
 end;
 
 {$ifdef DebugDraw}
-procedure DrawRay(const aRayOrigin,aRayDirection:TKraftVector3;const aR,aG,aB:TKraftScalar);
+procedure DrawRay(const aVehicle:TVehicle;const aRayOrigin,aRayDirection:TKraftVector3;const aR,aG,aB:TKraftScalar);
+{$ifndef NoOpenGL}
 var v:TKraftVector3;
+{$endif}
 begin
  if Vector3Length(aRayDirection)>0.0 then begin
+{$ifdef NoOpenGL}
+  if assigned(aVehicle.fDebugDrawLine) then begin
+   aVehicle.fDebugDrawLine(aRayOrigin,Vector3Add(aRayOrigin,aRayDirection),Vector4(aR,aG,aB,1.0));
+  end;
+{$else}
   glColor4f(aR,aG,aB,1.0);
   glBegin(GL_LINES);
   v:=aRayOrigin;
@@ -554,6 +566,7 @@ begin
   v:=Vector3Add(aRayOrigin,aRayDirection);
   glVertex3fv(@v);
   glEnd;
+{$endif}
  end;
 end;
 {$endif}
@@ -1319,28 +1332,47 @@ end;
 {$ifdef DebugDraw}
 procedure TVehicle.TAxle.TWheel.DebugDraw;
 var Index:TKraftInt32;
-    v:TKraftVector3;
+    v{$ifdef NoOpenGL},l,m{$endif}:TKraftVector3;
 begin
  if true then begin
 
   if fVisualHitValid then begin
 
+{$ifdef NoOpenGL}
+   if assigned(fVehicle.fDebugDrawLine) then begin
+    fVehicle.fDebugDrawLine(fVisualDebugDrawLinePoints[0],fVisualDebugDrawLinePoints[1],Vector4(1.0,1.0,1.0,1.0));
+   end;
+{$else}
    glColor4f(1.0,1.0,0.0,1.0);
    glBegin(GL_LINES);
    glVertex3fv(@fVisualDebugDrawLinePoints[0]);
    glVertex3fv(@fVisualDebugDrawLinePoints[1]);
    glEnd;
+{$endif}
 
-   DrawRay(fVisualHitPoint,fVisualDebugSlidingVelocity,1.0,0.0,0.0);
+   DrawRay(fVehicle,fVisualHitPoint,fVisualDebugSlidingVelocity,1.0,0.0,0.0);
 
-   DrawRay(fVisualHitPoint,fVisualDebugFrictionForce,1.0,0.0,0.0);
+   DrawRay(fVehicle,fVisualHitPoint,fVisualDebugFrictionForce,1.0,0.0,0.0);
 
-   DrawRay(fVisualHitPoint,fVisualDebugLongitudinalForce,1.0,1.0,1.0);
+   DrawRay(fVehicle,fVisualHitPoint,fVisualDebugLongitudinalForce,1.0,1.0,1.0);
 
-   DrawRay(fVisualDebugAccForcePoint,fVisualDebugEngineForce,0.0,1.0,0.0);
+   DrawRay(fVehicle,fVisualDebugAccForcePoint,fVisualDebugEngineForce,0.0,1.0,0.0);
 
   end;
 
+{$ifdef NoOpenGL}
+  v:=Vector3TermMatrixMul(Vector3Origin,fVisualWorldTransform);
+  l:=v;
+  for Index:=0 to 16 do begin
+   if assigned(fVehicle.fDebugDrawLine) then begin
+    v:=Vector3TermMatrixMul(Vector3Add(Vector3Add(Vector3Origin,Vector3ScalarMul(Vector3YAxis,Sin((Index/16)*PI*2))),Vector3ScalarMul(Vector3ZAxis,Cos((Index/16)*PI*2))),fVisualWorldTransform);
+    m:=Vector3TermMatrixMul(Vector3Add(Vector3Add(Vector3Origin,Vector3ScalarMul(Vector3YAxis,Sin(((Index+1)/16)*PI*2))),Vector3ScalarMul(Vector3ZAxis,Cos((Index/16)*PI*2))),fVisualWorldTransform);
+    fVehicle.fDebugDrawLine(l,v,Vector4(1.0,1.0,1.0,1.0));
+    fVehicle.fDebugDrawLine(l,m,Vector4(1.0,1.0,1.0,1.0));
+    fVehicle.fDebugDrawLine(v,m,Vector4(1.0,1.0,1.0,1.0));
+   end;
+  end;
+{$else}
   glColor4f(1.0,1.0,1.0,1.0);
   glDisable(GL_CULL_FACE);
   glBegin(GL_TRIANGLE_FAN);
@@ -1352,6 +1384,7 @@ begin
   end;
   glEnd;
   glEnable(GL_CULL_FACE);
+{$endif}
 
  end;
 end;
@@ -1475,17 +1508,23 @@ begin
  fWheelLeft.DebugDraw;
  fWheelRight.DebugDraw;
  if fWheelLeft.fHitValid then begin
-  DrawRay(fWheelLeft.fVisualHitPoint,fVisualDebugAntiRollForces[0],1.0,0.0,1.0);
+  DrawRay(fVehicle,fWheelLeft.fVisualHitPoint,fVisualDebugAntiRollForces[0],1.0,0.0,1.0);
  end;
  if fWheelRight.fHitValid then begin
-  DrawRay(fWheelRight.fVisualHitPoint,fVisualDebugAntiRollForces[1],1.0,0.0,1.0);
+  DrawRay(fVehicle,fWheelRight.fVisualHitPoint,fVisualDebugAntiRollForces[1],1.0,0.0,1.0);
  end;
+{$ifdef NoOpenGL}
+ if assigned(fVehicle.fDebugDrawLine) then begin
+  fVehicle.fDebugDrawLine(fVisualDebugWheels[0],fVisualDebugWheels[1],Vector4(0.0,0.0,1.0,1.0));
+ end;
+{$else}
  glColor4f(0.0,0.0,1.0,1.0);
  glBegin(GL_LINES);
  glVertex3fv(@fVisualDebugWheels[0]);
  glVertex3fv(@fVisualDebugWheels[1]);
  glEnd;
  glColor4f(1.0,1.0,1.0,1.0);
+{$endif}
 end;
 {$endif}
 
@@ -1523,6 +1562,7 @@ begin
  fInputReset:=false;
  fInputBrake:=false;
  fInputHandBrake:=false;
+ fDebugDrawLine:=nil;
 end;
 
 destructor TVehicle.Destroy;
@@ -1896,12 +1936,25 @@ end;
 
 {$ifdef DebugDraw}
 procedure TVehicle.DebugDraw;
-var v:TKraftVector3;
+var v{$ifdef NoOpenGL},v0{$endif}:TKraftVector3;
 begin
  v:=Vector3TermMatrixMul(fRigidBody.Sweep.LocalCenter,fRigidBody.WorldTransform);
+{$ifdef NoOpenGL}
+{$else}
  glDisable(GL_DEPTH_TEST);
+{$endif}
  fAxleFront.DebugDraw;
  fAxleRear.DebugDraw;
+{$ifdef NoOpenGL}
+ if assigned(fDebugDrawLine) then begin
+  v0:=Vector3Lerp(fAxleFront.fVisualDebugMiddle,v,0.9);
+  fDebugDrawLine(fAxleFront.fVisualDebugMiddle,v0,Vector4(0.0,0.0,1.0,1.0));
+  fDebugDrawLine(v0,v,Vector4(0.0,1.0,1.0,1.0));
+  v0:=Vector3Lerp(v,fAxleRear.fVisualDebugMiddle,0.9);
+  fDebugDrawLine(v,v0,Vector4(0.0,1.0,1.0,1.0));
+  fDebugDrawLine(v0,fAxleRear.fVisualDebugMiddle,Vector4(0.0,0.0,1.0,1.0));
+ end;
+{$else}
  glColor4f(0.0,0.0,1.0,1.0);
  glBegin(GL_LINE_STRIP);
  glVertex3fv(@fAxleFront.fVisualDebugMiddle);
@@ -1916,6 +1969,7 @@ begin
  end;
  glColor4f(1.0,1.0,1.0,1.0);
  glEnable(GL_DEPTH_TEST);
+{$endif}
 //write(#13,fAxleFront.SteerAngle:1:5,' ',AxleFront.WheelLeft.fYawRad*RAD2DEG:1:5,' ',fSpeed*3.6:1:5,' - ',fWorldForward.x:1:5,' ',fWorldForward.y:1:5,' ',fWorldForward.z:1:5);
 end;
 {$endif}

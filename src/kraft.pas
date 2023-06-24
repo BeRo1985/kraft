@@ -3959,6 +3959,7 @@ function Vector2(const x,y:TKraftScalar):TKraftVector2; {$ifdef caninline}inline
 function Vector3(const x,y,z:TKraftScalar):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
 function Vector3({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftRawVector3):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
 function Vector3({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector4):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
+function Vector4(const x,y,z,w:TKraftScalar):TKraftVector4; overload; {$ifdef caninline}inline;{$endif}
 function Matrix3x3({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix4x4):TKraftMatrix3x3; overload; {$ifdef caninline}inline;{$endif}
 function Plane({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif}Normal:TKraftVector3;const Distance:TKraftScalar):TKraftPlane; overload; {$ifdef caninline}inline;{$endif}
 function Quaternion(const w,x,y,z:TKraftScalar):TKraftQuaternion; {$ifdef caninline}inline;{$endif}
@@ -4648,6 +4649,14 @@ begin
 {$ifdef SIMD}
  result.w:=0.0;
 {$endif}
+end;
+
+function Vector4(const x,y,z,w:TKraftScalar):TKraftVector4; overload; {$ifdef caninline}inline;{$endif}
+begin
+ result.x:=x;
+ result.y:=y;
+ result.z:=z;
+ result.w:=w;
 end;
 
 function Matrix3x3({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix4x4):TKraftMatrix3x3; overload; {$ifdef caninline}inline;{$endif}
@@ -38784,7 +38793,7 @@ var Hit:boolean;
         kstPlane:begin
          CollideSphereWithPlane(TKraftShapePlane(CurrentShape));
         end;
-        kstTriangle:begin
+                kstTriangle:begin
          CollideSphereWithTriangle(TKraftShapeTriangle(CurrentShape));
         end;
         kstMesh:begin
