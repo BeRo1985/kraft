@@ -1255,13 +1255,14 @@ var Scale:TKraftScalar;
     WorldWheelRotation:TKraftQuaternion;
 begin
 
- fLocalWheelPosition:=Vector3(fAxle.fWidth*fOffset*0.5,fAxle.fOffset.y-fSuspensionLength,fAxle.fOffset.x);
+ fLocalWheelPosition:=Vector3(0.0,-fSuspensionLength,0.0);
+//fLocalWheelPosition:=Vector3(fAxle.fWidth*fOffset*0.5,fAxle.fOffset.y-fSuspensionLength,fAxle.fOffset.x);
  fLocalWheelRotation:=Vector3(fYawRad+IfThen(fOffset<0.0,PI,0.0),0.0,fVisualRotationRad*fOffset);
 
  LocalWheelPosition:=Vector3(fAxle.fWidth*fOffset*0.5,fAxle.fOffset.y-fSuspensionLength,fAxle.fOffset.x);
  LocalWheelRotation:=QuaternionFromAngles(fYawRad+IfThen(fOffset<0.0,PI,0.0),0.0,fVisualRotationRad*fOffset);
 
- WorldWheelPosition:=Vector3TermMatrixMul(fLocalWheelPosition,fVehicle.fWorldTransform);
+ WorldWheelPosition:=Vector3TermMatrixMul(LocalWheelPosition,fVehicle.fWorldTransform);
  WorldWheelRotation:=QuaternionMul(Vehicle.fRigidBody.Sweep.q,LocalWheelRotation);
 
  fWorldTransform:=QuaternionToMatrix4x4(WorldWheelRotation);
