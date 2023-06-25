@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2023-06-25-11-41-0000                       *
+ *                        Version 2023-06-25-20-38-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -4215,6 +4215,13 @@ function QuaternionIntegrate({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif
 function QuaternionSpin({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} q:TKraftQuaternion;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Omega:TKraftVector3;const DeltaTime:TKraftScalar):TKraftQuaternion; overload; {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 procedure QuaternionDirectSpin(var q:TKraftQuaternion;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Omega:TKraftVector3;const DeltaTime:TKraftScalar); overload; {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function QuaternionFromToRotation({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} FromDirection,ToDirection:TKraftVector3):TKraftQuaternion; {$ifdef caninline}inline;{$endif}
+
+function Modulo(x,y:TKraftScalar):TKraftScalar; {$ifdef caninline}inline;{$endif}
+function ModuloPos(x,y:TKraftScalar):TKraftScalar; {$ifdef caninline}inline;{$endif}
+
+function AngleClamp(a:TKraftScalar):TKraftScalar; {$ifdef caninline}inline;{$endif}
+function AngleDiff(a,b:TKraftScalar):TKraftScalar; {$ifdef caninline}inline;{$endif}
+function AngleLerp(a,b,x:TKraftScalar):TKraftScalar; {$ifdef caninline}inline;{$endif}
 
 function InertiaTensorTransform({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Inertia,Transform:TKraftMatrix3x3):TKraftMatrix3x3; {$ifdef caninline}inline;{$endif}
 function InertiaTensorParallelAxisTheorem({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Center:TKraftVector3;const Mass:TKraftScalar):TKraftMatrix3x3; {$ifdef caninline}inline;{$endif}
@@ -10182,6 +10189,55 @@ begin
  result.w:=sqrt((sqr(FromDirection.x)+sqr(FromDirection.y)+sqr(FromDirection.z))*
                 (sqr(ToDirection.x)+sqr(ToDirection.y)+sqr(ToDirection.z)))+
                ((FromDirection.x*ToDirection.x)+(FromDirection.y*ToDirection.y)+(FromDirection.z*ToDirection.z));
+end;
+
+function Modulo(x,y:TKraftScalar):TKraftScalar; {$ifdef caninline}inline;{$endif}
+begin
+ result:=x-(floor(x/y)*y);
+end;
+
+function ModuloPos(x,y:TKraftScalar):TKraftScalar; {$ifdef caninline}inline;{$endif}
+begin
+ if y>0.0 then begin
+  result:=Modulo(x,y);
+  while result<0.0 do begin
+   result:=result+y;
+  end;
+  while result>=y do begin
+   result:=result-y;
+  end;
+ end else begin
+  result:=x;
+ end;
+end;
+
+function AngleClamp(a:TKraftScalar):TKraftScalar; {$ifdef caninline}inline;{$endif}
+begin
+ a:=ModuloPos(ModuloPos(a+pi,pi2)+pi2,pi2)-pi;
+ while a<(-pi) do begin
+  a:=a+pi2;
+ end;
+ while a>pi do begin
+  a:=a-pi2;
+ end;
+ result:=a;
+end;
+
+function AngleDiff(a,b:TKraftScalar):TKraftScalar; {$ifdef caninline}inline;{$endif}
+begin
+ result:=AngleClamp(AngleClamp(b)-AngleClamp(a));
+end;
+
+function AngleLerp(a,b,x:TKraftScalar):TKraftScalar; {$ifdef caninline}inline;{$endif}
+begin
+{if (b-a)>PI then begin
+  b:=b-TwoPI;
+ end;
+ if (b-a)<(-PI) then begin
+  b:=b+TwoPI;
+ end;
+ result:=a+((b-a)*x);}
+ result:=a+(AngleDiff(a,b)*x);
 end;
 
 function AABBCost(const AABB:TKraftAABB):TKraftScalar; {$ifdef caninline}inline;{$endif}

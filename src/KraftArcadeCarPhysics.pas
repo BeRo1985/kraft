@@ -251,6 +251,12 @@ type { TVehicle }
                      fWorldTransform:TKraftMatrix4x4;
                      fLastWorldTransform:TKraftMatrix4x4;
                      fVisualWorldTransform:TKraftMatrix4x4;
+                     fLastLocalWheelPosition:TKraftVector3;
+                     fLastLocalWheelRotation:TKraftVector3;
+                     fLocalWheelPosition:TKraftVector3;
+                     fLocalWheelRotation:TKraftVector3;
+                     fVisualLocalWheelPosition:TKraftVector3;
+                     fVisualLocalWheelRotation:TKraftVector3;
 {$ifdef DebugDraw}
                      fDebugDrawLinePoints:array[0..1] of TKraftVector3;
                      fDebugSlidingVelocity:TKraftVector3;
@@ -306,6 +312,10 @@ type { TVehicle }
                     public
                      property WorldTransform:TKraftMatrix4x4 read fWorldTransform write fWorldTransform;
                      property VisualWorldTransform:TKraftMatrix4x4 read fVisualWorldTransform write fVisualWorldTransform;
+                     property LocalWheelPosition:TKraftVector3 read fLocalWheelPosition write fLocalWheelPosition;
+                     property LocalWheelRotation:TKraftVector3 read fLocalWheelRotation write fLocalWheelRotation;
+                     property VisualLocalWheelPosition:TKraftVector3 read fVisualLocalWheelPosition write fVisualLocalWheelPosition;
+                     property VisualLocalWheelRotation:TKraftVector3 read fVisualLocalWheelRotation write fVisualLocalWheelRotation;
                    end;
              private
               fVehicle:TVehicle;
@@ -1238,20 +1248,23 @@ begin
 end;
 
 procedure TVehicle.TAxle.TWheel.UpdateVisual;
-var LocalWheelPosition:TKraftVector3;
+var Scale:TKraftScalar;
+    LocalWheelPosition:TKraftVector3;
     LocalWheelRotation:TKraftQuaternion;
-    WorldSpacePosition:TKraftVector3;
-    WorldSpaceRotation:TKraftQuaternion;
-    Scale:TKraftScalar;
+    WorldWheelPosition:TKraftVector3;
+    WorldWheelRotation:TKraftQuaternion;
 begin
+
+ fLocalWheelPosition:=Vector3(fAxle.fWidth*fOffset*0.5,fAxle.fOffset.y-fSuspensionLength,fAxle.fOffset.x);
+ fLocalWheelRotation:=Vector3(fYawRad+IfThen(fOffset<0.0,PI,0.0),0.0,fVisualRotationRad*fOffset);
 
  LocalWheelPosition:=Vector3(fAxle.fWidth*fOffset*0.5,fAxle.fOffset.y-fSuspensionLength,fAxle.fOffset.x);
  LocalWheelRotation:=QuaternionFromAngles(fYawRad+IfThen(fOffset<0.0,PI,0.0),0.0,fVisualRotationRad*fOffset);
 
- WorldSpacePosition:=Vector3TermMatrixMul(LocalWheelPosition,fVehicle.fWorldTransform);
- WorldSpaceRotation:=QuaternionMul(Vehicle.fRigidBody.Sweep.q,LocalWheelRotation);
+ WorldWheelPosition:=Vector3TermMatrixMul(fLocalWheelPosition,fVehicle.fWorldTransform);
+ WorldWheelRotation:=QuaternionMul(Vehicle.fRigidBody.Sweep.q,LocalWheelRotation);
 
- fWorldTransform:=QuaternionToMatrix4x4(WorldSpaceRotation);
+ fWorldTransform:=QuaternionToMatrix4x4(WorldWheelRotation);
  Scale:=fAxle.fRadius*fAxle.fWheelVisualScale;
  fWorldTransform[0,0]:=fWorldTransform[0,0]*Scale;
  fWorldTransform[0,1]:=fWorldTransform[0,1]*Scale;
@@ -1265,13 +1278,16 @@ begin
 {Vector3Scale(PKraftVector3(@fWorldTransform[0,0])^,fAxle.fRadius*fAxle.fWheelVisualScale);
  Vector3Scale(PKraftVector3(@fWorldTransform[1,0])^,fAxle.fRadius*fAxle.fWheelVisualScale);
  Vector3Scale(PKraftVector3(@fWorldTransform[2,0])^,fAxle.fRadius*fAxle.fWheelVisualScale);}
- PKraftVector3(@fWorldTransform[3,0])^.xyz:=WorldSpacePosition.xyz;
+ PKraftVector3(@fWorldTransform[3,0])^.xyz:=WorldWheelPosition.xyz;
+
 
 end;
 
 procedure TVehicle.TAxle.TWheel.StoreWorldTransforms;
 begin
  fLastWorldTransform:=fWorldTransform;
+ fLastLocalWheelPosition:=fLocalWheelPosition;
+ fLastLocalWheelRotation:=fLocalWheelRotation;
 {$ifdef DebugDraw}
  fLastHitValid:=fHitValid;
  fLastHitPoint:=fHitPoint;
@@ -1288,6 +1304,10 @@ end;
 procedure TVehicle.TAxle.TWheel.InterpolateWorldTransforms(const aAlpha:TKraftScalar);
 begin
  fVisualWorldTransform:=Matrix4x4Lerp(fLastWorldTransform,fWorldTransform,aAlpha);
+ fVisualLocalWheelPosition:=Vector3Lerp(fLastLocalWheelPosition,fLocalWheelPosition,aAlpha);
+ fVisualLocalWheelRotation.x:=AngleLerp(fLastLocalWheelRotation.x,fLocalWheelRotation.x,aAlpha);
+ fVisualLocalWheelRotation.y:=AngleLerp(fLastLocalWheelRotation.y,fLocalWheelRotation.y,aAlpha);
+ fVisualLocalWheelRotation.z:=AngleLerp(fLastLocalWheelRotation.z,fLocalWheelRotation.z,aAlpha);
 {$ifdef DebugDraw}
  if fLastHitValid then begin
   if fHitValid then begin
