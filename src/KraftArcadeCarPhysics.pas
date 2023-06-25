@@ -1939,7 +1939,7 @@ end;
 procedure TVehicle.DebugDraw;
 var v{$ifdef NoOpenGL},v0{$endif}:TKraftVector3;
 begin
- v:=Vector3TermMatrixMul(fRigidBody.Sweep.LocalCenter,fRigidBody.WorldTransform);
+ v:=Vector3TermMatrixMul(fRigidBody.Sweep.LocalCenter,fRigidBody.InterpolatedWorldTransform);
 {$ifdef NoOpenGL}
 {$else}
  glDisable(GL_DEPTH_TEST);

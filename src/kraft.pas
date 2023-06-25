@@ -2295,6 +2295,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fWorldDisplacement:TKraftVector3;
 
+       fLastWorldTransform:TKraftMatrix4x4;
+
+       fInterpolatedWorldTransform:TKraftMatrix4x4;
+
        fWorldTransform:TKraftMatrix4x4;
 
        fSweep:TKraftSweep;
@@ -2482,6 +2486,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property ShapeLast:TKraftShape read fShapeLast write fShapeLast;
 
        property ShapeCount:TKraftInt32 read fShapeCount write fShapeCount;
+
+       property InterpolatedWorldTransform:TKraftMatrix4x4 read fInterpolatedWorldTransform;
 
        property WorldTransform:TKraftMatrix4x4 read fWorldTransform write fWorldTransform;
 
@@ -30449,6 +30455,7 @@ end;
 procedure TKraftRigidBody.StoreWorldTransform;
 var Shape:TKraftShape;
 begin
+ fLastWorldTransform:=fWorldTransform;
  Shape:=fShapeFirst;
  while assigned(Shape) do begin
   Shape.StoreWorldTransform;
@@ -30459,6 +30466,7 @@ end;
 procedure TKraftRigidBody.InterpolateWorldTransform(const Alpha:TKraftScalar);
 var Shape:TKraftShape;
 begin
+ fInterpolatedWorldTransform:=Matrix4x4Slerp(fLastWorldTransform,fWorldTransform,Alpha);
  Shape:=fShapeFirst;
  while assigned(Shape) do begin
   Shape.InterpolateWorldTransform(Alpha);
