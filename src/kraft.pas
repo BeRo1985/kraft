@@ -140,6 +140,10 @@ unit kraft;
 
 {-$define DebugDraw}
 
+{$ifdef NoOpenGL}
+ {$undef DebugDraw}
+{$endif}
+
 {-$define memdebug}
 
 {$ifdef KraftUseDouble}
@@ -1269,7 +1273,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      end;
 
      PKraftMeshTriangle=^TKraftMeshTriangle;
-     TKraftMeshTriangle=record
+     TKraftMeshTriangle=packed record
       Next:TKraftInt32;
       Vertices:array[0..2] of TKraftInt32;
       Normals:array[0..2] of TKraftInt32;
@@ -1280,7 +1284,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      TKraftMeshTriangles=array of TKraftMeshTriangle;
 
      PKraftMeshNode=^TKraftMeshNode;
-     TKraftMeshNode=record
+     TKraftMeshNode=packed record
       Children:array[0..1] of TKraftInt32;
       TriangleIndex:TKraftInt32;
       AABB:TKraftAABB;
@@ -1289,7 +1293,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      TKraftMeshNodes=array of TKraftMeshNode;
 
      PKraftMeshSkipListNode=^TKraftMeshSkipListNode;
-     TKraftMeshSkipListNode=record
+     TKraftMeshSkipListNode=packed record
       SkipToNodeIndex:TKraftInt32;
       TriangleIndex:TKraftInt32;
       AABB:TKraftAABB;
@@ -10399,6 +10403,25 @@ begin
           sqr(Min(Max(aSphere.Center.z,aAABB.Min.z),aAABB.Max.z)-aSphere.Center.z))<=sqr(aSphere.Radius);
 end;
 
+function CartesianToBarycentric(const a,b,c,p:TKraftVector3;out u,v,w:TKraftScalar):boolean;
+var v0,v1,v2:TKraftVector3;
+    d00,d01,d11,d20,d21,Denominator:TKraftScalar;
+begin
+ v0:=Vector3Sub(b,a);
+ v1:=Vector3Sub(c,a);
+ v2:=Vector3Sub(p,a);
+ d00:=Vector3Dot(v0,v0);
+ d01:=Vector3Dot(v0,v1);
+ d11:=Vector3Dot(v1,v1);
+ d20:=Vector3Dot(v2,v0);
+ d21:=Vector3Dot(v2,v1);
+ Denominator:=(d00*d11)-sqr(d01);
+ v:=((d11*d20)-(d01*d21))/Denominator;
+ w:=((d00*d21)-(d01*d20))/Denominator;
+ u:=(1.0-u)-w;
+ result:=(u>=0.0) and (v>=0.0) and ((u+v)<=1.0);
+end;
+
 function RayIntersectTriangle(const RayOrigin,RayDirection,v0,v1,v2:TKraftVector3;var Time,u,v:TKraftScalar):boolean; overload;
 var e0,e1,p,t,q:TKraftVector3;
     Determinant,InverseDeterminant:TKraftScalar;
@@ -10487,9 +10510,201 @@ begin
          IsPointsSameSide(p,p2,p0,Vector3Sub(p1,p0));
 end;
 
-function SquaredDistanceFromPointToTriangle(const p,a,b,c:TKraftVector3):TKraftScalar;
+function PointInTriangleFast(const p0,p1,p2,p:TKraftVector3):boolean; {$ifdef caninline}inline;{$endif}
+var e10,e20,vp:TKraftVector3;
+    a,b,c,ac_bb,d,e,x,y,z:TKraftScalar;
+begin
+ e10:=Vector3Sub(p1,p0);
+ e20:=Vector3Sub(p2,p0);
+ a:=Vector3Dot(e10,e10);
+ b:=Vector3Dot(e10,e20);
+ c:=Vector3Dot(e20,e20);
+ ac_bb:=(a*c)-sqr(b);
+ vp:=Vector3Sub(p,p0);
+ d:=Vector3Dot(vp,e10);
+ e:=Vector3Dot(vp,e20);
+ x:=(d*c)-(e*b);
+ y:=(e*a)-(d*b);
+ z:=(x+y)-ac_bb;
+{$ifdef KraftUseDouble}
+ result:=((PKraftUInt64(pointer(@z))^ and not (PKraftUInt64(pointer(@x))^ or PKraftUInt64(pointer(@y))^)) and TKraftUInt64($8000000000000000))<>0;
+{$else}
+ result:=((PKraftUInt32(pointer(@z))^ and not (PKraftUInt32(pointer(@x))^ or PKraftUInt32(pointer(@y))^)) and TKraftUInt32($80000000))<>0;
+{$endif}
+end;
+
+function GetLowestRoot(a,b,c,maxR:TKraftScalar;out Root:TKraftScalar):boolean;
+var Determinant,r1,r2,t:TKraftScalar;
+begin
+
+ Determinant:=sqr(b)-(4.0*(a*c));
+
+ if Determinant<0.0 then begin
+  result:=false;
+  exit;
+ end;
+
+ Determinant:=sqrt(Determinant);
+ r1:=((-b)-Determinant)/(a*2.0);
+ r2:=((-b)+Determinant)/(a*2.0);
+
+ if r1>r2 then begin
+  t:=r1;
+  r1:=r2;
+  r2:=t;
+ end;
+
+ if (r1>0.0) and (r1<maxR) then begin
+  Root:=r1;
+  result:=true;
+ end else if (r2>0.0) and (r2<maxR) then begin
+  Root:=r2;
+  result:=true;
+ end else begin
+  result:=false;
+ end;
+
+end;
+
+function SquaredDistanceFromPointToTriangle(const p,a,b,c:TKraftVector3):TKraftScalar; overload;
 var ab,ac,bc,pa,pb,pc,ap,bp,cp,n:TKraftVector3;
     snom,sdenom,tnom,tdenom,unom,udenom,vc,vb,va,u,v,w:TKraftScalar;
+begin
+
+ ab.x:=b.x-a.x;
+ ab.y:=b.y-a.y;
+ ab.z:=b.z-a.z;
+{$ifdef SIMD}
+ ab.w:=0.0;
+{$endif}
+
+ ac.x:=c.x-a.x;
+ ac.y:=c.y-a.y;
+ ac.z:=c.z-a.z;
+{$ifdef SIMD}
+ ac.w:=0.0;
+{$endif}
+
+ bc.x:=c.x-b.x;
+ bc.y:=c.y-b.y;
+ bc.z:=c.z-b.z;
+{$ifdef SIMD}
+ bc.w:=0.0;
+{$endif}
+
+ pa.x:=p.x-a.x;
+ pa.y:=p.y-a.y;
+ pa.z:=p.z-a.z;
+{$ifdef SIMD}
+ pa.w:=0.0;
+{$endif}
+
+ pb.x:=p.x-b.x;
+ pb.y:=p.y-b.y;
+ pb.z:=p.z-b.z;
+{$ifdef SIMD}
+ pb.w:=0.0;
+{$endif}
+
+ pc.x:=p.x-c.x;
+ pc.y:=p.y-c.y;
+ pc.z:=p.z-c.z;
+{$ifdef SIMD}
+ pc.w:=0.0;
+{$endif}
+
+ // Determine the parametric position s for the projection of P onto AB (i.e. PPU2 = A+s*AB, where
+ // s = snom/(snom+sdenom), and then parametric position t for P projected onto AC
+ snom:=(ab.x*pa.x)+(ab.y*pa.y)+(ab.z*pa.z);
+ sdenom:=(pb.x*(a.x-b.x))+(pb.y*(a.y-b.y))+(pb.z*(a.z-b.z));
+ tnom:=(ac.x*pa.x)+(ac.y*pa.y)+(ac.z*pa.z);
+ tdenom:=(pc.x*(a.x-c.x))+(pc.y*(a.y-c.y))+(pc.z*(a.z-c.z));
+ if (snom<=0.0) and (tnom<=0.0) then begin
+  // Vertex voronoi region hit early out
+  result:=sqr(a.x-p.x)+sqr(a.y-p.y)+sqr(a.z-p.z);
+  exit;
+ end;
+
+ // Parametric position u for P projected onto BC
+ unom:=(bc.x*pb.x)+(bc.y*pb.y)+(bc.z*pb.z);
+ udenom:=(pc.x*(b.x-c.x))+(pc.y*(b.y-c.y))+(pc.z*(b.z-c.z));
+ if (sdenom<=0.0) and (unom<=0.0) then begin
+  // Vertex voronoi region hit early out
+  result:=sqr(b.x-p.x)+sqr(b.y-p.y)+sqr(b.z-p.z);
+  exit;
+ end;
+ if (tdenom<=0.0) and (udenom<=0.0) then begin
+  // Vertex voronoi region hit early out
+  result:=sqr(c.x-p.x)+sqr(c.y-p.y)+sqr(c.z-p.z);
+  exit;
+ end;
+
+ // Determine if P is outside (or on) edge AB by finding the area formed by vectors PA, PB and
+ // the triangle normal. A scalar triple product is used. P is outside (or on) AB if the triple
+ // scalar product [N PA PB] <= 0
+ n.x:=(ab.y*ac.z)-(ab.z*ac.y);
+ n.y:=(ab.z*ac.x)-(ab.x*ac.z);
+ n.z:=(ab.x*ac.y)-(ab.y*ac.x);
+{$ifdef SIMD}
+ n.w:=0.0;
+{$endif}
+ ap.x:=a.x-p.x;
+ ap.y:=a.y-p.y;
+ ap.z:=a.z-p.z;
+{$ifdef SIMD}
+ ap.w:=0.0;
+{$endif}
+ bp.x:=b.x-p.x;
+ bp.y:=b.y-p.y;
+ bp.z:=b.z-p.z;
+{$ifdef SIMD}
+ bp.w:=0.0;
+{$endif}
+ vc:=(n.x*((ap.y*bp.z)-(ap.z*bp.y)))+(n.y*((ap.z*bp.x)-(ap.x*bp.z)))+(n.z*((ap.x*bp.y)-(ap.y*bp.x)));
+
+ // If P is outside of AB (signed area <= 0) and within voronoi feature region, then return
+ // projection of P onto AB
+ if (vc<=0.0) and (snom>=0.0) and (sdenom>=0.0) then begin
+  u:=snom/(snom+sdenom);
+  result:=sqr((a.x+(ab.x*u))-p.x)+sqr((a.y+(ab.y*u))-p.y)+sqr((a.z+(ab.z*u))-p.z);
+  exit;
+ end;
+
+ // Repeat the same test for P onto BC
+ cp.x:=c.x-p.x;
+ cp.y:=c.y-p.y;
+ cp.z:=c.z-p.z;
+{$ifdef SIMD}
+ cp.w:=0.0;
+{$endif}
+ va:=(n.x*((bp.y*cp.z)-(bp.z*cp.y)))+(n.y*((bp.z*cp.x)-(bp.x*cp.z)))+(n.z*((bp.x*cp.y)-(bp.y*cp.x)));
+ if (va<=0.0) and (unom>=0.0) and (udenom>=0.0) then begin
+  v:=unom/(unom+udenom);
+  result:=sqr((b.x+(bc.x*v))-p.x)+sqr((b.y+(bc.y*v))-p.y)+sqr((b.z+(bc.z*v))-p.z);
+  exit;
+ end;
+
+ // Repeat the same test for P onto CA
+ vb:=(n.x*((cp.y*ap.z)-(cp.z*ap.y)))+(n.y*((cp.z*ap.x)-(cp.x*ap.z)))+(n.z*((cp.x*ap.y)-(cp.y*ap.x)));
+ if (vb<=0.0) and (tnom>=0.0) and (tdenom>=0.0) then begin
+  w:=tnom/(tnom+tdenom);
+  result:=sqr((a.x+(ac.x*w))-p.x)+sqr((a.y+(ac.y*w))-p.y)+sqr((a.z+(ac.z*w))-p.z);
+  exit;
+ end;
+
+ // P must project onto inside face. Find closest point using the barycentric coordinates
+ w:=1.0/(va+vb+vc);
+ u:=va*w;
+ v:=vb*w;
+ w:=(1.0-u)-v;
+
+ result:=sqr(((a.x*u)+(b.x*v)+(c.x*w))-p.x)+sqr(((a.y*u)+(b.y*v)+(c.y*w))-p.y)+sqr(((a.z*u)+(b.z*v)+(c.z*w))-p.z);
+
+end;
+
+function SquaredDistanceFromPointToTriangle(const p,a,b,c:TKraftVector3;out u,v,w:TKraftScalar):TKraftScalar; overload;
+var ab,ac,bc,pa,pb,pc,ap,bp,cp,n:TKraftVector3;
+    snom,sdenom,tnom,tdenom,unom,udenom,vc,vb,va:TKraftScalar;
 begin
 
  ab.x:=b.x-a.x;
@@ -11624,6 +11839,74 @@ begin
  end;
 end;
 
+function SphereCastTriangle2(const RayOrigin:TKraftVector3;const Radius:TKraftScalar;const RayDirection,v0,v1,v2:TKraftVector3;out Time,aU,aV:TKraftScalar):boolean; overload;
+var ta,tb,tc,pab,pac,n,ScaledOrigin,ScaledDirection,PlaneIntersect,v:TKraftVector3;
+    InvRadius,PlaneD,DistanceToPlane,nDotDir,t0,t1,t:TKraftScalar;
+    Embedded:boolean;
+begin
+ result:=false;
+ InvRadius:=1.0/Radius;
+ ScaledOrigin:=Vector3ScalarMul(RayOrigin,InvRadius);
+ ScaledDirection:=Vector3ScalarMul(RayDirection,InvRadius);
+ ta:=Vector3ScalarMul(v0,InvRadius);
+ tb:=Vector3ScalarMul(v1,InvRadius);
+ tc:=Vector3ScalarMul(v2,InvRadius);
+ pab:=Vector3Sub(tb,ta);
+ pac:=Vector3Sub(tc,ta);
+ n:=Vector3Norm(Vector3Cross(pab,pac));
+ PlaneD:=-Vector3Dot(n,ta);
+ if Vector3Dot(N,RayDirection)>=0.0 then begin
+  n:=Vector3Neg(n);
+  PlaneD:=-PlaneD;
+ end;
+ DistanceToPlane:=Vector3Dot(ScaledOrigin,n)+PlaneD;
+ nDotDir:=Vector3Dot(n,ScaledDirection);
+ Embedded:=false;
+ if IsZero(nDotDir) then begin
+  if abs(DistanceToPlane)>=1.0 then begin
+   exit;
+  end else begin
+   Embedded:=true;
+   t0:=0.0;
+   t1:=1.0;
+  end;
+ end else begin
+  t0:=((-1.0)-DistanceToPlane)/nDotDir;
+  t1:=(1.0-DistanceToPlane)/nDotDir;
+  if t0>t1 then begin
+   t:=t0;
+   t0:=t1;
+   t1:=t;
+  end;
+  if (t0>1.0) or (t1<0.0) then begin
+   exit;
+  end;
+  if t0<=0.0 then begin
+   t0:=0.0;
+  end else if t0>=1.0 then begin
+   t0:=1.0;
+  end;
+  if t1<=0.0 then begin
+   t1:=0.0;
+  end else if t1>=1.0 then begin
+   t1:=1.0;
+  end;
+ end;
+ if not Embedded then begin
+  PlaneIntersect:=Vector3Sub(ScaledOrigin,n);
+  v:=Vector3ScalarMul(ScaledDirection,t0);
+  PlaneIntersect:=Vector3Add(PlaneIntersect,v);
+  if CartesianToBarycentric(ta,tb,tc,PlaneIntersect,aU,aV,t) then begin
+   Time:=t0;
+   result:=true;
+   exit;
+  end;
+ end;
+
+
+
+end;
+
 function SphereCastTriangle(const RayOrigin:TKraftVector3;const Radius:TKraftScalar;const RayDirection,v0,v1,v2:TKraftVector3;out Time,aU,aV:TKraftScalar):boolean; overload;
  function EdgeOrVertexTest(const aPlaneIntersectPoint:TKraftVector3;const aVertices:PPKraftVector3s;const aVertIntersectCandidate,aVert0,aVert1:TKraftInt32;out aSecondEdgeVert:TKraftInt32):boolean;
  var Edge,Diff:TKraftVector3;
@@ -11655,22 +11938,36 @@ begin
  Vertices[1]:=@v1;
  Vertices[2]:=@v2;
 
- Edge10:=Vector3Sub(v1,v0);
- Edge20:=Vector3Sub(v2,v0);
-
- if SquaredDistanceFromPointToTriangle(RayOrigin,v0,v1,v2)<=sqr(Radius) then begin
+ if SquaredDistanceFromPointToTriangle(RayOrigin,v0,v1,v2,U,V,t)<=sqr(Radius) then begin
   Time:=0.0;
-  aU:=0.0;
-  aV:=0.0;
+  if U<=0.0 then begin
+   aU:=0.0;
+  end else if U>=1.0 then begin
+   aU:=1.0;
+  end else begin
+   aU:=U;
+  end;
+  if V<=0.0 then begin
+   aV:=0.0;
+  end else if V>=1.0 then begin
+   aV:=1.0;
+  end else begin
+   aV:=V;
+  end;
   result:=true;
   exit;
  end;
+
+ Edge10:=Vector3Sub(v1,v0);
+ Edge20:=Vector3Sub(v2,v0);
 
  Normal:=Vector3NormEx(Vector3Cross(Edge10,Edge20));
 
  R:=Vector3ScalarMul(Normal,Radius);
  if Vector3Dot(RayDirection,R)>=0.0 then begin
-  R:=Vector3Neg(R);
+//R:=Vector3Neg(R);
+  result:=false;
+  exit;
  end;
 
  begin
@@ -11739,6 +12036,7 @@ begin
    result:=true;
   end else begin
    result:=false;
+   exit;
   end;
  end else begin
   if IntersectRayCapsule(RayOrigin,RayDirection,Vertices[e0]^,Vertices[e1]^,Radius,t) then begin
@@ -11746,11 +12044,25 @@ begin
    result:=true;
   end else begin
    result:=false;
+   exit;
   end;
  end;
 
- aU:=Min(Max(U,0.0),1.0);
- aV:=Min(Max(V,0.0),1.0);
+ if U<=0.0 then begin
+  aU:=0.0;
+ end else if U>=1.0 then begin
+  aU:=1.0;
+ end else begin
+  aU:=U;
+ end;
+
+ if V<=0.0 then begin
+  aV:=0.0;
+ end else if V>=1.0 then begin
+  aV:=1.0;
+ end else begin
+  aV:=V;
+ end;
 
 end;
 
@@ -20104,6 +20416,8 @@ var Index:TKraftInt32;
     Flags:TKraftUInt32;
     Signature:TKraftSignature;
     FileFormatVersion:TKraftUInt32;
+    Dummy:TKraftScalar;
+    SIMD:boolean;
 begin
 
  AStream.ReadBuffer(Signature,SizeOf(TKraftSignature));
@@ -20119,83 +20433,128 @@ begin
  Flags:=0;
  AStream.ReadBuffer(Flags,SizeOf(TKraftUInt32));
  fDoubleSided:=(Flags and 1)<>0;
+ SIMD:=(Flags and 2)<>0;
 
- AStream.ReadBuffer(fAABB.Min.x,SizeOf(TKraftScalar));
- AStream.ReadBuffer(fAABB.Min.y,SizeOf(TKraftScalar));
- AStream.ReadBuffer(fAABB.Min.z,SizeOf(TKraftScalar));
- AStream.ReadBuffer(fAABB.Max.x,SizeOf(TKraftScalar));
- AStream.ReadBuffer(fAABB.Max.y,SizeOf(TKraftScalar));
- AStream.ReadBuffer(fAABB.Max.z,SizeOf(TKraftScalar));
+ if SIMD=KraftSIMD then begin
 
- AStream.ReadBuffer(fCountVertices,SizeOf(TKraftInt32));
- SetLength(fVertices,fCountVertices);
- for Index:=0 to fCountVertices-1 do begin
-  AStream.ReadBuffer(fVertices[Index].x,SizeOf(TKraftScalar));
-  AStream.ReadBuffer(fVertices[Index].y,SizeOf(TKraftScalar));
-  AStream.ReadBuffer(fVertices[Index].z,SizeOf(TKraftScalar));
- end;
+  AStream.ReadBuffer(fAABB,SizeOf(TKraftAABB));
 
- AStream.ReadBuffer(fCountNormals,SizeOf(TKraftInt32));
- SetLength(fNormals,fCountNormals);
- for Index:=0 to fCountNormals-1 do begin
-  AStream.ReadBuffer(fNormals[Index].x,SizeOf(TKraftScalar));
-  AStream.ReadBuffer(fNormals[Index].y,SizeOf(TKraftScalar));
-  AStream.ReadBuffer(fNormals[Index].z,SizeOf(TKraftScalar));
- end;
+  AStream.ReadBuffer(fCountVertices,SizeOf(TKraftInt32));
+  SetLength(fVertices,fCountVertices);
+  if fCountVertices>0 then begin
+   AStream.ReadBuffer(fVertices[0],fCountVertices*SizeOf(TKraftVector3));
+  end;
 
- AStream.ReadBuffer(fCountTriangles,SizeOf(TKraftInt32));
- SetLength(fTriangles,fCountTriangles);
- for Index:=0 to fCountTriangles-1 do begin
-  AStream.ReadBuffer(fTriangles[Index].Next,SizeOf(TKraftInt32));
-  AStream.ReadBuffer(fTriangles[Index].Vertices[0],SizeOf(TKraftInt32));
-  AStream.ReadBuffer(fTriangles[Index].Vertices[1],SizeOf(TKraftInt32));
-  AStream.ReadBuffer(fTriangles[Index].Vertices[2],SizeOf(TKraftInt32));
-  AStream.ReadBuffer(fTriangles[Index].Normals[0],SizeOf(TKraftInt32));
-  AStream.ReadBuffer(fTriangles[Index].Normals[1],SizeOf(TKraftInt32));
-  AStream.ReadBuffer(fTriangles[Index].Normals[2],SizeOf(TKraftInt32));
-  AStream.ReadBuffer(fTriangles[Index].Plane.Normal.x,SizeOf(TKraftScalar));
-  AStream.ReadBuffer(fTriangles[Index].Plane.Normal.y,SizeOf(TKraftScalar));
-  AStream.ReadBuffer(fTriangles[Index].Plane.Normal.z,SizeOf(TKraftScalar));
-  AStream.ReadBuffer(fTriangles[Index].Plane.Distance,SizeOf(TKraftScalar));
-  AStream.ReadBuffer(fTriangles[Index].AABB.Min.x,SizeOf(TKraftScalar));
-  AStream.ReadBuffer(fTriangles[Index].AABB.Min.y,SizeOf(TKraftScalar));
-  AStream.ReadBuffer(fTriangles[Index].AABB.Min.z,SizeOf(TKraftScalar));
-  AStream.ReadBuffer(fTriangles[Index].AABB.Max.x,SizeOf(TKraftScalar));
-  AStream.ReadBuffer(fTriangles[Index].AABB.Max.y,SizeOf(TKraftScalar));
-  AStream.ReadBuffer(fTriangles[Index].AABB.Max.z,SizeOf(TKraftScalar));
- end;
+  AStream.ReadBuffer(fCountNormals,SizeOf(TKraftInt32));
+  SetLength(fNormals,fCountNormals);
+  if fCountNormals>0 then begin
+   AStream.ReadBuffer(fNormals[0],fCountNormals*SizeOf(TKraftVector3));
+  end;
 
- AStream.ReadBuffer(fCountNodes,SizeOf(TKraftInt32));
- SetLength(fNodes,fCountNodes);
- for Index:=0 to fCountNodes-1 do begin
-  AStream.ReadBuffer(fNodes[Index].Children[0],SizeOf(TKraftInt32));
-  AStream.ReadBuffer(fNodes[Index].Children[1],SizeOf(TKraftInt32));
-  AStream.ReadBuffer(fNodes[Index].TriangleIndex,SizeOf(TKraftInt32));
-  AStream.ReadBuffer(fNodes[Index].AABB.Min.x,SizeOf(TKraftScalar));
-  AStream.ReadBuffer(fNodes[Index].AABB.Min.y,SizeOf(TKraftScalar));
-  AStream.ReadBuffer(fNodes[Index].AABB.Min.z,SizeOf(TKraftScalar));
-  AStream.ReadBuffer(fNodes[Index].AABB.Max.x,SizeOf(TKraftScalar));
-  AStream.ReadBuffer(fNodes[Index].AABB.Max.y,SizeOf(TKraftScalar));
-  AStream.ReadBuffer(fNodes[Index].AABB.Max.z,SizeOf(TKraftScalar));
- end;
+  AStream.ReadBuffer(fCountTriangles,SizeOf(TKraftInt32));
+  SetLength(fTriangles,fCountTriangles);
+  if fCountTriangles>0 then begin
+   AStream.ReadBuffer(fTriangles[0],fCountTriangles*SizeOf(TKraftMeshTriangle));
+  end;
 
- AStream.ReadBuffer(fCountSkipListNodes,SizeOf(TKraftInt32));
- SetLength(fSkipListNodes,fCountSkipListNodes);
- for Index:=0 to fCountSkipListNodes-1 do begin
-  AStream.ReadBuffer(fSkipListNodes[Index].SkipToNodeIndex,SizeOf(TKraftInt32));
-  AStream.ReadBuffer(fSkipListNodes[Index].TriangleIndex,SizeOf(TKraftInt32));
-  AStream.ReadBuffer(fSkipListNodes[Index].AABB.Min.x,SizeOf(TKraftScalar));
-  AStream.ReadBuffer(fSkipListNodes[Index].AABB.Min.y,SizeOf(TKraftScalar));
-  AStream.ReadBuffer(fSkipListNodes[Index].AABB.Min.z,SizeOf(TKraftScalar));
-  AStream.ReadBuffer(fSkipListNodes[Index].AABB.Max.x,SizeOf(TKraftScalar));
-  AStream.ReadBuffer(fSkipListNodes[Index].AABB.Max.y,SizeOf(TKraftScalar));
-  AStream.ReadBuffer(fSkipListNodes[Index].AABB.Max.z,SizeOf(TKraftScalar));
+  AStream.ReadBuffer(fCountNodes,SizeOf(TKraftInt32));
+  SetLength(fNodes,fCountNodes);
+  if fCountNodes>0 then begin
+   AStream.ReadBuffer(fNodes[0],fCountNodes*SizeOf(TKraftMeshNode));
+  end;
+
+  AStream.ReadBuffer(fCountSkipListNodes,SizeOf(TKraftInt32));
+  SetLength(fSkipListNodes,fCountSkipListNodes);
+  if fCountSkipListNodes>0 then begin
+   AStream.ReadBuffer(fSkipListNodes[0],fCountSkipListNodes*SizeOf(TKraftMeshSkipListNode));
+  end;
+
+ end else begin
+
+  AStream.ReadBuffer(fAABB.Min,3*SizeOf(TKraftScalar));
+  if SIMD then begin
+   AStream.ReadBuffer(Dummy,SizeOf(TKraftScalar));
+  end;
+  AStream.ReadBuffer(fAABB.Max,3*SizeOf(TKraftScalar));
+  if SIMD then begin
+   AStream.ReadBuffer(Dummy,SizeOf(TKraftScalar));
+  end;
+
+  AStream.ReadBuffer(fCountVertices,SizeOf(TKraftInt32));
+  SetLength(fVertices,fCountVertices);
+  for Index:=0 to fCountVertices-1 do begin
+   AStream.ReadBuffer(fVertices[Index],3*SizeOf(TKraftScalar));
+   if SIMD then begin
+    AStream.ReadBuffer(Dummy,SizeOf(TKraftScalar));
+   end;
+  end;
+
+  AStream.ReadBuffer(fCountNormals,SizeOf(TKraftInt32));
+  SetLength(fNormals,fCountNormals);
+  for Index:=0 to fCountNormals-1 do begin
+   AStream.ReadBuffer(fNormals[Index],3*SizeOf(TKraftScalar));
+   if SIMD then begin
+    AStream.ReadBuffer(Dummy,SizeOf(TKraftScalar));
+   end;
+  end;
+
+  AStream.ReadBuffer(fCountTriangles,SizeOf(TKraftInt32));
+  SetLength(fTriangles,fCountTriangles);
+  for Index:=0 to fCountTriangles-1 do begin
+   AStream.ReadBuffer(fTriangles[Index].Next,SizeOf(TKraftInt32));
+   AStream.ReadBuffer(fTriangles[Index].Vertices[0],3*SizeOf(TKraftInt32));
+   AStream.ReadBuffer(fTriangles[Index].Normals[0],3*SizeOf(TKraftInt32));
+   AStream.ReadBuffer(fTriangles[Index].Plane.Normal,3*SizeOf(TKraftScalar));
+   if SIMD then begin
+    AStream.ReadBuffer(Dummy,SizeOf(TKraftScalar));
+   end;
+   AStream.ReadBuffer(fTriangles[Index].Plane.Distance,SizeOf(TKraftScalar));
+   AStream.ReadBuffer(fTriangles[Index].AABB.Min,3*SizeOf(TKraftScalar));
+   if SIMD then begin
+    AStream.ReadBuffer(Dummy,SizeOf(TKraftScalar));
+   end;
+   AStream.ReadBuffer(fTriangles[Index].AABB.Max,3*SizeOf(TKraftScalar));
+   if SIMD then begin
+    AStream.ReadBuffer(Dummy,SizeOf(TKraftScalar));
+   end;
+  end;
+
+  AStream.ReadBuffer(fCountNodes,SizeOf(TKraftInt32));
+  SetLength(fNodes,fCountNodes);
+  for Index:=0 to fCountNodes-1 do begin
+   AStream.ReadBuffer(fNodes[Index].Children[0],2*SizeOf(TKraftInt32));
+   AStream.ReadBuffer(fNodes[Index].TriangleIndex,SizeOf(TKraftInt32));
+   AStream.ReadBuffer(fNodes[Index].AABB.Min,3*SizeOf(TKraftScalar));
+   if SIMD then begin
+    AStream.ReadBuffer(Dummy,SizeOf(TKraftScalar));
+   end;
+   AStream.ReadBuffer(fNodes[Index].AABB.Max,3*SizeOf(TKraftScalar));
+   if SIMD then begin
+    AStream.ReadBuffer(Dummy,SizeOf(TKraftScalar));
+   end;
+  end;
+
+  AStream.ReadBuffer(fCountSkipListNodes,SizeOf(TKraftInt32));
+  SetLength(fSkipListNodes,fCountSkipListNodes);
+  for Index:=0 to fCountSkipListNodes-1 do begin
+   AStream.ReadBuffer(fSkipListNodes[Index].SkipToNodeIndex,SizeOf(TKraftInt32));
+   AStream.ReadBuffer(fSkipListNodes[Index].TriangleIndex,SizeOf(TKraftInt32));
+   AStream.ReadBuffer(fSkipListNodes[Index].AABB.Min,3*SizeOf(TKraftScalar));
+   if SIMD then begin
+    AStream.ReadBuffer(Dummy,SizeOf(TKraftScalar));
+   end;
+   AStream.ReadBuffer(fSkipListNodes[Index].AABB.Max,3*SizeOf(TKraftScalar));
+   if SIMD then begin
+    AStream.ReadBuffer(Dummy,SizeOf(TKraftScalar));
+   end;
+  end;
+
  end;
 
 end;
 
 procedure TKraftMesh.SaveToStream(const AStream:TStream);
-var Index:TKraftInt32;
+var //Index:TKraftInt32;
     Flags:TKraftUInt32;
 begin
 
@@ -20207,75 +20566,78 @@ begin
  if fDoubleSided then begin
   Flags:=Flags or 1;
  end;
+ if KraftSIMD then begin
+  Flags:=Flags or 2;
+ end;
 
  AStream.WriteBuffer(Flags,SizeOf(TKraftUInt32));
 
- AStream.WriteBuffer(fAABB.Min.x,SizeOf(TKraftScalar));
- AStream.WriteBuffer(fAABB.Min.y,SizeOf(TKraftScalar));
- AStream.WriteBuffer(fAABB.Min.z,SizeOf(TKraftScalar));
- AStream.WriteBuffer(fAABB.Max.x,SizeOf(TKraftScalar));
- AStream.WriteBuffer(fAABB.Max.y,SizeOf(TKraftScalar));
- AStream.WriteBuffer(fAABB.Max.z,SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fAABB,SizeOf(TKraftAABB));
+
+ AStream.WriteBuffer(fCountVertices,SizeOf(TKraftInt32));
+ if fCountVertices>0 then begin
+  AStream.WriteBuffer(fVertices[0],fCountVertices*SizeOf(TKraftVector3));
+ end;
+
+ AStream.WriteBuffer(fCountNormals,SizeOf(TKraftInt32));
+ if fCountNormals>0 then begin
+  AStream.WriteBuffer(fNormals[0],fCountNormals*SizeOf(TKraftVector3));
+ end;
+
+ AStream.WriteBuffer(fCountTriangles,SizeOf(TKraftInt32));
+ if fCountTriangles>0 then begin
+  AStream.WriteBuffer(fTriangles[0],fCountTriangles*SizeOf(TKraftMeshTriangle));
+ end;
+
+ AStream.WriteBuffer(fCountNodes,SizeOf(TKraftInt32));
+ if fCountNodes>0 then begin
+  AStream.WriteBuffer(fNodes[0],fCountNodes*SizeOf(TKraftMeshNode));
+ end;
+
+ AStream.WriteBuffer(fCountSkipListNodes,SizeOf(TKraftInt32));
+ if fCountSkipListNodes>0 then begin
+  AStream.WriteBuffer(fSkipListNodes[0],fCountSkipListNodes*SizeOf(TKraftMeshSkipListNode));
+ end;
+
+{AStream.WriteBuffer(fAABB.Min,3*SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fAABB.Max,3*SizeOf(TKraftScalar));
 
  AStream.WriteBuffer(fCountVertices,SizeOf(TKraftInt32));
  for Index:=0 to fCountVertices-1 do begin
-  AStream.WriteBuffer(fVertices[Index].x,SizeOf(TKraftScalar));
-  AStream.WriteBuffer(fVertices[Index].y,SizeOf(TKraftScalar));
-  AStream.WriteBuffer(fVertices[Index].z,SizeOf(TKraftScalar));
+  AStream.WriteBuffer(fVertices[Index],3*SizeOf(TKraftScalar));
  end;
 
  AStream.WriteBuffer(fCountNormals,SizeOf(TKraftInt32));
  for Index:=0 to fCountNormals-1 do begin
-  AStream.WriteBuffer(fNormals[Index].x,SizeOf(TKraftScalar));
-  AStream.WriteBuffer(fNormals[Index].y,SizeOf(TKraftScalar));
-  AStream.WriteBuffer(fNormals[Index].z,SizeOf(TKraftScalar));
+  AStream.WriteBuffer(fNormals[Index],3*SizeOf(TKraftScalar));
  end;
 
  AStream.WriteBuffer(fCountTriangles,SizeOf(TKraftInt32));
  for Index:=0 to fCountTriangles-1 do begin
   AStream.WriteBuffer(fTriangles[Index].Next,SizeOf(TKraftInt32));
-  AStream.WriteBuffer(fTriangles[Index].Vertices[0],SizeOf(TKraftInt32));
-  AStream.WriteBuffer(fTriangles[Index].Vertices[1],SizeOf(TKraftInt32));
-  AStream.WriteBuffer(fTriangles[Index].Vertices[2],SizeOf(TKraftInt32));
-  AStream.WriteBuffer(fTriangles[Index].Normals[0],SizeOf(TKraftInt32));
-  AStream.WriteBuffer(fTriangles[Index].Normals[1],SizeOf(TKraftInt32));
-  AStream.WriteBuffer(fTriangles[Index].Normals[2],SizeOf(TKraftInt32));
-  AStream.WriteBuffer(fTriangles[Index].Plane.Normal.x,SizeOf(TKraftScalar));
-  AStream.WriteBuffer(fTriangles[Index].Plane.Normal.y,SizeOf(TKraftScalar));
-  AStream.WriteBuffer(fTriangles[Index].Plane.Normal.z,SizeOf(TKraftScalar));
+  AStream.WriteBuffer(fTriangles[Index].Vertices[0],3*SizeOf(TKraftInt32));
+  AStream.WriteBuffer(fTriangles[Index].Normals[0],3*SizeOf(TKraftInt32));
+  AStream.WriteBuffer(fTriangles[Index].Plane.Normal,3*SizeOf(TKraftScalar));
   AStream.WriteBuffer(fTriangles[Index].Plane.Distance,SizeOf(TKraftScalar));
-  AStream.WriteBuffer(fTriangles[Index].AABB.Min.x,SizeOf(TKraftScalar));
-  AStream.WriteBuffer(fTriangles[Index].AABB.Min.y,SizeOf(TKraftScalar));
-  AStream.WriteBuffer(fTriangles[Index].AABB.Min.z,SizeOf(TKraftScalar));
-  AStream.WriteBuffer(fTriangles[Index].AABB.Max.x,SizeOf(TKraftScalar));
-  AStream.WriteBuffer(fTriangles[Index].AABB.Max.y,SizeOf(TKraftScalar));
-  AStream.WriteBuffer(fTriangles[Index].AABB.Max.z,SizeOf(TKraftScalar));
+  AStream.WriteBuffer(fTriangles[Index].AABB.Min,3*SizeOf(TKraftScalar));
+  AStream.WriteBuffer(fTriangles[Index].AABB.Max,3*SizeOf(TKraftScalar));
  end;
 
  AStream.WriteBuffer(fCountNodes,SizeOf(TKraftInt32));
  for Index:=0 to fCountNodes-1 do begin
-  AStream.WriteBuffer(fNodes[Index].Children[0],SizeOf(TKraftInt32));
-  AStream.WriteBuffer(fNodes[Index].Children[1],SizeOf(TKraftInt32));
+  AStream.WriteBuffer(fNodes[Index].Children,2*SizeOf(TKraftInt32));
   AStream.WriteBuffer(fNodes[Index].TriangleIndex,SizeOf(TKraftInt32));
-  AStream.WriteBuffer(fNodes[Index].AABB.Min.x,SizeOf(TKraftScalar));
-  AStream.WriteBuffer(fNodes[Index].AABB.Min.y,SizeOf(TKraftScalar));
-  AStream.WriteBuffer(fNodes[Index].AABB.Min.z,SizeOf(TKraftScalar));
-  AStream.WriteBuffer(fNodes[Index].AABB.Max.x,SizeOf(TKraftScalar));
-  AStream.WriteBuffer(fNodes[Index].AABB.Max.y,SizeOf(TKraftScalar));
-  AStream.WriteBuffer(fNodes[Index].AABB.Max.z,SizeOf(TKraftScalar));
+  AStream.WriteBuffer(fNodes[Index].AABB.Min,3*SizeOf(TKraftScalar));
+  AStream.WriteBuffer(fNodes[Index].AABB.Max,3*SizeOf(TKraftScalar));
  end;
 
  AStream.WriteBuffer(fCountSkipListNodes,SizeOf(TKraftInt32));
  for Index:=0 to fCountSkipListNodes-1 do begin
   AStream.WriteBuffer(fSkipListNodes[Index].SkipToNodeIndex,SizeOf(TKraftInt32));
   AStream.WriteBuffer(fSkipListNodes[Index].TriangleIndex,SizeOf(TKraftInt32));
-  AStream.WriteBuffer(fSkipListNodes[Index].AABB.Min.x,SizeOf(TKraftScalar));
-  AStream.WriteBuffer(fSkipListNodes[Index].AABB.Min.y,SizeOf(TKraftScalar));
-  AStream.WriteBuffer(fSkipListNodes[Index].AABB.Min.z,SizeOf(TKraftScalar));
-  AStream.WriteBuffer(fSkipListNodes[Index].AABB.Max.x,SizeOf(TKraftScalar));
-  AStream.WriteBuffer(fSkipListNodes[Index].AABB.Max.y,SizeOf(TKraftScalar));
-  AStream.WriteBuffer(fSkipListNodes[Index].AABB.Max.z,SizeOf(TKraftScalar));
- end;
+  AStream.WriteBuffer(fSkipListNodes[Index].AABB.Min,3*SizeOf(TKraftScalar));
+  AStream.WriteBuffer(fSkipListNodes[Index].AABB.Max,3*SizeOf(TKraftScalar));
+ end;//}
 
 end;
 
@@ -25316,9 +25678,9 @@ begin
         if ((Time>=0.0) and (Time<=SphereCastData.MaxTime)) and (First or (Time<Nearest)) then begin
          First:=false;
          Nearest:=Time;
-         Normal:=Vector3Norm(Vector3Add(Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],1.0-(u+v)),
-                             Vector3Add(Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],u),
-                                        Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],v))));
+         Normal:=Vector3Norm(Vector3Add(Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],u),
+                             Vector3Add(Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],v),
+                                        Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],1.0-(u+v)))));
          SphereCastData.TimeOfImpact:=Time;
          SphereCastData.Point:=p;
          if SidePass then begin

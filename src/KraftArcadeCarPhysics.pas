@@ -1948,10 +1948,10 @@ begin
  fAxleRear.DebugDraw;
 {$ifdef NoOpenGL}
  if assigned(fDebugDrawLine) then begin
-  v0:=Vector3Lerp(fAxleFront.fVisualDebugMiddle,v,0.9);
+  v0:=Vector3Lerp(fAxleFront.fVisualDebugMiddle,v,0.95);
   fDebugDrawLine(fAxleFront.fVisualDebugMiddle,v0,Vector4(0.0,0.0,1.0,1.0));
   fDebugDrawLine(v0,v,Vector4(0.0,1.0,1.0,1.0));
-  v0:=Vector3Lerp(v,fAxleRear.fVisualDebugMiddle,0.9);
+  v0:=Vector3Lerp(fAxleRear.fVisualDebugMiddle,v,0.95);
   fDebugDrawLine(v,v0,Vector4(0.0,1.0,1.0,1.0));
   fDebugDrawLine(v0,fAxleRear.fVisualDebugMiddle,Vector4(0.0,0.0,1.0,1.0));
  end;
