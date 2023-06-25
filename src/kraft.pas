@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2023-02-21-23-27-0000                       *
+ *                        Version 2023-06-25-11-41-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -11839,75 +11839,9 @@ begin
  end;
 end;
 
-function SphereCastTriangle2(const RayOrigin:TKraftVector3;const Radius:TKraftScalar;const RayDirection,v0,v1,v2:TKraftVector3;out Time,aU,aV:TKraftScalar):boolean; overload;
-var ta,tb,tc,pab,pac,n,ScaledOrigin,ScaledDirection,PlaneIntersect,v:TKraftVector3;
-    InvRadius,PlaneD,DistanceToPlane,nDotDir,t0,t1,t:TKraftScalar;
-    Embedded:boolean;
-begin
- result:=false;
- InvRadius:=1.0/Radius;
- ScaledOrigin:=Vector3ScalarMul(RayOrigin,InvRadius);
- ScaledDirection:=Vector3ScalarMul(RayDirection,InvRadius);
- ta:=Vector3ScalarMul(v0,InvRadius);
- tb:=Vector3ScalarMul(v1,InvRadius);
- tc:=Vector3ScalarMul(v2,InvRadius);
- pab:=Vector3Sub(tb,ta);
- pac:=Vector3Sub(tc,ta);
- n:=Vector3Norm(Vector3Cross(pab,pac));
- PlaneD:=-Vector3Dot(n,ta);
- if Vector3Dot(N,RayDirection)>=0.0 then begin
-  n:=Vector3Neg(n);
-  PlaneD:=-PlaneD;
- end;
- DistanceToPlane:=Vector3Dot(ScaledOrigin,n)+PlaneD;
- nDotDir:=Vector3Dot(n,ScaledDirection);
- Embedded:=false;
- if IsZero(nDotDir) then begin
-  if abs(DistanceToPlane)>=1.0 then begin
-   exit;
-  end else begin
-   Embedded:=true;
-   t0:=0.0;
-   t1:=1.0;
-  end;
- end else begin
-  t0:=((-1.0)-DistanceToPlane)/nDotDir;
-  t1:=(1.0-DistanceToPlane)/nDotDir;
-  if t0>t1 then begin
-   t:=t0;
-   t0:=t1;
-   t1:=t;
-  end;
-  if (t0>1.0) or (t1<0.0) then begin
-   exit;
-  end;
-  if t0<=0.0 then begin
-   t0:=0.0;
-  end else if t0>=1.0 then begin
-   t0:=1.0;
-  end;
-  if t1<=0.0 then begin
-   t1:=0.0;
-  end else if t1>=1.0 then begin
-   t1:=1.0;
-  end;
- end;
- if not Embedded then begin
-  PlaneIntersect:=Vector3Sub(ScaledOrigin,n);
-  v:=Vector3ScalarMul(ScaledDirection,t0);
-  PlaneIntersect:=Vector3Add(PlaneIntersect,v);
-  if CartesianToBarycentric(ta,tb,tc,PlaneIntersect,aU,aV,t) then begin
-   Time:=t0;
-   result:=true;
-   exit;
-  end;
- end;
-
-
-
-end;
-
+{$define AlternativeSphereCastTriangleImplementation}
 function SphereCastTriangle(const RayOrigin:TKraftVector3;const Radius:TKraftScalar;const RayDirection,v0,v1,v2:TKraftVector3;out Time,aU,aV:TKraftScalar):boolean; overload;
+{$ifndef AlternativeSphereCastTriangleImplementation}
  function EdgeOrVertexTest(const aPlaneIntersectPoint:TKraftVector3;const aVertices:PPKraftVector3s;const aVertIntersectCandidate,aVert0,aVert1:TKraftInt32;out aSecondEdgeVert:TKraftInt32):boolean;
  var Edge,Diff:TKraftVector3;
  begin
@@ -11927,10 +11861,11 @@ function SphereCastTriangle(const RayOrigin:TKraftVector3;const Radius:TKraftSca
    end;
   end;
  end;
+{$endif}
 var Edge10,Edge20,Normal,R,Origin,pvec,tvec,qvec,IntersectPoint:TKraftVector3;
-    u,v,t,Det,OneOverDet:TKraftScalar;
-    TestSphere:boolean;
-    e0,e1:TKraftInt32;
+    V,W,t,Det,OneOverDet:TKraftScalar;
+    {$ifdef AlternativeSphereCastTriangleImplementation}TestTwoEdges{$else}TestSphere{$endif}:boolean;
+    e0,e1{$ifdef AlternativeSphereCastTriangleImplementation},e2{$endif}:TKraftInt32;
     Vertices:array[0..2] of PKraftVector3;
 begin
 
@@ -11938,21 +11873,17 @@ begin
  Vertices[1]:=@v1;
  Vertices[2]:=@v2;
 
- if SquaredDistanceFromPointToTriangle(RayOrigin,v0,v1,v2,U,V,t)<=sqr(Radius) then begin
+ if SquaredDistanceFromPointToTriangle(RayOrigin,v0,v1,v2,aU,aV,t)<=sqr(Radius) then begin
   Time:=0.0;
-  if U<=0.0 then begin
+  if aU<=0.0 then begin
    aU:=0.0;
-  end else if U>=1.0 then begin
+  end else if aU>=1.0 then begin
    aU:=1.0;
-  end else begin
-   aU:=U;
   end;
-  if V<=0.0 then begin
+  if aV<=0.0 then begin
    aV:=0.0;
-  end else if V>=1.0 then begin
+  end else if aV>=1.0 then begin
    aV:=1.0;
-  end else begin
-   aV:=V;
   end;
   result:=true;
   exit;
@@ -11980,17 +11911,17 @@ begin
   end;
   OneOverDet:=1.0/Det;
   tvec:=Vector3Sub(Origin,v0);
-  U:=Vector3Dot(tvec,pvec)*OneOverDet;
+  V:=Vector3Dot(tvec,pvec)*OneOverDet;
   qvec:=Vector3Cross(tvec,Edge10);
-  V:=Vector3Dot(RayDirection,qvec)*OneOverDet;
-  if not ((U<0) or (U>1.0) or (V<0) or ((U+V)>1.0)) then begin
+  W:=Vector3Dot(RayDirection,qvec)*OneOverDet;
+  if not ((V<0) or (V>1.0) or (W<0) or ((V+W)>1.0)) then begin
    t:=Vector3Dot(Edge20,qvec)*OneOverDet;
    if t<0.0 then begin
     result:=false;
     exit;
    end else begin
     Time:=t;
-    aU:=U;
+    aU:=(1.0-V)-W;
     aV:=V;
     result:=true;
     exit;
@@ -11998,14 +11929,64 @@ begin
   end;
  end;
 
- if u<0.0 then begin
-  if v<0.0 then begin
+{$ifdef AlternativeSphereCastTriangleImplementation}
+ if V<0.0 then begin
+  if W<0.0 then begin
+   TestTwoEdges:=true;
    e0:=0;
-   IntersectPoint:=Vector3Add(Vector3Add(Vector3ScalarMul(v1,u),Vector3ScalarMul(v2,v)),Vector3ScalarMul(v0,1.0-(u+v)));
-   TestSphere:=EdgeOrVertexTest(IntersectPoint,@Vertices,0,1,2,e1);
-  end else if (u+v)>1.0 then begin
+   e1:=1;
+   e2:=2;
+  end else if (V+W)>1.0 then begin
+   TestTwoEdges:=true;
    e0:=2;
-   IntersectPoint:=Vector3Add(Vector3Add(Vector3ScalarMul(v1,u),Vector3ScalarMul(v2,v)),Vector3ScalarMul(v0,1.0-(u+v)));
+   e1:=0;
+   e2:=1;
+  end else begin
+   TestTwoEdges:=false;
+   e0:=0;
+   e1:=2;
+   e2:=0;
+  end;
+ end else begin
+  if W<0.0 then begin
+   if (V+W)>1.0 then begin
+    TestTwoEdges:=true;
+    e0:=1;
+    e1:=0;
+    e2:=2;
+   end else begin
+    TestTwoEdges:=false;
+    e0:=0;
+    e1:=1;
+    e2:=0;
+   end;
+  end else begin
+   TestTwoEdges:=false;
+   e0:=1;
+   e1:=2;
+   e2:=0;
+  end;
+ end;
+
+ if IntersectRayCapsule(RayOrigin,RayDirection,Vertices[e0]^,Vertices[e1]^,Radius,t) and (t>=0.0) then begin
+  Time:=t;
+  result:=true;
+ end else if TestTwoEdges and IntersectRayCapsule(RayOrigin,RayDirection,Vertices[e0]^,Vertices[e2]^,Radius,t) and (t>=0.0) then begin
+  Time:=t;
+  result:=true;
+ end else begin
+  result:=false;
+ end;
+
+{$else}
+ if V<0.0 then begin
+  if W<0.0 then begin
+   e0:=0;
+   IntersectPoint:=Vector3Add(Vector3Add(Vector3ScalarMul(v1,V),Vector3ScalarMul(v2,W)),Vector3ScalarMul(v0,1.0-(V+W)));
+   TestSphere:=EdgeOrVertexTest(IntersectPoint,@Vertices,0,1,2,e1);
+  end else if (V+W)>1.0 then begin
+   e0:=2;
+   IntersectPoint:=Vector3Add(Vector3Add(Vector3ScalarMul(v1,V),Vector3ScalarMul(v2,W)),Vector3ScalarMul(v0,1.0-(V+W)));
    TestSphere:=EdgeOrVertexTest(IntersectPoint,@Vertices,2,0,1,e1);
   end else begin
    TestSphere:=false;
@@ -12013,10 +11994,10 @@ begin
    e1:=2;
   end;
  end else begin
-  if v<0.0 then begin
-   if (u+v)>1.0 then begin
+  if W<0.0 then begin
+   if (V+W)>1.0 then begin
     e0:=1;
-    IntersectPoint:=Vector3Add(Vector3Add(Vector3ScalarMul(v1,u),Vector3ScalarMul(v2,v)),Vector3ScalarMul(v0,1.0-(u+v)));
+    IntersectPoint:=Vector3Add(Vector3Add(Vector3ScalarMul(v1,V),Vector3ScalarMul(v2,W)),Vector3ScalarMul(v0,1.0-(V+W)));
     TestSphere:=EdgeOrVertexTest(IntersectPoint,@Vertices,1,0,2,e1);
    end else begin
     TestSphere:=false;
@@ -12047,22 +12028,24 @@ begin
    exit;
   end;
  end;
-
- if U<=0.0 then begin
-  aU:=0.0;
- end else if U>=1.0 then begin
-  aU:=1.0;
- end else begin
-  aU:=U;
- end;
+{$endif}
 
  if V<=0.0 then begin
-  aV:=0.0;
+  V:=0.0;
  end else if V>=1.0 then begin
-  aV:=1.0;
- end else begin
-  aV:=V;
+  V:=1.0;
  end;
+
+ if W<=0.0 then begin
+  W:=0.0;
+ end else if W>=1.0 then begin
+  W:=1.0;
+ end;
+
+ // Convert A*(1.0-U-V) + B*U + C*V into A*U + B*V + C*W baricentric coordinates, since it more common and more compatible of the rest of the code 
+ // So V is actually U and W is actually V in this procedure respectivly the other way around, depending on the view point
+ aU:=(1.0-V)-W;
+ aV:=V;
 
 end;
 
