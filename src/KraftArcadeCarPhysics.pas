@@ -80,6 +80,7 @@ unit KraftArcadeCarPhysics;
    {$define BIG_ENDIAN}
   {$endif}
  {$endif}
+ {$packset fixed}
 {$else}
  {$define LITTLE_ENDIAN}
  {$ifndef cpu64}

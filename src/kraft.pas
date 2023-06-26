@@ -86,6 +86,7 @@ unit kraft;
  {$endif}
  {$excessprecision off}
  {$define KraftAdvancedRecords}
+ {$packset fixed}
 {$else}
  {$define LITTLE_ENDIAN}
  {$ifdef cpux64}
