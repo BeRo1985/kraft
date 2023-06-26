@@ -226,6 +226,8 @@ type { TVehicle }
               procedure Clear;
               procedure Assign(const aFrom:TEnvelope);
               procedure Insert(const aTime,aValue:TKraftScalar);
+              procedure FillLinear(const aTimeStart,aValueStart,aTimeEnd,aValueEnd:TKraftScalar);
+              procedure FillEaseInOut(const aTimeStart,aValueStart,aTimeEnd,aValueEnd:TKraftScalar;const aSteps:TKraftInt32=16);
 {$ifdef KraftPasJSON}
               procedure LoadFromJSON(const aJSONItem:TPasJSONItem);
               function SaveToJSON:TPasJSONItem;
@@ -608,29 +610,13 @@ end;
 constructor TVehicle.TEnvelope.CreateLinear(const aTimeStart,aValueStart,aTimeEnd,aValueEnd:TKraftScalar);
 begin
  Create;
- Insert(aTimeStart,aValueStart);
- Insert(aTimeEnd,aValueEnd);
- fMode:=TVehicle.TEnvelope.TMode.Linear;
+ FillLinear(aTimeStart,aValueStart,aTimeEnd,aValueEnd);
 end;
 
 constructor TVehicle.TEnvelope.CreateEaseInOut(const aTimeStart,aValueStart,aTimeEnd,aValueEnd:TKraftScalar;const aSteps:TKraftInt32=16);
-var Index,Last:TKraftInt32;
-    x,Time,Value:TKraftScalar;
 begin
  Create;
- Last:=aSteps-1;
- for Index:=0 to Last do begin
-  x:=Index/Last;
-  Time:=(aTimeStart*(1.0-x))+(aTimeEnd*x);
-  if x<0.5 then begin
-   x:=(1-sqrt(1-sqr(2*x)))*0.5;
-  end else begin
-   x:=(sqrt(1-sqr((-2*x)+2))+1)*0.5;
-  end;
-  Value:=(aValueStart*(1.0-x))+(aValueEnd*x);
-  Insert(Time,Value);
- end;
- fMode:=TVehicle.TEnvelope.TMode.EaseInOut;
+ FillEaseInOut(aTimeStart,aValueStart,aTimeEnd,aValueEnd,aSteps);
 end;
 
 destructor TVehicle.TEnvelope.Destroy;
@@ -701,12 +687,38 @@ begin
  Point^.fValue:=aValue;
 end;
 
+procedure TVehicle.TEnvelope.FillLinear(const aTimeStart,aValueStart,aTimeEnd,aValueEnd:TKraftScalar);
+begin
+ Clear;
+ Insert(aTimeStart,aValueStart);
+ Insert(aTimeEnd,aValueEnd);
+ fMode:=TVehicle.TEnvelope.TMode.Linear;
+end;
+
+procedure TVehicle.TEnvelope.FillEaseInOut(const aTimeStart,aValueStart,aTimeEnd,aValueEnd:TKraftScalar;const aSteps:TKraftInt32=16);
+var Index,Last:TKraftInt32;
+    x,Time,Value:TKraftScalar;
+begin
+ Clear;
+ Last:=aSteps-1;
+ for Index:=0 to Last do begin
+  x:=Index/Last;
+  Time:=(aTimeStart*(1.0-x))+(aTimeEnd*x);
+  if x<0.5 then begin
+   x:=(1-sqrt(1-sqr(2*x)))*0.5;
+  end else begin
+   x:=(sqrt(1-sqr((-2*x)+2))+1)*0.5;
+  end;
+  Value:=(aValueStart*(1.0-x))+(aValueEnd*x);
+  Insert(Time,Value);
+ end;
+ fMode:=TVehicle.TEnvelope.TMode.EaseInOut;
+end;
+
 {$ifdef KraftPasJSON}
 procedure TVehicle.TEnvelope.LoadFromJSON(const aJSONItem:TPasJSONItem);
-var Index:TKraftSizeInt;
-    RootJSONItemObject:TPasJSONItemObject;
+var RootJSONItemObject:TPasJSONItemObject;
     Mode:TPasJSONUTF8String;
-    Envelope:TVehicle.TEnvelope;
     JSONItem:TPasJSONItem;
     JSONItemArray:TPasJSONItemArray;
     JSONItemObject:TPasJSONItemObject;
@@ -715,42 +727,27 @@ begin
   RootJSONItemObject:=TPasJSONItemObject(aJSONItem);
   Mode:=TPasJSON.GetString(RootJSONItemObject.Properties['mode'],'');
   if Mode='linear' then begin
-   Envelope:=TVehicle.TEnvelope.CreateLinear(TPasJSON.GetNumber(RootJSONItemObject.Properties['timestart'],0.0),
-                                             TPasJSON.GetNumber(RootJSONItemObject.Properties['valuestart'],0.0),
-                                             TPasJSON.GetNumber(RootJSONItemObject.Properties['timeend'],0.0),
-                                             TPasJSON.GetNumber(RootJSONItemObject.Properties['valueend'],0.0));
-   try
-    Assign(Envelope);
-   finally
-    FreeAndNil(Envelope);
-   end;
+   FillLinear(TPasJSON.GetNumber(RootJSONItemObject.Properties['timestart'],0.0),
+              TPasJSON.GetNumber(RootJSONItemObject.Properties['valuestart'],0.0),
+              TPasJSON.GetNumber(RootJSONItemObject.Properties['timeend'],0.0),
+              TPasJSON.GetNumber(RootJSONItemObject.Properties['valueend'],0.0));
   end else if Mode='easeinout' then begin
-   Envelope:=TVehicle.TEnvelope.CreateEaseInOut(TPasJSON.GetNumber(RootJSONItemObject.Properties['timestart'],0.0),
-                                                TPasJSON.GetNumber(RootJSONItemObject.Properties['valuestart'],0.0),
-                                                TPasJSON.GetNumber(RootJSONItemObject.Properties['timeend'],0.0),
-                                                TPasJSON.GetNumber(RootJSONItemObject.Properties['valueend'],0.0),
-                                                TPasJSON.GetInt64(RootJSONItemObject.Properties['steps'],16));
-   try
-    Assign(Envelope);
-   finally
-    FreeAndNil(Envelope);
-   end;
+   FillEaseInOut(TPasJSON.GetNumber(RootJSONItemObject.Properties['timestart'],0.0),
+                 TPasJSON.GetNumber(RootJSONItemObject.Properties['valuestart'],0.0),
+                 TPasJSON.GetNumber(RootJSONItemObject.Properties['timeend'],0.0),
+                 TPasJSON.GetNumber(RootJSONItemObject.Properties['valueend'],0.0),
+                 TPasJSON.GetInt64(RootJSONItemObject.Properties['steps'],16));
   end else if Mode='custom' then begin
-   Envelope:=TVehicle.TEnvelope.Create;
-   try
-    JSONItem:=RootJSONItemObject.Properties['points'];
-    if assigned(JSONItem) and (JSONItem is TPasJSONItemArray) then begin
-     JSONItemArray:=TPasJSONItemArray(JSONItem);
-     for JSONItem in JSONItemArray do begin
-      if assigned(JSONItem) and (JSONItem is TPasJSONItemObject) then begin
-       JSONItemObject:=TPasJSONItemObject(JSONItem);
-       Envelope.Insert(TPasJSON.GetNumber(JSONItemObject.Properties['time'],0.0),TPasJSON.GetNumber(JSONItemObject.Properties['value'],0.0));
-      end;
+   Clear;
+   JSONItem:=RootJSONItemObject.Properties['points'];
+   if assigned(JSONItem) and (JSONItem is TPasJSONItemArray) then begin
+    JSONItemArray:=TPasJSONItemArray(JSONItem);
+    for JSONItem in JSONItemArray do begin
+     if assigned(JSONItem) and (JSONItem is TPasJSONItemObject) then begin
+      JSONItemObject:=TPasJSONItemObject(JSONItem);
+      Insert(TPasJSON.GetNumber(JSONItemObject.Properties['time'],0.0),TPasJSON.GetNumber(JSONItemObject.Properties['value'],0.0));
      end;
     end;
-    Assign(Envelope);
-   finally
-    FreeAndNil(Envelope);
    end;
   end;
  end;
