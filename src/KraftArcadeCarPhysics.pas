@@ -305,6 +305,10 @@ type { TVehicle }
                      procedure UpdateVisual;
                      procedure StoreWorldTransforms;
                      procedure InterpolateWorldTransforms(const aAlpha:TKraftScalar);
+{$ifdef KraftPasJSON}
+                     procedure LoadFromJSON(const aJSONItem:TPasJSONItem);
+                     function SaveToJSON:TPasJSONItem;
+{$endif}
 {$ifdef DebugDraw}
                      procedure DebugDraw;
 {$endif}
@@ -1464,6 +1468,21 @@ begin
  end;
 {$endif}
 end;
+
+{$ifdef KraftPasJSON}
+procedure TVehicle.TAxle.TWheel.LoadFromJSON(const aJSONItem:TPasJSONItem);
+begin
+ if assigned(aJSONItem) and (aJSONItem is TPasJSONItemObject) then begin
+  fOffset:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['offset'],fOffset);
+ end;
+end;
+
+function TVehicle.TAxle.TWheel.SaveToJSON:TPasJSONItem;
+begin
+ result:=TPasJSONItemObject.Create;
+ TPasJSONItemObject(result).Add('offset',TPasJSONItemNumber.Create(fOffset));
+end;
+{$endif}
 
 {$ifdef DebugDraw}
 procedure TVehicle.TAxle.TWheel.DebugDraw;
