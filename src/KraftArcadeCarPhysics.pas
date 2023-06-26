@@ -2165,14 +2165,6 @@ begin
   fDownForce:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['downforce'],fDownForce);
   fAxleFront.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['axlefront']);
   fAxleRear.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['axlerear']);
-  fAfterFlightSlipperyTiresTime:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['afterflightslipperytirestime'],fAfterFlightSlipperyTiresTime);
-  fBrakeSlipperyTiresTime:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['brakeslipperytirestime'],fBrakeSlipperyTiresTime);
-  fHandBrakeSlipperyTiresTime:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['handbrakeslipperytirestime'],fHandBrakeSlipperyTiresTime);
-  fIsBrake:=TPasJSON.GetBoolean(TPasJSONItemObject(aJSONItem).Properties['isbrake'],fIsBrake);
-  fIsHandBrake:=TPasJSON.GetBoolean(TPasJSONItemObject(aJSONItem).Properties['ishandbrake'],fIsHandBrake);
-  fIsAcceleration:=TPasJSON.GetBoolean(TPasJSONItemObject(aJSONItem).Properties['isacceleration'],fIsAcceleration);
-  fIsReverseAcceleration:=TPasJSON.GetBoolean(TPasJSONItemObject(aJSONItem).Properties['isreverseacceleration'],fIsReverseAcceleration);
-  fAccelerationForceMagnitude:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['accelerationforcemagnitude'],fAccelerationForceMagnitude);
  end;
 end;
 
@@ -2193,14 +2185,6 @@ begin
  TPasJSONItemObject(result).Add('downforce',TPasJSONItemNumber.Create(fDownForce));
  TPasJSONItemObject(result).Add('axlefront',fAxleFront.SaveToJSON);
  TPasJSONItemObject(result).Add('axlerear',fAxleRear.SaveToJSON);
- TPasJSONItemObject(result).Add('afterflightslipperytirestime',TPasJSONItemNumber.Create(fAfterFlightSlipperyTiresTime));
- TPasJSONItemObject(result).Add('brakeslipperytirestime',TPasJSONItemNumber.Create(fBrakeSlipperyTiresTime));
- TPasJSONItemObject(result).Add('handbrakeslipperytirestime',TPasJSONItemNumber.Create(fHandBrakeSlipperyTiresTime));
- TPasJSONItemObject(result).Add('isbrake',TPasJSONItemBoolean.Create(fIsBrake));
- TPasJSONItemObject(result).Add('ishandbrake',TPasJSONItemBoolean.Create(fIsHandBrake));
- TPasJSONItemObject(result).Add('isacceleration',TPasJSONItemBoolean.Create(fIsAcceleration));
- TPasJSONItemObject(result).Add('isreverseacceleration',TPasJSONItemBoolean.Create(fIsReverseAcceleration));
- TPasJSONItemObject(result).Add('accelerationforcemagnitude',TPasJSONItemNumber.Create(fAccelerationForceMagnitude));
 end;
 {$endif}
 
