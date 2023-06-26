@@ -428,6 +428,7 @@ type { TVehicle }
        fAfterFlightSlipperyTiresTime:TKraftScalar;
        fBrakeSlipperyTiresTime:TKraftScalar;
        fHandBrakeSlipperyTiresTime:TKraftScalar;
+       fUseSphereCast:boolean;
        fIsBrake:boolean;
        fIsHandBrake:boolean;
        fIsAcceleration:boolean;
@@ -508,6 +509,7 @@ type { TVehicle }
        property AfterFlightSlipperyTiresTime:TKraftScalar read fAfterFlightSlipperyTiresTime write fAfterFlightSlipperyTiresTime;
        property BrakeSlipperyTiresTime:TKraftScalar read fBrakeSlipperyTiresTime write fBrakeSlipperyTiresTime;
        property HandBrakeSlipperyTiresTime:TKraftScalar read fHandBrakeSlipperyTiresTime write fHandBrakeSlipperyTiresTime;
+       property UseSphereCast:boolean read fUseSphereCast write fUseSphereCast;
        property IsBrake:boolean read fIsBrake write fIsBrake;
        property IsHandBrake:boolean read fIsHandBrake write fIsHandBrake;
        property IsAcceleration:boolean read fIsAcceleration write fIsAcceleration;
@@ -1131,20 +1133,20 @@ begin
  fRayCastFilterBidirection:=fVehicle.WorldForward;
 
  RayOrigin:=aWorldSpacePosition;
-{$ifdef SphereCastResult}
- RayResult:=SphereCast(RayOrigin,
-                       fVehicle.WorldDown,
-                       fAxle.fRelaxedSuspensionLength,
-                       fAxle.fRadius);
-{$else}
- RayResult:=WheelRayCast(RayOrigin,
-                         fVehicle.WorldDown,
-                         fVehicle.WorldForward,
-                         -PI*0.5,
-                         PI*0.5,
-                         fAxle.fRelaxedSuspensionLength,
-                         fAxle.fRadius);
-{$endif}
+ if fVehicle.fUseSphereCast then begin
+  RayResult:=SphereCast(RayOrigin,
+                        fVehicle.WorldDown,
+                        fAxle.fRelaxedSuspensionLength,
+                        fAxle.fRadius);
+ end else begin
+  RayResult:=WheelRayCast(RayOrigin,
+                          fVehicle.WorldDown,
+                          fVehicle.WorldForward,
+                          -PI*0.5,
+                          PI*0.5,
+                          fAxle.fRelaxedSuspensionLength,
+                          fAxle.fRadius);
+ end;
 
  if not RayResult.Valid then begin
   fCompressionPrev:=fCompression;
@@ -1673,7 +1675,6 @@ begin
   fWidth:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['width'],fWidth);
   fOffset.x:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['horizontaloffset'],fOffset.x);
   fOffset.y:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['verticaloffset'],fOffset.y);
-  fSteerAngle:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['steerangle'],fSteerAngle);
   fRadius:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['radius'],fRadius);
   fLaterialFriction:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['laterialfriction'],fLaterialFriction);
   fRollingFriction:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['rollingfriction'],fRollingFriction);
@@ -1697,7 +1698,6 @@ begin
  TPasJSONItemObject(result).Add('width',TPasJSONItemNumber.Create(fWidth));
  TPasJSONItemObject(result).Add('horizontaloffset',TPasJSONItemNumber.Create(fOffset.x));
  TPasJSONItemObject(result).Add('verticaloffset',TPasJSONItemNumber.Create(fOffset.y));
- TPasJSONItemObject(result).Add('steerangle',TPasJSONItemNumber.Create(fSteerAngle));
  TPasJSONItemObject(result).Add('radius',TPasJSONItemNumber.Create(fRadius));
  TPasJSONItemObject(result).Add('laterialfriction',TPasJSONItemNumber.Create(fLaterialFriction));
  TPasJSONItemObject(result).Add('rollingfriction',TPasJSONItemNumber.Create(fRollingFriction));
@@ -1764,6 +1764,7 @@ begin
  fAfterFlightSlipperyTiresTime:=0.0;
  fBrakeSlipperyTiresTime:=0.0;
  fHandBrakeSlipperyTiresTime:=0.0;
+ fUseSphereCast:=true;
  fIsBrake:=false;
  fIsHandBrake:=false;
  fIsAcceleration:=false;
