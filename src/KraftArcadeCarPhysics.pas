@@ -184,6 +184,9 @@ uses {$ifdef windows}
 {$ifdef KraftPasMP}
      PasMP,
 {$endif}
+{$ifdef KraftPasJSON}
+     PasJSON,
+{$endif}
      Math,
      Kraft;
 
@@ -195,6 +198,12 @@ type { TVehicle }
             { TEnvelope }
             TEnvelope=class
              public
+              type TMode=
+                    (
+                     Custom,
+                     Linear,
+                     EaseInOut
+                    );
               type TPoint=record
                     private
                      fTime:TKraftScalar;
@@ -206,6 +215,7 @@ type { TVehicle }
                    PPoint=^TPoint;
                    TPoints=array of TPoint;
              private
+              fMode:TMode;
               fPoints:TPoints;
               fCount:TKraftInt32;
              public
@@ -216,6 +226,10 @@ type { TVehicle }
               procedure Clear;
               procedure Assign(const aFrom:TEnvelope);
               procedure Insert(const aTime,aValue:TKraftScalar);
+{$ifdef KraftPasJSON}
+              procedure LoadFromJSON(const aJSONItem:TPasJSONItem);
+              function SaveToJSON:TPasJSONItem;
+{$endif}
               function GetTimeAtIndex(const aIndex:TKraftInt32):TKraftScalar;
               function GetValueAtIndex(const aIndex:TKraftInt32):TKraftScalar;
               function GetIndexFromTime(const aTime:TKraftScalar):TKraftInt32;
@@ -586,6 +600,7 @@ end;
 constructor TVehicle.TEnvelope.Create;
 begin
  inherited Create;
+ fMode:=TVehicle.TEnvelope.TMode.Custom;
  fPoints:=nil;
  fCount:=0;
 end;
@@ -595,6 +610,7 @@ begin
  Create;
  Insert(aTimeStart,aValueStart);
  Insert(aTimeEnd,aValueEnd);
+ fMode:=TVehicle.TEnvelope.TMode.Linear;
 end;
 
 constructor TVehicle.TEnvelope.CreateEaseInOut(const aTimeStart,aValueStart,aTimeEnd,aValueEnd:TKraftScalar;const aSteps:TKraftInt32=16);
@@ -614,6 +630,7 @@ begin
   Value:=(aValueStart*(1.0-x))+(aValueEnd*x);
   Insert(Time,Value);
  end;
+ fMode:=TVehicle.TEnvelope.TMode.EaseInOut;
 end;
 
 destructor TVehicle.TEnvelope.Destroy;
@@ -624,12 +641,14 @@ end;
 
 procedure TVehicle.TEnvelope.Clear;
 begin
+ fMode:=TVehicle.TEnvelope.TMode.Custom;
  fPoints:=nil;
  fCount:=0;
 end;
 
 procedure TVehicle.TEnvelope.Assign(const aFrom:TEnvelope);
 begin
+ fMode:=aFrom.fMode;
  fPoints:=copy(aFrom.fPoints);
  fCount:=aFrom.fCount;
 end;
@@ -676,10 +695,109 @@ begin
   SetLength(fPoints,1);
   Index:=0;
  end;
+ fMode:=TVehicle.TEnvelope.TMode.Custom;
  Point:=@fPoints[Index];
  Point^.fTime:=aTime;
  Point^.fValue:=aValue;
 end;
+
+{$ifdef KraftPasJSON}
+procedure TVehicle.TEnvelope.LoadFromJSON(const aJSONItem:TPasJSONItem);
+var Index:TKraftSizeInt;
+    RootJSONItemObject:TPasJSONItemObject;
+    Mode:TPasJSONUTF8String;
+    Envelope:TVehicle.TEnvelope;
+    JSONItem:TPasJSONItem;
+    JSONItemArray:TPasJSONItemArray;
+    JSONItemObject:TPasJSONItemObject;
+begin
+ if assigned(aJSONItem) and (aJSONItem is TPasJSONItemObject) then begin
+  RootJSONItemObject:=TPasJSONItemObject(aJSONItem);
+  Mode:=TPasJSON.GetString(RootJSONItemObject.Properties['mode'],'');
+  if Mode='linear' then begin
+   Envelope:=TVehicle.TEnvelope.CreateLinear(TPasJSON.GetNumber(RootJSONItemObject.Properties['timestart'],0.0),
+                                             TPasJSON.GetNumber(RootJSONItemObject.Properties['valuestart'],0.0),
+                                             TPasJSON.GetNumber(RootJSONItemObject.Properties['timeend'],0.0),
+                                             TPasJSON.GetNumber(RootJSONItemObject.Properties['valueend'],0.0));
+   try
+    Assign(Envelope);
+   finally
+    FreeAndNil(Envelope);
+   end;
+  end else if Mode='easeinout' then begin
+   Envelope:=TVehicle.TEnvelope.CreateEaseInOut(TPasJSON.GetNumber(RootJSONItemObject.Properties['timestart'],0.0),
+                                                TPasJSON.GetNumber(RootJSONItemObject.Properties['valuestart'],0.0),
+                                                TPasJSON.GetNumber(RootJSONItemObject.Properties['timeend'],0.0),
+                                                TPasJSON.GetNumber(RootJSONItemObject.Properties['valueend'],0.0),
+                                                TPasJSON.GetInt64(RootJSONItemObject.Properties['steps'],16));
+   try
+    Assign(Envelope);
+   finally
+    FreeAndNil(Envelope);
+   end;
+  end else if Mode='custom' then begin
+   Envelope:=TVehicle.TEnvelope.Create;
+   try
+    JSONItem:=RootJSONItemObject.Properties['points'];
+    if assigned(JSONItem) and (JSONItem is TPasJSONItemArray) then begin
+     JSONItemArray:=TPasJSONItemArray(JSONItem);
+     for JSONItem in JSONItemArray do begin
+      if assigned(JSONItem) and (JSONItem is TPasJSONItemObject) then begin
+       JSONItemObject:=TPasJSONItemObject(JSONItem);
+       Envelope.Insert(TPasJSON.GetNumber(JSONItemObject.Properties['time'],0.0),TPasJSON.GetNumber(JSONItemObject.Properties['value'],0.0));
+      end;
+     end;
+    end;
+    Assign(Envelope);
+   finally
+    FreeAndNil(Envelope);
+   end;
+  end;
+ end;
+end;
+
+function TVehicle.TEnvelope.SaveToJSON:TPasJSONItem;
+var Index:TKraftSizeInt;
+    JSONItemArray:TPasJSONItemArray;
+    JSONItemObject:TPasJSONItemObject;
+begin
+ result:=TPasJSONItemObject.Create;
+ case fMode of
+  TVehicle.TEnvelope.TMode.Linear:begin
+   TPasJSONItemObject(result).Add('mode',TPasJSONItemString.Create('linear'));
+   TPasJSONItemObject(result).Add('timestart',TPasJSONItemNumber.Create(fPoints[0].fTime));
+   TPasJSONItemObject(result).Add('valuestart',TPasJSONItemNumber.Create(fPoints[0].fValue));
+   TPasJSONItemObject(result).Add('timeend',TPasJSONItemNumber.Create(fPoints[1].fTime));
+   TPasJSONItemObject(result).Add('valueend',TPasJSONItemNumber.Create(fPoints[1].fValue));
+  end;
+  TVehicle.TEnvelope.TMode.EaseInOut:begin
+   TPasJSONItemObject(result).Add('mode',TPasJSONItemString.Create('easeinout'));
+   TPasJSONItemObject(result).Add('timestart',TPasJSONItemNumber.Create(fPoints[0].fTime));
+   TPasJSONItemObject(result).Add('valuestart',TPasJSONItemNumber.Create(fPoints[0].fValue));
+   TPasJSONItemObject(result).Add('timeend',TPasJSONItemNumber.Create(fPoints[length(fPoints)-1].fTime));
+   TPasJSONItemObject(result).Add('valueend',TPasJSONItemNumber.Create(fPoints[length(fPoints)-1].fValue));
+   TPasJSONItemObject(result).Add('steps',TPasJSONItemNumber.Create(length(fPoints)));
+  end;
+  else {TVehicle.TEnvelope.TMode.Custom:}begin
+   TPasJSONItemObject(result).Add('mode',TPasJSONItemString.Create('custom'));
+   JSONItemArray:=TPasJSONItemArray.Create;
+   try
+    for Index:=0 to length(fPoints)-1 do begin
+     JSONItemObject:=TPasJSONItemObject.Create;
+     try
+      JSONItemObject.Add('time',TPasJSONItemNumber.Create(fPoints[Index].fTime));
+      JSONItemObject.Add('value',TPasJSONItemNumber.Create(fPoints[Index].fValue));
+     finally
+      JSONItemArray.Add(JSONItemObject);
+     end;
+    end;
+   finally
+    TPasJSONItemObject(result).Add('points',JSONItemArray);
+   end;
+  end;
+ end;
+end;
+{$endif}
 
 function TVehicle.TEnvelope.GetTimeAtIndex(const aIndex:TKraftInt32):TKraftScalar;
 begin
