@@ -783,9 +783,9 @@ begin
    TPasJSONItemObject(result).Add('mode',TPasJSONItemString.Create('easeinout'));
    TPasJSONItemObject(result).Add('timestart',TPasJSONItemNumber.Create(fPoints[0].fTime));
    TPasJSONItemObject(result).Add('valuestart',TPasJSONItemNumber.Create(fPoints[0].fValue));
-   TPasJSONItemObject(result).Add('timeend',TPasJSONItemNumber.Create(fPoints[length(fPoints)-1].fTime));
-   TPasJSONItemObject(result).Add('valueend',TPasJSONItemNumber.Create(fPoints[length(fPoints)-1].fValue));
-   TPasJSONItemObject(result).Add('steps',TPasJSONItemNumber.Create(length(fPoints)));
+   TPasJSONItemObject(result).Add('timeend',TPasJSONItemNumber.Create(fPoints[fCount-1].fTime));
+   TPasJSONItemObject(result).Add('valueend',TPasJSONItemNumber.Create(fPoints[fCount-1].fValue));
+   TPasJSONItemObject(result).Add('steps',TPasJSONItemNumber.Create(fCount));
   end;
   else {TVehicle.TEnvelope.TMode.Custom:}begin
    TPasJSONItemObject(result).Add('mode',TPasJSONItemString.Create('custom'));
