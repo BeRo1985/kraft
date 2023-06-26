@@ -378,6 +378,10 @@ type { TVehicle }
               procedure UpdateVisual;
               procedure StoreWorldTransforms;
               procedure InterpolateWorldTransforms(const aAlpha:TKraftScalar);
+{$ifdef KraftPasJSON}
+              procedure LoadFromJSON(const aJSONItem:TPasJSONItem);
+              function SaveToJSON:TPasJSONItem;
+{$endif}
 {$ifdef DebugDraw}
               procedure DebugDraw;
 {$endif}
@@ -1657,6 +1661,55 @@ begin
  fVisualDebugMiddle:=Vector3Avg(fVisualDebugWheels[0],fVisualDebugWheels[1]);
 {$endif}
 end;
+
+{$ifdef KraftPasJSON}
+procedure TVehicle.TAxle.LoadFromJSON(const aJSONItem:TPasJSONItem);
+begin
+ if assigned(aJSONItem) and (aJSONItem is TPasJSONItemObject) then begin
+  fWidth:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['width'],fWidth);
+  fOffset.x:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['horizontaloffset'],fOffset.x);
+  fOffset.y:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['verticaloffset'],fOffset.y);
+  fSteerAngle:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['steerangle'],fSteerAngle);
+  fRadius:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['radius'],fRadius);
+  fLaterialFriction:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['laterialfriction'],fLaterialFriction);
+  fRollingFriction:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['rollingfriction'],fRollingFriction);
+  fBrakeForceMagnitude:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['brakeforcemagnitude'],fBrakeForceMagnitude);
+  fSuspensionStiffness:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['suspensionstiffness'],fSuspensionStiffness);
+  fSuspensionDamping:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['suspensiondamping'],fSuspensionDamping);
+  fSuspensionRestitution:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['suspensionrestitution'],fSuspensionRestitution);
+  fRelaxedSuspensionLength:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['relaxedsuspensionlength'],fRelaxedSuspensionLength);
+  fStabilizerBarAntiRollForce:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['stabilizerbarantirollforce'],fStabilizerBarAntiRollForce);
+  fWheelVisualScale:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['wheelvisualscale'],fWheelVisualScale);
+  fIsPowered:=TPasJSON.GetBoolean(TPasJSONItemObject(aJSONItem).Properties['ispowered'],fIsPowered);
+  fAfterFlightSlipperyK:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['afterflightslipperyk'],fAfterFlightSlipperyK);
+  fBrakeSlipperyK:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['brakeslipperyk'],fBrakeSlipperyK);
+  fHandBrakeSlipperyK:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['handbrakeslipperyk'],fHandBrakeSlipperyK);
+ end;
+end;
+
+function TVehicle.TAxle.SaveToJSON:TPasJSONItem;
+begin
+ result:=TPasJSONItemObject.Create;
+ TPasJSONItemObject(result).Add('width',TPasJSONItemNumber.Create(fWidth));
+ TPasJSONItemObject(result).Add('horizontaloffset',TPasJSONItemNumber.Create(fOffset.x));
+ TPasJSONItemObject(result).Add('verticaloffset',TPasJSONItemNumber.Create(fOffset.y));
+ TPasJSONItemObject(result).Add('steerangle',TPasJSONItemNumber.Create(fSteerAngle));
+ TPasJSONItemObject(result).Add('radius',TPasJSONItemNumber.Create(fRadius));
+ TPasJSONItemObject(result).Add('laterialfriction',TPasJSONItemNumber.Create(fLaterialFriction));
+ TPasJSONItemObject(result).Add('rollingfriction',TPasJSONItemNumber.Create(fRollingFriction));
+ TPasJSONItemObject(result).Add('brakeforcemagnitude',TPasJSONItemNumber.Create(fBrakeForceMagnitude));
+ TPasJSONItemObject(result).Add('suspensionstiffness',TPasJSONItemNumber.Create(fSuspensionStiffness));
+ TPasJSONItemObject(result).Add('suspensiondamping',TPasJSONItemNumber.Create(fSuspensionDamping));
+ TPasJSONItemObject(result).Add('suspensionrestitution',TPasJSONItemNumber.Create(fSuspensionRestitution));
+ TPasJSONItemObject(result).Add('relaxedsuspensionlength',TPasJSONItemNumber.Create(fRelaxedSuspensionLength));
+ TPasJSONItemObject(result).Add('stabilizerbarantirollforce',TPasJSONItemNumber.Create(fStabilizerBarAntiRollForce));
+ TPasJSONItemObject(result).Add('wheelvisualscale',TPasJSONItemNumber.Create(fWheelVisualScale));
+ TPasJSONItemObject(result).Add('ispowered',TPasJSONItemBoolean.Create(fIsPowered));
+ TPasJSONItemObject(result).Add('afterflightslipperyk',TPasJSONItemNumber.Create(fAfterFlightSlipperyK));
+ TPasJSONItemObject(result).Add('brakeslipperyk',TPasJSONItemNumber.Create(fBrakeSlipperyK));
+ TPasJSONItemObject(result).Add('handbrakeslipperyk',TPasJSONItemNumber.Create(fHandBrakeSlipperyK));
+end;
+{$endif}
 
 {$ifdef DebugDraw}
 procedure TVehicle.TAxle.DebugDraw;
