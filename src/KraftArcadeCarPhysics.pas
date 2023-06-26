@@ -483,6 +483,10 @@ type { TVehicle }
        procedure Update;
        procedure StoreWorldTransforms;
        procedure InterpolateWorldTransforms(const aAlpha:TKraftScalar);
+{$ifdef KraftPasJSON}
+       procedure LoadFromJSON(const aJSONItem:TPasJSONItem);
+       function SaveToJSON:TPasJSONItem;
+{$endif}
 {$ifdef DebugDraw}
        procedure DebugDraw;
 {$endif}
@@ -2142,6 +2146,63 @@ begin
  fVisualWorldBackward:=Vector3Neg(fVisualWorldForward);
  fVisualWorldPosition:=Vector3(PKraftRawVector3(pointer(@fVisualWorldTransform[3,0]))^);
 end;
+
+{$ifdef KraftPasJSON}
+procedure TVehicle.LoadFromJSON(const aJSONItem:TPasJSONItem);
+begin
+ if assigned(aJSONItem) and (aJSONItem is TPasJSONItemObject) then begin
+  fAccelerationCurveEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['accelerationcurveenvelope']);
+  fReverseAccelerationCurveEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['reverseaccelerationcurveenvelope']);
+  fReverseEvaluationAccuracy:=TPasJSON.GetInt64(TPasJSONItemObject(aJSONItem).Properties['reverseevaluationaccuracy'],fReverseEvaluationAccuracy);
+  fSteerAngleLimitEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['steeranglelimitenvelope']);
+  fSteeringResetSpeedEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['steeringresetspeedenvelope']);
+  fSteeringSpeedEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['steeringspeedenvelope']);
+  fFlightStabilizationForce:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['flightstabilizationforce'],fFlightStabilizationForce);
+  fFlightStabilizationDamping:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['flightstabilizationdamping'],fFlightStabilizationDamping);
+  fHandBrakeSlipperyTime:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['handbrakeslipperytime'],fHandBrakeSlipperyTime);
+  fControllable:=TPasJSON.GetBoolean(TPasJSONItemObject(aJSONItem).Properties['controllable'],fControllable);
+  fDownForceCurveEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['downforcecurveenvelope']);
+  fDownForce:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['downforce'],fDownForce);
+  fAxleFront.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['axlefront']);
+  fAxleRear.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['axlerear']);
+  fAfterFlightSlipperyTiresTime:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['afterflightslipperytirestime'],fAfterFlightSlipperyTiresTime);
+  fBrakeSlipperyTiresTime:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['brakeslipperytirestime'],fBrakeSlipperyTiresTime);
+  fHandBrakeSlipperyTiresTime:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['handbrakeslipperytirestime'],fHandBrakeSlipperyTiresTime);
+  fIsBrake:=TPasJSON.GetBoolean(TPasJSONItemObject(aJSONItem).Properties['isbrake'],fIsBrake);
+  fIsHandBrake:=TPasJSON.GetBoolean(TPasJSONItemObject(aJSONItem).Properties['ishandbrake'],fIsHandBrake);
+  fIsAcceleration:=TPasJSON.GetBoolean(TPasJSONItemObject(aJSONItem).Properties['isacceleration'],fIsAcceleration);
+  fIsReverseAcceleration:=TPasJSON.GetBoolean(TPasJSONItemObject(aJSONItem).Properties['isreverseacceleration'],fIsReverseAcceleration);
+  fAccelerationForceMagnitude:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['accelerationforcemagnitude'],fAccelerationForceMagnitude);
+ end;
+end;
+
+function TVehicle.SaveToJSON:TPasJSONItem;
+begin
+ result:=TPasJSONItemObject.Create;
+ TPasJSONItemObject(result).Add('accelerationcurveenvelope',fAccelerationCurveEnvelope.SaveToJSON);
+ TPasJSONItemObject(result).Add('reverseaccelerationcurveenvelope',fReverseAccelerationCurveEnvelope.SaveToJSON);
+ TPasJSONItemObject(result).Add('reverseevaluationaccuracyenvelope',TPasJSONItemNumber.Create(fReverseEvaluationAccuracy));
+ TPasJSONItemObject(result).Add('steeranglelimitenvelope',fSteerAngleLimitEnvelope.SaveToJSON);
+ TPasJSONItemObject(result).Add('steeringresetspeedenvelope',fSteeringResetSpeedEnvelope.SaveToJSON);
+ TPasJSONItemObject(result).Add('steeringspeedenvelope',fSteeringSpeedEnvelope.SaveToJSON);
+ TPasJSONItemObject(result).Add('flightstabilizationforce',TPasJSONItemNumber.Create(fFlightStabilizationForce));
+ TPasJSONItemObject(result).Add('flightstabilizationdamping',TPasJSONItemNumber.Create(fFlightStabilizationDamping));
+ TPasJSONItemObject(result).Add('handbrakeslipperytime',TPasJSONItemNumber.Create(fHandBrakeSlipperyTime));
+ TPasJSONItemObject(result).Add('controllable',TPasJSONItemBoolean.Create(fControllable));
+ TPasJSONItemObject(result).Add('downforcecurveenvelope',fDownForceCurveEnvelope.SaveToJSON);
+ TPasJSONItemObject(result).Add('downforce',TPasJSONItemNumber.Create(fDownForce));
+ TPasJSONItemObject(result).Add('axlefront',fAxleFront.SaveToJSON);
+ TPasJSONItemObject(result).Add('axlerear',fAxleRear.SaveToJSON);
+ TPasJSONItemObject(result).Add('afterflightslipperytirestime',TPasJSONItemNumber.Create(fAfterFlightSlipperyTiresTime));
+ TPasJSONItemObject(result).Add('brakeslipperytirestime',TPasJSONItemNumber.Create(fBrakeSlipperyTiresTime));
+ TPasJSONItemObject(result).Add('handbrakeslipperytirestime',TPasJSONItemNumber.Create(fHandBrakeSlipperyTiresTime));
+ TPasJSONItemObject(result).Add('isbrake',TPasJSONItemBoolean.Create(fIsBrake));
+ TPasJSONItemObject(result).Add('ishandbrake',TPasJSONItemBoolean.Create(fIsHandBrake));
+ TPasJSONItemObject(result).Add('isacceleration',TPasJSONItemBoolean.Create(fIsAcceleration));
+ TPasJSONItemObject(result).Add('isreverseacceleration',TPasJSONItemBoolean.Create(fIsReverseAcceleration));
+ TPasJSONItemObject(result).Add('accelerationforcemagnitude',TPasJSONItemNumber.Create(fAccelerationForceMagnitude));
+end;
+{$endif}
 
 {$ifdef DebugDraw}
 procedure TVehicle.DebugDraw;
