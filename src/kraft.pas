@@ -10449,12 +10449,13 @@ begin
  end;
 end;
 
-function AABBRayIntersect(const AABB:TKraftAABB;const Origin,Direction:TKraftVector3):boolean;
-{$if true}
+// For more details see:
+// https://tavianator.com/2011/ray_box.html
+// https://tavianator.com/2015/ray_box_nan.html
+// https://tavianator.com/2022/ray_box_boundary.html
+function AABBRayIntersectOpt(const AABB:TKraftAABB;const Origin,InvDirection:TKraftVector3):boolean;
 var t0,t1:TKraftVector3;
-    tmin,tmax:TKraftScalar;
 begin
-
  // Although it might seem this doesn't address edge cases where
  // Direction.{x,y,z} equals zero, it is indeed correct. This is
  // because the comparisons still work as expected when infinities
@@ -10462,15 +10463,35 @@ begin
  // and positioned outside the box will lead to tmin being infinity
  // or tmax turning into negative infinity, yet for rays located
  // within the box, the values for tmin and tmax will remain unchanged.
+ t0:=Vector3Mul(Vector3Sub(AABB.Min,Origin),InvDirection);
+ t1:=Vector3Mul(Vector3Sub(AABB.Max,Origin),InvDirection);
+ result:=Max(0.0,Max(Max(Min(Min(t0.x,t1.x),Infinity),
+                         Min(Min(t0.y,t1.y),Infinity)),
+                         Min(Min(t0.z,t1.z),Infinity)))<=
+         Min(Min(Max(Max(t0.x,t1.x),NegInfinity),
+                 Max(Max(t0.y,t1.y),NegInfinity)),
+                 Max(Max(t0.z,t1.z),NegInfinity));
+end;
 
+function AABBRayIntersect(const AABB:TKraftAABB;const Origin,Direction:TKraftVector3):boolean;
+{$if true}
+var t0,t1:TKraftVector3;
+begin
+ // Although it might seem this doesn't address edge cases where
+ // Direction.{x,y,z} equals zero, it is indeed correct. This is
+ // because the comparisons still work as expected when infinities
+ // emerge from zero division. Rays that are parallel to an axis
+ // and positioned outside the box will lead to tmin being infinity
+ // or tmax turning into negative infinity, yet for rays located
+ // within the box, the values for tmin and tmax will remain unchanged.
  t0:=Vector3Div(Vector3Sub(AABB.Min,Origin),Direction);
  t1:=Vector3Div(Vector3Sub(AABB.Max,Origin),Direction);
-
- tmin:=Max(Max(Min(t0.x,t1.x),Min(t0.y,t1.y)),Min(t0.z,t1.z));
- tmax:=Min(Min(Max(t0.x,t1.x),Max(t0.x,t1.x)),Max(t0.z,t1.z));
-
- result:=Max(0.0,tmin)<=tmax;
-
+ result:=Max(0.0,Max(Max(Min(Min(t0.x,t1.x),Infinity),
+                         Min(Min(t0.y,t1.y),Infinity)),
+                         Min(Min(t0.z,t1.z),Infinity)))<=
+         Min(Min(Max(Max(t0.x,t1.x),NegInfinity),
+                 Max(Max(t0.y,t1.y),NegInfinity)),
+                 Max(Max(t0.z,t1.z),NegInfinity));
 end;
 {$else}
 var tmin,tmax,t0,t1:TKraftScalar;
@@ -10486,18 +10507,18 @@ begin
 
  t0:=(AABB.Min.x-Origin.x)/Direction.x;
  t1:=(AABB.Max.x-Origin.x)/Direction.x;
- tmin:=Min(t0,t1);
- tmax:=Max(t0,t1);
+ tmin:=Min(Min(t0,t1),Infinity);
+ tmax:=Max(Max(t0,t1),NegInfinity);
 
  t0:=(AABB.Min.y-Origin.y)/Direction.y;
  t1:=(AABB.Max.y-Origin.y)/Direction.y;
- tmin:=Max(tmin,Min(t0,t1));
- tmax:=Min(tmax,Max(t0,t1));
+ tmin:=Max(tmin,Min(Min(t0,t1),Infinity));
+ tmax:=Min(tmax,Max(Max(t0,t1),NegInfinity));
 
  t0:=(AABB.Min.z-Origin.z)/Direction.z;
  t1:=(AABB.Max.z-Origin.z)/Direction.z;
- tmin:=Max(tmin,Min(t0,t1));
- tmax:=Min(tmax,Max(t0,t1));
+ tmin:=Max(tmin,Min(Min(t0,t1),Infinity));
+ tmax:=Min(tmax,Max(Max(t0,t1),NegInfinity));
 
  result:=Max(0.0,tmin)<=tmax;
 end;
@@ -14667,12 +14688,31 @@ begin
  end;
 end;
 
+function SphereCastAABBOpt(const aSphere:TKraftSphere;const aRayInvDirection:TKraftVector3;const aAABB:TKraftAABB):boolean; overload;
+var AABB:TKraftAABB;
+begin
+ result:=AABBIntersectSphere(aAABB,aSphere);
+ if not result then begin
+  AABB.Min:=Vector3Sub(aAABB.Min,Vector3(aSphere.Radius,aSphere.Radius,aSphere.Radius));
+  AABB.Max:=Vector3Add(aAABB.Max,Vector3(aSphere.Radius,aSphere.Radius,aSphere.Radius));
+  result:=AABBRayIntersectOpt(AABB,aSphere.Center,aRayInvDirection);
+ end;
+end;
+
 function SphereCastAABB(const aSphereCenter:TKraftVector3;const aSphereRadius:TKraftScalar;const aRayDirection:TKraftVector3;const aAABB:TKraftAABB):boolean; overload;
 var Sphere:TKraftSphere;
 begin
  Sphere.Center:=aSphereCenter;
  Sphere.Radius:=aSphereRadius;
  result:=SphereCastAABB(Sphere,aRayDirection,aAABB);
+end;
+
+function SphereCastAABBOpt(const aSphereCenter:TKraftVector3;const aSphereRadius:TKraftScalar;const aRayInvDirection:TKraftVector3;const aAABB:TKraftAABB):boolean; overload;
+var Sphere:TKraftSphere;
+begin
+ Sphere.Center:=aSphereCenter;
+ Sphere.Radius:=aSphereRadius;
+ result:=SphereCastAABBOpt(Sphere,aRayInvDirection,aAABB);
 end;
 
 function AABBGetVertex(const aAABB:TKraftAABB;const aX,aY,aZ:TKraftInt32):TKraftVector3; overload;
@@ -25725,19 +25765,20 @@ var SkipListNodeIndex,TriangleIndex:TKraftInt32;
     Triangle:PKraftMeshTriangle;
     First,SidePass:boolean;
     Nearest,Time,u,v,w:TKraftScalar;
-    Origin,Direction,p,Normal:TKraftVector3;
+    Origin,Direction,InvDirection,p,Normal:TKraftVector3;
 begin
  result:=false;
  if ksfRayCastable in fFlags then begin
   Origin:=Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform);
   Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform));
   if Vector3LengthSquared(Direction)>EPSILON then begin
+   InvDirection:=Vector3Div(Vector3All,Direction);
    Nearest:=MAX_SCALAR;
    First:=true;
    SkipListNodeIndex:=0;
    while SkipListNodeIndex<fMesh.fCountSkipListNodes do begin
     SkipListNode:=@fMesh.fSkipListNodes[SkipListNodeIndex];
-    if AABBRayIntersect(SkipListNode^.AABB,Origin,Direction) then begin
+    if AABBRayIntersectOpt(SkipListNode^.AABB,Origin,InvDirection) then begin
      TriangleIndex:=SkipListNode^.TriangleIndex;
      while TriangleIndex>=0 do begin
       Triangle:=@fMesh.fTriangles[TriangleIndex];
@@ -25794,7 +25835,7 @@ var SkipListNodeIndex,TriangleIndex:TKraftInt32;
     Triangle:PKraftMeshTriangle;
     First,SidePass:boolean;
     Radius,Nearest,Time,u,v,w:TKraftScalar;
-    Origin,Direction,p,Normal:TKraftVector3;
+    Origin,Direction,InvDirection,p,Normal:TKraftVector3;
 begin
  result:=false;
  if ksfSphereCastable in fFlags then begin
@@ -25802,12 +25843,13 @@ begin
   Radius:=SphereCastData.Radius;
   Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,fWorldTransform));
   if Vector3LengthSquared(Direction)>EPSILON then begin
+   InvDirection:=Vector3Div(Vector3All,Direction);
    Nearest:=MAX_SCALAR;
    First:=true;
    SkipListNodeIndex:=0;
    while SkipListNodeIndex<fMesh.fCountSkipListNodes do begin
     SkipListNode:=@fMesh.fSkipListNodes[SkipListNodeIndex];
-    if SphereCastAABB(Origin,Radius,Direction,SkipListNode^.AABB) then begin
+    if SphereCastAABBOpt(Origin,Radius,InvDirection,SkipListNode^.AABB) then begin
      TriangleIndex:=SkipListNode^.TriangleIndex;
      while TriangleIndex>=0 do begin
       Triangle:=@fMesh.fTriangles[TriangleIndex];
