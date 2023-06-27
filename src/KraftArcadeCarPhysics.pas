@@ -972,7 +972,6 @@ begin
 end;
 
 procedure TVehicle.TAxle.TWheel.Update(const aWorldSpacePosition:TKraftVector3;const aTotalWheelsCount,aCountPoweredWheels:TKraftInt32;const aLeft:boolean);
-{$define SphereCastResult}
 const RelaxSpeed=1.0;
 type TRayResult=record
       Valid:boolean;
@@ -982,7 +981,7 @@ type TRayResult=record
       Normal:TKraftVector3;
      end;
 var LocalWheelRotation,WorldSpaceWheelRotation:TKraftQuaternion;
-    WorldSpaceAxleLeft,RayOrigin,
+    WorldSpaceAxleLeft{,WorldSpaceAxleUp},RayOrigin,
     SuspensionForce,WheelVelocity,ContactUp,ContactLeft,ContactForward,LeftVelocity,ForwardVelocity,
     SlideVelocity,SlidingForce,FrictionForce,
     LongitudinalForce,AccForcePoint,
@@ -1123,6 +1122,7 @@ begin
 
  // Wheel axle left direction
  WorldSpaceAxleLeft:=Vector3Norm(Vector3TermQuaternionRotate(Vector3(-1.0,0.0,0.0),WorldSpaceWheelRotation));
+//WorldSpaceAxleUp:=Vector3Norm(Vector3TermQuaternionRotate(Vector3(0.0,1.0,0.0),WorldSpaceWheelRotation));
 
  fIsOnGround:=false;
 

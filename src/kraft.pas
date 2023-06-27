@@ -1743,6 +1743,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      TKraftShapeMesh=class(TKraftShape)
       private
        fMesh:TKraftMesh;
+       fSmoothNormalsAtCasting:boolean;
       public
        constructor Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody;const AMesh:TKraftMesh); reintroduce;
        destructor Destroy; override;
@@ -1764,6 +1765,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure Draw(const CameraMatrix:TKraftMatrix4x4); override;
 {$endif}
        property Mesh:TKraftMesh read fMesh;
+      published
+       property SmoothNormalsAtCasting:boolean read fSmoothNormalsAtCasting write fSmoothNormalsAtCasting;
      end;
 
      TKraftShapeSignedDistanceField=class(TKraftShape)
@@ -10497,7 +10500,7 @@ begin
  result:=(u>=0.0) and (v>=0.0) and ((u+v)<=1.0);
 end;
 
-function RayIntersectTriangle(const RayOrigin,RayDirection,v0,v1,v2:TKraftVector3;var Time,u,v:TKraftScalar):boolean; overload;
+function RayIntersectTriangle(const RayOrigin,RayDirection,v0,v1,v2:TKraftVector3;var Time,u,v,w:TKraftScalar):boolean; overload;
 var e0,e1,p,t,q:TKraftVector3;
     Determinant,InverseDeterminant:TKraftScalar;
 begin
@@ -10535,8 +10538,8 @@ begin
  t.w:=0.0;
 {$endif}
 
- u:=(t.x*p.x)+(t.y*p.y)+(t.z*p.z);
- if (u<0.0) or (u>Determinant) then begin
+ v:=(t.x*p.x)+(t.y*p.y)+(t.z*p.z);
+ if (v<0.0) or (v>Determinant) then begin
   exit;
  end;
 
@@ -10547,8 +10550,8 @@ begin
  q.w:=0.0;
 {$endif}
 
- v:=(RayDirection.x*q.x)+(RayDirection.y*q.y)+(RayDirection.z*q.z);
- if (v<0.0) or ((u+v)>Determinant) then begin
+ w:=(RayDirection.x*q.x)+(RayDirection.y*q.y)+(RayDirection.z*q.z);
+ if (w<0.0) or ((v+w)>Determinant) then begin
   exit;
  end;
 
@@ -10558,8 +10561,9 @@ begin
  end;
  InverseDeterminant:=1.0/Determinant;
  Time:=Time*InverseDeterminant;
- u:=u*InverseDeterminant;
  v:=v*InverseDeterminant;
+ w:=w*InverseDeterminant;
+ u:=1.0-(v+w);
 
  result:=true;
 end;
@@ -11915,7 +11919,7 @@ begin
 end;
 
 {$define AlternativeSphereCastTriangleImplementation}
-function SphereCastTriangle(const RayOrigin:TKraftVector3;const Radius:TKraftScalar;const RayDirection,v0,v1,v2:TKraftVector3;out Time,aU,aV:TKraftScalar):boolean; overload;
+function SphereCastTriangle(const RayOrigin:TKraftVector3;const Radius:TKraftScalar;const RayDirection,v0,v1,v2:TKraftVector3;out Time,aU,aV,aW:TKraftScalar):boolean; overload;
 {$ifndef AlternativeSphereCastTriangleImplementation}
  function EdgeOrVertexTest(const aPlaneIntersectPoint:TKraftVector3;const aVertices:PPKraftVector3s;const aVertIntersectCandidate,aVert0,aVert1:TKraftInt32;out aSecondEdgeVert:TKraftInt32):boolean;
  var Edge,Diff:TKraftVector3;
@@ -11960,6 +11964,7 @@ begin
   end else if aV>=1.0 then begin
    aV:=1.0;
   end;
+  aW:=1.0-(aU+aV);
   result:=true;
   exit;
  end;
@@ -12121,6 +12126,7 @@ begin
  // So V is actually U and W is actually V in this procedure respectivly the other way around, depending on the view point
  aU:=(1.0-V)-W;
  aV:=V;
+ aW:=W;
 
 end;
 
@@ -25422,7 +25428,7 @@ end;
 function TKraftShapeTriangle.RayCast(var RayCastData:TKraftRayCastData):boolean;
 var Origin,Direction:TKraftVector3;
     Vertices:PPKraftConvexHullVertices;
-    Time,u,v:TKraftScalar;
+    Time,u,v,w:TKraftScalar;
 begin
  result:=false;
  if ksfRayCastable in fFlags then begin
@@ -25430,14 +25436,14 @@ begin
   Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform));
   if Vector3LengthSquared(Direction)>EPSILON then begin
    Vertices:=@fConvexHull.fVertices[0];
-   if RayIntersectTriangle(Origin,Direction,Vertices^[0].Position,Vertices^[1].Position,Vertices^[2].Position,Time,u,v) then begin
+   if RayIntersectTriangle(Origin,Direction,Vertices^[0].Position,Vertices^[1].Position,Vertices^[2].Position,Time,u,v,w) then begin
     if (Time>=0.0) and (Time<=RayCastData.MaxTime) then begin
      RayCastData.TimeOfImpact:=Time;
      RayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
      RayCastData.Normal:=Vector3TermMatrixMulBasis(Vector3NormEx(Vector3Cross(Vector3Sub(Vertices^[1].Position,Vertices^[0].Position),Vector3Sub(Vertices^[2].Position,Vertices^[0].Position))),fWorldTransform);
      result:=true;
     end;
-   end else if RayIntersectTriangle(Origin,Direction,Vertices^[2].Position,Vertices^[1].Position,Vertices^[0].Position,Time,u,v) then begin
+   end else if RayIntersectTriangle(Origin,Direction,Vertices^[2].Position,Vertices^[1].Position,Vertices^[0].Position,Time,u,v,w) then begin
     if (Time>=0.0) and (Time<=RayCastData.MaxTime) then begin
      RayCastData.TimeOfImpact:=Time;
      RayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
@@ -25452,7 +25458,7 @@ end;
 function TKraftShapeTriangle.SphereCast(var SphereCastData:TKraftSphereCastData):boolean;
 var Origin,Direction:TKraftVector3;
     Vertices:PPKraftConvexHullVertices;
-    Time,u,v:TKraftScalar;
+    Time,u,v,w:TKraftScalar;
 begin
  result:=false;
  if ksfSphereCastable in fFlags then begin
@@ -25468,7 +25474,8 @@ begin
                          Vertices^[2].Position,
                          Time,
                          u,
-                         v) then begin
+                         v,
+                         w) then begin
     if (Time>=0.0) and (Time<=SphereCastData.MaxTime) then begin
      SphereCastData.TimeOfImpact:=Time;
      SphereCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
@@ -25483,7 +25490,8 @@ begin
                                   Vertices^[0].Position,
                                   Time,
                                   u,
-                                  v) then begin
+                                  v,
+                                  w) then begin
     if (Time>=0.0) and (Time<=SphereCastData.MaxTime) then begin
      SphereCastData.TimeOfImpact:=Time;
      SphereCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
@@ -25569,6 +25577,8 @@ begin
 
  fFeatureRadius:=0.0;
 
+ fSmoothNormalsAtCasting:=true;
+
 end;
 
 destructor TKraftShapeMesh.Destroy;
@@ -25640,7 +25650,7 @@ var SkipListNodeIndex,TriangleIndex:TKraftInt32;
     SkipListNode:PKraftMeshSkipListNode;
     Triangle:PKraftMeshTriangle;
     First,SidePass:boolean;
-    Nearest,Time,u,v:TKraftScalar;
+    Nearest,Time,u,v,w:TKraftScalar;
     Origin,Direction,p,Normal:TKraftVector3;
 begin
  result:=false;
@@ -25665,14 +25675,19 @@ begin
                                fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],
                                Time,
                                u,
-                               v) then begin
+                               v,
+                               w) then begin
         p:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time));
         if ((Time>=0.0) and (Time<=RayCastData.MaxTime)) and (First or (Time<Nearest)) then begin
          First:=false;
          Nearest:=Time;
-         Normal:=Vector3Norm(Vector3Add(Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],1.0-(u+v)),
-                             Vector3Add(Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],u),
-                                        Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],v))));
+         if fSmoothNormalsAtCasting then begin
+          Normal:=Vector3Norm(Vector3Add(Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],u),
+                              Vector3Add(Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],v),
+                                         Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],w))));
+         end else begin
+          Normal:=Triangle^.Plane.Normal;
+         end;
          RayCastData.TimeOfImpact:=Time;
          RayCastData.Point:=p;
          if SidePass then begin
@@ -25704,7 +25719,7 @@ var SkipListNodeIndex,TriangleIndex:TKraftInt32;
     SkipListNode:PKraftMeshSkipListNode;
     Triangle:PKraftMeshTriangle;
     First,SidePass:boolean;
-    Radius,Nearest,Time,u,v:TKraftScalar;
+    Radius,Nearest,Time,u,v,w:TKraftScalar;
     Origin,Direction,p,Normal:TKraftVector3;
 begin
  result:=false;
@@ -25731,14 +25746,19 @@ begin
                              fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],
                              Time,
                              u,
-                             v) then begin
+                             v,
+                             w) then begin
         p:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time));
         if ((Time>=0.0) and (Time<=SphereCastData.MaxTime)) and (First or (Time<Nearest)) then begin
          First:=false;
          Nearest:=Time;
-         Normal:=Vector3Norm(Vector3Add(Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],u),
-                             Vector3Add(Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],v),
-                                        Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],1.0-(u+v)))));
+         if fSmoothNormalsAtCasting then begin
+          Normal:=Vector3Norm(Vector3Add(Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],u),
+                              Vector3Add(Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],v),
+                                         Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],w))));
+         end else begin
+          Normal:=Triangle^.Plane.Normal;
+         end;
          SphereCastData.TimeOfImpact:=Time;
          SphereCastData.Point:=p;
          if SidePass then begin
