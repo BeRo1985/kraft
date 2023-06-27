@@ -10501,35 +10501,38 @@ begin
 end;
 
 function RayIntersectTriangle(const RayOrigin,RayDirection,v0,v1,v2:TKraftVector3;var Time,u,v,w:TKraftScalar):boolean; overload;
-var e0,e1,p,t,q:TKraftVector3;
+const EPSILON={$ifdef KraftUseDouble}1e-16{$else}1e-7{$endif};
+var v0v1,v0v2,p,t,q:TKraftVector3;
     Determinant,InverseDeterminant:TKraftScalar;
 begin
  result:=false;
 
- e0.x:=v1.x-v0.x;
- e0.y:=v1.y-v0.y;
- e0.z:=v1.z-v0.z;
+ v0v1.x:=v1.x-v0.x;
+ v0v1.y:=v1.y-v0.y;
+ v0v1.z:=v1.z-v0.z;
 {$ifdef SIMD}
- e0.w:=0.0;
+ v0v1.w:=0.0;
 {$endif}
- e1.x:=v2.x-v0.x;
- e1.y:=v2.y-v0.y;
- e1.z:=v2.z-v0.z;
+ v0v2.x:=v2.x-v0.x;
+ v0v2.y:=v2.y-v0.y;
+ v0v2.z:=v2.z-v0.z;
 {$ifdef SIMD}
- e1.w:=0.0;
+ v0v2.w:=0.0;
 {$endif}
 
- p.x:=(RayDirection.y*e1.z)-(RayDirection.z*e1.y);
- p.y:=(RayDirection.z*e1.x)-(RayDirection.x*e1.z);
- p.z:=(RayDirection.x*e1.y)-(RayDirection.y*e1.x);
+ p.x:=(RayDirection.y*v0v2.z)-(RayDirection.z*v0v2.y);
+ p.y:=(RayDirection.z*v0v2.x)-(RayDirection.x*v0v2.z);
+ p.z:=(RayDirection.x*v0v2.y)-(RayDirection.y*v0v2.x);
 {$ifdef SIMD}
  p.w:=0.0;
 {$endif}
 
- Determinant:=(e0.x*p.x)+(e0.y*p.y)+(e0.z*p.z);
+ Determinant:=(v0v1.x*p.x)+(v0v1.y*p.y)+(v0v1.z*p.z);
  if Determinant<EPSILON then begin
   exit;
  end;
+
+ InverseDeterminant:=1.0/Determinant;
 
  t.x:=RayOrigin.x-v0.x;
  t.y:=RayOrigin.y-v0.y;
@@ -10538,34 +10541,29 @@ begin
  t.w:=0.0;
 {$endif}
 
- v:=(t.x*p.x)+(t.y*p.y)+(t.z*p.z);
- if (v<0.0) or (v>Determinant) then begin
+ v:=((t.x*p.x)+(t.y*p.y)+(t.z*p.z))*InverseDeterminant;
+ if (v<0.0) or (v>1.0) then begin
   exit;
  end;
 
- q.x:=(t.y*e0.z)-(t.z*e0.y);
- q.y:=(t.z*e0.x)-(t.x*e0.z);
- q.z:=(t.x*e0.y)-(t.y*e0.x);
+ q.x:=(t.y*v0v1.z)-(t.z*v0v1.y);
+ q.y:=(t.z*v0v1.x)-(t.x*v0v1.z);
+ q.z:=(t.x*v0v1.y)-(t.y*v0v1.x);
 {$ifdef SIMD}
  q.w:=0.0;
 {$endif}
 
- w:=(RayDirection.x*q.x)+(RayDirection.y*q.y)+(RayDirection.z*q.z);
- if (w<0.0) or ((v+w)>Determinant) then begin
+ w:=((RayDirection.x*q.x)+(RayDirection.y*q.y)+(RayDirection.z*q.z))*InverseDeterminant;
+ if (w<0.0) or ((v+w)>1.0) then begin
   exit;
  end;
 
- Time:=(e1.x*q.x)+(e1.y*q.y)+(e1.z*q.z);
- if abs(Determinant)<EPSILON then begin
-  Determinant:=0.01;
- end;
- InverseDeterminant:=1.0/Determinant;
- Time:=Time*InverseDeterminant;
- v:=v*InverseDeterminant;
- w:=w*InverseDeterminant;
+ Time:=((v0v2.x*q.x)+(v0v2.y*q.y)+(v0v2.z*q.z))*InverseDeterminant;
+
  u:=1.0-(v+w);
 
  result:=true;
+
 end;
 
 function IsPointsSameSide(const p0,p1,Origin,Direction:TKraftVector3):boolean; overload; {$ifdef caninline}inline;{$endif}
