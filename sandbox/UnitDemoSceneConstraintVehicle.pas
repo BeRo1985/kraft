@@ -60,10 +60,10 @@ const CarWidth=2.0;
                                                                 (x:JumpingRampHalfWidth;y:0.0;z:JumpingRampLength{$if KraftSIMD};w:0.0{$ifend}));{}
 
 constructor TDemoSceneConstraintVehicle.Create(const AKraftPhysics:TKraft);
-const WheelPositions:array[0..1,0..1] of TKraftVector3=(((x:CarHalfWidth;y:0.75;z:-CarLength{$if KraftSIMD};w:0.0{$ifend}),
-                                                         (x:-CarHalfWidth;y:0.75;z:-CarLength{$if KraftSIMD};w:0.0{$ifend})),
-                                                        ((x:CarHalfWidth;y:0.75;z:0.0{$if KraftSIMD};w:0.0{$ifend}),
-                                                         (x:-CarHalfWidth;y:0.75;z:0.0{$if KraftSIMD};w:0.0{$ifend})));
+const WheelPositions:array[0..1,0..1] of TKraftVector3=(((x:CarHalfWidth;y:1.25;z:-CarLength{$if KraftSIMD};w:0.0{$ifend}),
+                                                         (x:-CarHalfWidth;y:1.25;z:-CarLength{$if KraftSIMD};w:0.0{$ifend})),
+                                                        ((x:CarHalfWidth;y:1.25;z:0.0{$if KraftSIMD};w:0.0{$ifend}),
+                                                         (x:-CarHalfWidth;y:1.25;z:0.0{$if KraftSIMD};w:0.0{$ifend})));
 var Index,x,y:longint;
     Shape:TKraftShape;
     ConvexHull, onvexHull:TKraftConvexHull;
@@ -152,12 +152,12 @@ begin
  begin
   ChassisRigidBody:=TKraftRigidBody.Create(KraftPhysics);
   ChassisRigidBody.SetRigidBodyType(krbtDYNAMIC);
-  Shape:=TKraftShapeBox.Create(KraftPhysics,ChassisRigidBody,Vector3(1.0,1.0,3.0));
+  Shape:=TKraftShapeBox.Create(KraftPhysics,ChassisRigidBody,Vector3(1.0,0.0625,3.0));
   Shape.Restitution:=0.3;
   Shape.Density:=10.0;
-  Shape.LocalTransform:=Matrix4x4Translate(0.0,1.0,0.0);
+  Shape.LocalTransform:=Matrix4x4Translate(0.0,0.0,0.0);
   ChassisRigidBody.Finish;
-  ChassisRigidBody.SetWorldTransformation(Matrix4x4Translate(0.0,1.25,-2.0));
+  ChassisRigidBody.SetWorldTransformation(Matrix4x4Translate(0.0,1.5,-2.0));
   ChassisRigidBody.CollisionGroups:=[1];
   ChassisRigidBody.AngularVelocityDamp:=10.0;
   ChassisRigidBody.LinearVelocityDamp:=0.05;
@@ -183,7 +183,7 @@ begin
    WheelRigidBodies[y,x]:=TKraftRigidBody.Create(KraftPhysics);
    WheelRigidBodies[y,x].SetRigidBodyType(krbtDYNAMIC);
 // Shape:=TKraftShapeConvexHull.Create(KraftPhysics,WheelRigidBodies[y,x],ConvexHull);
-   Shape:=TKraftShapeSphere.Create(KraftPhysics,WheelRigidBodies[y,x],0.75);
+   Shape:=TKraftShapeSphere.Create(KraftPhysics,WheelRigidBodies[y,x],0.5);
    Shape.Restitution:=0.3;
    Shape.Density:=1.0;
    Shape.Friction:=10.0;
