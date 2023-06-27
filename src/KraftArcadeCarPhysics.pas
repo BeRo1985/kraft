@@ -1212,14 +1212,17 @@ begin
  WheelVelocity:=fVehicle.fRigidBody.GetWorldLinearVelocityFromPoint(fHitPoint);
 
  ContactUp:=Vector3Norm(HitNormal);
- ContactLeft:=Vector3Norm(Vector3Sub(WorldSpaceAxleLeft,
+ ContactLeft:=Vector3Norm(Vector3Sub(WorldSpaceAxleLeft,Vector3Project(WorldSpaceAxleLeft,ContactUp)));
+{ContactLeft:=Vector3Norm(Vector3Sub(WorldSpaceAxleLeft,
                           Vector3ScalarMul(ContactUp,
-                                           Vector3Dot(WorldSpaceAxleLeft,ContactUp))));
+                                           Vector3Dot(WorldSpaceAxleLeft,ContactUp))));}
  ContactForward:=Vector3Norm(Vector3Cross(ContactUp,ContactLeft));
  ContactLeft:=Vector3Norm(Vector3Cross(ContactForward,ContactUp));
 
- LeftVelocity:=Vector3ScalarMul(ContactLeft,Vector3Dot(WheelVelocity,ContactLeft));
- ForwardVelocity:=Vector3ScalarMul(ContactForward,Vector3Dot(WheelVelocity,ContactForward));
+{LeftVelocity:=Vector3ScalarMul(ContactLeft,Vector3Dot(WheelVelocity,ContactLeft));
+ ForwardVelocity:=Vector3ScalarMul(ContactForward,Vector3Dot(WheelVelocity,ContactForward));}
+ LeftVelocity:=Vector3Project(WheelVelocity,ContactLeft);
+ ForwardVelocity:=Vector3Project(WheelVelocity,ContactForward);
  SlideVelocity:=Vector3Avg(LeftVelocity,ForwardVelocity);
 
 {if self=fVehicle.fAxleFront.fWheelLeft then begin
@@ -1276,7 +1279,8 @@ begin
  FrictionForce:=Vector3ScalarMul(SlidingForce,-LaterialFriction);
 
  // Remove friction along roll-direction of wheel
- LongitudinalForce:=Vector3ScalarMul(ContactForward,Vector3Dot(FrictionForce,ContactForward));
+//LongitudinalForce:=Vector3ScalarMul(ContactForward,Vector3Dot(FrictionForce,ContactForward));
+ LongitudinalForce:=Vector3Project(FrictionForce,ContactForward);
 
 {if self=fVehicle.fAxleFront.fWheelLeft then begin
   writeln(ContactLeft.x:10:5,' ',ContactLeft.y:10:5,' ',ContactLeft.z:10:5,' - ',ContactForward.x:10:5,' ',ContactForward.y:10:5,' ',ContactForward.z:10:5,' - ',ContactUp.x:10:5,' ',ContactUp.y:10:5,' ',ContactUp.z:10:5,' ');

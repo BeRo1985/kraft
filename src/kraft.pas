@@ -4012,6 +4012,7 @@ function Vector3Avg({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} va:PKra
 function Vector3ScalarMul({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3;const s:TKraftScalar):TKraftVector3; {$if defined(caninline) and not defined(SIMDASM)}inline;{$ifend} {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function Vector3Dot({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3):TKraftScalar; {$if defined(caninline) and not defined(SIMDASM)}inline;{$ifend} {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function Vector3Cos({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3):TKraftScalar; {$ifdef caninline}inline;{$endif}
+function Vector3Project({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Vector,OnNormal:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
 function Vector3GetOneUnitOrthogonalVector({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
 function Vector3Cross({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3):TKraftVector3; {$if defined(caninline) and not defined(SIMDASM)}inline;{$ifend} {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function Vector3Neg({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3):TKraftVector3;  {$if defined(caninline) and not defined(SIMDASM)}inline;{$ifend} {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
@@ -5197,6 +5198,17 @@ begin
  end else begin
   result:=0.9;
  end
+end;
+
+function Vector3Project({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Vector,OnNormal:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
+var MagnitudeSquared:TKraftScalar;
+begin
+ MagnitudeSquared:=Vector3Dot(OnNormal,OnNormal);
+ if MagnitudeSquared<EPSILON then begin
+  result:=Vector3Origin;
+ end else begin
+  result:=Vector3ScalarMul(OnNormal,Vector3Dot(Vector,OnNormal)/MagnitudeSquared);
+ end;
 end;
 
 function Vector3GetOneUnitOrthogonalVector({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3):TKraftVector3;
