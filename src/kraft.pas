@@ -4022,6 +4022,7 @@ function Vector3Neg({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraf
 procedure Vector3Scale(var v:TKraftVector3;const sx,sy,sz:TKraftScalar); overload; {$if defined(caninline) and not defined(SIMDASM)}inline;{$ifend} {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 procedure Vector3Scale(var v:TKraftVector3;const s:TKraftScalar); overload; {$if defined(caninline) and not defined(SIMDASM)}inline;{$ifend} {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function Vector3Mul({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3):TKraftVector3; {$if defined(caninline) and not defined(SIMDASM)}inline;{$ifend} {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
+function Vector3Div({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3):TKraftVector3; {$if defined(caninline) and not defined(SIMDASM)}inline;{$ifend} {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function Vector3Length({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3):TKraftScalar; {$if defined(caninline) and not defined(SIMDASM)}inline;{$ifend} {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function Vector3Dist({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3):TKraftScalar; {$if defined(caninline) and not defined(SIMDASM)}inline;{$ifend} {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function Vector3LengthSquared({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3):TKraftScalar; {$if defined(caninline) and not defined(SIMDASM)}inline;{$ifend} {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
@@ -5398,6 +5399,27 @@ begin
  result.x:=v1.x*v2.x;
  result.y:=v1.y*v2.y;
  result.z:=v1.z*v2.z;
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
+end;
+{$ifend}
+
+function Vector3Div({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3):TKraftVector3; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
+asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
+ movups xmm0,dqword ptr [v1]
+ movups xmm1,dqword ptr [v2]
+ divps xmm0,xmm1
+ movups dqword ptr [result],xmm0
+end;
+{$else}
+begin
+ result.x:=v1.x/v2.x;
+ result.y:=v1.y/v2.y;
+ result.z:=v1.z/v2.z;
 {$ifdef SIMD}
  result.w:=0.0;
 {$endif}
@@ -10427,7 +10449,61 @@ begin
  end;
 end;
 
-function AABBRayIntersect(const AABB:TKraftAABB;const Origin,Direction:TKraftVector3):boolean; {$ifdef caninline}inline;{$endif}
+function AABBRayIntersect(const AABB:TKraftAABB;const Origin,Direction:TKraftVector3):boolean;
+{$if true}
+var t0,t1:TKraftVector3;
+    tmin,tmax:TKraftScalar;
+begin
+
+ // Although it might seem this doesn't address edge cases where
+ // Direction.{x,y,z} equals zero, it is indeed correct. This is
+ // because the comparisons still work as expected when infinities
+ // emerge from zero division. Rays that are parallel to an axis
+ // and positioned outside the box will lead to tmin being infinity
+ // or tmax turning into negative infinity, yet for rays located
+ // within the box, the values for tmin and tmax will remain unchanged.
+
+ t0:=Vector3Div(Vector3Sub(AABB.Min,Origin),Direction);
+ t1:=Vector3Div(Vector3Sub(AABB.Max,Origin),Direction);
+
+ tmin:=Max(Max(Min(t0.x,t1.x),Min(t0.y,t1.y)),Min(t0.z,t1.z));
+ tmax:=Min(Min(Max(t0.x,t1.x),Max(t0.x,t1.x)),Max(t0.z,t1.z));
+
+ result:=Max(0.0,tmin)<=tmax;
+
+end;
+{$else}
+var tmin,tmax,t0,t1:TKraftScalar;
+begin
+
+ // Although it might seem this doesn't address edge cases where
+ // Direction.{x,y,z} equals zero, it is indeed correct. This is
+ // because the comparisons still work as expected when infinities
+ // emerge from zero division. Rays that are parallel to an axis
+ // and positioned outside the box will lead to tmin being infinity
+ // or tmax turning into negative infinity, yet for rays located
+ // within the box, the values for tmin and tmax will remain unchanged.
+
+ t0:=(AABB.Min.x-Origin.x)/Direction.x;
+ t1:=(AABB.Max.x-Origin.x)/Direction.x;
+ tmin:=Min(t0,t1);
+ tmax:=Max(t0,t1);
+
+ t0:=(AABB.Min.y-Origin.y)/Direction.y;
+ t1:=(AABB.Max.y-Origin.y)/Direction.y;
+ tmin:=Max(tmin,Min(t0,t1));
+ tmax:=Min(tmax,Max(t0,t1));
+
+ t0:=(AABB.Min.z-Origin.z)/Direction.z;
+ t1:=(AABB.Max.z-Origin.z)/Direction.z;
+ tmin:=Max(tmin,Min(t0,t1));
+ tmax:=Min(tmax,Max(t0,t1));
+
+ result:=Max(0.0,tmin)<=tmax;
+end;
+{$ifend}
+
+(*function AABBRayIntersect(const AABB:TKraftAABB;const Origin,Direction:TKraftVector3):boolean; {$ifdef caninline}inline;{$endif}
 var Center,BoxExtents,Diff:TKraftVector3;
 begin
  Center:=Vector3ScalarMul(Vector3Add(AABB.Min,AABB.Max),0.5);
@@ -10439,7 +10515,7 @@ begin
               ((abs((Direction.y*Diff.z)-(Direction.z*Diff.y))>((BoxExtents.y*abs(Direction.z))+(BoxExtents.z*abs(Direction.y)))) or
                (abs((Direction.z*Diff.x)-(Direction.x*Diff.z))>((BoxExtents.x*abs(Direction.z))+(BoxExtents.z*abs(Direction.x)))) or
                (abs((Direction.x*Diff.y)-(Direction.y*Diff.x))>((BoxExtents.x*abs(Direction.y))+(BoxExtents.y*abs(Direction.x))))));
-end;
+end;*)
 
 function ClosestPointToAABB(const AABB:TKraftAABB;const Point:TKraftVector3;const ClosestPointOnAABB:PKraftVector3=nil):TKraftScalar; {$ifdef caninline}inline;{$endif}
 var ClosestPoint:TKraftVector3;
