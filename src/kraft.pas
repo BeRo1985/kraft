@@ -968,7 +968,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftQuickHullVector3DArray=array of TKraftQuickHullVector3D;
 
-     TKraftQuickHullOutputFace=array of TKraftInt32;
+     TKraftQuickHullOutputFace=TKraftInt32Array;
 
      TKraftQuickHullOutputFaces=array of TKraftQuickHullOutputFace;
 
@@ -1172,7 +1172,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      TKraftConvexHullVertex=record
       Position:TKraftVector3;
       CountAdjacencies:TKraftInt32;
-      Adjacencies:array of TKraftInt32;
+      Adjacencies:TKraftInt32Array;
      end;
 
      PPKraftConvexHullVertices=^TPKraftConvexHullVertices;
@@ -1183,7 +1183,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      PKraftConvexHullFace=^TKraftConvexHullFace;
      TKraftConvexHullFace=record
       Plane:TKraftPlane;
-      Vertices:array of TKraftInt32;
+      Vertices:TKraftInt32Array;
       CountVertices:TKraftInt32;
       EdgeVertexOffset:TKraftInt32;
      end;
@@ -2206,7 +2206,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftBroadPhaseContactPairs=array of TKraftBroadPhaseContactPair;
 
-     TKraftBroadPhaseMoveBufferItems=array of TKraftInt32;
+     TKraftBroadPhaseMoveBufferItems=TKraftInt32Array;
 
      TKraftBroadPhaseMoveBuffer=class
       private
@@ -2301,7 +2301,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
       OtherRigidBody:TKraftRigidBody;
      end;
 
-     TKraftRigidBodyIslandIndices=array of TKraftInt32;
+     TKraftRigidBodyIslandIndices=TKraftInt32Array;
 
      TKraftRigidBody=class(TPersistent)
       private
@@ -16420,7 +16420,7 @@ type PConvexHullVector=^TConvexHullVector;
 
      PConvexHullPolygon=^TConvexHullPolygon;
      TConvexHullPolygon=record
-      Indices:array of TKraftInt32;
+      Indices:TKraftInt32Array;
       Count:TKraftInt32;
       Plane:TConvexHullPlane;
      end;
@@ -16953,7 +16953,7 @@ var CountPoints:TKraftInt32;
      Tris:TTris;
      tt:PTri;
      {TempTri:TTri;}
-     Map,Used:array of TKraftInt32;
+     Map,Used:TKraftInt32Array;
   procedure TrisPushBack(const NewTri:TTri);
   begin
    if (CountTris+1)>=length(Tris) then begin
@@ -17208,8 +17208,8 @@ var CountPoints:TKraftInt32;
  var PointIndex,OtherPointIndex,CountNewPoints,HashItemIndex:TKraftInt32;
      Hash:TKraftUInt32;
      NewPoints:TConvexHullVectors;
-     PointNextIndices:array of TKraftInt32;
-     HashTable:array of TKraftInt32;
+     PointNextIndices:TKraftInt32Array;
+     HashTable:TKraftInt32Array;
  begin
   NewPoints:=nil;
   PointNextIndices:=nil;
@@ -17275,8 +17275,8 @@ var CountPoints:TKraftInt32;
      Hash:TKraftUInt32;
      InverseTolerance:double;
      NewPoints:TConvexHullVectors;
-     PointNextIndices:array of TKraftInt32;
-     HashTable:array of TKraftInt32;
+     PointNextIndices:TKraftInt32Array;
+     HashTable:TKraftInt32Array;
  begin
   NewPoints:=nil;
   PointNextIndices:=nil;
@@ -19656,7 +19656,7 @@ var PointIndex,TriangleIndex,TriangleVertexIndex,VertexIndex,OtherVertexIndex,{O
     TempFaceEdgeHash:TKraftUInt32;
     TempFaceEdgeHashItem:PTempFaceEdgeHashItem;
     TempPoints:TConvexHullVectors;
-    TempPointHashTable:array of TKraftInt32;
+    TempPointHashTable:TKraftInt32Array;
     TempTriangles:TConvexHullTriangles;
     Vertex:PKraftConvexHullVertex;
     Face:PKraftConvexHullFace;
@@ -19668,7 +19668,7 @@ var PointIndex,TriangleIndex,TriangleVertexIndex,VertexIndex,OtherVertexIndex,{O
     TempFaceEdge:PTempFaceEdge;
     Found:boolean;
     TempFaceEdgeHashItems:array of TTempFaceEdgeHashItem;
-    TempFaceEdgeHashTable:array of TKraftInt32;
+    TempFaceEdgeHashTable:TKraftInt32Array;
     {TempInputPolygons,}TempOutputPolygons:TConvexHullPolygons;
     TempPolygon:PConvexHullPolygon;
     QuickHullInstance:TKraftQuickHull;
@@ -21798,7 +21798,7 @@ end;
 
 procedure TKraftMesh.CalculateNormals;
 var TriangleIndex,NormalIndex,Counter:TKraftInt32;
-    NormalCounts:array of TKraftInt32;
+    NormalCounts:TKraftInt32Array;
     Triangle:PKraftMeshTriangle;
 begin
  NormalCounts:=nil;
@@ -21835,7 +21835,7 @@ end;
 
 procedure TKraftMesh.Finish;
 var Index{$ifdef KraftPasMP},JobIndex{$endif},TreeNodeIndex,SkipListNodeIndex,
-    StackPointer:TKraftInt32;
+    StackPointer,VertexIndex,CountNewVertices,CountNewNormals:TKraftInt32;
     Triangle:PKraftMeshTriangle;
     v0,v1,v2:PKraftVector3;
     TreeNode:PKraftMeshTreeNode;
@@ -21845,7 +21845,11 @@ var Index{$ifdef KraftPasMP},JobIndex{$endif},TreeNodeIndex,SkipListNodeIndex,
     Stack:array of TKraftUInt64;
     StackItem:TKraftUInt64;
     SkipListNode:PKraftMeshSkipListNode;
-    SkipListNodeMap:array of TKraftInt32;
+    SkipListNodeMap:TKraftInt32Array;
+    NewVertices:TKraftVector3Array;
+    NewNormals:TKraftVector3Array;
+    VertexReindexMap:TKraftInt32Array;
+    NormalReindexMap:TKraftInt32Array;
 begin
 
  if length(fVertices)<>fCountVertices then begin
@@ -22000,6 +22004,76 @@ begin
    Stack:=nil;
   end;
 
+  // Reorder vertices and normals by triangle access order for better cache locality
+  if fCountTriangles>0 then begin
+
+   NewVertices:=nil;
+   NewNormals:=nil;
+   VertexReindexMap:=nil;
+   NormalReindexMap:=nil;
+   try
+    
+    // Allocate the temporary array for the new vertices and reindex map with respect to the old vertices  
+    SetLength(NewVertices,fCountVertices);
+    SetLength(VertexReindexMap,fCountVertices);
+    for Index:=0 to fCountVertices-1 do begin
+     VertexReindexMap[Index]:=-1;     
+    end;
+    
+    // Allocate the temporary array for the new normals and reindex map with respect to the old normals
+    SetLength(NewNormals,fCountNormals);
+    SetLength(NormalReindexMap,fCountNormals);
+    for Index:=0 to fCountNormals-1 do begin
+     NormalReindexMap[Index]:=-1;     
+    end;
+
+    // Do the actual reorder work
+
+    CountNewVertices:=0;
+    CountNewNormals:=0;
+
+    for Index:=0 to fCountTriangles-1 do begin
+
+     Triangle:=@fTriangles[Index];
+
+     for VertexIndex:=0 to 2 do begin
+
+      if Triangle^.Vertices[VertexIndex]>=0 then begin
+       if VertexReindexMap[Triangle^.Vertices[VertexIndex]]<0 then begin
+        VertexReindexMap[Triangle^.Vertices[VertexIndex]]:=CountNewVertices;
+        NewVertices[CountNewVertices]:=fVertices[Triangle^.Vertices[VertexIndex]];
+        inc(CountNewVertices);
+       end;
+       Triangle^.Vertices[VertexIndex]:=VertexReindexMap[Triangle^.Vertices[VertexIndex]];
+      end;
+
+      if Triangle^.Normals[VertexIndex]>=0 then begin
+       if NormalReindexMap[Triangle^.Normals[VertexIndex]]<0 then begin
+        NormalReindexMap[Triangle^.Normals[VertexIndex]]:=CountNewNormals;
+        NewNormals[CountNewNormals]:=fNormals[Triangle^.Normals[VertexIndex]];
+        inc(CountNewNormals);
+       end;
+       Triangle^.Normals[VertexIndex]:=NormalReindexMap[Triangle^.Normals[VertexIndex]];
+      end;
+
+     end;
+
+    end;
+
+    // Replace the old vertices and normals with the new ones
+    fVertices:=NewVertices;
+    fNormals:=NewNormals;
+
+   finally
+    NewVertices:=nil;
+    NewNormals:=nil;
+    VertexReindexMap:=nil;
+    NormalReindexMap:=nil;
+   end; 
+  
+  end;  
+
+  // Calculate the global AABB for all vertices 
   for Index:=0 to fCountVertices-1 do begin
    if Index=0 then begin
     fAABB.Min:=fVertices[Index];
