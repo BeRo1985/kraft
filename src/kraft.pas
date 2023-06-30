@@ -21690,6 +21690,12 @@ begin
    aParentTreeNode.AABB.Max.y:=Max(aParentTreeNode.AABB.Max.y,Max(Max(Vertices[Triangle^.Vertices[0]].y,Vertices[Triangle^.Vertices[1]].y),Vertices[Triangle^.Vertices[2]].y));
    aParentTreeNode.AABB.Max.z:=Max(aParentTreeNode.AABB.Max.z,Max(Max(Vertices[Triangle^.Vertices[0]].z,Vertices[Triangle^.Vertices[1]].z),Vertices[Triangle^.Vertices[2]].z));
   end;
+  aParentTreeNode.AABB.Min.x:=aParentTreeNode.AABB.Min.x-EPSILON;
+  aParentTreeNode.AABB.Min.y:=aParentTreeNode.AABB.Min.y-EPSILON;
+  aParentTreeNode.AABB.Min.z:=aParentTreeNode.AABB.Min.z-EPSILON;
+  aParentTreeNode.AABB.Max.x:=aParentTreeNode.AABB.Max.x+EPSILON;
+  aParentTreeNode.AABB.Max.y:=aParentTreeNode.AABB.Max.y+EPSILON;
+  aParentTreeNode.AABB.Max.z:=aParentTreeNode.AABB.Max.z+EPSILON;
  end;
 end;
 
