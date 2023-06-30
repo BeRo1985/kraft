@@ -489,6 +489,28 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftRigidBody=class;
 
+     TKraftQueue<T>=class
+      public
+       type TQueueItems=array of T;
+      private
+       fItems:TQueueItems;
+       fHead:TKraftSizeInt;
+       fTail:TKraftSizeInt;
+       fCount:TKraftSizeInt;
+       fSize:TKraftSizeInt;
+      public
+       constructor Create; reintroduce;
+       destructor Destroy; override;
+       procedure GrowResize(const aSize:TKraftSizeInt);
+       procedure Clear;
+       function IsEmpty:boolean;
+       procedure EnqueueAtFront(const aItem:T);
+       procedure Enqueue(const aItem:T);
+       function Dequeue(out aItem:T):boolean; overload;
+       function Dequeue:boolean; overload;
+       function Peek(out aItem:T):boolean;
+     end;
+
      TKraftHighResolutionTimer=class
       private
        fFrequency:TKraftInt64;
@@ -1278,31 +1300,38 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
       Next:TKraftInt32;
       Vertices:array[0..2] of TKraftInt32;
       Normals:array[0..2] of TKraftInt32;
+      Center:TKraftVector3;
       Plane:TKraftPlane;
       AABB:TKraftAABB;
      end;
 
      TKraftMeshTriangles=array of TKraftMeshTriangle;
 
-     PKraftMeshNode=^TKraftMeshNode;
-     TKraftMeshNode=packed record
-      Children:array[0..1] of TKraftInt32;
-      TriangleIndex:TKraftInt32;
+     TKraftMeshTreeNode=packed record
+      FirstLeftChild:TKraftInt32;
+      FirstTriangleIndex:TKraftInt32;
+      CountTriangles:TKraftInt32;
       AABB:TKraftAABB;
      end;
+     PKraftMeshTreeNode=^TKraftMeshTreeNode;
 
-     TKraftMeshNodes=array of TKraftMeshNode;
+     TKraftMeshTreeNodes=array of TKraftMeshTreeNode;
 
-     PKraftMeshSkipListNode=^TKraftMeshSkipListNode;
      TKraftMeshSkipListNode=packed record
       SkipToNodeIndex:TKraftInt32;
-      TriangleIndex:TKraftInt32;
+      FirstTriangleIndex:TKraftInt32;
+      CountTriangles:TKraftInt32;
       AABB:TKraftAABB;
      end;
+     PKraftMeshSkipListNode=^TKraftMeshSkipListNode;
 
      TKraftMeshSkipListNodes=array of TKraftMeshSkipListNode;
 
+     TKraftMeshNodeQueue={$ifdef KraftPasMP}TPasMPUnboundedQueue<TKraftInt32>{$else}TKraftQueue<TKraftInt32>{$endif};
+
      TKraftMesh=class(TPersistent)
+      private
+       const MaximumTrianglesPerNode=8;
       private
 
        fPhysics:TKraft;
@@ -1319,8 +1348,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fTriangles:TKraftMeshTriangles;
        fCountTriangles:TKraftInt32;
 
-       fNodes:TKraftMeshNodes;
-       fCountNodes:TKraftInt32;
+       fTreeNodes:TKraftMeshTreeNodes;
+       fCountTreeNodes:TKraftInt32;
+       fTreeNodeRoot:TKraftInt32;
 
        fSkipListNodes:TKraftMeshSkipListNodes;
        fCountSkipListNodes:TKraftInt32;
@@ -1328,6 +1358,17 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fAABB:TKraftAABB;
 
        fDoubleSided:boolean;
+
+       fNodeQueue:TKraftMeshNodeQueue;
+       fCountActiveWorkers:TPasMPInt32;
+
+       function FindBestSplitPlane(const aParentTreeNode:PKraftMeshTreeNode;out aAxis:TKraftInt32;out aSplitPosition:TKraftScalar):TKraftScalar;
+       function CalculateNodeCost(const aParentTreeNode:PKraftMeshTreeNode):TKraftScalar;
+       procedure UpdateNodeBounds(const aParentTreeNode:PKraftMeshTreeNode);
+       procedure ProcessNodeQueue;
+{$ifdef KraftPasMP}
+       procedure BuildJob(const Job:PPasMPJob;const ThreadIndex:TPasMPInt32);
+{$endif}
 
        procedure CalculateNormals;
 
@@ -1382,8 +1423,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property Triangles:TKraftMeshTriangles read fTriangles;
        property CountTriangles:TKraftInt32 read fCountTriangles;
 
-       property Nodes:TKraftMeshNodes read fNodes;
-       property CountNodes:TKraftInt32 read fCountNodes;
+       property Nodes:TKraftMeshTreeNodes read fTreeNodes;
+       property CountNodes:TKraftInt32 read fCountTreeNodes;
 
        property SkipListNodes:TKraftMeshSkipListNodes read fSkipListNodes;
        property CountSkipListNodes:TKraftInt32 read fCountSkipListNodes;
@@ -3919,7 +3960,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 const KraftSignatureConvexHull:TKraftSignature=('K','R','P','H','C','O','H','U');
       KraftSignatureMesh:TKraftSignature=('K','R','P','H','M','E','S','T');
 
-      KraftFileFormatVersion:TKraftUInt32=1;
+      KraftFileFormatVersion:TKraftUInt32=2;
 
       Vector2Origin:TKraftVector2=(x:0.0;y:0.0);
       Vector2XAxis:TKraftVector2=(x:1.0;y:0.0);
@@ -10284,6 +10325,13 @@ begin
  result:=(AABB.Max.x-AABB.Min.x)*(AABB.Max.y-AABB.Min.y)*(AABB.Max.z-AABB.Min.z); // Volume
 end;
 
+function AABBArea(const AABB:TKraftAABB):TKraftScalar; {$ifdef caninline}inline;{$endif}
+begin
+ result:=2.0*((abs(AABB.Max.x-AABB.Min.x)*abs(AABB.Max.y-AABB.Min.y))+
+              (abs(AABB.Max.y-AABB.Min.y)*abs(AABB.Max.z-AABB.Min.z))+
+              (abs(AABB.Max.x-AABB.Min.x)*abs(AABB.Max.z-AABB.Min.z)))
+end;
+
 function AABBCombine(const AABB,WithAABB:TKraftAABB):TKraftAABB; {$ifdef caninline}inline;{$endif}
 begin
  result.Min.x:=Min(AABB.Min.x,WithAABB.Min.x);
@@ -12223,6 +12271,142 @@ begin
  aV:=V;
  aW:=W;
 
+end;
+
+{ TKraftQueue<T> }
+
+constructor TKraftQueue<T>.Create;
+begin
+ inherited Create;
+ fItems:=nil;
+ fHead:=0;
+ fTail:=0;
+ fCount:=0;
+ fSize:=0;
+end;
+
+destructor TKraftQueue<T>.Destroy;
+begin
+ Clear;
+ inherited Destroy;
+end;
+
+procedure TKraftQueue<T>.GrowResize(const aSize:TKraftSizeInt);
+var Index,OtherIndex:TKraftSizeInt;
+    NewItems:TQueueItems;
+begin
+ SetLength(NewItems,aSize);
+ OtherIndex:=fHead;
+ for Index:=0 to fCount-1 do begin
+  NewItems[Index]:=fItems[OtherIndex];
+  inc(OtherIndex);
+  if OtherIndex>=fSize then begin
+   OtherIndex:=0;
+  end;
+ end;
+ fItems:=NewItems;
+ fHead:=0;
+ fTail:=fCount;
+ fSize:=aSize;
+end;
+
+procedure TKraftQueue<T>.Clear;
+begin
+ while fCount>0 do begin
+  dec(fCount);
+  System.Finalize(fItems[fHead]);
+  inc(fHead);
+  if fHead>=fSize then begin
+   fHead:=0;
+  end;
+ end;
+ fItems:=nil;
+ fHead:=0;
+ fTail:=0;
+ fCount:=0;
+ fSize:=0;
+end;
+
+function TKraftQueue<T>.IsEmpty:boolean;
+begin
+ result:=fCount=0;
+end;
+
+procedure TKraftQueue<T>.EnqueueAtFront(const aItem:T);
+var Index:TKraftSizeInt;
+begin
+ if fSize<=fCount then begin
+  GrowResize(fCount+1);
+ end;
+ dec(fHead);
+ if fHead<0 then begin
+  inc(fHead,fSize);
+ end;
+ Index:=fHead;
+ fItems[Index]:=aItem;
+ inc(fCount);
+end;
+
+procedure TKraftQueue<T>.Enqueue(const aItem:T);
+var Index:TKraftSizeInt;
+begin
+ if fSize<=fCount then begin
+  GrowResize(fCount+1);
+ end;
+ Index:=fTail;
+ inc(fTail);
+ if fTail>=fSize then begin
+  fTail:=0;
+ end;
+ fItems[Index]:=aItem;
+ inc(fCount);
+end;
+
+function TKraftQueue<T>.Dequeue(out aItem:T):boolean;
+begin
+ result:=fCount>0;
+ if result then begin
+  dec(fCount);
+  aItem:=fItems[fHead];
+  System.Finalize(fItems[fHead]);
+  FillChar(fItems[fHead],SizeOf(T),#0);
+  if fCount=0 then begin
+   fHead:=0;
+   fTail:=0;
+  end else begin
+   inc(fHead);
+   if fHead>=fSize then begin
+    fHead:=0;
+   end;
+  end;
+ end;
+end;
+
+function TKraftQueue<T>.Dequeue:boolean;
+begin
+ result:=fCount>0;
+ if result then begin
+  dec(fCount);
+  System.Finalize(fItems[fHead]);
+  FillChar(fItems[fHead],SizeOf(T),#0);
+  if fCount=0 then begin
+   fHead:=0;
+   fTail:=0;
+  end else begin
+   inc(fHead);
+   if fHead>=fSize then begin
+    fHead:=0;
+   end;
+  end;
+ end;
+end;
+
+function TKraftQueue<T>.Peek(out aItem:T):boolean;
+begin
+ result:=fCount>0;
+ if result then begin
+  aItem:=fItems[fHead];
+ end;
 end;
 
 constructor TKraftHighResolutionTimer.Create(FrameRate:TKraftInt32=60);
@@ -20507,8 +20691,8 @@ begin
  fTriangles:=nil;
  fCountTriangles:=0;
 
- fNodes:=nil;
- fCountNodes:=0;
+ fTreeNodes:=nil;
+ fCountTreeNodes:=0;
 
  fSkipListNodes:=nil;
  fCountSkipListNodes:=0;
@@ -20525,6 +20709,9 @@ begin
  fPhysics.fMeshLast:=self;
  fNext:=nil;
 
+ fNodeQueue:=nil;
+ fCountActiveWorkers:=0;
+
 end;
 
 destructor TKraftMesh.Destroy;
@@ -20536,7 +20723,7 @@ begin
 
  fTriangles:=nil;
 
- fNodes:=nil;
+ fTreeNodes:=nil;
 
  fSkipListNodes:=nil;
 
@@ -20576,9 +20763,9 @@ begin
  fCountTriangles:=0;
 
  if aFreeMemory then begin
-  fNodes:=nil;
+  fTreeNodes:=nil;
  end;
- fCountNodes:=0;
+ fCountTreeNodes:=0;
 
  if aFreeMemory then begin
   fSkipListNodes:=nil;
@@ -20635,10 +20822,11 @@ begin
    AStream.ReadBuffer(fTriangles[0],fCountTriangles*SizeOf(TKraftMeshTriangle));
   end;
 
-  AStream.ReadBuffer(fCountNodes,SizeOf(TKraftInt32));
-  SetLength(fNodes,fCountNodes);
-  if fCountNodes>0 then begin
-   AStream.ReadBuffer(fNodes[0],fCountNodes*SizeOf(TKraftMeshNode));
+  AStream.ReadBuffer(fTreeNodeRoot,SizeOf(TKraftInt32));
+  AStream.ReadBuffer(fCountTreeNodes,SizeOf(TKraftInt32));
+  SetLength(fTreeNodes,fCountTreeNodes);
+  if fCountTreeNodes>0 then begin
+   AStream.ReadBuffer(fTreeNodes[0],fCountTreeNodes*SizeOf(TKraftMeshTreeNode));
   end;
 
   AStream.ReadBuffer(fCountSkipListNodes,SizeOf(TKraftInt32));
@@ -20682,6 +20870,7 @@ begin
    AStream.ReadBuffer(fTriangles[Index].Next,SizeOf(TKraftInt32));
    AStream.ReadBuffer(fTriangles[Index].Vertices[0],3*SizeOf(TKraftInt32));
    AStream.ReadBuffer(fTriangles[Index].Normals[0],3*SizeOf(TKraftInt32));
+   AStream.ReadBuffer(fTriangles[Index].Center,3*SizeOf(TKraftScalar));
    AStream.ReadBuffer(fTriangles[Index].Plane.Normal,3*SizeOf(TKraftScalar));
    if SIMD then begin
     AStream.ReadBuffer(Dummy,SizeOf(TKraftScalar));
@@ -20697,16 +20886,18 @@ begin
    end;
   end;
 
-  AStream.ReadBuffer(fCountNodes,SizeOf(TKraftInt32));
-  SetLength(fNodes,fCountNodes);
-  for Index:=0 to fCountNodes-1 do begin
-   AStream.ReadBuffer(fNodes[Index].Children[0],2*SizeOf(TKraftInt32));
-   AStream.ReadBuffer(fNodes[Index].TriangleIndex,SizeOf(TKraftInt32));
-   AStream.ReadBuffer(fNodes[Index].AABB.Min,3*SizeOf(TKraftScalar));
+  AStream.ReadBuffer(fTreeNodeRoot,SizeOf(TKraftInt32));
+  AStream.ReadBuffer(fCountTreeNodes,SizeOf(TKraftInt32));
+  SetLength(fTreeNodes,fCountTreeNodes);
+  for Index:=0 to fCountTreeNodes-1 do begin
+   AStream.ReadBuffer(fTreeNodes[Index].FirstLeftChild,2*SizeOf(TKraftInt32));
+   AStream.ReadBuffer(fTreeNodes[Index].FirstTriangleIndex,SizeOf(TKraftInt32));
+   AStream.ReadBuffer(fTreeNodes[Index].CountTriangles,SizeOf(TKraftInt32));
+   AStream.ReadBuffer(fTreeNodes[Index].AABB.Min,3*SizeOf(TKraftScalar));
    if SIMD then begin
     AStream.ReadBuffer(Dummy,SizeOf(TKraftScalar));
    end;
-   AStream.ReadBuffer(fNodes[Index].AABB.Max,3*SizeOf(TKraftScalar));
+   AStream.ReadBuffer(fTreeNodes[Index].AABB.Max,3*SizeOf(TKraftScalar));
    if SIMD then begin
     AStream.ReadBuffer(Dummy,SizeOf(TKraftScalar));
    end;
@@ -20716,7 +20907,8 @@ begin
   SetLength(fSkipListNodes,fCountSkipListNodes);
   for Index:=0 to fCountSkipListNodes-1 do begin
    AStream.ReadBuffer(fSkipListNodes[Index].SkipToNodeIndex,SizeOf(TKraftInt32));
-   AStream.ReadBuffer(fSkipListNodes[Index].TriangleIndex,SizeOf(TKraftInt32));
+   AStream.ReadBuffer(fSkipListNodes[Index].FirstTriangleIndex,SizeOf(TKraftInt32));
+   AStream.ReadBuffer(fSkipListNodes[Index].CountTriangles,SizeOf(TKraftInt32));
    AStream.ReadBuffer(fSkipListNodes[Index].AABB.Min,3*SizeOf(TKraftScalar));
    if SIMD then begin
     AStream.ReadBuffer(Dummy,SizeOf(TKraftScalar));
@@ -20767,9 +20959,10 @@ begin
   AStream.WriteBuffer(fTriangles[0],fCountTriangles*SizeOf(TKraftMeshTriangle));
  end;
 
- AStream.WriteBuffer(fCountNodes,SizeOf(TKraftInt32));
- if fCountNodes>0 then begin
-  AStream.WriteBuffer(fNodes[0],fCountNodes*SizeOf(TKraftMeshNode));
+ AStream.WriteBuffer(fTreeNodeRoot,SizeOf(TKraftInt32));
+ AStream.WriteBuffer(fCountTreeNodes,SizeOf(TKraftInt32));
+ if fCountTreeNodes>0 then begin
+  AStream.WriteBuffer(fTreeNodes[0],fCountTreeNodes*SizeOf(TKraftMeshTreeNode));
  end;
 
  AStream.WriteBuffer(fCountSkipListNodes,SizeOf(TKraftInt32));
@@ -20795,18 +20988,19 @@ begin
   AStream.WriteBuffer(fTriangles[Index].Next,SizeOf(TKraftInt32));
   AStream.WriteBuffer(fTriangles[Index].Vertices[0],3*SizeOf(TKraftInt32));
   AStream.WriteBuffer(fTriangles[Index].Normals[0],3*SizeOf(TKraftInt32));
+  AStream.WriteBuffer(fTriangles[Index].Center,3*SizeOf(TKraftScalar));
   AStream.WriteBuffer(fTriangles[Index].Plane.Normal,3*SizeOf(TKraftScalar));
   AStream.WriteBuffer(fTriangles[Index].Plane.Distance,SizeOf(TKraftScalar));
   AStream.WriteBuffer(fTriangles[Index].AABB.Min,3*SizeOf(TKraftScalar));
   AStream.WriteBuffer(fTriangles[Index].AABB.Max,3*SizeOf(TKraftScalar));
  end;
 
- AStream.WriteBuffer(fCountNodes,SizeOf(TKraftInt32));
- for Index:=0 to fCountNodes-1 do begin
-  AStream.WriteBuffer(fNodes[Index].Children,2*SizeOf(TKraftInt32));
-  AStream.WriteBuffer(fNodes[Index].TriangleIndex,SizeOf(TKraftInt32));
-  AStream.WriteBuffer(fNodes[Index].AABB.Min,3*SizeOf(TKraftScalar));
-  AStream.WriteBuffer(fNodes[Index].AABB.Max,3*SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fCountTreeNodes,SizeOf(TKraftInt32));
+ for Index:=0 to fCountTreeNodes-1 do begin
+  AStream.WriteBuffer(fTreeNodes[Index].Children,2*SizeOf(TKraftInt32));
+  AStream.WriteBuffer(fTreeNodes[Index].TriangleIndex,SizeOf(TKraftInt32));
+  AStream.WriteBuffer(fTreeNodes[Index].AABB.Min,3*SizeOf(TKraftScalar));
+  AStream.WriteBuffer(fTreeNodes[Index].AABB.Max,3*SizeOf(TKraftScalar));
  end;
 
  AStream.WriteBuffer(fCountSkipListNodes,SizeOf(TKraftInt32));
@@ -20854,6 +21048,7 @@ begin
  Triangle^.Normals[0]:=ANormalIndex0;
  Triangle^.Normals[1]:=ANormalIndex1;
  Triangle^.Normals[2]:=ANormalIndex2;
+ Triangle^.Center:=Vector3Avg(Vertices[Triangle^.Vertices[0]],Vertices[Triangle^.Vertices[1]],Vertices[Triangle^.Vertices[2]]);
  Triangle^.Plane.Normal:=Vector3NormEx(Vector3Cross(Vector3Sub(fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[0]]),Vector3Sub(fVertices[Triangle^.Vertices[2]],fVertices[Triangle^.Vertices[0]])));
  Triangle^.Plane.Distance:=-Vector3Dot(Triangle^.Plane.Normal,fVertices[Triangle^.Vertices[0]]);
  Triangle^.Next:=-1;
@@ -20911,6 +21106,7 @@ begin
    Triangle^.Normals[1]:=-1;
    Triangle^.Normals[2]:=-1;
   end;
+  Triangle^.Center:=Vector3Avg(Vertices[Triangle^.Vertices[0]],Vertices[Triangle^.Vertices[1]],Vertices[Triangle^.Vertices[2]]);
   Triangle^.Plane.Normal:=Vector3NormEx(Vector3Cross(Vector3Sub(fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[0]]),Vector3Sub(fVertices[Triangle^.Vertices[2]],fVertices[Triangle^.Vertices[0]])));
   Triangle^.Plane.Distance:=-Vector3Dot(Triangle^.Plane.Normal,fVertices[Triangle^.Vertices[0]]);
   Triangle^.Next:=-1;
@@ -20982,6 +21178,7 @@ var SrcPos:TKraftInt32;
    end;
    for Counter:=0 to fCountTriangles-1 do begin
     Triangle:=@fTriangles[Counter];
+    Triangle^.Center:=Vector3Avg(Vertices[Triangle^.Vertices[0]],Vertices[Triangle^.Vertices[1]],Vertices[Triangle^.Vertices[2]]);
     Triangle^.Plane.Normal:=Vector3NormEx(Vector3Cross(Vector3Sub(fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[0]]),Vector3Sub(fVertices[Triangle^.Vertices[2]],fVertices[Triangle^.Vertices[0]])));
     Triangle^.Plane.Distance:=-Vector3Dot(Triangle^.Plane.Normal,fVertices[Triangle^.Vertices[0]]);
     Triangle^.Next:=-1;
@@ -21360,6 +21557,229 @@ begin
  end;
 end;
 
+function TKraftMesh.FindBestSplitPlane(const aParentTreeNode:PKraftMeshTreeNode;out aAxis:TKraftInt32;out aSplitPosition:TKraftScalar):TKraftScalar;
+const CountBINs=8;
+type TBIN=record
+      Count:TKraftInt32;
+      Bounds:TKraftAABB;
+     end;
+     PBIN=^TBIN;
+     TBINs=array[0..CountBINs-1] of TBIN;
+var AxisIndex,TriangleIndex,BINIndex,LeftSum,RightSum:TKraftInt32;
+    BoundsMin,BoundsMax,Scale,PlaneCost:TKraftScalar;
+    LeftArea,RightArea:array[0..CountBINs-1] of TKraftScalar;
+    LeftCount,RightCount:array[0..CountBINs-1] of TKraftInt32;
+    LeftBounds,RightBounds:TKraftAABB;
+    Triangle:PKraftMeshTriangle;
+    BINs:TBINs;
+    BIN:PBIN;
+begin
+
+ result:=1e30;
+
+ aAxis:=-1;
+
+ if aParentTreeNode^.CountTriangles>0 then begin
+
+  for AxisIndex:=0 to 2 do begin
+
+   BoundsMin:=1e30;
+   BoundsMax:=-1e30;
+
+   for TriangleIndex:=aParentTreeNode^.FirstTriangleIndex to aParentTreeNode^.FirstTriangleIndex+(aParentTreeNode^.CountTriangles-1) do begin
+    Triangle:=@fTriangles[TriangleIndex];
+    BoundsMin:=Min(BoundsMin,Triangle^.Center.xyz[AxisIndex]);
+    BoundsMax:=Max(BoundsMax,Triangle^.Center.xyz[AxisIndex]);
+   end;
+
+   if BoundsMin<>BoundsMax then begin
+
+    Scale:=CountBINs/(BoundsMax-BoundsMin);
+
+    FillChar(BINs,SizeOf(TBINs),#0);
+
+    for TriangleIndex:=aParentTreeNode^.FirstTriangleIndex to aParentTreeNode^.FirstTriangleIndex+(aParentTreeNode^.CountTriangles-1) do begin
+     Triangle:=@fTriangles[TriangleIndex];
+     BINIndex:=Min(trunc((Triangle^.Center.xyz[AxisIndex]-BoundsMin)*Scale),CountBINs-1);
+     BIN:=@BINs[BINIndex];
+     if BIN^.Count=0 then begin
+      BIN^.Bounds.Min.x:=Min(Min(Vertices[Triangle^.Vertices[0]].x,Vertices[Triangle^.Vertices[1]].x),Vertices[Triangle^.Vertices[2]].x);
+      BIN^.Bounds.Min.y:=Min(Min(Vertices[Triangle^.Vertices[0]].y,Vertices[Triangle^.Vertices[1]].y),Vertices[Triangle^.Vertices[2]].y);
+      BIN^.Bounds.Min.z:=Min(Min(Vertices[Triangle^.Vertices[0]].z,Vertices[Triangle^.Vertices[1]].z),Vertices[Triangle^.Vertices[2]].z);
+      BIN^.Bounds.Max.x:=Max(Max(Vertices[Triangle^.Vertices[0]].x,Vertices[Triangle^.Vertices[1]].x),Vertices[Triangle^.Vertices[2]].x);
+      BIN^.Bounds.Max.y:=Max(Max(Vertices[Triangle^.Vertices[0]].y,Vertices[Triangle^.Vertices[1]].y),Vertices[Triangle^.Vertices[2]].y);
+      BIN^.Bounds.Max.z:=Max(Max(Vertices[Triangle^.Vertices[0]].z,Vertices[Triangle^.Vertices[1]].z),Vertices[Triangle^.Vertices[2]].z);
+     end else begin
+      BIN^.Bounds.Min.x:=Min(BIN^.Bounds.Min.x,Min(Min(Vertices[Triangle^.Vertices[0]].x,Vertices[Triangle^.Vertices[1]].x),Vertices[Triangle^.Vertices[2]].x));
+      BIN^.Bounds.Min.y:=Min(BIN^.Bounds.Min.y,Min(Min(Vertices[Triangle^.Vertices[0]].y,Vertices[Triangle^.Vertices[1]].y),Vertices[Triangle^.Vertices[2]].y));
+      BIN^.Bounds.Min.z:=Min(BIN^.Bounds.Min.z,Min(Min(Vertices[Triangle^.Vertices[0]].z,Vertices[Triangle^.Vertices[1]].z),Vertices[Triangle^.Vertices[2]].z));
+      BIN^.Bounds.Max.x:=Max(BIN^.Bounds.Max.x,Max(Max(Vertices[Triangle^.Vertices[0]].x,Vertices[Triangle^.Vertices[1]].x),Vertices[Triangle^.Vertices[2]].x));
+      BIN^.Bounds.Max.y:=Max(BIN^.Bounds.Max.y,Max(Max(Vertices[Triangle^.Vertices[0]].y,Vertices[Triangle^.Vertices[1]].y),Vertices[Triangle^.Vertices[2]].y));
+      BIN^.Bounds.Max.z:=Max(BIN^.Bounds.Max.z,Max(Max(Vertices[Triangle^.Vertices[0]].z,Vertices[Triangle^.Vertices[1]].z),Vertices[Triangle^.Vertices[2]].z));
+     end;
+     inc(BIN^.Count);
+    end;
+
+    LeftSum:=0;
+    RightSum:=0;
+    for BINIndex:=0 to CountBINs-2 do begin
+
+     BIN:=@BINs[BINIndex];
+     inc(LeftSum,BIN^.Count);
+     LeftCount[BINIndex]:=LeftSum;
+     if BINIndex=0 then begin
+      LeftBounds:=BIN^.Bounds;
+     end else begin
+      LeftBounds:=AABBCombine(LeftBounds,BIN^.Bounds);
+     end;
+     LeftArea[BINIndex]:=AABBArea(LeftBounds);
+
+     BIN:=@BINs[CountBINs-(BINIndex+1)];
+     inc(RightSum,BIN^.Count);
+     RightCount[CountBINs-(BINIndex+2)]:=RightSum;
+     if BINIndex=0 then begin
+      RightBounds:=BIN^.Bounds;
+     end else begin
+      RightBounds:=AABBCombine(RightBounds,BIN^.Bounds);
+     end;
+     RightArea[CountBINs-(BINIndex+2)]:=AABBArea(RightBounds);
+
+    end;
+
+    Scale:=(BoundsMax-BoundsMin)/CountBINs;
+    for BINIndex:=0 to CountBINs-2 do begin
+     PlaneCost:=(LeftCount[BINIndex]*LeftArea[BINIndex])+(RightCount[BINIndex]*RightArea[BINIndex]);
+     if PlaneCost<result then begin
+      result:=PlaneCost;
+      aAxis:=AxisIndex;
+      aSplitPosition:=BoundsMin+((BINIndex+1)*Scale);
+     end;
+    end;
+
+   end;
+
+  end;
+
+ end;
+
+end;
+
+function TKraftMesh.CalculateNodeCost(const aParentTreeNode:PKraftMeshTreeNode):TKraftScalar;
+begin
+ result:=AABBArea(aParentTreeNode^.AABB)*aParentTreeNode^.CountTriangles;
+end;
+
+procedure TKraftMesh.UpdateNodeBounds(const aParentTreeNode:PKraftMeshTreeNode);
+var TriangleIndex:TKraftInt32;
+    Triangle:PKraftMeshTriangle;
+begin
+ if aParentTreeNode^.CountTriangles>0 then begin
+  Triangle:=@fTriangles[aParentTreeNode^.FirstTriangleIndex];
+  aParentTreeNode.AABB.Min.x:=Min(Min(Vertices[Triangle^.Vertices[0]].x,Vertices[Triangle^.Vertices[1]].x),Vertices[Triangle^.Vertices[2]].x);
+  aParentTreeNode.AABB.Min.y:=Min(Min(Vertices[Triangle^.Vertices[0]].y,Vertices[Triangle^.Vertices[1]].y),Vertices[Triangle^.Vertices[2]].y);
+  aParentTreeNode.AABB.Min.z:=Min(Min(Vertices[Triangle^.Vertices[0]].z,Vertices[Triangle^.Vertices[1]].z),Vertices[Triangle^.Vertices[2]].z);
+  aParentTreeNode.AABB.Max.x:=Max(Max(Vertices[Triangle^.Vertices[0]].x,Vertices[Triangle^.Vertices[1]].x),Vertices[Triangle^.Vertices[2]].x);
+  aParentTreeNode.AABB.Max.y:=Max(Max(Vertices[Triangle^.Vertices[0]].y,Vertices[Triangle^.Vertices[1]].y),Vertices[Triangle^.Vertices[2]].y);
+  aParentTreeNode.AABB.Max.z:=Max(Max(Vertices[Triangle^.Vertices[0]].z,Vertices[Triangle^.Vertices[1]].z),Vertices[Triangle^.Vertices[2]].z);
+  for TriangleIndex:=aParentTreeNode^.FirstTriangleIndex+1 to aParentTreeNode^.FirstTriangleIndex+(aParentTreeNode^.CountTriangles-1) do begin
+   Triangle:=@fTriangles[TriangleIndex];
+   aParentTreeNode.AABB.Min.x:=Min(aParentTreeNode.AABB.Min.x,Min(Min(Vertices[Triangle^.Vertices[0]].x,Vertices[Triangle^.Vertices[1]].x),Vertices[Triangle^.Vertices[2]].x));
+   aParentTreeNode.AABB.Min.y:=Min(aParentTreeNode.AABB.Min.y,Min(Min(Vertices[Triangle^.Vertices[0]].y,Vertices[Triangle^.Vertices[1]].y),Vertices[Triangle^.Vertices[2]].y));
+   aParentTreeNode.AABB.Min.z:=Min(aParentTreeNode.AABB.Min.z,Min(Min(Vertices[Triangle^.Vertices[0]].z,Vertices[Triangle^.Vertices[1]].z),Vertices[Triangle^.Vertices[2]].z));
+   aParentTreeNode.AABB.Max.x:=Max(aParentTreeNode.AABB.Max.x,Max(Max(Vertices[Triangle^.Vertices[0]].x,Vertices[Triangle^.Vertices[1]].x),Vertices[Triangle^.Vertices[2]].x));
+   aParentTreeNode.AABB.Max.y:=Max(aParentTreeNode.AABB.Max.y,Max(Max(Vertices[Triangle^.Vertices[0]].y,Vertices[Triangle^.Vertices[1]].y),Vertices[Triangle^.Vertices[2]].y));
+   aParentTreeNode.AABB.Max.z:=Max(aParentTreeNode.AABB.Max.z,Max(Max(Vertices[Triangle^.Vertices[0]].z,Vertices[Triangle^.Vertices[1]].z),Vertices[Triangle^.Vertices[2]].z));
+  end;
+ end;
+end;
+
+procedure TKraftMesh.ProcessNodeQueue;
+var ParentTreeNodeIndex,AxisIndex,
+    LeftIndex,RightIndex,
+    LeftCount,
+    LeftChildIndex,RightChildIndex:TKraftInt32;
+    SplitPosition,SplitCost:TKraftScalar;
+    ParentTreeNode,ChildTreeNode:PKraftMeshTreeNode;
+    TemporaryTriangle:TKraftMeshTriangle;
+    Added:boolean;
+begin
+ {$ifdef KraftPasMP}while (fCountActiveWorkers<>0) or not fNodeQueue.IsEmpty do{$endif} begin
+
+  Added:=false;
+
+  while fNodeQueue.Dequeue(ParentTreeNodeIndex) do begin
+
+   if not Added then begin
+    TPasMPInterlocked.Increment(fCountActiveWorkers);
+    Added:=true;
+   end;
+
+   ParentTreeNode:=@fTreeNodes[ParentTreeNodeIndex];
+   if ParentTreeNode^.CountTriangles>0 then begin
+
+    SplitCost:=FindBestSplitPlane(ParentTreeNode,AxisIndex,SplitPosition);
+    if SplitCost<CalculateNodeCost(ParentTreeNode) then begin
+
+     LeftIndex:=ParentTreeNode^.FirstTriangleIndex;
+     RightIndex:=ParentTreeNode^.FirstTriangleIndex+(ParentTreeNode^.CountTriangles-1);
+     while LeftIndex<=RightIndex do begin
+      if fTriangles[LeftIndex].Center.xyz[AxisIndex]<SplitPosition then begin
+       inc(LeftIndex);
+      end else begin
+       TemporaryTriangle:=fTriangles[LeftIndex];
+       fTriangles[LeftIndex]:=fTriangles[RightIndex];
+       fTriangles[RightIndex]:=TemporaryTriangle;
+       dec(RightIndex);
+      end;
+     end;
+
+     LeftCount:=LeftIndex-ParentTreeNode^.FirstTriangleIndex;
+
+     if (LeftCount<>0) and (LeftCount<>ParentTreeNode^.CountTriangles) then begin
+
+      LeftChildIndex:=TPasMPInterlocked.Add(fCountTreeNodes,2);
+      RightChildIndex:=LeftChildIndex+1;
+
+      ParentTreeNode^.FirstLeftChild:=LeftChildIndex;
+
+      ChildTreeNode:=@fTreeNodes[LeftChildIndex];
+      ChildTreeNode^.FirstTriangleIndex:=ParentTreeNode^.FirstTriangleIndex;
+      ChildTreeNode^.CountTriangles:=LeftCount;
+      ChildTreeNode^.FirstLeftChild:=-1;
+      UpdateNodeBounds(ChildTreeNode);
+      fNodeQueue.Enqueue(LeftChildIndex);
+
+      ChildTreeNode:=@fTreeNodes[RightChildIndex];
+      ChildTreeNode^.FirstTriangleIndex:=LeftIndex;
+      ChildTreeNode^.CountTriangles:=ParentTreeNode^.CountTriangles-LeftCount;
+      ChildTreeNode^.FirstLeftChild:=-1;
+      UpdateNodeBounds(ChildTreeNode);
+      fNodeQueue.Enqueue(RightChildIndex);
+
+     end;
+
+    end;
+
+   end;
+
+  end;
+
+  if Added then begin
+{$ifdef KraftPasMP}
+   TPasMPInterlocked.Decrement(fCountActiveWorkers);
+{$endif}
+  end;
+
+ end;
+end;
+
+{$ifdef KraftPasMP}
+procedure TKraftMesh.BuildJob(const Job:PPasMPJob;const ThreadIndex:TPasMPInt32);
+begin
+ ProcessNodeQueue;
+end;
+{$endif}
+
 procedure TKraftMesh.CalculateNormals;
 var TriangleIndex,NormalIndex,Counter:TKraftInt32;
     NormalCounts:array of TKraftInt32;
@@ -21398,34 +21818,27 @@ begin
 end;
 
 procedure TKraftMesh.Finish;
-type PAABBTreeNode=^TAABBTreeNode;
-     TAABBTreeNode=record
-      AABB:TKraftAABB;
-      Children:array[0..1] of TKraftInt32;
-      TriangleIndex:TKraftInt32;
-     end;
-     TAABBTreeNodes=array of TAABBTreeNode;
-var Counter,StackPointer,CurrentNodeIndex,LeftCount,RightCount,ParentCount,AxisCounter,Axis,BestAxis,TriangleIndex,
-    Balance,BestBalance,NextTriangleIndex,LeftNodeIndex,RightNodeIndex,TargetNodeIndex,Count,Root,CountNodes,Index,
-    NodeID,Pass,NewStackCapacity:TKraftInt32;
-    Stack:array of TKraftInt32;
-    Points:array[0..2] of array of TKraftScalar;
-    Center,Median:TKraftVector3;
-    LeftAABB,RightAABB:TKraftAABB;
-    Nodes:TAABBTreeNodes;
-    Node:PAABBTreeNode;
-    SkipListNode:PKraftMeshSkipListNode;
+var Index{$ifdef KraftPasMP},JobIndex{$endif},TreeNodeIndex,SkipListNodeIndex,
+    StackPointer:TKraftInt32;
     Triangle:PKraftMeshTriangle;
-    TriangleAABBs:array of TKraftAABB;
-    CurrentAABB:PKraftAABB;
     v0,v1,v2:PKraftVector3;
+    TreeNode:PKraftMeshTreeNode;
+{$ifdef KraftPasMP}
+    Jobs:array of PPasMPJob;
+{$endif}
+    Stack:array of TKraftUInt64;
+    StackItem:TKraftUInt64;
+    SkipListNode:PKraftMeshSkipListNode;
+    SkipListNodeMap:array of TKraftInt32;
 begin
+
  if length(fVertices)<>fCountVertices then begin
   SetLength(fVertices,fCountVertices);
  end;
  if length(fTriangles)<>fCountTriangles then begin
   SetLength(fTriangles,fCountTriangles);
  end;
+
  for Index:=0 to fCountTriangles-1 do begin
   Triangle:=@fTriangles[Index];
   if (Triangle^.Normals[0]<0) or (Triangle^.Normals[1]<0) or (Triangle^.Normals[2]<0) then begin
@@ -21433,309 +21846,144 @@ begin
    break;
   end;
  end;
+
  if fCountSkipListNodes=0 then begin
+
+  for Index:=0 to fCountTriangles-1 do begin
+   Triangle:=@fTriangles[Index];
+   v0:=@fVertices[Triangle^.Vertices[0]];
+   v1:=@fVertices[Triangle^.Vertices[1]];
+   v2:=@fVertices[Triangle^.Vertices[2]];
+   Triangle^.Center:=Vector3Avg(v0^,v1^,v2^);
+   Triangle^.AABB.Min.x:=Min(Min(v0^.x,v1^.x),v2^.x)-EPSILON;
+   Triangle^.AABB.Min.y:=Min(Min(v0^.y,v1^.y),v2^.y)-EPSILON;
+   Triangle^.AABB.Min.z:=Min(Min(v0^.z,v1^.z),v2^.z)-EPSILON;
+{$ifdef SIMD}
+   Triangle^.AABB.Min.w:=0.0;
+{$endif}
+   Triangle^.AABB.Max.x:=Max(Max(v0^.x,v1^.x),v2^.x)+EPSILON;
+   Triangle^.AABB.Max.y:=Max(Max(v0^.y,v1^.y),v2^.y)+EPSILON;
+   Triangle^.AABB.Max.z:=Max(Max(v0^.z,v1^.z),v2^.z)+EPSILON;
+{$ifdef SIMD}
+   Triangle^.AABB.Max.w:=0.0;
+{$endif}
+   if Index=0 then begin
+    fAABB:=Triangle^.AABB;
+   end else begin
+    fAABB:=AABBCombine(fAABB,Triangle^.AABB);
+   end;
+  end;
+
+  if length(fTreeNodes)<=Max(1,length(fTriangles)) then begin
+   SetLength(fTreeNodes,Max(1,length(fTriangles)*2));
+  end;
+
+  fCountTreeNodes:=1;
+  fTreeNodeRoot:=0;
+  TreeNode:=@fTreeNodes[fTreeNodeRoot];
+  TreeNode^.AABB:=fAABB;
+  TreeNode^.FirstLeftChild:=-1;
   if fCountTriangles>0 then begin
-   Stack:=nil;
-   Nodes:=nil;
-   Points[0]:=nil;
-   Points[1]:=nil;
-   Points[2]:=nil;
-   TriangleAABBs:=nil;
-   try
-    SetLength(TriangleAABBs,fCountTriangles);
-    for Index:=0 to fCountTriangles-1 do begin
-     Triangle:=@fTriangles[Index];
-     v0:=@fVertices[Triangle^.Vertices[0]];
-     v1:=@fVertices[Triangle^.Vertices[1]];
-     v2:=@fVertices[Triangle^.Vertices[2]];
-     CurrentAABB:=@TriangleAABBs[Index];
-     CurrentAABB^.Min.x:=Min(Min(v0^.x,v1^.x),v2^.x)-EPSILON;
-     CurrentAABB^.Min.y:=Min(Min(v0^.y,v1^.y),v2^.y)-EPSILON;
-     CurrentAABB^.Min.z:=Min(Min(v0^.z,v1^.z),v2^.z)-EPSILON;
-{$ifdef SIMD}
-     CurrentAABB^.Min.w:=0.0;
-{$endif}
-     CurrentAABB^.Max.x:=Max(Max(v0^.x,v1^.x),v2^.x)+EPSILON;
-     CurrentAABB^.Max.y:=Max(Max(v0^.y,v1^.y),v2^.y)+EPSILON;
-     CurrentAABB^.Max.z:=Max(Max(v0^.z,v1^.z),v2^.z)+EPSILON;
-{$ifdef SIMD}
-     CurrentAABB^.Max.w:=0.0;
-{$endif}
-     Triangle^.AABB:=TriangleAABBs[Index];
-    end;
-    Root:=0;
-    CountNodes:=1;
-    SetLength(Nodes,Max(CountNodes,fCountTriangles));
-    SetLength(Points[0],fCountTriangles*6);
-    SetLength(Points[1],fCountTriangles*6);
-    SetLength(Points[2],fCountTriangles*6);
-    Nodes[0].AABB:=TriangleAABBs[0];
-    for Counter:=1 to fCountTriangles-1 do begin
-     Nodes[0].AABB:=AABBCombine(Nodes[0].AABB,TriangleAABBs[Counter]);
-    end;
-    for Counter:=0 to fCountTriangles-2 do begin
-     fTriangles[Counter].Next:=Counter+1;
-    end;
-    fTriangles[fCountTriangles-1].Next:=-1;
-    Nodes[0].TriangleIndex:=0;
-    Nodes[0].Children[0]:=-1;
-    Nodes[0].Children[1]:=-1;
-    SetLength(Stack,16);
-    Stack[0]:=0;
-    StackPointer:=1;
-    while StackPointer>0 do begin
-     dec(StackPointer);
-     CurrentNodeIndex:=Stack[StackPointer];
-     if (CurrentNodeIndex>=0) and (Nodes[CurrentNodeIndex].TriangleIndex>=0) then begin
-      TriangleIndex:=Nodes[CurrentNodeIndex].TriangleIndex;
-      Nodes[CurrentNodeIndex].AABB:=TriangleAABBs[TriangleIndex];
-      TriangleIndex:=fTriangles[TriangleIndex].Next;
-      ParentCount:=1;
-      while TriangleIndex>=0 do begin
-       Nodes[CurrentNodeIndex].AABB:=AABBCombine(Nodes[CurrentNodeIndex].AABB,TriangleAABBs[TriangleIndex]);
-       inc(ParentCount);
-       TriangleIndex:=fTriangles[TriangleIndex].Next;
+   TreeNode^.FirstTriangleIndex:=0;
+   TreeNode^.CountTriangles:=fCountTriangles;
+   if fCountTriangles>=MaximumTrianglesPerNode then begin
+    fNodeQueue:=TKraftMeshNodeQueue.Create;
+    try
+     fNodeQueue.Clear;
+     fNodeQueue.Enqueue(0);
+     fCountActiveWorkers:=0;
+{$ifdef KraftPasMP}if assigned(fPhysics.fPasMP) and (fPhysics.fPasMP.CountJobWorkerThreads>0) then begin
+      Jobs:=nil;
+      try
+       SetLength(Jobs,fPhysics.fPasMP.CountJobWorkerThreads);
+       for JobIndex:=0 to length(Jobs)-1 do begin
+        Jobs[JobIndex]:=fPhysics.fPasMP.Acquire(BuildJob,self,nil,0,0);
+       end;
+       fPhysics.fPasMP.Invoke(Jobs);
+      finally
+       Jobs:=nil;
       end;
-      if ParentCount>3 then begin
-       Center:=Vector3Avg(Nodes[CurrentNodeIndex].AABB.Min,Nodes[CurrentNodeIndex].AABB.Max);
-       TriangleIndex:=Nodes[CurrentNodeIndex].TriangleIndex;
-       Count:=0;
-       while TriangleIndex>=0 do begin
-        v0:=@fVertices[fTriangles[TriangleIndex].Vertices[0]];
-        v1:=@fVertices[fTriangles[TriangleIndex].Vertices[1]];
-        v2:=@fVertices[fTriangles[TriangleIndex].Vertices[2]];
-        Points[0,Count]:=v0^.x;
-        Points[1,Count]:=v0^.y;
-        Points[2,Count]:=v0^.z;
-        Points[0,Count+1]:=v1^.x;
-        Points[1,Count+1]:=v1^.y;
-        Points[2,Count+1]:=v1^.z;
-        Points[0,Count+2]:=v2^.x;
-        Points[1,Count+2]:=v2^.y;
-        Points[2,Count+2]:=v2^.z;
-        inc(Count,3);
-        TriangleIndex:=fTriangles[TriangleIndex].Next;
-       end;
-       if Count>1 then begin
-        DirectIntroSort(@Points[0,0],0,Count-1,SizeOf(TKraftScalar),@CompareFloat);
-        DirectIntroSort(@Points[0,1],0,Count-1,SizeOf(TKraftScalar),@CompareFloat);
-        DirectIntroSort(@Points[0,2],0,Count-1,SizeOf(TKraftScalar),@CompareFloat);
-        Median.x:=Points[0,Count shr 1];
-        Median.y:=Points[1,Count shr 1];
-        Median.z:=Points[2,Count shr 1];
-{$ifdef SIMD}
-        Median.w:=0.0;
-{$endif}
-       end else begin
-        Median:=Center;
-       end;
-       BestAxis:=-1;
-       BestBalance:=$7fffffff;
-       for AxisCounter:=0 to 5 do begin
-        if AxisCounter>2 then begin
-         Axis:=AxisCounter-3;
-        end else begin
-         Axis:=AxisCounter;
-        end;
-        LeftCount:=0;
-        RightCount:=0;
-        LeftAABB:=Nodes[CurrentNodeIndex].AABB;
-        RightAABB:=Nodes[CurrentNodeIndex].AABB;
-        if AxisCounter>2 then begin
-         LeftAABB.Max.xyz[Axis]:=Median.xyz[Axis];
-         RightAABB.Min.xyz[Axis]:=Median.xyz[Axis];
-        end else begin
-         LeftAABB.Max.xyz[Axis]:=Center.xyz[Axis];
-         RightAABB.Min.xyz[Axis]:=Center.xyz[Axis];
-        end;
-        TriangleIndex:=Nodes[CurrentNodeIndex].TriangleIndex;
-        while TriangleIndex>=0 do begin
-         if Vector3Avg(TriangleAABBs[TriangleIndex].Min,TriangleAABBs[TriangleIndex].Max).xyz[Axis]<RightAABB.Min.xyz[Axis] then begin
-          inc(LeftCount);
-         end else begin
-          inc(RightCount);
-         end;
-         TriangleIndex:=fTriangles[TriangleIndex].Next;
-        end;
-        if (LeftCount>0) and (RightCount>0) then begin
-         Balance:=abs(RightCount-LeftCount);
-         if BestBalance>Balance then begin
-          BestBalance:=Balance;
-          BestAxis:=AxisCounter;
-         end;
-        end;
-       end;
-       if BestAxis>=0 then begin
-        LeftNodeIndex:=CountNodes;
-        RightNodeIndex:=CountNodes+1;
-        inc(CountNodes,2);
-        if CountNodes>=length(Nodes) then begin
-         SetLength(Nodes,RoundUpToPowerOfTwo(CountNodes));
-        end;
-        LeftAABB:=Nodes[CurrentNodeIndex].AABB;
-        RightAABB:=Nodes[CurrentNodeIndex].AABB;
-        TriangleIndex:=Nodes[CurrentNodeIndex].TriangleIndex;
-        Nodes[LeftNodeIndex].TriangleIndex:=-1;
-        Nodes[RightNodeIndex].TriangleIndex:=-1;
-        Nodes[CurrentNodeIndex].TriangleIndex:=-1;
-        if BestAxis>2 then begin
-         dec(BestAxis,3);
-         LeftAABB.Max.xyz[BestAxis]:=Median.xyz[BestAxis];
-         RightAABB.Min.xyz[BestAxis]:=Median.xyz[BestAxis];
-        end else begin
-         LeftAABB.Max.xyz[BestAxis]:=Center.xyz[BestAxis];
-         RightAABB.Min.xyz[BestAxis]:=Center.xyz[BestAxis];
-        end;
-        Nodes[LeftNodeIndex].AABB:=LeftAABB;
-        Nodes[RightNodeIndex].AABB:=RightAABB;
-        while TriangleIndex>=0 do begin
-         NextTriangleIndex:=fTriangles[TriangleIndex].Next;
-         if Vector3Avg(TriangleAABBs[TriangleIndex].Min,TriangleAABBs[TriangleIndex].Max).xyz[BestAxis]<RightAABB.Min.xyz[BestAxis] then begin
-          TargetNodeIndex:=LeftNodeIndex;
-         end else begin
-          TargetNodeIndex:=RightNodeIndex;
-         end;
-         fTriangles[TriangleIndex].Next:=Nodes[TargetNodeIndex].TriangleIndex;
-         if Nodes[TargetNodeIndex].TriangleIndex<0 then begin
-          Nodes[TargetNodeIndex].AABB:=TriangleAABBs[TriangleIndex];
-         end else begin
-          Nodes[TargetNodeIndex].AABB:=AABBCombine(Nodes[TargetNodeIndex].AABB,TriangleAABBs[TriangleIndex]);
-         end;
-         Nodes[TargetNodeIndex].TriangleIndex:=TriangleIndex;
-         TriangleIndex:=NextTriangleIndex;
-        end;
-        Nodes[CurrentNodeIndex].Children[0]:=LeftNodeIndex;
-        Nodes[CurrentNodeIndex].Children[1]:=RightNodeIndex;
-        Nodes[LeftNodeIndex].Children[0]:=-1;
-        Nodes[LeftNodeIndex].Children[1]:=-1;
-        Nodes[RightNodeIndex].Children[0]:=-1;
-        Nodes[RightNodeIndex].Children[1]:=-1;
-        if (StackPointer+2)>=length(Stack) then begin
-         SetLength(Stack,RoundUpToPowerOfTwo(StackPointer+2));
-        end;
-        Stack[StackPointer+0]:=RightNodeIndex;
-        Stack[StackPointer+1]:=LeftNodeIndex;
-        inc(StackPointer,2);
-       end;
-      end;
+     end else{$endif}begin
+      ProcessNodeQueue;
      end;
+    finally
+     FreeAndNil(fNodeQueue);
     end;
-    SetLength(Nodes,CountNodes);
-    begin
-     fCountNodes:=CountNodes;
-     fCountSkipListNodes:=0;
-     if Root>=0 then begin
-      begin
-       // Pass 1 - Counting
-       NewStackCapacity:=RoundUpToPowerOfTwo(CountNodes*4);
-       if NewStackCapacity>length(Stack) then begin
-        SetLength(Stack,NewStackCapacity);
-       end;
-       Stack[0]:=Root;
-       StackPointer:=1;
-       while StackPointer>0 do begin
-        dec(StackPointer);
-        NodeID:=Stack[StackPointer];
-        if (NodeID>=0) and (NodeID<CountNodes) then begin
-         Node:=@Nodes[NodeID];
-         inc(fCountSkipListNodes);
-         if Node^.Children[0]>=0 then begin
-          NewStackCapacity:=RoundUpToPowerOfTwo(StackPointer+2);
-          if NewStackCapacity>length(Stack) then begin
-           SetLength(Stack,NewStackCapacity);
-          end;
-          Stack[StackPointer+0]:=Node^.Children[1];
-          Stack[StackPointer+1]:=Node^.Children[0];
-          inc(StackPointer,2);
-         end;
-        end;
-       end;
-      end;
-      begin
-       // Pass 2 - Resize arrays
-       SetLength(fNodes,fCountNodes);
-       SetLength(fSkipListNodes,fCountSkipListNodes);
-      end;
-      begin
-       // Pass 3 - Fill arrays
-       for Index:=0 to CountNodes-1 do begin
-        Node:=@Nodes[Index];
-        fNodes[Index].Children[0]:=Node^.Children[0];
-        fNodes[Index].Children[1]:=Node^.Children[1];
-        fNodes[Index].TriangleIndex:=Node^.TriangleIndex;
-        fNodes[Index].AABB:=Node^.AABB;
-       end;
-       fCountSkipListNodes:=0;
-       Stack[0]:=Root;
-       Stack[1]:=0;
-       Stack[2]:=0;
-       StackPointer:=3;
-       while StackPointer>0 do begin
-        dec(StackPointer,3);
-        NodeID:=Stack[StackPointer];
-        Pass:=Stack[StackPointer+1];
-        Index:=Stack[StackPointer+2];
-        if (NodeID>=0) and (NodeID<CountNodes) then begin
-         Node:=@Nodes[NodeID];
-         case Pass of
-          0:begin
-           Index:=fCountSkipListNodes;
-           inc(fCountSkipListNodes);
-           SkipListNode:=@fSkipListNodes[Index];
-           SkipListNode^.AABB.Min:=Node^.AABB.Min;
-           SkipListNode^.AABB.Max:=Node^.AABB.Max;
-           SkipListNode^.SkipToNodeIndex:=-1;
-           if Node^.TriangleIndex>=0 then begin
-            SkipListNode^.TriangleIndex:=Node^.TriangleIndex;
-           end else begin
-            SkipListNode^.TriangleIndex:=-1;
-           end;
-           if Node^.Children[0]>=0 then begin
-            NewStackCapacity:=RoundUpToPowerOfTwo(StackPointer+9);
-            if NewStackCapacity>length(Stack) then begin
-             SetLength(Stack,NewStackCapacity);
-            end;
-            Stack[StackPointer+0]:=NodeID;
-            Stack[StackPointer+1]:=1;
-            Stack[StackPointer+2]:=Index;
-            Stack[StackPointer+3]:=Node^.Children[1];
-            Stack[StackPointer+4]:=0;
-            Stack[StackPointer+5]:=0;
-            Stack[StackPointer+6]:=Node^.Children[0];
-            Stack[StackPointer+7]:=0;
-            Stack[StackPointer+8]:=0;
-            inc(StackPointer,9);
-           end else begin
-            NewStackCapacity:=RoundUpToPowerOfTwo(StackPointer+3);
-            if NewStackCapacity>length(Stack) then begin
-             SetLength(Stack,NewStackCapacity);
-            end;
-            Stack[StackPointer+0]:=NodeID;
-            Stack[StackPointer+1]:=1;
-            Stack[StackPointer+2]:=Index;
-            inc(StackPointer,3);
-           end;
-          end;
-          1:begin
-           SkipListNode:=@fSkipListNodes[Index];
-           SkipListNode^.SkipToNodeIndex:=fCountSkipListNodes;
-          end;
-         end;
-        end;
-       end;
-      end;
-     end;
-    end;
-   finally
-    SetLength(Stack,0);
    end;
   end else begin
-   SetLength(TriangleAABBs,0);
-   SetLength(Nodes,0);
-   SetLength(Points[0],0);
-   SetLength(Points[1],0);
-   SetLength(Points[2],0);
+   TreeNode^.FirstTriangleIndex:=-1;
+   TreeNode^.CountTriangles:=0;
   end;
+
+  SetLength(fTreeNodes,fCountTreeNodes);
+
+  Stack:=nil;
+  try
+   SkipListNodeMap:=nil;
+   try
+    try
+     SetLength(SkipListNodeMap,fCountTreeNodes+((fCountTreeNodes+1) shr 1));
+     if length(fSkipListNodes)<=fCountTreeNodes then begin
+      SetLength(fSkipListNodes,fCountTreeNodes+((fCountTreeNodes+1) shr 1));
+     end;
+     fCountSkipListNodes:=0;
+     SetLength(Stack,8);
+     Stack[0]:=(TKraftUInt64(fTreeNodeRoot) shl 1) or 0;
+     StackPointer:=1;
+     while StackPointer>0 do begin
+      dec(StackPointer);
+      StackItem:=Stack[StackPointer];
+      TreeNodeIndex:=StackItem shr 1;
+      TreeNode:=@fTreeNodes[TreeNodeIndex];
+      case StackItem and 1 of
+       0:begin
+        SkipListNodeIndex:=fCountSkipListNodes;
+        inc(fCountSkipListNodes);
+        SkipListNode:=@fSkipListNodes[SkipListNodeIndex];
+        SkipListNodeMap[TreeNodeIndex]:=SkipListNodeIndex;
+        SkipListNode^.AABB:=TreeNode^.AABB;
+        if TreeNode^.FirstLeftChild>=0 then begin
+         // No leaf
+         SkipListNode^.FirstTriangleIndex:=-1;
+         SkipListNode^.CountTriangles:=0;
+        end else begin
+         // Leaf
+         SkipListNode^.FirstTriangleIndex:=TreeNode^.FirstTriangleIndex;
+         SkipListNode^.CountTriangles:=TreeNode^.CountTriangles;
+        end;
+        SkipListNode^.SkipToNodeIndex:=-1;
+        begin
+         if length(Stack)<=StackPointer then begin
+          SetLength(Stack,(StackPointer+1)+((StackPointer+1) shr 1));
+         end;
+         Stack[StackPointer]:=(TKraftUInt64(TreeNodeIndex) shl 1) or 1;
+         inc(StackPointer);
+        end;
+        if TreeNode^.FirstLeftChild>=0 then begin
+         if length(Stack)<=(StackPointer+1) then begin
+          SetLength(Stack,(StackPointer+2)+((StackPointer+2) shr 1));
+         end;
+         Stack[StackPointer]:=(TKraftUInt64(TreeNode^.FirstLeftChild+1) shl 1) or 0;
+         Stack[StackPointer+1]:=(TKraftUInt64(TreeNode^.FirstLeftChild+0) shl 1) or 0;
+         inc(StackPointer,2);
+        end;
+       end;
+       else {1:}begin
+        SkipListNodeIndex:=SkipListNodeMap[TreeNodeIndex];
+        fSkipListNodes[SkipListNodeIndex].SkipToNodeIndex:=fCountSkipListNodes;
+       end;
+      end;
+     end;
+    finally
+     SetLength(fSkipListNodes,fCountSkipListNodes);
+    end;
+   finally
+    SkipListNodeMap:=nil;
+   end;
+  finally
+   Stack:=nil;
+  end;
+
   for Index:=0 to fCountVertices-1 do begin
    if Index=0 then begin
     fAABB.Min:=fVertices[Index];
@@ -21744,7 +21992,9 @@ begin
     fAABB:=AABBCombineVector3(fAABB,fVertices[Index]);
    end;
   end;
+
  end;
+
 end;
 
 function TKraftMesh.GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
@@ -21763,7 +22013,7 @@ var LocalStack:TStackItems;
     SquaredDistances:array[0..1] of TKraftScalar;
     SquaredDistance,SquaredThickness,SquaredThicknessEpsilon:TKraftScalar;
 begin
- if fCountNodes>0 then begin
+ if fCountTreeNodes>0 then begin
   result:=MAX_SCALAR;
   BestTriangle:=nil;
   if fDoubleSided then begin
@@ -21775,71 +22025,52 @@ begin
   LocalStackPointer:=0;
   StackItem:=@LocalStack[LocalStackPointer];
   inc(LocalStackPointer);
-  StackItem^.NodeIndex:=0;
-  StackItem^.SquaredDistance:=SquaredDistanceFromPointToAABB(fNodes[0].AABB,Position);
+  StackItem^.NodeIndex:=fTreeNodeRoot;
+  StackItem^.SquaredDistance:=SquaredDistanceFromPointToAABB(fTreeNodes[fTreeNodeRoot].AABB,Position);
   while LocalStackPointer>0 do begin
    dec(LocalStackPointer);
    StackItem:=@LocalStack[LocalStackPointer];
    if (StackItem^.SquaredDistance-SquaredThicknessEpsilon)<result then begin
     if StackItem^.NodeIndex>=0 then begin
-     Node:=@fNodes[StackItem^.NodeIndex];
-     TriangleIndex:=Node^.TriangleIndex;
-     while TriangleIndex>=0 do begin
-      Triangle:=@fTriangles[TriangleIndex];
-      SquaredDistance:=SquaredDistanceFromPointToTriangle(Position,fVertices[Triangle^.Vertices[0]],fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[2]]);
-      if result>SquaredDistance then begin
-       result:=SquaredDistance;
-       BestTriangle:=Triangle;
+     Node:=@fTreeNodes[StackItem^.NodeIndex];
+     if Node^.CountTriangles>0 then begin
+      for TriangleIndex:=Node^.FirstTriangleIndex to Node^.FirstTriangleIndex+(Node^.CountTriangles-1) do begin
+       Triangle:=@fTriangles[TriangleIndex];
+       SquaredDistance:=SquaredDistanceFromPointToTriangle(Position,fVertices[Triangle^.Vertices[0]],fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[2]]);
+       if result>SquaredDistance then begin
+        result:=SquaredDistance;
+        BestTriangle:=Triangle;
+       end;
       end;
-      TriangleIndex:=Triangle^.Next;
      end;
-     if (Node^.Children[0]>=0) and (Node^.Children[1]>=0) then begin
-      SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[0]].AABB,Position);
-      SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[1]].AABB,Position);
+     if Node^.FirstLeftChild>=0 then begin
+      SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fTreeNodes[Node^.FirstLeftChild].AABB,Position);
+      SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fTreeNodes[Node^.FirstLeftChild+1].AABB,Position);
       if SquaredDistances[0]<SquaredDistances[1] then begin
        if (SquaredDistances[0]-SquaredThicknessEpsilon)<result then begin
         StackItem:=@LocalStack[LocalStackPointer];
         inc(LocalStackPointer);
-        StackItem^.NodeIndex:=Node^.Children[0];
+        StackItem^.NodeIndex:=Node^.FirstLeftChild;
         StackItem^.SquaredDistance:=SquaredDistances[0];
        end;
        if (SquaredDistances[1]-SquaredThicknessEpsilon)<result then begin
         StackItem:=@LocalStack[LocalStackPointer];
         inc(LocalStackPointer);
-        StackItem^.NodeIndex:=Node^.Children[1];
+        StackItem^.NodeIndex:=Node^.FirstLeftChild+1;
         StackItem^.SquaredDistance:=SquaredDistances[1];
        end;
       end else begin
        if (SquaredDistances[1]-SquaredThicknessEpsilon)<result then begin
         StackItem:=@LocalStack[LocalStackPointer];
         inc(LocalStackPointer);
-        StackItem^.NodeIndex:=Node^.Children[1];
+        StackItem^.NodeIndex:=Node^.FirstLeftChild+1;
         StackItem^.SquaredDistance:=SquaredDistances[1];
        end;
        if (SquaredDistances[0]-SquaredThicknessEpsilon)<result then begin
         StackItem:=@LocalStack[LocalStackPointer];
         inc(LocalStackPointer);
-        StackItem^.NodeIndex:=Node^.Children[0];
+        StackItem^.NodeIndex:=Node^.FirstLeftChild;
         StackItem^.SquaredDistance:=SquaredDistances[0];
-       end;
-      end;
-     end else begin
-      if Node^.Children[0]>=0 then begin
-       SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[0]].AABB,Position);
-       if (SquaredDistances[0]-SquaredThicknessEpsilon)<result then begin
-        StackItem:=@LocalStack[LocalStackPointer];
-        inc(LocalStackPointer);
-        StackItem^.NodeIndex:=Node^.Children[0];
-        StackItem^.SquaredDistance:=SquaredDistances[0];
-       end;
-      end;
-      if Node^.Children[1]>=0 then begin
-       SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[1]].AABB,Position);
-       if (SquaredDistances[1]-SquaredThicknessEpsilon)<result then begin
-        StackItem:=@LocalStack[LocalStackPointer];
-        inc(LocalStackPointer);
-        StackItem^.NodeIndex:=Node^.Children[1];
-        StackItem^.SquaredDistance:=SquaredDistances[1];
        end;
       end;
      end;
@@ -21859,61 +22090,49 @@ begin
  end;
 end;
 {$else}
-var TriangleIndex:TKraftInt32;
-    Triangle,BestTriangle:PKraftMeshTriangle;
+var BestTriangle:PKraftMeshTriangle;
     SquaredDistances:array[0..1] of TKraftScalar;
     SquaredThickness,SquaredThicknessEpsilon:TKraftScalar;
  procedure ProcessNode(const NodeIndex:TKraftInt32;SquaredDistance:TKraftScalar);
- var Node:PKraftMeshNode;
+ var TriangleIndex:TKraftInt32;
+     Triangle:PKraftMeshTriangle;
+     Node:PKraftMeshTreeNode;
  begin
   if (NodeIndex>=0) and ((SquaredDistance-SquaredThicknessEpsilon)<result) then begin
-   Node:=@fNodes[NodeIndex];
-   TriangleIndex:=Node^.TriangleIndex;
-   while TriangleIndex>=0 do begin
-    Triangle:=@fTriangles[TriangleIndex];
-    SquaredDistance:=SquaredDistanceFromPointToTriangle(Position,fVertices[Triangle^.Vertices[0]],fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[2]]);
-    if result>SquaredDistance then begin
-     result:=SquaredDistance;
-     BestTriangle:=Triangle;
+   Node:=@fTreeNodes[NodeIndex];
+   if Node^.CountTriangles>0 then begin
+    for TriangleIndex:=Node^.FirstTriangleIndex to Node^.FirstTriangleIndex+(Node^.CountTriangles-1) do begin
+     Triangle:=@fTriangles[TriangleIndex];
+     SquaredDistance:=SquaredDistanceFromPointToTriangle(Position,fVertices[Triangle^.Vertices[0]],fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[2]]);
+     if result>SquaredDistance then begin
+      result:=SquaredDistance;
+      BestTriangle:=Triangle;
+     end;
     end;
-    TriangleIndex:=Triangle^.Next;
    end;
-   if (Node^.Children[0]>=0) and (Node^.Children[1]>=0) then begin
-    SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[0]].AABB,Position);
-    SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[1]].AABB,Position);
+   if Node^.FirstLeftChild>=0 then begin
+    SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fTreeNodes[Node^.FirstLeftChild].AABB,Position);
+    SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fTreeNodes[Node^.FirstLeftChild+1].AABB,Position);
     if SquaredDistances[0]<SquaredDistances[1] then begin
      if (SquaredDistances[0]-SquaredThicknessEpsilon)<result then begin
-      ProcessNode(Node^.Children[0],SquaredDistances[0]);
+      ProcessNode(Node^.FirstLeftChild,SquaredDistances[0]);
      end;
      if (SquaredDistances[1]-SquaredThicknessEpsilon)<result then begin
-      ProcessNode(Node^.Children[1],SquaredDistances[1]);
+      ProcessNode(Node^.FirstLeftChild+1,SquaredDistances[1]);
      end;
     end else begin
      if (SquaredDistances[1]-SquaredThicknessEpsilon)<result then begin
-      ProcessNode(Node^.Children[1],SquaredDistances[1]);
+      ProcessNode(Node^.FirstLeftChild+1,SquaredDistances[1]);
      end;
      if (SquaredDistances[0]-SquaredThicknessEpsilon)<result then begin
-      ProcessNode(Node^.Children[0],SquaredDistances[0]);
-     end;
-    end;
-   end else begin
-    if Node^.Children[0]>=0 then begin
-     SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[0]].AABB,Position);
-     if (SquaredDistances[0]-SquaredThicknessEpsilon)<result then begin
-      ProcessNode(Node^.Children[0],SquaredDistances[0]);
-     end;
-    end;
-    if Node^.Children[1]>=0 then begin
-     SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[1]].AABB,Position);
-     if (SquaredDistances[1]-SquaredThicknessEpsilon)<result then begin
-      ProcessNode(Node^.Children[0],SquaredDistances[1]);
+      ProcessNode(Node^.FirstLeftChild,SquaredDistances[0]);
      end;
     end;
    end;
   end;
  end;
 begin
- if fCountNodes>0 then begin
+ if fCountTreeNodes>0 then begin
   result:=MAX_SCALAR;
   BestTriangle:=nil;
   if fDoubleSided then begin
@@ -21922,7 +22141,7 @@ begin
    SquaredThickness:=0.0;
   end;
   SquaredThicknessEpsilon:=SquaredThickness+sqr(EPSILON);
-  ProcessNode(0,SquaredDistanceFromPointToAABB(fNodes[0].AABB,Position));
+  ProcessNode(fTreeNodeRoot,SquaredDistanceFromPointToAABB(fTreeNodes[fTreeNodeRoot].AABB,Position));
   result:=sqrt(result);
   if fDoubleSided then begin
    result:=result-(2.0*Physics.fLinearSlop);
@@ -21953,7 +22172,7 @@ var LocalStack:TStackItems;
     SquaredDistances:array[0..1] of TKraftScalar;
     BestDistance,SquaredDistance,SquaredThickness,SquaredThicknessEpsilon:TKraftScalar;
 begin
- if fCountNodes>0 then begin
+ if fCountTreeNodes>0 then begin
   BestDistance:=MAX_SCALAR;
   BestTriangle:=nil;
   if fDoubleSided then begin
@@ -21965,71 +22184,51 @@ begin
   LocalStackPointer:=0;
   StackItem:=@LocalStack[LocalStackPointer];
   inc(LocalStackPointer);
-  StackItem^.NodeIndex:=0;
-  StackItem^.SquaredDistance:=SquaredDistanceFromPointToAABB(fNodes[0].AABB,Position);
+  StackItem^.NodeIndex:=fTreeNodeRoot;
+  StackItem^.SquaredDistance:=SquaredDistanceFromPointToAABB(fTreeNodes[fTreeNodeRoot].AABB,Position);
   while LocalStackPointer>0 do begin
    dec(LocalStackPointer);
    StackItem:=@LocalStack[LocalStackPointer];
    if (StackItem^.SquaredDistance-SquaredThicknessEpsilon)<BestDistance then begin
     if StackItem^.NodeIndex>=0 then begin
-     Node:=@fNodes[StackItem^.NodeIndex];
-     TriangleIndex:=Node^.TriangleIndex;
-     while TriangleIndex>=0 do begin
-      Triangle:=@fTriangles[TriangleIndex];
-      SquaredDistance:=SquaredDistanceFromPointToTriangle(Position,fVertices[Triangle^.Vertices[0]],fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[2]]);
-      if BestDistance>SquaredDistance then begin
-       BestDistance:=SquaredDistance;
-       BestTriangle:=Triangle;
+     Node:=@fTreeNodes[StackItem^.NodeIndex];
+     if Node^.CountTriangles>0 then begin
+      for TriangleIndex:=Node^.FirstTriangleIndex to Node^.FirstTriangleIndex+(Node^.CountTriangles-1) do begin
+       SquaredDistance:=SquaredDistanceFromPointToTriangle(Position,fVertices[Triangle^.Vertices[0]],fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[2]]);
+       if BestDistance>SquaredDistance then begin
+        BestDistance:=SquaredDistance;
+        BestTriangle:=Triangle;
+       end;
       end;
-      TriangleIndex:=Triangle^.Next;
      end;
-     if (Node^.Children[0]>=0) and (Node^.Children[1]>=0) then begin
-      SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[0]].AABB,Position);
-      SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[1]].AABB,Position);
+     if Node^.FirstLeftChild>=0 then begin
+      SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fTreeNodes[Node^.FirstLeftChild].AABB,Position);
+      SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fTreeNodes[Node^.FirstLeftChild+1].AABB,Position);
       if SquaredDistances[0]<SquaredDistances[1] then begin
        if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
         StackItem:=@LocalStack[LocalStackPointer];
         inc(LocalStackPointer);
-        StackItem^.NodeIndex:=Node^.Children[0];
+        StackItem^.NodeIndex:=Node^.FirstLeftChild;
         StackItem^.SquaredDistance:=SquaredDistances[0];
        end;
        if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
         StackItem:=@LocalStack[LocalStackPointer];
         inc(LocalStackPointer);
-        StackItem^.NodeIndex:=Node^.Children[1];
+        StackItem^.NodeIndex:=Node^.FirstLeftChild+1;
         StackItem^.SquaredDistance:=SquaredDistances[1];
        end;
       end else begin
        if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
         StackItem:=@LocalStack[LocalStackPointer];
         inc(LocalStackPointer);
-        StackItem^.NodeIndex:=Node^.Children[1];
+        StackItem^.NodeIndex:=Node^.FirstLeftChild+1;
         StackItem^.SquaredDistance:=SquaredDistances[1];
        end;
        if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
         StackItem:=@LocalStack[LocalStackPointer];
         inc(LocalStackPointer);
-        StackItem^.NodeIndex:=Node^.Children[0];
+        StackItem^.NodeIndex:=Node^.FirstLeftChild;
         StackItem^.SquaredDistance:=SquaredDistances[0];
-       end;
-      end;
-     end else begin
-      if Node^.Children[0]>=0 then begin
-       SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[0]].AABB,Position);
-       if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
-        StackItem:=@LocalStack[LocalStackPointer];
-        inc(LocalStackPointer);
-        StackItem^.NodeIndex:=Node^.Children[0];
-        StackItem^.SquaredDistance:=SquaredDistances[0];
-       end;
-      end;
-      if Node^.Children[1]>=0 then begin
-       SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[1]].AABB,Position);
-       if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
-        StackItem:=@LocalStack[LocalStackPointer];
-        inc(LocalStackPointer);
-        StackItem^.NodeIndex:=Node^.Children[1];
-        StackItem^.SquaredDistance:=SquaredDistances[1];
        end;
       end;
      end;
@@ -22058,61 +22257,49 @@ begin
  end;
 end;
 {$else}
-var TriangleIndex:TKraftInt32;
-    Triangle,BestTriangle:PKraftMeshTriangle;
+var BestTriangle:PKraftMeshTriangle;
     SquaredDistances:array[0..1] of TKraftScalar;
     BestDistance,SquaredThickness,SquaredThicknessEpsilon:TKraftScalar;
  procedure ProcessNode(const NodeIndex:TKraftInt32;SquaredDistance:TKraftScalar);
- var Node:PKraftMeshNode;
+ var TriangleIndex:TKraftInt32;
+     Triangle:PKraftMeshTriangle;
+     Node:PKraftMeshTreeNode;
  begin
   if (NodeIndex>=0) and ((SquaredDistance-SquaredThicknessEpsilon)<BestDistance) then begin
-   Node:=@fNodes[NodeIndex];
-   TriangleIndex:=Node^.TriangleIndex;
-   while TriangleIndex>=0 do begin
-    Triangle:=@fTriangles[TriangleIndex];
-    SquaredDistance:=SquaredDistanceFromPointToTriangle(Position,fVertices[Triangle^.Vertices[0]],fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[2]]);
-    if BestDistance>SquaredDistance then begin
-     BestDistance:=SquaredDistance;
-     BestTriangle:=Triangle;
+   Node:=@fTreeNodes[NodeIndex];
+   if Node^.CountTriangles>0 then begin
+    for TriangleIndex:=Node^.FirstTriangleIndex to Node^.FirstTriangleIndex+(Node^.CountTriangles-1) do begin
+     Triangle:=@fTriangles[TriangleIndex];
+     SquaredDistance:=SquaredDistanceFromPointToTriangle(Position,fVertices[Triangle^.Vertices[0]],fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[2]]);
+     if BestDistance>SquaredDistance then begin
+      BestDistance:=SquaredDistance;
+      BestTriangle:=Triangle;
+     end;
     end;
-    TriangleIndex:=Triangle^.Next;
    end;
-   if (Node^.Children[0]>=0) and (Node^.Children[1]>=0) then begin
-    SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[0]].AABB,Position);
-    SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[1]].AABB,Position);
+   if Node^.FirstLeftChild>=0 then begin
+    SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fTreeNodes[Node^.FirstLeftChild].AABB,Position);
+    SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fTreeNodes[Node^.FirstLeftChild+1].AABB,Position);
     if SquaredDistances[0]<SquaredDistances[1] then begin
      if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
-      ProcessNode(Node^.Children[0],SquaredDistances[0]);
+      ProcessNode(Node^.FirstLeftChild,SquaredDistances[0]);
      end;
      if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
-      ProcessNode(Node^.Children[1],SquaredDistances[1]);
+      ProcessNode(Node^.FirstLeftChild+1,SquaredDistances[1]);
      end;
     end else begin
      if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
-      ProcessNode(Node^.Children[1],SquaredDistances[1]);
+      ProcessNode(Node^.FirstLeftChild+1,SquaredDistances[1]);
      end;
      if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
-      ProcessNode(Node^.Children[0],SquaredDistances[0]);
-     end;
-    end;
-   end else begin
-    if Node^.Children[0]>=0 then begin
-     SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[0]].AABB,Position);
-     if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
-      ProcessNode(Node^.Children[0],SquaredDistances[0]);
-     end;
-    end;
-    if Node^.Children[1]>=0 then begin
-     SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[1]].AABB,Position);
-     if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
-      ProcessNode(Node^.Children[0],SquaredDistances[1]);
+      ProcessNode(Node^.FirstLeftChild,SquaredDistances[0]);
      end;
     end;
    end;
   end;
  end;
 begin
- if fCountNodes>0 then begin
+ if fCountTreeNodes>0 then begin
   BestDistance:=MAX_SCALAR;
   BestTriangle:=nil;
   if fDoubleSided then begin
@@ -22121,7 +22308,7 @@ begin
    SquaredThickness:=0.0;
   end;
   SquaredThicknessEpsilon:=SquaredThickness+sqr(EPSILON);
-  ProcessNode(0,SquaredDistanceFromPointToAABB(fNodes[0].AABB,Position));
+  ProcessNode(fTreeNodeRoot,SquaredDistanceFromPointToAABB(fTreeNodes[fTreeNodeRoot].AABB,Position));
   BestDistance:=sqrt(BestDistance);
   if fDoubleSided then begin
    BestDistance:=BestDistance-(2.0*Physics.fLinearSlop);
@@ -22168,7 +22355,7 @@ var LocalStack:TStackItems;
     SquaredDistances:array[0..1] of TKraftScalar;
     BestDistance,SquaredDistance,SquaredThickness,SquaredThicknessEpsilon:TKraftScalar;
 begin
- if fCountNodes>0 then begin
+ if fCountTreeNodes>0 then begin
   BestDistance:=MAX_SCALAR;
   BestTriangle:=nil;
   if fDoubleSided then begin
@@ -22180,71 +22367,52 @@ begin
   LocalStackPointer:=0;
   StackItem:=@LocalStack[LocalStackPointer];
   inc(LocalStackPointer);
-  StackItem^.NodeIndex:=0;
-  StackItem^.SquaredDistance:=SquaredDistanceFromPointToAABB(fNodes[0].AABB,Position);
+  StackItem^.NodeIndex:=fTreeNodeRoot;
+  StackItem^.SquaredDistance:=SquaredDistanceFromPointToAABB(fTreeNodes[fTreeNodeRoot].AABB,Position);
   while LocalStackPointer>0 do begin
    dec(LocalStackPointer);
    StackItem:=@LocalStack[LocalStackPointer];
    if (StackItem^.SquaredDistance-SquaredThicknessEpsilon)<BestDistance then begin
     if StackItem^.NodeIndex>=0 then begin
-     Node:=@fNodes[StackItem^.NodeIndex];
-     TriangleIndex:=Node^.TriangleIndex;
-     while TriangleIndex>=0 do begin
-      Triangle:=@fTriangles[TriangleIndex];
-      SquaredDistance:=SquaredDistanceFromPointToTriangle(Position,fVertices[Triangle^.Vertices[0]],fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[2]]);
-      if BestDistance>SquaredDistance then begin
-       BestDistance:=SquaredDistance;
-       BestTriangle:=Triangle;
+     Node:=@fTreeNodes[StackItem^.NodeIndex];
+     if Node^.CountTriangles>0 then begin
+      for TriangleIndex:=Node^.FirstTriangleIndex to Node^.FirstTriangleIndex+(Node^.CountTriangles-1) do begin
+       Triangle:=@fTriangles[TriangleIndex];
+       SquaredDistance:=SquaredDistanceFromPointToTriangle(Position,fVertices[Triangle^.Vertices[0]],fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[2]]);
+       if BestDistance>SquaredDistance then begin
+        BestDistance:=SquaredDistance;
+        BestTriangle:=Triangle;
+       end;
       end;
-      TriangleIndex:=Triangle^.Next;
      end;
-     if (Node^.Children[0]>=0) and (Node^.Children[1]>=0) then begin
-      SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[0]].AABB,Position);
-      SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[1]].AABB,Position);
+     if Node^.FirstLeftChild>=0 then begin
+      SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fTreeNodes[Node^.FirstLeftChild].AABB,Position);
+      SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fTreeNodes[Node^.FirstLeftChild+1].AABB,Position);
       if SquaredDistances[0]<SquaredDistances[1] then begin
        if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
         StackItem:=@LocalStack[LocalStackPointer];
         inc(LocalStackPointer);
-        StackItem^.NodeIndex:=Node^.Children[0];
+        StackItem^.NodeIndex:=Node^.FirstLeftChild;
         StackItem^.SquaredDistance:=SquaredDistances[0];
        end;
        if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
         StackItem:=@LocalStack[LocalStackPointer];
         inc(LocalStackPointer);
-        StackItem^.NodeIndex:=Node^.Children[1];
+        StackItem^.NodeIndex:=Node^.FirstLeftChild+1;
         StackItem^.SquaredDistance:=SquaredDistances[1];
        end;
       end else begin
        if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
         StackItem:=@LocalStack[LocalStackPointer];
         inc(LocalStackPointer);
-        StackItem^.NodeIndex:=Node^.Children[1];
+        StackItem^.NodeIndex:=Node^.FirstLeftChild+1;
         StackItem^.SquaredDistance:=SquaredDistances[1];
        end;
        if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
         StackItem:=@LocalStack[LocalStackPointer];
         inc(LocalStackPointer);
-        StackItem^.NodeIndex:=Node^.Children[0];
+        StackItem^.NodeIndex:=Node^.FirstLeftChild;
         StackItem^.SquaredDistance:=SquaredDistances[0];
-       end;
-      end;
-     end else begin
-      if Node^.Children[0]>=0 then begin
-       SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[0]].AABB,Position);
-       if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
-        StackItem:=@LocalStack[LocalStackPointer];
-        inc(LocalStackPointer);
-        StackItem^.NodeIndex:=Node^.Children[0];
-        StackItem^.SquaredDistance:=SquaredDistances[0];
-       end;
-      end;
-      if Node^.Children[1]>=0 then begin
-       SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[1]].AABB,Position);
-       if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
-        StackItem:=@LocalStack[LocalStackPointer];
-        inc(LocalStackPointer);
-        StackItem^.NodeIndex:=Node^.Children[1];
-        StackItem^.SquaredDistance:=SquaredDistances[1];
        end;
       end;
      end;
@@ -22270,61 +22438,49 @@ begin
  Vector3Normalize(result);
 end;
 {$else}
-var TriangleIndex:TKraftInt32;
-    Triangle,BestTriangle:PKraftMeshTriangle;
+var BestTriangle:PKraftMeshTriangle;
     SquaredDistances:array[0..1] of TKraftScalar;
     BestDistance,SquaredThickness,SquaredThicknessEpsilon:TKraftScalar;
  procedure ProcessNode(const NodeIndex:TKraftInt32;SquaredDistance:TKraftScalar);
- var Node:PKraftMeshNode;
+ var TriangleIndex:TKraftInt32;
+     Triangle:PKraftMeshTriangle;
+     Node:PKraftMeshTreeNode;
  begin
   if (NodeIndex>=0) and ((SquaredDistance-SquaredThicknessEpsilon)<BestDistance) then begin
-   Node:=@fNodes[NodeIndex];
-   TriangleIndex:=Node^.TriangleIndex;
-   while TriangleIndex>=0 do begin
-    Triangle:=@fTriangles[TriangleIndex];
-    SquaredDistance:=SquaredDistanceFromPointToTriangle(Position,fVertices[Triangle^.Vertices[0]],fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[2]]);
-    if BestDistance>SquaredDistance then begin
-     BestDistance:=SquaredDistance;
-     BestTriangle:=Triangle;
+   Node:=@fTreeNodes[NodeIndex];
+   if Node^.CountTriangles>0 then begin
+    for TriangleIndex:=Node^.FirstTriangleIndex to Node^.FirstTriangleIndex+(Node^.CountTriangles-1) do begin
+     Triangle:=@fTriangles[TriangleIndex];
+     SquaredDistance:=SquaredDistanceFromPointToTriangle(Position,fVertices[Triangle^.Vertices[0]],fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[2]]);
+     if BestDistance>SquaredDistance then begin
+      BestDistance:=SquaredDistance;
+      BestTriangle:=Triangle;
+     end;
     end;
-    TriangleIndex:=Triangle^.Next;
    end;
-   if (Node^.Children[0]>=0) and (Node^.Children[1]>=0) then begin
-    SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[0]].AABB,Position);
-    SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[1]].AABB,Position);
+   if Node^.FirstLeftChild>=0 then begin
+    SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fTreeNodes[Node^.FirstLeftChild].AABB,Position);
+    SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fTreeNodes[Node^.FirstLeftChild+1].AABB,Position);
     if SquaredDistances[0]<SquaredDistances[1] then begin
      if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
-      ProcessNode(Node^.Children[0],SquaredDistances[0]);
+      ProcessNode(Node^.FirstLeftChild,SquaredDistances[0]);
      end;
      if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
-      ProcessNode(Node^.Children[1],SquaredDistances[1]);
+      ProcessNode(Node^.FirstLeftChild+1,SquaredDistances[1]);
      end;
     end else begin
      if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
-      ProcessNode(Node^.Children[1],SquaredDistances[1]);
+      ProcessNode(Node^.FirstLeftChild+1,SquaredDistances[1]);
      end;
      if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
-      ProcessNode(Node^.Children[0],SquaredDistances[0]);
-     end;
-    end;
-   end else begin
-    if Node^.Children[0]>=0 then begin
-     SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[0]].AABB,Position);
-     if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
-      ProcessNode(Node^.Children[0],SquaredDistances[0]);
-     end;
-    end;
-    if Node^.Children[1]>=0 then begin
-     SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[1]].AABB,Position);
-     if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
-      ProcessNode(Node^.Children[0],SquaredDistances[1]);
+      ProcessNode(Node^.FirstLeftChild,SquaredDistances[0]);
      end;
     end;
    end;
   end;
  end;
 begin
- if fCountNodes>0 then begin
+ if fCountTreeNodes>0 then begin
   BestDistance:=MAX_SCALAR;
   BestTriangle:=nil;
   if fDoubleSided then begin
@@ -22333,7 +22489,7 @@ begin
    SquaredThickness:=0.0;
   end;
   SquaredThicknessEpsilon:=SquaredThickness+sqr(EPSILON);
-  ProcessNode(0,SquaredDistanceFromPointToAABB(fNodes[0].AABB,Position));
+  ProcessNode(fTreeNodeRoot,SquaredDistanceFromPointToAABB(fTreeNodes[fTreeNodeRoot].AABB,Position));
   BestDistance:=sqrt(BestDistance);
   if fDoubleSided then begin
    BestDistance:=BestDistance-(2.0*Physics.fLinearSlop);
@@ -22377,7 +22533,7 @@ var LocalStack:TStackItems;
     SquaredDistances:array[0..1] of TKraftScalar;
     BestDistance,SquaredDistance,SquaredThickness,SquaredThicknessEpsilon:TKraftScalar;
 begin
- if fCountNodes>0 then begin
+ if fCountTreeNodes>0 then begin
   BestDistance:=MAX_SCALAR;
   BestTriangle:=nil;
   if fDoubleSided then begin
@@ -22389,71 +22545,52 @@ begin
   LocalStackPointer:=0;
   StackItem:=@LocalStack[LocalStackPointer];
   inc(LocalStackPointer);
-  StackItem^.NodeIndex:=0;
-  StackItem^.SquaredDistance:=SquaredDistanceFromPointToAABB(fNodes[0].AABB,Position);
+  StackItem^.NodeIndex:=fTreeNodeRoot;
+  StackItem^.SquaredDistance:=SquaredDistanceFromPointToAABB(fTreeNodes[fTreeNodeRoot].AABB,Position);
   while LocalStackPointer>0 do begin
    dec(LocalStackPointer);
    StackItem:=@LocalStack[LocalStackPointer];
    if (StackItem^.SquaredDistance-SquaredThicknessEpsilon)<BestDistance then begin
     if StackItem^.NodeIndex>=0 then begin
-     Node:=@fNodes[StackItem^.NodeIndex];
-     TriangleIndex:=Node^.TriangleIndex;
-     while TriangleIndex>=0 do begin
-      Triangle:=@fTriangles[TriangleIndex];
-      SquaredDistance:=SquaredDistanceFromPointToTriangle(Position,fVertices[Triangle^.Vertices[0]],fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[2]]);
-      if BestDistance>SquaredDistance then begin
-       BestDistance:=SquaredDistance;
-       BestTriangle:=Triangle;
+     Node:=@fTreeNodes[StackItem^.NodeIndex];
+     if Node^.CountTriangles>0 then begin
+      for TriangleIndex:=Node^.FirstTriangleIndex to Node^.FirstTriangleIndex+(Node^.CountTriangles-1) do begin
+       Triangle:=@fTriangles[TriangleIndex];
+       SquaredDistance:=SquaredDistanceFromPointToTriangle(Position,fVertices[Triangle^.Vertices[0]],fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[2]]);
+       if BestDistance>SquaredDistance then begin
+        BestDistance:=SquaredDistance;
+        BestTriangle:=Triangle;
+       end;
       end;
-      TriangleIndex:=Triangle^.Next;
      end;
-     if (Node^.Children[0]>=0) and (Node^.Children[1]>=0) then begin
-      SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[0]].AABB,Position);
-      SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[1]].AABB,Position);
+     if Node^.FirstLeftChild>=0 then begin
+      SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fTreeNodes[Node^.FirstLeftChild].AABB,Position);
+      SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fTreeNodes[Node^.FirstLeftChild+1].AABB,Position);
       if SquaredDistances[0]<SquaredDistances[1] then begin
        if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
         StackItem:=@LocalStack[LocalStackPointer];
         inc(LocalStackPointer);
-        StackItem^.NodeIndex:=Node^.Children[0];
+        StackItem^.NodeIndex:=Node^.FirstLeftChild;
         StackItem^.SquaredDistance:=SquaredDistances[0];
        end;
        if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
         StackItem:=@LocalStack[LocalStackPointer];
         inc(LocalStackPointer);
-        StackItem^.NodeIndex:=Node^.Children[1];
+        StackItem^.NodeIndex:=Node^.FirstLeftChild+1;
         StackItem^.SquaredDistance:=SquaredDistances[1];
        end;
       end else begin
        if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
         StackItem:=@LocalStack[LocalStackPointer];
         inc(LocalStackPointer);
-        StackItem^.NodeIndex:=Node^.Children[1];
+        StackItem^.NodeIndex:=Node^.FirstLeftChild+1;
         StackItem^.SquaredDistance:=SquaredDistances[1];
        end;
        if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
         StackItem:=@LocalStack[LocalStackPointer];
         inc(LocalStackPointer);
-        StackItem^.NodeIndex:=Node^.Children[0];
+        StackItem^.NodeIndex:=Node^.FirstLeftChild;
         StackItem^.SquaredDistance:=SquaredDistances[0];
-       end;
-      end;
-     end else begin
-      if Node^.Children[0]>=0 then begin
-       SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[0]].AABB,Position);
-       if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
-        StackItem:=@LocalStack[LocalStackPointer];
-        inc(LocalStackPointer);
-        StackItem^.NodeIndex:=Node^.Children[0];
-        StackItem^.SquaredDistance:=SquaredDistances[0];
-       end;
-      end;
-      if Node^.Children[1]>=0 then begin
-       SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[1]].AABB,Position);
-       if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
-        StackItem:=@LocalStack[LocalStackPointer];
-        inc(LocalStackPointer);
-        StackItem^.NodeIndex:=Node^.Children[1];
-        StackItem^.SquaredDistance:=SquaredDistances[1];
        end;
       end;
      end;
@@ -22473,61 +22610,49 @@ begin
  end;
 end;
 {$else}
-var TriangleIndex:TKraftInt32;
-    Triangle,BestTriangle:PKraftMeshTriangle;
+var BestTriangle:PKraftMeshTriangle;
     SquaredDistances:array[0..1] of TKraftScalar;
     BestDistance,SquaredThickness,SquaredThicknessEpsilon:TKraftScalar;
  procedure ProcessNode(const NodeIndex:TKraftInt32;SquaredDistance:TKraftScalar);
- var Node:PKraftMeshNode;
+ var TriangleIndex:TKraftInt32;
+     Triangle:PKraftMeshTriangle;
+     Node:PKraftMeshTreeNode;
  begin
   if (NodeIndex>=0) and ((SquaredDistance-SquaredThicknessEpsilon)<BestDistance) then begin
-   Node:=@fNodes[NodeIndex];
-   TriangleIndex:=Node^.TriangleIndex;
-   while TriangleIndex>=0 do begin
-    Triangle:=@fTriangles[TriangleIndex];
-    SquaredDistance:=SquaredDistanceFromPointToTriangle(Position,fVertices[Triangle^.Vertices[0]],fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[2]]);
-    if BestDistance>SquaredDistance then begin
-     BestDistance:=SquaredDistance;
-     BestTriangle:=Triangle;
+   Node:=@fTreeNodes[NodeIndex];
+   if Node^.CountTriangles>0 then begin
+    for TriangleIndex:=Node^.FirstTriangleIndex to Node^.FirstTriangleIndex+(Node^.CountTriangles-1) do begin
+     Triangle:=@fTriangles[TriangleIndex];
+     SquaredDistance:=SquaredDistanceFromPointToTriangle(Position,fVertices[Triangle^.Vertices[0]],fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[2]]);
+     if BestDistance>SquaredDistance then begin
+      BestDistance:=SquaredDistance;
+      BestTriangle:=Triangle;
+     end;
     end;
-    TriangleIndex:=Triangle^.Next;
    end;
-   if (Node^.Children[0]>=0) and (Node^.Children[1]>=0) then begin
-    SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[0]].AABB,Position);
-    SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[1]].AABB,Position);
+   if Node^.FirstLeftChild>=0 then begin
+    SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fTreeNodes[Node^.FirstLeftChild].AABB,Position);
+    SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fTreeNodes[Node^.FirstLeftChild+1].AABB,Position);
     if SquaredDistances[0]<SquaredDistances[1] then begin
      if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
-      ProcessNode(Node^.Children[0],SquaredDistances[0]);
+      ProcessNode(Node^.FirstLeftChild,SquaredDistances[0]);
      end;
      if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
-      ProcessNode(Node^.Children[1],SquaredDistances[1]);
+      ProcessNode(Node^.FirstLeftChild+1,SquaredDistances[1]);
      end;
     end else begin
      if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
-      ProcessNode(Node^.Children[1],SquaredDistances[1]);
+      ProcessNode(Node^.FirstLeftChild+1,SquaredDistances[1]);
      end;
      if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
-      ProcessNode(Node^.Children[0],SquaredDistances[0]);
-     end;
-    end;
-   end else begin
-    if Node^.Children[0]>=0 then begin
-     SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[0]].AABB,Position);
-     if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
-      ProcessNode(Node^.Children[0],SquaredDistances[0]);
-     end;
-    end;
-    if Node^.Children[1]>=0 then begin
-     SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[1]].AABB,Position);
-     if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
-      ProcessNode(Node^.Children[0],SquaredDistances[1]);
+      ProcessNode(Node^.FirstLeftChild,SquaredDistances[0]);
      end;
     end;
    end;
   end;
  end;
 begin
- if fCountNodes>0 then begin
+ if fCountTreeNodes>0 then begin
   BestDistance:=MAX_SCALAR;
   BestTriangle:=nil;
   if fDoubleSided then begin
@@ -22536,7 +22661,7 @@ begin
    SquaredThickness:=0.0;
   end;
   SquaredThicknessEpsilon:=SquaredThickness+sqr(EPSILON);
-  ProcessNode(0,SquaredDistanceFromPointToAABB(fNodes[0].AABB,Position));
+  ProcessNode(fTreeNodeRoot,SquaredDistanceFromPointToAABB(fTreeNodes[fTreeNodeRoot].AABB,Position));
   BestDistance:=sqrt(BestDistance);
   if fDoubleSided then begin
    BestDistance:=BestDistance-(2.0*Physics.fLinearSlop);
@@ -22575,7 +22700,7 @@ var LocalStack:TStackItems;
     SquaredDistances:array[0..1] of TKraftScalar;
     BestDistance,SquaredDistance,SquaredThickness,SquaredThicknessEpsilon:TKraftScalar;
 begin
- if fCountNodes>0 then begin
+ if fCountTreeNodes>0 then begin
   BestDistance:=MAX_SCALAR;
   BestTriangle:=nil;
   if fDoubleSided then begin
@@ -22587,71 +22712,52 @@ begin
   LocalStackPointer:=0;
   StackItem:=@LocalStack[LocalStackPointer];
   inc(LocalStackPointer);
-  StackItem^.NodeIndex:=0;
-  StackItem^.SquaredDistance:=SquaredDistanceFromPointToAABB(fNodes[0].AABB,Position);
+  StackItem^.NodeIndex:=fTreeNodeRoot;
+  StackItem^.SquaredDistance:=SquaredDistanceFromPointToAABB(fTreeNodes[fTreeNodeRoot].AABB,Position);
   while LocalStackPointer>0 do begin
    dec(LocalStackPointer);
    StackItem:=@LocalStack[LocalStackPointer];
    if (StackItem^.SquaredDistance-SquaredThicknessEpsilon)<BestDistance then begin
     if StackItem^.NodeIndex>=0 then begin
-     Node:=@fNodes[StackItem^.NodeIndex];
-     TriangleIndex:=Node^.TriangleIndex;
-     while TriangleIndex>=0 do begin
-      Triangle:=@fTriangles[TriangleIndex];
-      SquaredDistance:=SquaredDistanceFromPointToTriangle(Position,fVertices[Triangle^.Vertices[0]],fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[2]]);
-      if BestDistance>SquaredDistance then begin
-       BestDistance:=SquaredDistance;
-       BestTriangle:=Triangle;
+     Node:=@fTreeNodes[StackItem^.NodeIndex];
+     if Node^.CountTriangles>0 then begin
+      for TriangleIndex:=Node^.FirstTriangleIndex to Node^.FirstTriangleIndex+(Node^.CountTriangles-1) do begin
+       Triangle:=@fTriangles[TriangleIndex];
+       SquaredDistance:=SquaredDistanceFromPointToTriangle(Position,fVertices[Triangle^.Vertices[0]],fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[2]]);
+       if BestDistance>SquaredDistance then begin
+        BestDistance:=SquaredDistance;
+        BestTriangle:=Triangle;
+       end;
       end;
-      TriangleIndex:=Triangle^.Next;
      end;
-     if (Node^.Children[0]>=0) and (Node^.Children[1]>=0) then begin
-      SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[0]].AABB,Position);
-      SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[1]].AABB,Position);
+     if Node^.FirstLeftChild>=0 then begin
+      SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fTreeNodes[Node^.FirstLeftChild].AABB,Position);
+      SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fTreeNodes[Node^.FirstLeftChild+1].AABB,Position);
       if SquaredDistances[0]<SquaredDistances[1] then begin
        if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
         StackItem:=@LocalStack[LocalStackPointer];
         inc(LocalStackPointer);
-        StackItem^.NodeIndex:=Node^.Children[0];
+        StackItem^.NodeIndex:=Node^.FirstLeftChild;
         StackItem^.SquaredDistance:=SquaredDistances[0];
        end;
        if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
         StackItem:=@LocalStack[LocalStackPointer];
         inc(LocalStackPointer);
-        StackItem^.NodeIndex:=Node^.Children[1];
+        StackItem^.NodeIndex:=Node^.FirstLeftChild+1;
         StackItem^.SquaredDistance:=SquaredDistances[1];
        end;
       end else begin
        if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
         StackItem:=@LocalStack[LocalStackPointer];
         inc(LocalStackPointer);
-        StackItem^.NodeIndex:=Node^.Children[1];
+        StackItem^.NodeIndex:=Node^.FirstLeftChild+1;
         StackItem^.SquaredDistance:=SquaredDistances[1];
        end;
        if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
         StackItem:=@LocalStack[LocalStackPointer];
         inc(LocalStackPointer);
-        StackItem^.NodeIndex:=Node^.Children[0];
+        StackItem^.NodeIndex:=Node^.FirstLeftChild;
         StackItem^.SquaredDistance:=SquaredDistances[0];
-       end;
-      end;
-     end else begin
-      if Node^.Children[0]>=0 then begin
-       SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[0]].AABB,Position);
-       if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
-        StackItem:=@LocalStack[LocalStackPointer];
-        inc(LocalStackPointer);
-        StackItem^.NodeIndex:=Node^.Children[0];
-        StackItem^.SquaredDistance:=SquaredDistances[0];
-       end;
-      end;
-      if Node^.Children[1]>=0 then begin
-       SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[1]].AABB,Position);
-       if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
-        StackItem:=@LocalStack[LocalStackPointer];
-        inc(LocalStackPointer);
-        StackItem^.NodeIndex:=Node^.Children[1];
-        StackItem^.SquaredDistance:=SquaredDistances[1];
        end;
       end;
      end;
@@ -22666,61 +22772,49 @@ begin
  end;
 end;
 {$else}
-var TriangleIndex:TKraftInt32;
-    Triangle,BestTriangle:PKraftMeshTriangle;
+var BestTriangle:PKraftMeshTriangle;
     SquaredDistances:array[0..1] of TKraftScalar;
     BestDistance,SquaredThickness,SquaredThicknessEpsilon:TKraftScalar;
  procedure ProcessNode(const NodeIndex:TKraftInt32;SquaredDistance:TKraftScalar);
- var Node:PKraftMeshNode;
+ var TriangleIndex:TKraftInt32;
+     Triangle:PKraftMeshTriangle;
+     Node:PKraftMeshTreeNode;
  begin
   if (NodeIndex>=0) and ((SquaredDistance-SquaredThicknessEpsilon)<BestDistance) then begin
-   Node:=@fNodes[NodeIndex];
-   TriangleIndex:=Node^.TriangleIndex;
-   while TriangleIndex>=0 do begin
-    Triangle:=@fTriangles[TriangleIndex];
-    SquaredDistance:=SquaredDistanceFromPointToTriangle(Position,fVertices[Triangle^.Vertices[0]],fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[2]]);
-    if BestDistance>SquaredDistance then begin
-     BestDistance:=SquaredDistance;
-     BestTriangle:=Triangle;
+   Node:=@fTreeNodes[NodeIndex];
+   if Node^.CountTriangles>0 then begin
+    for TriangleIndex:=Node^.FirstTriangleIndex to Node^.FirstTriangleIndex+(Node^.CountTriangles-1) do begin
+     Triangle:=@fTriangles[TriangleIndex];
+     SquaredDistance:=SquaredDistanceFromPointToTriangle(Position,fVertices[Triangle^.Vertices[0]],fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[2]]);
+     if BestDistance>SquaredDistance then begin
+      BestDistance:=SquaredDistance;
+      BestTriangle:=Triangle;
+     end;
     end;
-    TriangleIndex:=Triangle^.Next;
    end;
-   if (Node^.Children[0]>=0) and (Node^.Children[1]>=0) then begin
-    SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[0]].AABB,Position);
-    SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[1]].AABB,Position);
+   if Node^.FirstLeftChild>=0 then begin
+    SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fTreeNodes[Node^.FirstLeftChild].AABB,Position);
+    SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fTreeNodes[Node^.FirstLeftChild+1].AABB,Position);
     if SquaredDistances[0]<SquaredDistances[1] then begin
      if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
-      ProcessNode(Node^.Children[0],SquaredDistances[0]);
+      ProcessNode(Node^.FirstLeftChild,SquaredDistances[0]);
      end;
      if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
-      ProcessNode(Node^.Children[1],SquaredDistances[1]);
+      ProcessNode(Node^.FirstLeftChild+1,SquaredDistances[1]);
      end;
     end else begin
      if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
-      ProcessNode(Node^.Children[1],SquaredDistances[1]);
+      ProcessNode(Node^.FirstLeftChild+1,SquaredDistances[1]);
      end;
      if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
-      ProcessNode(Node^.Children[0],SquaredDistances[0]);
-     end;
-    end;
-   end else begin
-    if Node^.Children[0]>=0 then begin
-     SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[0]].AABB,Position);
-     if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
-      ProcessNode(Node^.Children[0],SquaredDistances[0]);
-     end;
-    end;
-    if Node^.Children[1]>=0 then begin
-     SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fNodes[Node^.Children[1]].AABB,Position);
-     if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
-      ProcessNode(Node^.Children[0],SquaredDistances[1]);
+      ProcessNode(Node^.FirstLeftChild,SquaredDistances[0]);
      end;
     end;
    end;
   end;
  end;
 begin
- if fCountNodes>0 then begin
+ if fCountTreeNodes>0 then begin
   BestDistance:=MAX_SCALAR;
   BestTriangle:=nil;
   if fDoubleSided then begin
@@ -22729,7 +22823,7 @@ begin
    SquaredThickness:=0.0;
   end;
   SquaredThicknessEpsilon:=SquaredThickness+sqr(EPSILON);
-  ProcessNode(0,SquaredDistanceFromPointToAABB(fNodes[0].AABB,Position));
+  ProcessNode(fTreeNodeRoot,SquaredDistanceFromPointToAABB(fTreeNodes[fTreeNodeRoot].AABB,Position));
   BestDistance:=sqrt(BestDistance);
   if fDoubleSided then begin
    BestDistance:=BestDistance-(2.0*Physics.fLinearSlop);
@@ -25779,42 +25873,42 @@ begin
    while SkipListNodeIndex<fMesh.fCountSkipListNodes do begin
     SkipListNode:=@fMesh.fSkipListNodes[SkipListNodeIndex];
     if AABBRayIntersectOpt(SkipListNode^.AABB,Origin,InvDirection) then begin
-     TriangleIndex:=SkipListNode^.TriangleIndex;
-     while TriangleIndex>=0 do begin
-      Triangle:=@fMesh.fTriangles[TriangleIndex];
-      for SidePass:=false to fMesh.fDoubleSided do begin
-       if RayIntersectTriangle(Origin,
-                               Direction,
-                               fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],
-                               fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],
-                               fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],
-                               Time,
-                               u,
-                               v,
-                               w) then begin
-        p:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time));
-        if ((Time>=0.0) and (Time<=RayCastData.MaxTime)) and (First or (Time<Nearest)) then begin
-         First:=false;
-         Nearest:=Time;
-         if fSmoothNormalsAtCasting then begin
-          Normal:=Vector3Norm(Vector3Add(Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],u),
-                              Vector3Add(Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],v),
-                                         Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],w))));
-         end else begin
-          Normal:=Triangle^.Plane.Normal;
+     if SkipListNode^.CountTriangles>0 then begin
+      for TriangleIndex:=SkipListNode^.FirstTriangleIndex to SkipListNode^.FirstTriangleIndex+(SkipListNode^.CountTriangles-1) do begin
+       Triangle:=@fMesh.fTriangles[TriangleIndex];
+       for SidePass:=false to fMesh.fDoubleSided do begin
+        if RayIntersectTriangle(Origin,
+                                Direction,
+                                fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],
+                                fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],
+                                fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],
+                                Time,
+                                u,
+                                v,
+                                w) then begin
+         p:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time));
+         if ((Time>=0.0) and (Time<=RayCastData.MaxTime)) and (First or (Time<Nearest)) then begin
+          First:=false;
+          Nearest:=Time;
+          if fSmoothNormalsAtCasting then begin
+           Normal:=Vector3Norm(Vector3Add(Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],u),
+                               Vector3Add(Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],v),
+                                          Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],w))));
+          end else begin
+           Normal:=Triangle^.Plane.Normal;
+          end;
+          RayCastData.TimeOfImpact:=Time;
+          RayCastData.Point:=p;
+          if SidePass then begin
+           RayCastData.Normal:=Vector3Neg(Normal);
+          end else begin
+           RayCastData.Normal:=Normal;
+          end;
+          result:=true;
          end;
-         RayCastData.TimeOfImpact:=Time;
-         RayCastData.Point:=p;
-         if SidePass then begin
-          RayCastData.Normal:=Vector3Neg(Normal);
-         end else begin
-          RayCastData.Normal:=Normal;
-         end;
-         result:=true;
         end;
        end;
       end;
-      TriangleIndex:=Triangle^.Next;
      end;
      inc(SkipListNodeIndex);
     end else begin
@@ -25850,43 +25944,43 @@ begin
    while SkipListNodeIndex<fMesh.fCountSkipListNodes do begin
     SkipListNode:=@fMesh.fSkipListNodes[SkipListNodeIndex];
     if SphereCastAABBOpt(Origin,Radius,InvDirection,SkipListNode^.AABB) then begin
-     TriangleIndex:=SkipListNode^.TriangleIndex;
-     while TriangleIndex>=0 do begin
-      Triangle:=@fMesh.fTriangles[TriangleIndex];
-      for SidePass:=false to fMesh.fDoubleSided do begin
-       if SphereCastTriangle(Origin,
-                             Radius,
-                             Direction,
-                             fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],
-                             fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],
-                             fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],
-                             Time,
-                             u,
-                             v,
-                             w) then begin
-        p:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time));
-        if ((Time>=0.0) and (Time<=SphereCastData.MaxTime)) and (First or (Time<Nearest)) then begin
-         First:=false;
-         Nearest:=Time;
-         if fSmoothNormalsAtCasting then begin
-          Normal:=Vector3Norm(Vector3Add(Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],u),
-                              Vector3Add(Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],v),
-                                         Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],w))));
-         end else begin
-          Normal:=Triangle^.Plane.Normal;
+     if SkipListNode^.CountTriangles>0 then begin
+      for TriangleIndex:=SkipListNode^.FirstTriangleIndex to SkipListNode^.FirstTriangleIndex+(SkipListNode^.CountTriangles-1) do begin
+       Triangle:=@fMesh.fTriangles[TriangleIndex];
+       for SidePass:=false to fMesh.fDoubleSided do begin
+        if SphereCastTriangle(Origin,
+                              Radius,
+                              Direction,
+                              fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],
+                              fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],
+                              fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],
+                              Time,
+                              u,
+                              v,
+                              w) then begin
+         p:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time));
+         if ((Time>=0.0) and (Time<=SphereCastData.MaxTime)) and (First or (Time<Nearest)) then begin
+          First:=false;
+          Nearest:=Time;
+          if fSmoothNormalsAtCasting then begin
+           Normal:=Vector3Norm(Vector3Add(Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],u),
+                               Vector3Add(Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],v),
+                                          Vector3ScalarMul(fMesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],w))));
+          end else begin
+           Normal:=Triangle^.Plane.Normal;
+          end;
+          SphereCastData.TimeOfImpact:=Time;
+          SphereCastData.Point:=p;
+          if SidePass then begin
+           SphereCastData.Normal:=Vector3Neg(Normal);
+          end else begin
+           SphereCastData.Normal:=Normal;
+          end;
+          result:=true;
          end;
-         SphereCastData.TimeOfImpact:=Time;
-         SphereCastData.Point:=p;
-         if SidePass then begin
-          SphereCastData.Normal:=Vector3Neg(Normal);
-         end else begin
-          SphereCastData.Normal:=Normal;
-         end;
-         result:=true;
         end;
        end;
       end;
-      TriangleIndex:=Triangle^.Next;
      end;
      inc(SkipListNodeIndex);
     end else begin
@@ -28850,13 +28944,13 @@ begin
  while SkipListNodeIndex<TKraftShapeMesh(fShapeMesh).fMesh.fCountSkipListNodes do begin
   SkipListNode:=@TKraftShapeMesh(fShapeMesh).fMesh.fSkipListNodes[SkipListNodeIndex];
   if AABBIntersect(SkipListNode^.AABB,fConvexAABBInMeshLocalSpace) then begin
-   TriangleIndex:=SkipListNode^.TriangleIndex;
-   while TriangleIndex>=0 do begin
-    Triangle:=@TKraftShapeMesh(fShapeMesh).fMesh.fTriangles[TriangleIndex];
-    if AABBIntersect(Triangle^.AABB,fConvexAABBInMeshLocalSpace) and not fContactManager.HasDuplicateContact(fRigidBodyConvex,fRigidBodyMesh,fShapeConvex,fShapeMesh,TriangleIndex) then begin
-     fContactManager.AddConvexContact(fRigidBodyConvex,fRigidBodyMesh,fShapeConvex,fShapeMesh,TriangleIndex,self);
+   if SkipListNode^.CountTriangles>0 then begin
+    for TriangleIndex:=SkipListNode^.FirstTriangleIndex to SkipListNode^.FirstTriangleIndex+(SkipListNode^.CountTriangles-1) do begin
+     Triangle:=@TKraftShapeMesh(fShapeMesh).fMesh.fTriangles[TriangleIndex];
+     if AABBIntersect(Triangle^.AABB,fConvexAABBInMeshLocalSpace) and not fContactManager.HasDuplicateContact(fRigidBodyConvex,fRigidBodyMesh,fShapeConvex,fShapeMesh,TriangleIndex) then begin
+      fContactManager.AddConvexContact(fRigidBodyConvex,fRigidBodyMesh,fShapeConvex,fShapeMesh,TriangleIndex,self);
+     end;
     end;
-    TriangleIndex:=Triangle^.Next;
    end;
    inc(SkipListNodeIndex);
   end else begin
@@ -39196,52 +39290,52 @@ var Hit:boolean;
   while SkipListNodeIndex<Shape.fMesh.fCountSkipListNodes do begin
    SkipListNode:=@Shape.fMesh.fSkipListNodes[SkipListNodeIndex];
    if AABBIntersect(SkipListNode^.AABB,AABB) then begin
-    TriangleIndex:=SkipListNode^.TriangleIndex;
-    while TriangleIndex>=0 do begin
-     Triangle:=@Shape.fMesh.fTriangles[TriangleIndex];
-     Vertices[0]:=@Shape.fMesh.fVertices[Triangle^.Vertices[0]];
-     Vertices[1]:=@Shape.fMesh.fVertices[Triangle^.Vertices[1]];
-     Vertices[2]:=@Shape.fMesh.fVertices[Triangle^.Vertices[2]];
-     Normal:=Vector3SafeNorm(Vector3Cross(Vector3Sub(Vertices[1]^,Vertices[0]^),Vector3Sub(Vertices[2]^,Vertices[0]^)));
-     P0ToCenter:=Vector3Sub(SphereCenter,Vertices[0]^);
-     DistanceFromPlane:=Vector3Dot(P0ToCenter,Normal);
-     if DistanceFromPlane<0.0 then begin
-      DistanceFromPlane:=-DistanceFromPlane;
-      Normal:=Vector3Neg(Normal);
-     end;
-     IsInsideContactPlane:=DistanceFromPlane<RadiusWithThreshold;
-     HasContact:=false;
-     ContactPoint:=Vector3Origin;
-     ContactRadiusSqr:=sqr(RadiusWithThreshold);
-     if IsInsideContactPlane then begin
-      if PointInTriangle(Vertices[0]^,Vertices[1]^,Vertices[2]^,Normal,SphereCenter) then begin
-       HasContact:=true;
-       ContactPoint:=Vector3Sub(SphereCenter,Vector3ScalarMul(Normal,DistanceFromPlane));
-      end else begin
-       for i:=0 to 2 do begin
-        DistanceSqr:=SegmentSqrDistance(Vertices[i]^,Vertices[ModuloThree[i+1]]^,SphereCenter,@NearestOnEdge);
-        if DistanceSqr<ContactRadiusSqr then begin
-         HasContact:=true;
-         ContactPoint:=NearestOnEdge;
+    if SkipListNode^.CountTriangles>0 then begin
+     for TriangleIndex:=SkipListNode^.FirstTriangleIndex to SkipListNode^.FirstTriangleIndex+(SkipListNode^.CountTriangles-1) do begin
+      Triangle:=@Shape.fMesh.fTriangles[TriangleIndex];
+      Vertices[0]:=@Shape.fMesh.fVertices[Triangle^.Vertices[0]];
+      Vertices[1]:=@Shape.fMesh.fVertices[Triangle^.Vertices[1]];
+      Vertices[2]:=@Shape.fMesh.fVertices[Triangle^.Vertices[2]];
+      Normal:=Vector3SafeNorm(Vector3Cross(Vector3Sub(Vertices[1]^,Vertices[0]^),Vector3Sub(Vertices[2]^,Vertices[0]^)));
+      P0ToCenter:=Vector3Sub(SphereCenter,Vertices[0]^);
+      DistanceFromPlane:=Vector3Dot(P0ToCenter,Normal);
+      if DistanceFromPlane<0.0 then begin
+       DistanceFromPlane:=-DistanceFromPlane;
+       Normal:=Vector3Neg(Normal);
+      end;
+      IsInsideContactPlane:=DistanceFromPlane<RadiusWithThreshold;
+      HasContact:=false;
+      ContactPoint:=Vector3Origin;
+      ContactRadiusSqr:=sqr(RadiusWithThreshold);
+      if IsInsideContactPlane then begin
+       if PointInTriangle(Vertices[0]^,Vertices[1]^,Vertices[2]^,Normal,SphereCenter) then begin
+        HasContact:=true;
+        ContactPoint:=Vector3Sub(SphereCenter,Vector3ScalarMul(Normal,DistanceFromPlane));
+       end else begin
+        for i:=0 to 2 do begin
+         DistanceSqr:=SegmentSqrDistance(Vertices[i]^,Vertices[ModuloThree[i+1]]^,SphereCenter,@NearestOnEdge);
+         if DistanceSqr<ContactRadiusSqr then begin
+          HasContact:=true;
+          ContactPoint:=NearestOnEdge;
+         end;
         end;
        end;
       end;
-     end;
-     if HasContact then begin
-      ContactToCenter:=Vector3Sub(SphereCenter,ContactPoint);
-      DistanceSqr:=Vector3LengthSquared(ContactToCenter);
-      if DistanceSqr<ContactRadiusSqr then begin
-       if DistanceSqr>EPSILON then begin
-        SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Vector3SafeNorm(Vector3TermMatrixMulBasis(ContactToCenter,Shape.fWorldTransform)),Radius-sqrt(DistanceSqr)));
-       end else begin
-        SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Vector3SafeNorm(Vector3TermMatrixMulBasis(Normal,Shape.fWorldTransform)),Radius));
+      if HasContact then begin
+       ContactToCenter:=Vector3Sub(SphereCenter,ContactPoint);
+       DistanceSqr:=Vector3LengthSquared(ContactToCenter);
+       if DistanceSqr<ContactRadiusSqr then begin
+        if DistanceSqr>EPSILON then begin
+         SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Vector3SafeNorm(Vector3TermMatrixMulBasis(ContactToCenter,Shape.fWorldTransform)),Radius-sqrt(DistanceSqr)));
+        end else begin
+         SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Vector3SafeNorm(Vector3TermMatrixMulBasis(Normal,Shape.fWorldTransform)),Radius));
+        end;
+        inc(Count);
+        Hit:=true;
+        WasHit:=true;
        end;
-       inc(Count);
-       Hit:=true;
-       WasHit:=true;
       end;
      end;
-     TriangleIndex:=Triangle^.Next;
     end;
     inc(SkipListNodeIndex);
    end else begin
