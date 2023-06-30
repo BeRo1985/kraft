@@ -21617,6 +21617,10 @@ begin
       BIN^.Bounds.Max.y:=Max(BIN^.Bounds.Max.y,Max(Max(Vertices[Triangle^.Vertices[0]].y,Vertices[Triangle^.Vertices[1]].y),Vertices[Triangle^.Vertices[2]].y));
       BIN^.Bounds.Max.z:=Max(BIN^.Bounds.Max.z,Max(Max(Vertices[Triangle^.Vertices[0]].z,Vertices[Triangle^.Vertices[1]].z),Vertices[Triangle^.Vertices[2]].z));
      end;
+{$ifdef SIMD}
+     BIN^.Bounds.Min.w:=0.0;
+     BIN^.Bounds.Max.w:=0.0;
+{$endif}
      inc(BIN^.Count);
     end;
 
@@ -21693,9 +21697,15 @@ begin
   aParentTreeNode.AABB.Min.x:=aParentTreeNode.AABB.Min.x-EPSILON;
   aParentTreeNode.AABB.Min.y:=aParentTreeNode.AABB.Min.y-EPSILON;
   aParentTreeNode.AABB.Min.z:=aParentTreeNode.AABB.Min.z-EPSILON;
+{$ifdef SIMD}
+  aParentTreeNode.AABB.Min.w:=0;
+{$endif}
   aParentTreeNode.AABB.Max.x:=aParentTreeNode.AABB.Max.x+EPSILON;
   aParentTreeNode.AABB.Max.y:=aParentTreeNode.AABB.Max.y+EPSILON;
   aParentTreeNode.AABB.Max.z:=aParentTreeNode.AABB.Max.z+EPSILON;
+{$ifdef SIMD}
+  aParentTreeNode.AABB.Max.w:=0;
+{$endif}
  end;
 end;
 
