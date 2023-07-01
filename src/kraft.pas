@@ -2504,6 +2504,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        function GetWorldLinearVelocityFromPoint(const APoint:TKraftVector3):TKraftVector3;
        function GetBodyLinearVelocityFromPoint(const APoint:TKraftVector3):TKraftVector3;
 
+       function ComputeImpulseDenominator(const aPosition,aNormal:TKraftVector3):TKraftScalar;
+
+       function ComputeAngularImpulseDenominator(const aAxis:TKraftVector3):TKraftScalar;
+
        property Physics:TKraft read fPhysics;
 
        property Island:TKraftIsland read fIsland;
@@ -31465,6 +31469,23 @@ begin
  WorldPoint:=Vector3Add(Vector3TermQuaternionRotate(aPoint,fSweep.q),Vector3Sub(Sweep.c,Vector3TermQuaternionRotate(Sweep.LocalCenter,Sweep.q)));
  result:=Vector3TermQuaternionRotate(Vector3Add(fLinearVelocity,Vector3Cross(fAngularVelocity,Vector3Sub(WorldPoint,fSweep.c))),QuaternionInverse(fSweep.q));
 end;}
+
+function TKraftRigidBody.ComputeImpulseDenominator(const aPosition,aNormal:TKraftVector3):TKraftScalar;
+var RelativePositionToCenterMassPosition:TKraftVector3;
+begin
+ RelativePositionToCenterMassPosition:=Vector3Sub(aPosition,fSweep.c);
+ result:=fInverseMass+
+         Vector3Dot(aNormal,
+                    Vector3Cross(Vector3TermMatrixMul(Vector3Cross(RelativePositionToCenterMassPosition,
+                                                                   aNormal),
+                                                      fWorldInverseInertiaTensor),
+                                 RelativePositionToCenterMassPosition));
+end;
+
+function TKraftRigidBody.ComputeAngularImpulseDenominator(const aAxis:TKraftVector3):TKraftScalar;
+begin
+ result:=Vector3Dot(aAxis,Vector3TermMatrixMul(aAxis,fWorldInverseInertiaTensor));
+end;
 
 constructor TKraftConstraint.Create(const APhysics:TKraft);
 var RigidBodyIndex:TKraftInt32;
