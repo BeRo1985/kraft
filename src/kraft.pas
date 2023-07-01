@@ -8454,7 +8454,11 @@ asm
 {$endif}
  subps xmm5,xmm6
  shufps xmm5,xmm5,$4e
+{$ifdef cpu386}
  movaps xmm6,[esp+128]
+{$else}
+ movaps xmm6,[rsp+128]
+{$endif}
  mulps xmm6,xmm7
  subps xmm6,xmm5
 {$ifdef cpu386}
@@ -8763,7 +8767,11 @@ asm
 {$endif}
  subps xmm5,xmm6
  shufps xmm5,xmm5,$4e
+{$ifdef cpu386}
  movaps xmm6,[esp+128]
+{$else}
+ movaps xmm6,[rsp+128]
+{$endif}
  mulps xmm6,xmm7
  subps xmm6,xmm5
 {$ifdef cpu386}
