@@ -1360,7 +1360,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fDoubleSided:boolean;
 
        fNodeQueue:TKraftMeshNodeQueue;
-       fCountActiveWorkers:TPasMPInt32;
+       fCountActiveWorkers:TKraftInt32;
 
        function FindBestSplitPlane(const aParentTreeNode:PKraftMeshTreeNode;out aAxis:TKraftInt32;out aSplitPosition:TKraftScalar):TKraftScalar;
        function CalculateNodeCost(const aParentTreeNode:PKraftMeshTreeNode):TKraftScalar;
@@ -21726,7 +21726,9 @@ begin
   while fNodeQueue.Dequeue(ParentTreeNodeIndex) do begin
 
    if not Added then begin
+{$ifdef KraftPasMP}
     TPasMPInterlocked.Increment(fCountActiveWorkers);
+{$endif}
     Added:=true;
    end;
 
@@ -21753,7 +21755,12 @@ begin
 
      if (LeftCount<>0) and (LeftCount<>ParentTreeNode^.CountTriangles) then begin
 
+{$ifdef KraftPasMP}
       LeftChildIndex:=TPasMPInterlocked.Add(fCountTreeNodes,2);
+{$else}
+      LeftChildIndex:=fCountTreeNodes;
+      inc(fCountTreeNodes,2);
+{$endif}
       RightChildIndex:=LeftChildIndex+1;
 
       ParentTreeNode^.FirstLeftChild:=LeftChildIndex;
