@@ -130,7 +130,7 @@
         <PackageName Value="LCL"/>
       </Item3>
     </RequiredPackages>
-    <Units Count="24">
+    <Units Count="25">
       <Unit0>
         <Filename Value="kraftsandbox.lpr"/>
         <IsPartOfProject Value="True"/>
@@ -230,6 +230,10 @@
         <Filename Value="UnitDemoSceneSphereOnSDFTerrain.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit23>
+      <Unit24>
+        <Filename Value="..\src\KraftVehicle.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit24>
     </Units>
   </ProjectOptions>
   <CompilerOptions>
@@ -252,7 +256,8 @@
     <Other>
       <CustomOptions Value="-ddebugdraw
 -dPasMP
--dKraftPasMP"/>
+-dKraftPasMP
+-dKraftPasJSON"/>
     </Other>
   </CompilerOptions>
   <Debugging>

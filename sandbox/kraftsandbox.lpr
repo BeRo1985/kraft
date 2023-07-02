@@ -13,10 +13,17 @@ uses
   SysUtils,
   Forms, Interfaces,
   UnitFormMain in 'UnitFormMain.pas' {FormMain},
-  kraft in '..\src\kraft.pas',
 {$ifdef KraftPasMP}
   PasMP in '..\..\pasmp\src\PasMP.pas',
 {$endif}
+{$ifdef KraftPasJSON}
+  PUCU in '..\..\pucu\src\PUCU.pas',
+  PasDblStrUtils in '..\..\pasdblstrutils\src\PasDblStrUtils.pas',
+  PasJSON in '..\..\pasjson\src\PasJSON.pas',
+{$endif}
+  kraft in '..\src\kraft.pas',
+  KraftArcadeCarPhysics in '..\src\KraftArcadeCarPhysics.pas',
+  KraftVehicle in '..\src\KraftVehicle.pas',
   UnitDemoScene in 'UnitDemoScene.pas',
   UnitDemoSceneCatapult in 'UnitDemoSceneCatapult.pas',
   UnitDemoSceneRoundabout in 'UnitDemoSceneRoundabout.pas',
