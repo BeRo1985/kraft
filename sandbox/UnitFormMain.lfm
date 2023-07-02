@@ -4,8 +4,8 @@ object FormMain: TFormMain
   Top = -8
   Width = 1009
   Caption = 'Kraft physics engine sandbox - Copyright (C) 2015-2023, Benjamin ''BeRo'' Rosseaux'
-  ClientHeight = 726
-  ClientWidth = 1009
+  ClientHeight = 210
+  ClientWidth = 320
   Color = clBtnFace
   Font.Color = clWindowText
   Font.Height = -11
@@ -16,6 +16,7 @@ object FormMain: TFormMain
   OnDestroy = FormDestroy
   OnShow = FormShow
   Position = poScreenCenter
+  LCLVersion = '2.3.0.0'
   WindowState = wsMaximized
   object sSplitter1: TSplitter
     Left = 305
@@ -72,8 +73,8 @@ object FormMain: TFormMain
         Width = 305
         Align = alClient
         Caption = 'Tree'
-        ClientHeight = 269
-        ClientWidth = 301
+        ClientHeight = 285
+        ClientWidth = 293
         ParentBackground = False
         TabOrder = 0
         object sTreeViewMain: TTreeView
@@ -139,8 +140,8 @@ object FormMain: TFormMain
       Width = 185
       Align = alClient
       Caption = 'Demos'
-      ClientHeight = 698
-      ClientWidth = 181
+      ClientHeight = 714
+      ClientWidth = 173
       ParentBackground = False
       TabOrder = 0
       object sTreeViewDemos: TTreeView

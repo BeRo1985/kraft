@@ -35,7 +35,7 @@ uses
   UnitDemoSceneChairAndTable in 'UnitDemoSceneChairAndTable.pas',
   UnitDemoSceneConvexHull in 'UnitDemoSceneConvexHull.pas',
   UnitDemoSceneConstraintVehicle in 'UnitDemoSceneConstraintVehicle.pas',
-  UnitDemoSceneRaycastVehicle in 'UnitDemoSceneRaycastVehicle.pas';
+  UnitDemoSceneRaycastArcadeVehicle in 'UnitDemoSceneRaycastArcadeVehicle.pas';
 
 {$R *.res}
 
