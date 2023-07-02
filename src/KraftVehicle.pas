@@ -281,11 +281,25 @@ type { TKraftVehicle }
               property RayCastHitDistance:TKraftScalar read fRayCastHitDistance write fRayCastHitDistance;
               property WorldTransform:TKraftMatrix4x4 read fWorldTransform write fWorldTransform;
             end;
+            TWheels=array of TWheel;
       private
        fPhysics:TKraft;
+       fChassisBody:TKraftRigidBody;
+       fSliding:boolean;       
+       fWheels:TWheels;
+       fCountWheels:TKraftInt32;
+       function GetWheel(const aIndex:TKraftInt32):TWheel;
       public
        constructor Create(const aPhysics:TKraft); reintroduce;
        destructor Destroy; override;
+       procedure Clear;
+       function AddWheel(const aWheel:TWheel=nil):TKraftInt32;
+      published
+       property Physics:TKraft read fPhysics write fPhysics;
+       property ChassisBody:TKraftRigidBody read fChassisBody write fChassisBody; 
+       property Sliding:boolean read fSliding write fSliding;
+       property Wheels[const aIndex:TKraftInt32]:TWheel read GetWheel;
+       property CountWheels:TKraftInt32 read fCountWheels;
      end;
 
 implementation
@@ -441,11 +455,48 @@ begin
 
  fPhysics:=aPhysics;
 
+ fChassisBody:=nil;
+
+ fSliding:=false;
+
+ fWheels:=nil;
+ fCountWheels:=0;
+
 end;
 
 destructor TKraftVehicle.Destroy;
 begin
+ Clear;
  inherited Destroy;
+end;
+
+procedure TKraftVehicle.Clear;
+begin
+ fWheels:=nil;
+ fCountWheels:=0;
+end;
+
+function TKraftVehicle.AddWheel(const aWheel:TWheel):TKraftInt32;
+begin
+ result:=fCountWheels;
+ inc(fCountWheels);
+ if length(fWheels)<fCountWheels then begin
+  SetLength(fWheels,fCountWheels+(fCountWheels shr 1)); 
+ end;
+ if assigned(aWheel) then begin
+  fWheels[result]:=aWheel;
+ end else begin
+  fWheels[result]:=TWheel.Create(self);
+ end;
+end; 
+
+function TKraftVehicle.GetWheel(const aIndex:TKraftInt32):TWheel;
+begin
+ if (aIndex>=0) and (aIndex<fCountWheels) then begin
+  result:=fWheels[aIndex];
+ end else begin
+  result:=nil;
+ end;
 end;
 
 end.
