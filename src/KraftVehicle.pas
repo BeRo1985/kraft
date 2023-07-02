@@ -323,6 +323,9 @@ type { TKraftVehicle }
        procedure Clear;
        function AddWheel(const aWheel:TWheel=nil):TKraftInt32;
        procedure UpdateWorldTransformVectors;
+       procedure UpdateSuspension(const aTimeStep:TKraftScalar);
+       procedure UpdateFriction(const aTimeStep:TKraftScalar);
+       procedure Update(const aTimeStep:TKraftScalar);
       public
        property WorldTransform:TKraftMatrix4x4 read fWorldTransform;
        property WorldLeft:TKraftVector3 read fWorldLeft;
@@ -714,6 +717,74 @@ begin
    result:=Vector3Origin;
   end;
  end;  
+end;
+
+procedure TKraftVehicle.UpdateSuspension(const aTimeStep:TKraftScalar);
+begin
+end;
+
+procedure TKraftVehicle.UpdateFriction(const aTimeStep:TKraftScalar);
+begin
+  
+end;
+
+procedure TKraftVehicle.Update(const aTimeStep:TKraftScalar);
+var WheelIndex:TKraftInt32;
+    Wheel:TKraftVehicle.TWheel;
+    SuspensionForce,Projection:TKraftScalar;
+    Impulse,RelativePosition,Velocity,Forwards:TKraftVector3;
+begin
+
+ UpdateWorldTransformVectors;
+
+ for WheelIndex:=0 to fCountWheels-1 do begin
+  Wheel:=fWheels[WheelIndex];
+  Wheel.UpdateWheelTransform;
+ end;
+
+ fCurrentVehicleSpeedKMHour:=Vector3Length(fRigidBody.LinearVelocity)*3.6;
+//fCurrentVehicleSpeedKMHour:=Vector3Dot(fWorldForward,fRigidBody.GetWorldLinearVelocityFromPoint(fWorldPosition))*3.6;
+
+ if Vector3Dot(fWorldForward,fRigidBody.LinearVelocity)<0.0 then begin
+  fCurrentVehicleSpeedKMHour:=-fCurrentVehicleSpeedKMHour;
+ end;
+
+ // Simulate suspension
+ for WheelIndex:=0 to fCountWheels-1 do begin
+  Wheel:=fWheels[WheelIndex];
+  Wheel.RayCast;
+ end;
+
+ UpdateSuspension(aTimeStep);
+
+ for WheelIndex:=0 to fCountWheels-1 do begin
+  Wheel:=fWheels[WheelIndex];
+  SuspensionForce:=Wheel.fSuspensionForce;
+  if SuspensionForce>Wheel.fMaxSuspensionForce then begin
+   SuspensionForce:=Wheel.fMaxSuspensionForce;
+  end;
+  Impulse:=Vector3ScalarMul(Wheel.fContactNormalWS,SuspensionForce*aTimeStep);
+  RelativePosition:=Vector3Sub(Wheel.fContactPointWS,fWorldPosition);
+  fRigidBody.ApplyImpulseAtRelativePosition(Impulse,RelativePosition);
+ end;
+
+ UpdateFriction(aTimeStep);
+
+ for WheelIndex:=0 to fCountWheels-1 do begin
+  Wheel:=fWheels[WheelIndex];
+  Velocity:=fRigidBody.GetWorldLinearVelocityFromPoint(Wheel.fHardPointWS);
+  if Wheel.fIsInContact then begin
+   Projection:=Vector3Dot(Wheel.fContactNormalWS,fWorldForward);
+   Forwards:=Vector3Sub(fWorldForward,Vector3ScalarMul(Wheel.fContactNormalWS,Projection));
+   Projection:=Vector3Dot(Forwards,Velocity);
+   Wheel.fDeltaRotation:=(Projection*aTimeStep)/Wheel.fRadius;
+   Wheel.fRotation:=Wheel.fRotation+Wheel.fDeltaRotation;
+  end else begin    
+   Wheel.fRotation:=Wheel.fRotation+Wheel.fDeltaRotation;
+  end;
+  Wheel.fDeltaRotation:=Wheel.fDeltaRotation*0.99;
+ end;
+  
 end;
 
 end.
