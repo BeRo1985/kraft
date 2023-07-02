@@ -720,10 +720,61 @@ begin
 end;
 
 procedure TKraftVehicle.UpdateSuspension(const aTimeStep:TKraftScalar);
+var WheelIndex:TKraftInt32;
+    Wheel:TKraftVehicle.TWheel;
+    Force,SuspensionLength,CurrentLength,LengthDifference,
+    ProjectedRelativeVelocity,SuspensionDamping:TKraftScalar;
 begin
+ 
+ for WheelIndex:=0 to fCountWheels-1 do begin
+  
+  Wheel:=fWheels[WheelIndex];
+
+  if Wheel.fIsInContact then begin
+    
+   Force:=0.0;
+
+   // Spring
+   begin
+
+    SuspensionLength:=Wheel.fSuspensionRestLength;
+    CurrentLength:=Wheel.fSuspensionLength;
+
+    LengthDifference:=SuspensionLength-CurrentLength;
+
+    Force:=Force+(Wheel.fSuspensionStiffness*LengthDifference*Wheel.fClippedInvContactDotSuspension);
+
+   end;
+
+   // Damper
+   begin
+
+    ProjectedRelativeVelocity:=Wheel.fSuspensionRelativeVelocity;
+    if ProjectedRelativeVelocity<0.0 then begin
+     SuspensionDamping:=Wheel.fDampingCompression;
+    end else begin
+     SuspensionDamping:=Wheel.fDampingRelaxation;
+    end;
+
+    Force:=Force-(SuspensionDamping*ProjectedRelativeVelocity); 
+      
+   end;
+
+   Wheel.fSuspensionForce:=Max(0.0,Force*fRigidBody.Mass);
+
+  end else begin
+
+   Wheel.fSuspensionForce:=0.0;
+
+  end; 
+  
+ end; 
+
 end;
 
 procedure TKraftVehicle.UpdateFriction(const aTimeStep:TKraftScalar);
+var WheelIndex:TKraftInt32;
+    Wheel:TKraftVehicle.TWheel;
 begin
   
 end;
