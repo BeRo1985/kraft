@@ -300,7 +300,7 @@ type { TKraftVehicle }
        fSuspensionStiffness:TKraftScalar;
        fSuspensionCompression:TKraftScalar;
        fSuspensionDamping:TKraftScalar;
-       fMaxSuspensionTravelCM:TKraftScalar;
+       fMaxSuspensionTravel:TKraftScalar;
        fFrictionSlip:TKraftScalar;
        fMaxSuspensionForce:TKraftScalar;
        fPitchControl:TKraftScalar;
@@ -323,6 +323,10 @@ type { TKraftVehicle }
        destructor Destroy; override;
        procedure Clear;
        function AddWheel(const aWheel:TWheel=nil):TKraftInt32;
+{$ifdef KraftPasJSON}
+       procedure LoadFromJSON(const aJSONItem:TPasJSONItem);
+       function SaveToJSON:TPasJSONItem;
+{$endif}
        procedure UpdateWorldTransformVectors;
        procedure UpdateSuspension(const aTimeStep:TKraftScalar);
        procedure UpdateFriction(const aTimeStep:TKraftScalar);
@@ -345,7 +349,7 @@ type { TKraftVehicle }
        property SuspensionStiffness:TKraftScalar read fSuspensionStiffness write fSuspensionStiffness;
        property SuspensionCompression:TKraftScalar read fSuspensionCompression write fSuspensionCompression;
        property SuspensionDamping:TKraftScalar read fSuspensionDamping write fSuspensionDamping;
-       property MaxSuspensionTravelCM:TKraftScalar read fMaxSuspensionTravelCM write fMaxSuspensionTravelCM;
+       property MaxSuspensionTravel:TKraftScalar read fMaxSuspensionTravel write fMaxSuspensionTravel;
        property FrictionSlip:TKraftScalar read fFrictionSlip write fFrictionSlip;
        property MaxSuspensionForce:TKraftScalar read fMaxSuspensionForce write fMaxSuspensionForce;
        property PitchControl:TKraftScalar read fPitchControl write fPitchControl;
@@ -408,7 +412,7 @@ begin
  fSuspensionForce:=0.0;
  fSkidInfo:=0.0;
  fSuspensionLength:=0.0;
- fMaxSuspensionTravel:=fVehicle.fMaxSuspensionTravelCM*0.01;
+ fMaxSuspensionTravel:=fVehicle.fMaxSuspensionTravel;
  fUseCustomSlidingRotationalSpeed:=false;
  fCustomSlidingRotationalSpeed:=-0.1;
  fSliding:=false;
@@ -641,7 +645,7 @@ begin
  fSuspensionStiffness:=5.88;
  fSuspensionCompression:=0.83;
  fSuspensionDamping:=0.88;
- fMaxSuspensionTravelCM:=500.0;
+ fMaxSuspensionTravel:=5.0;
  fFrictionSlip:=10.5;
  fMaxSuspensionForce:=6000.0;
 
@@ -700,6 +704,58 @@ begin
   result:=nil;
  end;
 end;
+
+{$ifdef KraftPasJSON}
+procedure TKraftVehicle.LoadFromJSON(const aJSONItem:TPasJSONItem);
+var WheelIndex:TKraftInt32;
+    Wheel:TKraftVehicle.TWheel;
+    JSONArray:TPasJSONItemArray;
+begin
+ if assigned(aJSONItem) and (aJSONItem is TPasJSONItemObject) then begin
+  Clear;
+  fSuspensionStiffness:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['suspenstionstiffness'],fSuspensionStiffness);
+  fSuspensionCompression:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['suspenstioncompression'],fSuspensionCompression);
+  fSuspensionDamping:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['suspenstiondamping'],fSuspensionDamping);
+  fMaxSuspensionTravel:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['maxsuspenstiontravel'],fMaxSuspensionTravel);
+  fFrictionSlip:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['frictionslip'],fFrictionSlip);
+  fMaxSuspensionForce:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['maxsuspenstionforce'],fMaxSuspensionForce);
+  JSONArray:=TPasJSONItemObject(aJSONItem).Properties['wheels'] as TPasJSONItemArray;
+  if assigned(JSONArray) then begin
+   for WheelIndex:=0 to JSONArray.Count-1 do begin
+    Wheel:=TWheel.Create(self);
+    try
+     Wheel.LoadFromJSON(JSONArray.Items[WheelIndex]);
+    finally
+     AddWheel(Wheel);
+    end; 
+   end;
+  end;
+ end; 
+end;
+
+function TKraftVehicle.SaveToJSON:TPasJSONItem;
+var WheelIndex:TKraftInt32;
+    Wheel:TKraftVehicle.TWheel;
+    JSONArray:TPasJSONItemArray;
+begin
+ result:=TPasJSONItemObject.Create;
+ TPasJSONItemObject(result).Add('suspenstionstiffness',TPasJSONItemNumber.Create(fSuspensionStiffness));
+ TPasJSONItemObject(result).Add('suspenstioncompression',TPasJSONItemNumber.Create(fSuspensionCompression));
+ TPasJSONItemObject(result).Add('suspenstiondamping',TPasJSONItemNumber.Create(fSuspensionDamping));
+ TPasJSONItemObject(result).Add('maxsuspenstiontravel',TPasJSONItemNumber.Create(fMaxSuspensionTravel));
+ TPasJSONItemObject(result).Add('frictionslip',TPasJSONItemNumber.Create(fFrictionSlip));
+ TPasJSONItemObject(result).Add('maxsuspenstionforce',TPasJSONItemNumber.Create(fMaxSuspensionForce));
+ JSONArray:=TPasJSONItemArray.Create;
+ try
+  for WheelIndex:=0 to fCountWheels-1 do begin
+   Wheel:=fWheels[WheelIndex];
+   JSONArray.Add(Wheel.SaveToJSON);
+  end;
+ finally
+  TPasJSONItemObject(result).Add('wheels',JSONArray);
+ end;
+end;
+{$endif}
 
 procedure TKraftVehicle.UpdateWorldTransformVectors;
 begin
