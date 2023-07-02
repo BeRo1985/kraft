@@ -227,16 +227,14 @@ type { TKraftVehicle }
               fBrake:TKraftScalar;
               fSideImpulse:TKraftScalar;
               fForwardImpulse:TKraftScalar;
+              fSlipInfo:TKraftScalar;
               fIsInContact:boolean;
               fRayCastHitValid:boolean;
-              fContactPointWS:TKraftVector3;
-              fContactNormalWS:TKraftVector3;
+              fContactPointWorld:TKraftVector3;
+              fContactNormalWorld:TKraftVector3;
               fContactDistance:TKraftScalar;
               fContactShape:TKraftShape;
               fContactRigidBody:TKraftRigidBody;
-              fHardPointWS:TKraftVector3;
-              fWheelDirectionWS:TKraftVector3;
-              fWheelAxleWS:TKraftVector3;
               fWorldTransform:TKraftMatrix4x4;
              public
               constructor Create(const aVehicle:TKraftVehicle); reintroduce;
@@ -283,6 +281,7 @@ type { TKraftVehicle }
               property Brake:TKraftScalar read fBrake write fBrake;
               property SideImpulse:TKraftScalar read fSideImpulse write fSideImpulse;
               property ForwardImpulse:TKraftScalar read fForwardImpulse write fForwardImpulse;
+              property SlipInfo:TKraftScalar read fSlipInfo write fSlipInfo;
               property IsInContact:boolean read fIsInContact write fIsInContact;
               property WorldTransform:TKraftMatrix4x4 read fWorldTransform write fWorldTransform;
             end;
@@ -315,6 +314,8 @@ type { TKraftVehicle }
        fWorldBackward:TKraftVector3;
        fWorldForward:TKraftVector3;
        fWorldPosition:TKraftVector3;
+       fForwardVectors:array of TKraftVector3;
+       fAxleVectors:array of TKraftVector3;
        function GetWheel(const aIndex:TKraftInt32):TWheel;
        function GetAxisDirection(const aAxisDirection:TAxisDirection):TKraftVector3;
       public
@@ -417,8 +418,8 @@ begin
  fForwardImpulse:=0.0;
  fIsInContact:=false;
  fRayCastHitValid:=false;
- fContactPointWS:=Vector3Origin;
- fContactNormalWS:=Vector3Origin;
+ fContactPointWorld:=Vector3Origin;
+ fContactNormalWorld:=Vector3Origin;
  fContactDistance:=0.0;
  fContactShape:=nil;
  fContactRigidBody:=nil;
@@ -480,8 +481,8 @@ procedure TKraftVehicle.TWheel.Update(const aChassis:TKraftRigidBody);
 var Project,ProjectedVelocity,InvProject:TKraftScalar;
 begin
  if fIsInContact then begin
-  Project:=Vector3Dot(fContactNormalWS,fDirectionWorld);
-  ProjectedVelocity:=Vector3Dot(aChassis.GetWorldLinearVelocityFromPoint(fContactPointWS),fContactNormalWS);
+  Project:=Vector3Dot(fContactNormalWorld,fDirectionWorld);
+  ProjectedVelocity:=Vector3Dot(aChassis.GetWorldLinearVelocityFromPoint(fContactPointWorld),fContactNormalWorld);
   if Project>=-0.1 then begin
    fSuspensionRelativeVelocity:=0.0;
    fClippedInvContactDotSuspension:=1.0/0.1;
@@ -493,7 +494,7 @@ begin
  end else begin
   fSuspensionLength:=fSuspensionRestLength;
   fSuspensionRelativeVelocity:=0.0;
-  fContactNormalWS:=fDirectionWorld;
+  fContactNormalWorld:=fDirectionWorld;
   fClippedInvContactDotSuspension:=1.0;
  end;  
 end;
@@ -502,9 +503,9 @@ procedure TKraftVehicle.TWheel.UpdateWheelTransformsWS;
 var ChassisTransform:TKraftMatrix4x4; 
 begin
  ChassisTransform:=fVehicle.RigidBody.WorldTransform;
- fHardPointWS:=Vector3TermMatrixMul(fChassisConnectionPointLocal,ChassisTransform);
- fWheelDirectionWS:=Vector3TermMatrixMulBasis(fDirectionLocal,ChassisTransform);
- fWheelAxleWS:=Vector3TermMatrixMulBasis(fAxleLocal,ChassisTransform);
+ fChassisConnectionPointWorld:=Vector3TermMatrixMul(fChassisConnectionPointLocal,ChassisTransform);
+ fDirectionWorld:=Vector3TermMatrixMulBasis(fDirectionLocal,ChassisTransform);
+ fAxleWorld:=Vector3TermMatrixMulBasis(fAxleLocal,ChassisTransform);
 end;
 
 procedure TKraftVehicle.TWheel.UpdateWheelTransform;
@@ -520,8 +521,8 @@ begin
  
  UpdateWheelTransformsWS;
  
- Up:=Vector3Neg(fWheelDirectionWS);
- Right:=fWheelAxleWS;
+ Up:=Vector3Neg(fDirectionWorld);
+ Right:=fAxleWorld;
  Forwards:=Vector3Norm(Vector3Cross(Up,Right));
  
  Steering:=fSteering;
@@ -545,7 +546,7 @@ begin
 
  fWorldTransform:=Matrix4x4Set(CombinedMat);
 
- PKraftVector3(@fWorldTransform[3,0])^.xyz:=Vector3Add(fHardPointWS,Vector3ScalarMul(fWheelDirectionWS,fSuspensionLength)).xyz;
+ PKraftVector3(@fWorldTransform[3,0])^.xyz:=Vector3Add(fChassisConnectionPointWorld,Vector3ScalarMul(fDirectionWorld,fSuspensionLength)).xyz;
 
 end;
 
@@ -553,14 +554,14 @@ procedure TKraftVehicle.TWheel.ResetSuspension;
 begin
  fSuspensionLength:=fSuspensionRestLength;
  fSuspensionRelativeVelocity:=0.0;
- fContactNormalWS:=Vector3Neg(fWheelDirectionWS);
+ fContactNormalWorld:=Vector3Neg(fDirectionWorld);
  fClippedInvContactDotSuspension:=1.0;
 end;
 
 function TKraftVehicle.TWheel.RayCast:TKraftScalar;
 var RayLen,HitTime,MinSuspensionLength,MaxSuspensionLength,Project,
     InvProject,ProjectedVelocity:TKraftScalar;
-    RayVector,Source,ContactPoint,Target,RayOrigin,RayDirection,HitPoint,HitNormal:TKraftVector3;
+    RayVector,Source,ContactPoint,Target,HitPoint,HitNormal:TKraftVector3;
     HitShape:TKraftShape;    
 begin
  
@@ -570,8 +571,8 @@ begin
 
  RayLen:=fSuspensionRestLength+fRadius;
 
- RayVector:=Vector3ScalarMul(fWheelDirectionWS,RayLen);
- Source:=fHardPointWS;
+ RayVector:=Vector3ScalarMul(fDirectionWorld,RayLen);
+ Source:=fChassisConnectionPointWorld;
  ContactPoint:=Vector3Add(Source,RayVector);
  Target:=ContactPoint;
 
@@ -583,7 +584,7 @@ begin
 
   result:=fContactDistance;
 
-  fContactNormalWS:=HitNormal;
+  fContactNormalWorld:=HitNormal;
 
   fIsInContact:=true;
 
@@ -597,10 +598,10 @@ begin
   MaxSuspensionLength:=fSuspensionRestLength+fMaxSuspensionTravel;
   fSuspensionLength:=Min(Max(fSuspensionLength,MinSuspensionLength),MaxSuspensionLength);
 
-  fContactPointWS:=HitPoint;
+  fContactPointWorld:=HitPoint;
 
-  Project:=Vector3Dot(fContactNormalWS,fWheelDirectionWS);
-  ProjectedVelocity:=Vector3Dot(fVehicle.fRigidBody.GetWorldLinearVelocityFromPoint(fContactPointWS),fContactNormalWS);
+  Project:=Vector3Dot(fContactNormalWorld,fDirectionWorld);
+  ProjectedVelocity:=Vector3Dot(fVehicle.fRigidBody.GetWorldLinearVelocityFromPoint(fContactPointWorld),fContactNormalWorld);
   if Project>=-0.1 then begin
    fSuspensionRelativeVelocity:=0.0;
    fClippedInvContactDotSuspension:=1.0/0.1;
@@ -614,7 +615,7 @@ begin
 
   fSuspensionLength:=fSuspensionRestLength;
   fSuspensionRelativeVelocity:=0.0;
-  fContactNormalWS:=Vector3Norm(fWheelDirectionWS);
+  fContactNormalWorld:=Vector3Norm(fDirectionWorld);
   fClippedInvContactDotSuspension:=1.0;
 
  end;
@@ -648,6 +649,9 @@ begin
  fSteeringValue:=0.0;
  fCurrentVehicleSpeedKMHour:=0.0;
 
+ fForwardVectors:=nil;
+ fAxleVectors:=nil;
+
 end;
 
 destructor TKraftVehicle.Destroy;
@@ -659,11 +663,17 @@ end;
 procedure TKraftVehicle.Clear;
 var Index:TKraftInt32;
 begin
+
  for Index:=0 to fCountWheels-1 do begin
   FreeAndNil(fWheels[Index]);
  end;
+
  fWheels:=nil;
  fCountWheels:=0;
+
+ fForwardVectors:=nil;
+ fAxleVectors:=nil;
+
 end;
 
 function TKraftVehicle.AddWheel(const aWheel:TWheel):TKraftInt32;
@@ -672,6 +682,8 @@ begin
  inc(fCountWheels);
  if length(fWheels)<fCountWheels then begin
   SetLength(fWheels,fCountWheels+(fCountWheels shr 1)); 
+  SetLength(fForwardVectors,length(fWheels));
+  SetLength(fAxleVectors,length(fWheels));
  end;
  if assigned(aWheel) then begin
   fWheels[result]:=aWheel;
@@ -772,11 +784,193 @@ begin
 
 end;
 
-procedure TKraftVehicle.UpdateFriction(const aTimeStep:TKraftScalar);
-var WheelIndex:TKraftInt32;
-    Wheel:TKraftVehicle.TWheel;
+function ResolveSingleBilateral(const Body1:TKraftRigidBody;
+                                 const Pos1:TKraftVector3;
+                                 const Body2:TKraftRigidBody;
+                                 const Pos2:TKraftVector3;
+                                 const Distance:TKraftScalar;
+                                 const Normal:TKraftVector3;
+                                 const TimeStep:TKraftScalar):TKraftScalar;
+const ContactDamping=0.2;
+var NormalLenSqr,RelativeVelocity:TKraftScalar;
+    Velocity1,Velocity2,Velocity:TKraftVector3;
 begin
+
+ NormalLenSqr:=Vector3LengthSquared(Normal);
+ if NormalLenSqr>1.1 then begin
+  result:=0.0;
+  exit;
+ end;
+
+{Velocity1:=Vector3Add(Body1.LinearVelocity,Vector3Cross(Body1.AngularVelocity,Vector3Sub(Pos1,Body1.Sweep.c)));
+ Velocity2:=Vector3Add(Body2.LinearVelocity,Vector3Cross(Body2.AngularVelocity,Vector3Sub(Pos2,Body2.Sweep.c)));}
+
+ Velocity1:=Body1.GetWorldLinearVelocityFromPoint(Pos1);
+ Velocity2:=Body2.GetWorldLinearVelocityFromPoint(Pos2); 
+ Velocity:=Vector3Sub(Velocity1,Velocity2);
+
+ RelativeVelocity:=Vector3Dot(Velocity,Normal);
+
+ result:=-ContactDamping*RelativeVelocity*(1.0/(Body1.InverseMass+NormalLenSqr*Body2.InverseMass));
   
+end;
+
+function CalcRollingFriction(const Body0:TKraftRigidBody;
+                             const Body1:TKraftRigidBody;
+                             const FrictionPosWorld:TKraftVector3;
+                             const FrictionDirectionWorld:TKraftVector3;
+                             const MaxImpulse:TKraftScalar):TKraftScalar;
+var VelocityRelativeProjection,jacDiagABInv:TKraftScalar;
+    Velocity:TKraftVector3;
+begin
+ Velocity:=Vector3Sub(Body0.GetWorldLinearVelocityFromPoint(FrictionPosWorld),Body1.GetWorldLinearVelocityFromPoint(FrictionPosWorld));
+ VelocityRelativeProjection:=Vector3Dot(Velocity,FrictionDirectionWorld);
+ jacDiagABInv:=1.0/(Body0.ComputeImpulseDenominator(FrictionPosWorld,FrictionDirectionWorld)+Body1.ComputeImpulseDenominator(FrictionPosWorld,FrictionDirectionWorld));
+ result:=Min(Max(-VelocityRelativeProjection*jacDiagABInv,-MaxImpulse),MaxImpulse);
+end;
+
+procedure TKraftVehicle.UpdateFriction(const aTimeStep:TKraftScalar);
+const SideFrictionStiffness2=1.0;
+var WheelIndex,CountWheelsOnGround:TKraftInt32;
+    Wheel:TKraftVehicle.TWheel;
+    WheelTransform:TKraftMatrix4x4;
+    SurfaceNormalWorld,RelativePosition,RelativePosition2,SideImpulse:TKraftVector3;
+    Projection,SideFactor,ForwardFactor,RollingFriction,
+    DefaultRollingFrictionImpulse,MaxImpulse,MaxImpulseSide,x,y,ImpulseSquared,Factor:TKraftScalar;
+    Sliding:boolean;
+begin
+
+ if fCountWheels=0 then begin
+  exit;
+ end;
+
+ CountWheelsOnGround:=0;
+
+ for WheelIndex:=0 to fCountWheels-1 do begin
+  Wheel:=fWheels[WheelIndex];
+  if Wheel.fIsInContact then begin
+   inc(CountWheelsOnGround);
+  end;
+  Wheel.fSideImpulse:=0.0;
+  Wheel.fForwardImpulse:=0.0;
+ end; 
+
+ for WheelIndex:=0 to fCountWheels-1 do begin
+ 
+  Wheel:=fWheels[WheelIndex];
+ 
+  if Wheel.fIsInContact then begin
+ 
+   WheelTransform:=Wheel.fWorldTransform;
+ 
+   fAxleVectors[WheelIndex]:=Vector3Neg(Vector3(PKraftRawVector3(pointer(@WheelTransform[0,0]))^));
+
+   SurfaceNormalWorld:=Wheel.fContactNormalWorld;
+
+   Projection:=Vector3Dot(fAxleVectors[WheelIndex],SurfaceNormalWorld);
+   fAxleVectors[WheelIndex]:=Vector3Norm(Vector3Sub(fAxleVectors[WheelIndex],Vector3ScalarMul(SurfaceNormalWorld,Projection)));
+
+   fForwardVectors[WheelIndex]:=Vector3Norm(Vector3Cross(SurfaceNormalWorld,fAxleVectors[WheelIndex]));
+     
+   Wheel.fSideImpulse:=ResolveSingleBilateral(fRigidBody,
+                                              Wheel.fContactPointWorld,
+                                              Wheel.fContactRigidBody,
+                                              Wheel.fContactPointWorld,
+                                              0.0,
+                                              Wheel.fContactNormalWorld,
+                                              aTimeStep)*SideFrictionStiffness2;
+
+  end;
+ end;
+
+ SideFactor:=1.0;
+ ForwardFactor:=0.5;
+
+ fSliding:=false;
+
+ for WheelIndex:=0 to fCountWheels-1 do begin
+ 
+  Wheel:=fWheels[WheelIndex];
+ 
+  RollingFriction:=0.0;
+
+  Wheel.fSlipInfo:=1.0;
+
+  if Wheel.fIsInContact then begin
+   DefaultRollingFrictionImpulse:=0.0;
+   if IsZero(Wheel.fBrake) then begin
+    MaxImpulse:=DefaultRollingFrictionImpulse;
+   end else begin
+    MaxImpulse:=Wheel.fBrake;
+   end;
+   RollingFriction:=CalcRollingFriction(fRigidBody,Wheel.fContactRigidBody,Wheel.fContactPointWorld,fForwardVectors[WheelIndex],MaxImpulse);
+   RollingFriction:=RollingFriction+(Wheel.fEngineForce*aTimeStep);
+   Factor:=MaxImpulse/RollingFriction;
+   Wheel.fSlipInfo:=Wheel.fSlipInfo*Factor;
+  end;
+
+  Wheel.fForwardImpulse:=0.0;
+  Wheel.fSkidInfo:=1.0;
+
+  if Wheel.fIsInContact then begin
+   Wheel.fSkidInfo:=1.0;
+
+   MaxImpulse:=Wheel.fFrictionSlip*Wheel.fSuspensionForce*aTimeStep;
+   MaxImpulseSide:=MaxImpulse;
+
+   Wheel.fForwardImpulse:=RollingFriction;
+
+   x:=Wheel.fForwardImpulse*ForwardFactor;
+   y:=Wheel.fSideImpulse*SideFactor;
+
+   ImpulseSquared:=sqr(x)+sqr(y);
+
+   Wheel.fSliding:=false;
+   if ImpulseSquared>MaxImpulse then begin
+    fSliding:=true;
+    Wheel.fSliding:=true;
+    Factor:=MaxImpulse/sqrt(ImpulseSquared);
+    Wheel.fSkidInfo:=Wheel.fSkidInfo*Factor;
+   end;
+  
+  end;
+
+ end;
+
+ if fSliding then begin
+  for WheelIndex:=0 to fCountWheels-1 do begin
+   Wheel:=fWheels[WheelIndex];
+   if not IsZero(Wheel.fSideImpulse) then begin
+    Wheel.fForwardImpulse:=Wheel.fForwardImpulse*Wheel.fSkidInfo;
+    Wheel.fSideImpulse:=Wheel.fSideImpulse*Wheel.fSkidInfo;
+   end;
+  end;
+ end;
+
+ for WheelIndex:=0 to fCountWheels-1 do begin
+  
+  Wheel:=fWheels[WheelIndex];
+
+  RelativePosition:=Vector3Sub(Wheel.fContactPointWorld,fRigidBody.Sweep.c);
+
+  if not IsZero(Wheel.fForwardImpulse) then begin
+   fRigidBody.ApplyImpulseAtRelativePosition(Vector3ScalarMul(fForwardVectors[WheelIndex],Wheel.fForwardImpulse),RelativePosition);
+  end;
+
+  if not IsZero(Wheel.fSideImpulse) then begin
+           
+   SideImpulse:=Vector3ScalarMul(fAxleVectors[WheelIndex],Wheel.fSideImpulse);
+
+   RelativePosition:=Vector3Sub(RelativePosition,Vector3ScalarMul(fWorldUp,Vector3Dot(RelativePosition,fWorldUp)*(1.0-Wheel.fRollInfluence)));
+   
+   fRigidBody.ApplyImpulseAtRelativePosition(SideImpulse,RelativePosition);
+
+   Wheel.fContactRigidBody.ApplyImpulseAtPosition(Vector3Neg(SideImpulse),Wheel.fContactPointWorld);
+
+  end;
+
+ end;
+
 end;
 
 procedure TKraftVehicle.Update(const aTimeStep:TKraftScalar);
@@ -814,26 +1008,33 @@ begin
   if SuspensionForce>Wheel.fMaxSuspensionForce then begin
    SuspensionForce:=Wheel.fMaxSuspensionForce;
   end;
-  Impulse:=Vector3ScalarMul(Wheel.fContactNormalWS,SuspensionForce*aTimeStep);
-  RelativePosition:=Vector3Sub(Wheel.fContactPointWS,fWorldPosition);
+  Impulse:=Vector3ScalarMul(Wheel.fContactNormalWorld,SuspensionForce*aTimeStep);
+  RelativePosition:=Vector3Sub(Wheel.fContactPointWorld,fWorldPosition);
   fRigidBody.ApplyImpulseAtRelativePosition(Impulse,RelativePosition);
  end;
 
  UpdateFriction(aTimeStep);
 
  for WheelIndex:=0 to fCountWheels-1 do begin
+
   Wheel:=fWheels[WheelIndex];
-  Velocity:=fRigidBody.GetWorldLinearVelocityFromPoint(Wheel.fHardPointWS);
+
+  Velocity:=fRigidBody.GetWorldLinearVelocityFromPoint(Wheel.fChassisConnectionPointWorld);
+
   if Wheel.fIsInContact then begin
-   Projection:=Vector3Dot(Wheel.fContactNormalWS,fWorldForward);
-   Forwards:=Vector3Sub(fWorldForward,Vector3ScalarMul(Wheel.fContactNormalWS,Projection));
+   Projection:=Vector3Dot(Wheel.fContactNormalWorld,fWorldForward);
+   Forwards:=Vector3Sub(fWorldForward,Vector3ScalarMul(Wheel.fContactNormalWorld,Projection));
    Projection:=Vector3Dot(Forwards,Velocity);
    Wheel.fDeltaRotation:=(Projection*aTimeStep)/Wheel.fRadius;
-   Wheel.fRotation:=Wheel.fRotation+Wheel.fDeltaRotation;
-  end else begin    
-   Wheel.fRotation:=Wheel.fRotation+Wheel.fDeltaRotation;
   end;
+
+  if abs(Wheel.fBrake)>abs(Wheel.fEngineForce) then begin
+   Wheel.fDeltaRotation:=0.0; // Lock wheels at brake 
+  end;
+
+  Wheel.fRotation:=Wheel.fRotation+Wheel.fDeltaRotation;
   Wheel.fDeltaRotation:=Wheel.fDeltaRotation*0.99;
+
  end;
   
 end;
