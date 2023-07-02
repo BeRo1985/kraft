@@ -834,10 +834,9 @@ const SideFrictionStiffness2=1.0;
 var WheelIndex,CountWheelsOnGround:TKraftInt32;
     Wheel:TKraftVehicle.TWheel;
     WheelTransform:TKraftMatrix4x4;
-    SurfaceNormalWorld,RelativePosition,RelativePosition2,SideImpulse:TKraftVector3;
+    SurfaceNormalWorld,RelativePosition,SideImpulse:TKraftVector3;
     Projection,SideFactor,ForwardFactor,RollingFriction,
     DefaultRollingFrictionImpulse,MaxImpulse,MaxImpulseSide,x,y,ImpulseSquared,Factor:TKraftScalar;
-    Sliding:boolean;
 begin
 
  if fCountWheels=0 then begin
@@ -926,7 +925,7 @@ begin
    ImpulseSquared:=sqr(x)+sqr(y);
 
    Wheel.fSliding:=false;
-   if ImpulseSquared>MaxImpulse then begin
+   if ImpulseSquared>(MaxImpulse*MaxImpulseSide) then begin
     fSliding:=true;
     Wheel.fSliding:=true;
     Factor:=MaxImpulse/sqrt(ImpulseSquared);
