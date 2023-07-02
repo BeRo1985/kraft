@@ -471,7 +471,11 @@ begin
 end;
 
 procedure TKraftVehicle.Clear;
+var Index:TKraftInt32;
 begin
+ for Index:=0 to fCountWheels-1 do begin
+  FreeAndNil(fWheels[Index]);
+ end;
  fWheels:=nil;
  fCountWheels:=0;
 end;
