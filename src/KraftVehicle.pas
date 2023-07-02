@@ -195,6 +195,7 @@ type { TKraftVehicle }
             TWheel=class
              private
               fVehicle:TKraftVehicle;
+              fName:UTF8String;
               fChassisConnectionPointLocal:TKraftVector3;
               fChassisConnectionPointWorld:TKraftVector3;
               fDirectionLocal:TKraftVector3;
@@ -249,6 +250,7 @@ type { TKraftVehicle }
               procedure ResetSuspension;
               function RayCast:TKraftScalar;
              public
+              property Name:UTF8String read fName write fName;
               property ChassisConnectionPointLocal:TKraftVector3 read fChassisConnectionPointLocal write fChassisConnectionPointLocal;
               property ChassisConnectionPointWorld:TKraftVector3 read fChassisConnectionPointWorld write fChassisConnectionPointWorld;
               property DirectionLocal:TKraftVector3 read fDirectionLocal write fDirectionLocal;
@@ -439,6 +441,7 @@ end;
 procedure TKraftVehicle.TWheel.LoadFromJSON(const aJSONItem:TPasJSONItem);
 begin
  if assigned(aJSONItem) and (aJSONItem is TPasJSONItemObject) then begin
+  fName:=TPasJSON.GetString(TPasJSONItemObject(aJSONItem).Properties['name'],fName);
   fChassisConnectionPointLocal:=JSONToVector3(TPasJSONItemObject(aJSONItem).Properties['chassisconnectionpointlocal']);
   fDirectionLocal:=JSONToVector3(TPasJSONItemObject(aJSONItem).Properties['directionlocal']);
   fAxleLocal:=JSONToVector3(TPasJSONItemObject(aJSONItem).Properties['axlelocal']);
@@ -461,6 +464,7 @@ end;
 function TKraftVehicle.TWheel.SaveToJSON:TPasJSONItem;
 begin
  result:=TPasJSONItemObject.Create;
+ TPasJSONItemObject(result).Add('name',TPasJSONItemString.Create(fName));
  TPasJSONItemObject(result).Add('chassisconnectionpointlocal',Vector3ToJSON(fChassisConnectionPointLocal));
  TPasJSONItemObject(result).Add('directionlocal',Vector3ToJSON(fDirectionLocal));
  TPasJSONItemObject(result).Add('axlelocal',Vector3ToJSON(fAxleLocal));
