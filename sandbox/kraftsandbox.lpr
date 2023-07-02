@@ -42,7 +42,8 @@ uses
   UnitDemoSceneChairAndTable in 'UnitDemoSceneChairAndTable.pas',
   UnitDemoSceneConvexHull in 'UnitDemoSceneConvexHull.pas',
   UnitDemoSceneConstraintVehicle in 'UnitDemoSceneConstraintVehicle.pas',
-  UnitDemoSceneRaycastArcadeVehicle in 'UnitDemoSceneRaycastArcadeVehicle.pas';
+  UnitDemoSceneRaycastArcadeVehicle in 'UnitDemoSceneRaycastArcadeVehicle.pas',
+  UnitDemoSceneRaycastVehicle in 'UnitDemoSceneRaycastVehicle.pas';
 
 {$R *.res}
 
