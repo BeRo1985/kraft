@@ -222,6 +222,10 @@ type { TKraftSimpleVehicle }
             TWheelData=record
              private
               fYawRad:TKraftScalar;
+              fRotationRad:TKraftScalar;
+              fWorldTransform:TKraftMatrix4x4;
+              fLastWorldTransform:TKraftMatrix4x4;
+              fVisualWorldTransform:TKraftMatrix4x4;
             end;
             PWheelData=^TWheelData;
             { TWheelDatas }
@@ -335,6 +339,7 @@ type { TKraftSimpleVehicle }
        function GetWheelTorqueRelativePosition(const aWheel:TWheel):TKraftVector3;
        function GetWheelTorquePosition(const aWheel:TWheel):TKraftVector3;
        function GetWheelGripFactor(const aWheel:TWheel):TKraftScalar;
+       function GetWheelTransform(const aWheel:TWheel):TKraftMatrix4x4;
        function IsGrounded(const aWheel:TWheel):boolean;
        procedure CastSpring(const aWheel:TWheel);
        procedure UpdateWorldTransformVectors;
@@ -343,6 +348,7 @@ type { TKraftSimpleVehicle }
        procedure UpdateAcceleration;
        procedure UpdateBraking;
        procedure UpdateAirResistance;
+       procedure UpdateVisuals;
       public
        constructor Create(const aPhysics:TKraft); reintroduce;
        destructor Destroy; override;
@@ -639,6 +645,17 @@ begin
  end;
 end;
 
+function TKraftSimpleVehicle.GetWheelTransform(const aWheel:TWheel):TKraftMatrix4x4;
+var {LocalWheelPosition,}WorldWheelPosition:TKraftVector3;
+    LocalWheelRotation,WorldWheelRotation:TKraftQuaternion;
+begin
+ LocalWheelRotation:=QuaternionFromAngles(fWheelDatas[aWheel].fYawRad,0.0,fWheelDatas[aWheel].fRotationRad);
+ WorldWheelPosition:=Vector3Add(GetSpringPosition(aWheel),Vector3ScalarMul(fWorldDown,fSpringDatas[aWheel].fCurrentLength-fSettings.fWheelsRadius));
+ WorldWheelRotation:=QuaternionMul(fRigidBody.Sweep.q,LocalWheelRotation);
+ result:=QuaternionToMatrix4x4(WorldWheelRotation);
+ PKraftVector3(@result[3,0])^.xyz:=WorldWheelPosition.xyz;
+end;
+
 function TKraftSimpleVehicle.IsGrounded(const aWheel:TWheel):boolean;
 begin
  result:=fSpringDatas[aWheel].fCurrentLength<fSettings.fSpringRestLength;
@@ -818,6 +835,14 @@ begin
  end;
 end;
 
+procedure TKraftSimpleVehicle.UpdateVisuals;
+var Wheel:TWheel;
+begin
+ for Wheel:=Low(TWheel) to High(TWheel) do begin
+  fWheelDatas[Wheel].fWorldTransform:=GetWheelTransform(Wheel);
+ end;
+end;
+
 procedure TKraftSimpleVehicle.Update(const aDeltaTime:TKraftScalar);
 begin
  fDeltaTime:=aDeltaTime;
@@ -830,11 +855,16 @@ begin
  UpdateAcceleration;
  UpdateBraking;
  UpdateAirResistance;
+ UpdateVisuals;
 end;
 
 procedure TKraftSimpleVehicle.StoreWorldTransforms;
+var Wheel:TWheel;
 begin
  UpdateWorldTransformVectors;
+ for Wheel:=Low(TWheel) to High(TWheel) do begin
+  fWheelDatas[Wheel].fLastWorldTransform:=fWheelDatas[Wheel].fWorldTransform;
+ end;
  fLastWorldTransform:=fWorldTransform;
  fLastWorldRight:=Vector3(PKraftRawVector3(pointer(@fLastWorldTransform[0,0]))^);
  fLastWorldLeft:=Vector3Neg(fLastWorldRight);
@@ -846,8 +876,12 @@ begin
 end;
 
 procedure TKraftSimpleVehicle.InterpolateWorldTransforms(const aAlpha:TKraftScalar);
+var Wheel:TWheel;
 begin
  UpdateWorldTransformVectors;
+ for Wheel:=Low(TWheel) to High(TWheel) do begin
+  fWheelDatas[Wheel].fVisualWorldTransform:=Matrix4x4Slerp(fWheelDatas[Wheel].fLastWorldTransform,fWheelDatas[Wheel].fWorldTransform,aAlpha);
+ end;
  fVisualWorldTransform:=Matrix4x4Slerp(fLastWorldTransform,fWorldTransform,aAlpha);
  fVisualWorldRight:=Vector3(PKraftRawVector3(pointer(@fVisualWorldTransform[0,0]))^);
  fVisualWorldLeft:=Vector3Neg(fVisualWorldRight);
@@ -861,6 +895,7 @@ end;
 {$ifdef DebugDraw}
 procedure TKraftSimpleVehicle.DebugDraw;
 var Wheel:TWheel;
+    Index:TKraftInt32;
     v0,v1,v2,v3:TKraftVector3;
     Color:TKraftVector4;
 begin
@@ -901,6 +936,33 @@ begin
   glVertex3fv(@v0);
   glVertex3fv(@v1);
   glEnd;
+{$endif}
+
+{$ifdef NoOpenGL}
+  v:=Vector3TermMatrixMul(Vector3Origin,fWheelDatas[Wheel].fVisualWorldTransform);
+  v0:=v;
+  for Index:=0 to 16 do begin
+   if assigned(fVehicle.fDebugDrawLine) then begin
+    v1:=v0;
+    v0:=Vector3TermMatrixMul(Vector3Add(Vector3Add(Vector3Origin,Vector3ScalarMul(Vector3YAxis,Sin((Index/16)*PI*2))),Vector3ScalarMul(Vector3ZAxis,Cos((Index/16)*PI*2))),fWheelDatas[Wheel].fVisualWorldTransform);
+    if Index>0 then begin
+     fVehicle.fDebugDrawLine(v,v0,Vector4(1.0,1.0,1.0,1.0));
+     fVehicle.fDebugDrawLine(v0,v1,Vector4(1.0,1.0,1.0,1.0));
+    end;
+   end;
+  end;
+{$else}
+  glColor4f(1.0,1.0,1.0,1.0);
+  glDisable(GL_CULL_FACE);
+  glBegin(GL_TRIANGLE_FAN);
+  v0:=Vector3TermMatrixMul(Vector3Origin,fWheelDatas[Wheel].fVisualWorldTransform);
+  glVertex3fv(@v0);
+  for Index:=0 to 16 do begin
+   v0:=Vector3TermMatrixMul(Vector3Add(Vector3Add(Vector3Origin,Vector3ScalarMul(Vector3YAxis,Sin((Index/16)*PI*2))),Vector3ScalarMul(Vector3ZAxis,Cos((Index/16)*PI*2))),fWheelDatas[Wheel].fVisualWorldTransform);
+   glVertex3fv(@v0);
+  end;
+  glEnd;
+  glEnable(GL_CULL_FACE);
 {$endif}
 
  end;
