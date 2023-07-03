@@ -330,7 +330,7 @@ type { TKraftSimpleVehicle }
       public
        constructor Create(const aPhysics:TKraft); reintroduce;
        destructor Destroy; override;
-       procedure Initialize;       
+       procedure Finish;
        procedure Update(const aDeltaTime:TKraftScalar);
        procedure StoreWorldTransforms;
        procedure InterpolateWorldTransforms(const aAlpha:TKraftScalar);
@@ -395,31 +395,31 @@ end;
 // Combines the force which wants to restore the spring to its rest length with the force which wants to damp the spring's motion.
 class function TKraftSimpleVehicle.TSpringMath.CalculateForceDamped(const aCurrentLength,aLengthVelocity,aRestLength,aStrength,aDamper:TKraftScalar):TKraftScalar;
 begin
- result:=(aRestLength-aCurrentLength)*(aLengthVelocity*aDamper);
+ result:=((aRestLength-aCurrentLength)*aStrength)-(aLengthVelocity*aDamper);
 end;
 
 { TKraftSimpleVehicle.TVehicleSettings }
 
 class function TKraftSimpleVehicle.TVehicleSettings.Create:TKraftSimpleVehicle.TVehicleSettings;
 begin
- result.fWidth:=1.5;
- result.fHeight:=0.5;
- result.fLength:=3;
- result.fWheelsPaddingX:=0.5;
- result.fWheelsPaddingY:=0.5;
- result.fChassisMass:=100;
- result.fTireMass:=10;
- result.fSpringRestLength:=0.5;
- result.fSpringStrength:=100;
- result.fSpringDamper:=10;
- result.fAccelerationPower:=100;
- result.fBrakePower:=100;
- result.fMaximumSpeed:=10;
- result.fMaximumReverseSpeed:=-5;
- result.fSteeringAngle:=0.5;
- result.fFrontWheelsGripFactor:=1;
- result.fBackWheelsGripFactor:=1;
- result.fAirResistance:=0.1;
+ result.fWidth:=1.9;
+ result.fHeight:=0.75;
+ result.fLength:=3.4;
+ result.fWheelsPaddingX:=0.06;
+ result.fWheelsPaddingY:=0.12;
+ result.fChassisMass:=60;
+ result.fTireMass:=1;
+ result.fSpringRestLength:=0.8;
+ result.fSpringStrength:=1200;
+ result.fSpringDamper:=75;
+ result.fAccelerationPower:=300;
+ result.fBrakePower:=1.5;
+ result.fMaximumSpeed:=22;
+ result.fMaximumReverseSpeed:=12;
+ result.fSteeringAngle:=20;
+ result.fFrontWheelsGripFactor:=0.8;
+ result.fBackWheelsGripFactor:=0.9;
+ result.fAirResistance:=5.0;
 end;
 
 {$ifdef KraftPasJSON}
@@ -483,6 +483,7 @@ begin
  fAccelerationInput:=0;
  fForward:=Vector3(0.0,0.0,-1.0);
  fVelocity:=Vector3(0.0,0.0,0.0);
+ fSettings:=TKraftSimpleVehicle.TVehicleSettings.Create;
 end;
 
 destructor TKraftSimpleVehicle.Destroy;
@@ -490,7 +491,7 @@ begin
  inherited Destroy;
 end;
 
-procedure TKraftSimpleVehicle.Initialize;
+procedure TKraftSimpleVehicle.Finish;
 begin
  
  if not (assigned(fRigidBody) and assigned(fShape)) then begin
@@ -498,6 +499,8 @@ begin
   fRigidBody:=TKraftRigidBody.Create(fPhysics);
   fRigidBody.SetRigidBodyType(krbtDYNAMIC);
   fRigidBody.ForcedMass:=fSettings.ChassisMass+(fSettings.TireMass*CountWheels);
+  fRigidBody.CollisionGroups:=[1];
+  fRigidBody.CollideWithCollisionGroups:=[0,1];
 
   fShape:=TKraftShapeBox.Create(fPhysics,fRigidBody,Vector3(fSettings.Width*0.5,fSettings.Height*0.5,fSettings.Length*0.5));
 
@@ -522,7 +525,7 @@ var BoxSize:TKraftVector3;
     BoxBottom:TKraftScalar;
 begin
  BoxSize:=Vector3(fSettings.Width,fSettings.Height,fSettings.Length);
- BoxBottom:=-0.5*BoxSize.y;
+ BoxBottom:=-0.25*BoxSize.y;
  case aWheel of
   TWheel.FrontLeft:begin
    result:=Vector3(BoxSize.x*(fSettings.WheelsPaddingX-0.5),BoxBottom,BoxSize.z*(0.5-fSettings.WheelsPaddingY));
@@ -646,7 +649,11 @@ begin
   CastSpring(Wheel);
   CurrentLength:=fSpringDatas[Wheel].fCurrentLength;
   CurrentVelocity:=fSpringDatas[Wheel].fCurrentVelocity;
-  Force:=TSpringMath.CalculateForceDamped(CurrentLength,CurrentVelocity,fSettings.SpringRestLength,fSettings.SpringStrength,fSettings.SpringDamper);
+  Force:=TKraftSimpleVehicle.TSpringMath.CalculateForceDamped(CurrentLength,
+                                                              CurrentVelocity,
+                                                              fSettings.SpringRestLength,
+                                                              fSettings.SpringStrength,
+                                                              fSettings.SpringDamper);
   if abs(Force)>EPSILON then begin
    fRigidBody.AddForceAtPosition(Vector3ScalarMul(fWorldUp,Force),GetSpringPosition(Wheel),kfmForce,true);
   end; 
@@ -788,8 +795,53 @@ end;
 
 {$ifdef DebugDraw}
 procedure TKraftSimpleVehicle.DebugDraw;
+var Wheel:TWheel;
+    v0,v1,v2,v3:TKraftVector3;
+    Color:TKraftVector4;
 begin
+{$ifndef NoOpenGL}
+ glDisable(GL_DEPTH_TEST);
+{$endif}
+ for Wheel:=Low(TWheel) to High(TWheel) do begin
+  if IsGrounded(Wheel) then begin
+   Color:=Vector4(0.0,0.0,1.0,1.0);
+  end else begin
+   Color:=Vector4(1.0,0.0,1.0,1.0);
+  end;
 
+  v2:=Vector3TermMatrixMul(GetSpringRelativePosition(Wheel),fVisualWorldTransform);
+  v0:=Vector3Add(v2,Vector3ScalarMul(fVisualWorldLeft,0.1));
+  v1:=Vector3Add(v2,Vector3ScalarMul(fVisualWorldRight,0.1));
+{$ifdef NoOpenGL}
+  if assigned(fDebugDrawLine) then begin
+   fDebugDrawLine(v0,v1,Color);
+  end;
+{$else}
+  glColor4fv(@Color);
+  glBegin(GL_LINE_STRIP);
+  glVertex3fv(@v0);
+  glVertex3fv(@v1);
+  glEnd;
+{$endif}
+
+  v0:=Vector3TermMatrixMul(GetSpringRelativePosition(Wheel),fVisualWorldTransform);
+  v1:=Vector3Add(v0,Vector3ScalarMul(fVisualWorldDown,fSpringDatas[Wheel].fCurrentLength));
+{$ifdef NoOpenGL}
+  if assigned(fDebugDrawLine) then begin
+   fDebugDrawLine(v0,v1,Color);
+  end;
+{$else}
+  glColor4fv(@Color);
+  glBegin(GL_LINE_STRIP);
+  glVertex3fv(@v0);
+  glVertex3fv(@v1);
+  glEnd;
+{$endif}
+
+ end;
+{$ifndef NoOpenGL}
+ glEnable(GL_DEPTH_TEST);
+{$endif}
 end;
 {$endif}
 

@@ -44,7 +44,8 @@ uses
   UnitDemoSceneConvexHull in 'UnitDemoSceneConvexHull.pas',
   UnitDemoSceneConstraintVehicle in 'UnitDemoSceneConstraintVehicle.pas',
   UnitDemoSceneRaycastArcadeVehicle in 'UnitDemoSceneRaycastArcadeVehicle.pas',
-  UnitDemoSceneRaycastVehicle in 'UnitDemoSceneRaycastVehicle.pas';
+  UnitDemoSceneRaycastVehicle in 'UnitDemoSceneRaycastVehicle.pas',
+  UnitDemoSceneRaycastSimpleVehicle in 'UnitDemoSceneRaycastSimpleVehicle.pas';
 
 {$R *.res}
 
