@@ -267,9 +267,6 @@ type { TKraftSimpleVehicle }
             end;
       private
        fPhysics:TKraft;
-       fLastWorldTransform:TKraftMatrix4x4;
-       fVisualWorldTransform:TKraftMatrix4x4;
-       fWorldTransform:TKraftMatrix4x4;
        fChassisBody:TKraftRigidBody;
        fChassisShape:TKraftShape;
        fSpringDatas:TSpringDatas;
@@ -280,6 +277,38 @@ type { TKraftSimpleVehicle }
        fVelocity:TKraftVector3;       
        fDeltaTime:TKraftScalar;
        fInverseDeltaTime:TKraftScalar;
+       fDebugDrawLine:TDebugDrawLine;
+       fWorldTransform:TKraftMatrix4x4;
+       fWorldLeft:TKraftVector3;
+       fWorldRight:TKraftVector3;
+       fWorldDown:TKraftVector3;
+       fWorldUp:TKraftVector3;
+       fWorldBackward:TKraftVector3;
+       fWorldForward:TKraftVector3;
+       fWorldPosition:TKraftVector3;
+       fLastWorldTransform:TKraftMatrix4x4;
+       fLastWorldLeft:TKraftVector3;
+       fLastWorldRight:TKraftVector3;
+       fLastWorldDown:TKraftVector3;
+       fLastWorldUp:TKraftVector3;
+       fLastWorldBackward:TKraftVector3;
+       fLastWorldForward:TKraftVector3;
+       fLastWorldPosition:TKraftVector3;
+       fVisualWorldTransform:TKraftMatrix4x4;
+       fVisualWorldLeft:TKraftVector3;
+       fVisualWorldRight:TKraftVector3;
+       fVisualWorldDown:TKraftVector3;
+       fVisualWorldUp:TKraftVector3;
+       fVisualWorldBackward:TKraftVector3;
+       fVisualWorldForward:TKraftVector3;
+       fVisualWorldPosition:TKraftVector3;
+       fInputVertical:TKraftScalar;
+       fInputHorizontal:TKraftScalar;
+       fInputReset:Boolean;
+       fInputBrake:Boolean;
+       fInputHandBrake:Boolean;
+       fSpeed:TKraftScalar;
+       fSpeedKMH:TKraftScalar;
        procedure SetSteeringInput(const aSteeringInput:TKraftScalar);
        procedure SetAccelerationInput(const aAccelerationInput:TKraftScalar);
        function GetSpringRelativePosition(const aWheel:TWheel):TKraftVector3;
@@ -292,6 +321,7 @@ type { TKraftSimpleVehicle }
        function GetWheelGripFactor(const aWheel:TWheel):TKraftScalar;
        function IsGrounded(const aWheel:TWheel):boolean;
        procedure CastSpring(const aWheel:TWheel);
+       procedure UpdateWorldTransformVectors;
        procedure UpdateSuspension;
        procedure UpdateSteering;
        procedure UpdateAcceleration;
@@ -302,6 +332,11 @@ type { TKraftSimpleVehicle }
        destructor Destroy; override;
        procedure Initialize;       
        procedure Update(const aDeltaTime:TKraftScalar);
+       procedure StoreWorldTransforms;
+       procedure InterpolateWorldTransforms(const aAlpha:TKraftScalar);
+{$ifdef DebugDraw}
+       procedure DebugDraw;
+{$endif}
       public
        property SpringDatas:TSpringDatas read fSpringDatas;
        property Settings:TVehicleSettings read fSettings write fSettings;       
@@ -311,6 +346,40 @@ type { TKraftSimpleVehicle }
        property ChassisShape:TKraftShape read fChassisShape write fChassisShape;
        property SteeringInput:TKraftScalar read fSteeringInput write SetSteeringInput;
        property AccelerationInput:TKraftScalar read fAccelerationInput write SetAccelerationInput;
+      public
+       property WorldTransform:TKraftMatrix4x4 read fWorldTransform write fWorldTransform;
+       property WorldLeft:TKraftVector3 read fWorldLeft write fWorldLeft;
+       property WorldRight:TKraftVector3 read fWorldRight write fWorldRight;
+       property WorldDown:TKraftVector3 read fWorldDown write fWorldDown;
+       property WorldUp:TKraftVector3 read fWorldUp write fWorldUp;
+       property WorldBackward:TKraftVector3 read fWorldBackward write fWorldBackward;
+       property WorldForward:TKraftVector3 read fWorldForward write fWorldForward;
+       property WorldPosition:TKraftVector3 read fWorldPosition write fWorldPosition;
+       property LastWorldTransform:TKraftMatrix4x4 read fLastWorldTransform write fLastWorldTransform;
+       property LastWorldLeft:TKraftVector3 read fLastWorldLeft write fLastWorldLeft;
+       property LastWorldRight:TKraftVector3 read fLastWorldRight write fLastWorldRight;
+       property LastWorldDown:TKraftVector3 read fLastWorldDown write fLastWorldDown;
+       property LastWorldUp:TKraftVector3 read fLastWorldUp write fLastWorldUp;
+       property LastWorldBackward:TKraftVector3 read fLastWorldBackward write fLastWorldBackward;
+       property LastWorldForward:TKraftVector3 read fLastWorldForward write fLastWorldForward;
+       property LastWorldPosition:TKraftVector3 read fLastWorldPosition write fLastWorldPosition;
+       property VisualWorldTransform:TKraftMatrix4x4 read fVisualWorldTransform write fVisualWorldTransform;
+       property VisualWorldLeft:TKraftVector3 read fVisualWorldLeft write fVisualWorldLeft;
+       property VisualWorldRight:TKraftVector3 read fVisualWorldRight write fVisualWorldRight;
+       property VisualWorldDown:TKraftVector3 read fVisualWorldDown write fVisualWorldDown;
+       property VisualWorldUp:TKraftVector3 read fVisualWorldUp write fVisualWorldUp;
+       property VisualWorldBackward:TKraftVector3 read fVisualWorldBackward write fVisualWorldBackward;
+       property VisualWorldForward:TKraftVector3 read fVisualWorldForward write fVisualWorldForward;
+       property VisualWorldPosition:TKraftVector3 read fVisualWorldPosition write fVisualWorldPosition;
+      published
+       property InputVertical:TKraftScalar read fInputVertical write fInputVertical;
+       property InputHorizontal:TKraftScalar read fInputHorizontal write fInputHorizontal;
+       property InputReset:Boolean read fInputReset write fInputReset;
+       property InputBrake:Boolean read fInputBrake write fInputBrake;
+       property InputHandBrake:Boolean read fInputHandBrake write fInputHandBrake;
+       property Speed:TKraftScalar read fSpeed write fSpeed;
+       property SpeedKMH:TKraftScalar read fSpeedKMH write fSpeedKMH;
+       property DebugDrawLine:TDebugDrawLine read fDebugDrawLine write fDebugDrawLine;
      end;
 
 implementation
@@ -479,24 +548,22 @@ begin
 end;
 
 function TKraftSimpleVehicle.GetSpringHitPosition(const aWheel:TWheel):TKraftVector3;
-var VehicleDown:TKraftVector3;
 begin
- VehicleDown:=Vector3Neg(Vector3(PKraftRawVector3(@fWorldTransform[1,0])^));
- result:=Vector3Add(GetSpringPosition(aWheel),Vector3ScalarMul(VehicleDown,fSpringDatas[aWheel].fCurrentLength));
+ result:=Vector3Add(GetSpringPosition(aWheel),Vector3ScalarMul(fWorldDown,fSpringDatas[aWheel].fCurrentLength));
 end;
 
 function TKraftSimpleVehicle.GetWheelRollDirection(const aWheel:TWheel):TKraftVector3;
 begin
  if aWheel in [TWheel.FrontLeft,TWheel.FrontRight] then begin
-  result:=Vector3TermQuaternionRotate(Vector3(PKraftRawVector3(@fWorldTransform[2,0])^),QuaternionFromAxisAngle(Vector3(0.0,1.0,0.0),fSteeringInput*fSettings.SteeringAngle));
+  result:=Vector3TermQuaternionRotate(fWorldForward,QuaternionFromAxisAngle(Vector3(0.0,1.0,0.0),fSteeringInput*fSettings.SteeringAngle));
  end else begin
-  result:=Vector3(PKraftRawVector3(@fWorldTransform[2,0])^);
+  result:=fWorldForward;
  end;
 end;
 
 function TKraftSimpleVehicle.GetWheelSlideDirection(const aWheel:TWheel):TKraftVector3;
 begin
- result:=Vector3Cross(Vector3(PKraftRawVector3(@fWorldTransform[1,0])^),GetWheelRollDirection(aWheel));
+ result:=Vector3Cross(fWorldUp,GetWheelRollDirection(aWheel));
 end;
 
 function TKraftSimpleVehicle.GetWheelTorqueRelativePosition(const aWheel:TWheel):TKraftVector3;
@@ -548,7 +615,7 @@ var RayOrigin,RayDirection,HitPoint,HitNormal:TKraftVector3;
 begin
  RayOrigin:=GetSpringPosition(aWheel);
  PreviousLength:=fSpringDatas[aWheel].fCurrentLength;
- RayDirection:=Vector3Neg(Vector3(PKraftRawVector3(@fWorldTransform[1,0])^));
+ RayDirection:=fWorldDown;
  RayLength:=fSettings.SpringRestLength;
  if fPhysics.RayCast(RayOrigin,RayDirection,RayLength,HitShape,HitTime,HitPoint,HitNormal,[0],nil) then begin
   CurrentLength:=HitTime;
@@ -557,6 +624,18 @@ begin
  end;
  fSpringDatas[aWheel].fCurrentVelocity:=(CurrentLength-PreviousLength)*fInverseDeltaTime;
  fSpringDatas[aWheel].fCurrentLength:=CurrentLength;
+end;
+
+procedure TKraftSimpleVehicle.UpdateWorldTransformVectors;
+begin
+ fWorldTransform:=fChassisBody.WorldTransform;
+ fWorldRight:=Vector3(PKraftRawVector3(pointer(@fWorldTransform[0,0]))^);
+ fWorldLeft:=Vector3Neg(fWorldRight);
+ fWorldUp:=Vector3(PKraftRawVector3(pointer(@fWorldTransform[1,0]))^);
+ fWorldDown:=Vector3Neg(fWorldUp);
+ fWorldForward:=Vector3(PKraftRawVector3(pointer(@fWorldTransform[2,0]))^);
+ fWorldBackward:=Vector3Neg(fWorldForward);
+ fWorldPosition:=Vector3(PKraftRawVector3(pointer(@fWorldTransform[3,0]))^);
 end;
 
 procedure TKraftSimpleVehicle.UpdateSuspension;
@@ -569,7 +648,7 @@ begin
   CurrentVelocity:=fSpringDatas[Wheel].fCurrentVelocity;
   Force:=TSpringMath.CalculateForceDamped(CurrentLength,CurrentVelocity,fSettings.SpringRestLength,fSettings.SpringStrength,fSettings.SpringDamper);
   if abs(Force)>EPSILON then begin
-   fChassisBody.AddForceAtPosition(Vector3ScalarMul(Vector3(PKraftRawVector3(@fWorldTransform[1,0])^),Force),GetSpringPosition(Wheel),kfmForce,true);
+   fChassisBody.AddForceAtPosition(Vector3ScalarMul(fWorldUp,Force),GetSpringPosition(Wheel),kfmForce,true);
   end; 
  end;
 end;
@@ -601,7 +680,7 @@ var Wheel:TWheel;
     Position,WheelForward,Force:TKraftVector3;
 begin
  if not IsZero(fAccelerationInput) then begin
-  ForwardSpeed:=Vector3Dot(Vector3(PKraftRawVector3(@fWorldTransform[2,0])^),fChassisBody.LinearVelocity);
+  ForwardSpeed:=Vector3Dot(fWorldForward,fChassisBody.LinearVelocity);
   MovingForward:=ForwardSpeed>0.0;
   Speed:=abs(ForwardSpeed);
   for Wheel:=Low(TWheel) to High(TWheel) do begin
@@ -626,13 +705,13 @@ var Wheel:TWheel;
     AlmostStopping,AccelerationContrary:boolean;
     SpringPosition,RollDirection,Force:TKraftVector3;
 begin
- ForwardSpeed:=Vector3Dot(Vector3(PKraftRawVector3(@fWorldTransform[2,0])^),fChassisBody.LinearVelocity);
+ ForwardSpeed:=Vector3Dot(fWorldForward,fChassisBody.LinearVelocity);
  Speed:=abs(ForwardSpeed);
  AlmostStopping:=Speed<AlmostStoppedSpeed;
  if AlmostStopping then begin
   BrakeRatio:=1.0;
  end else begin
-  AccelerationContrary:=IsZero(fAccelerationInput) and (Vector3Dot(Vector3ScalarMul(Vector3(PKraftRawVector3(@fWorldTransform[2,0])^),fAccelerationInput),fChassisBody.LinearVelocity)<0.0);
+  AccelerationContrary:=IsZero(fAccelerationInput) and (Vector3Dot(Vector3ScalarMul(fWorldForward,fAccelerationInput),fChassisBody.LinearVelocity)<0.0);
   if AccelerationContrary then begin
    BrakeRatio:=1.0;
   end else if IsZero(fAccelerationInput) then begin
@@ -671,12 +750,46 @@ procedure TKraftSimpleVehicle.Update(const aDeltaTime:TKraftScalar);
 begin
  fDeltaTime:=aDeltaTime;
  fInverseDeltaTime:=1.0/fDeltaTime;
+ UpdateWorldTransformVectors;
  UpdateSuspension;
  UpdateSteering;
  UpdateAcceleration;
  UpdateBraking;
  UpdateAirResistance;
 end;
+
+procedure TKraftSimpleVehicle.StoreWorldTransforms;
+begin
+ UpdateWorldTransformVectors;
+ fLastWorldTransform:=fWorldTransform;
+ fLastWorldRight:=Vector3(PKraftRawVector3(pointer(@fLastWorldTransform[0,0]))^);
+ fLastWorldLeft:=Vector3Neg(fLastWorldRight);
+ fLastWorldUp:=Vector3(PKraftRawVector3(pointer(@fLastWorldTransform[1,0]))^);
+ fLastWorldDown:=Vector3Neg(fLastWorldUp);
+ fLastWorldForward:=Vector3(PKraftRawVector3(pointer(@fLastWorldTransform[2,0]))^);
+ fLastWorldBackward:=Vector3Neg(fLastWorldForward);
+ fLastWorldPosition:=Vector3(PKraftRawVector3(pointer(@fLastWorldTransform[3,0]))^);
+end;
+
+procedure TKraftSimpleVehicle.InterpolateWorldTransforms(const aAlpha:TKraftScalar);
+begin
+ UpdateWorldTransformVectors;
+ fVisualWorldTransform:=Matrix4x4Slerp(fLastWorldTransform,fWorldTransform,aAlpha);
+ fVisualWorldRight:=Vector3(PKraftRawVector3(pointer(@fVisualWorldTransform[0,0]))^);
+ fVisualWorldLeft:=Vector3Neg(fVisualWorldRight);
+ fVisualWorldUp:=Vector3(PKraftRawVector3(pointer(@fVisualWorldTransform[1,0]))^);
+ fVisualWorldDown:=Vector3Neg(fVisualWorldUp);
+ fVisualWorldForward:=Vector3(PKraftRawVector3(pointer(@fVisualWorldTransform[2,0]))^);
+ fVisualWorldBackward:=Vector3Neg(fVisualWorldForward);
+ fVisualWorldPosition:=Vector3(PKraftRawVector3(pointer(@fVisualWorldTransform[3,0]))^);
+end;
+
+{$ifdef DebugDraw}
+procedure TKraftSimpleVehicle.DebugDraw;
+begin
+
+end;
+{$endif}
 
 end.
 
