@@ -33,9 +33,9 @@ implementation
 
 uses UnitFormMain;
 
-const CarWidth=1.8;
-      CarLength=4.40;
-      CarHeight=1.55;
+const CarWidth=1.0;
+      CarLength=2.0;
+      CarHeight=0.5;
 
       CarHalfWidth=CarWidth*0.5;
 
@@ -66,6 +66,11 @@ const CarWidth=1.8;
 
 { TDemoSceneRaycastVehicle }
 
+const WheelPositions:array[0..1,0..1] of TKraftVector3=(((x:CarHalfWidth;y:0;z:-CarLength*0.5{$if KraftSIMD};w:0.0{$ifend}),
+                                                         (x:-CarHalfWidth;y:0;z:-CarLength*0.5{$if KraftSIMD};w:0.0{$ifend})),
+                                                        ((x:CarHalfWidth;y:0;z:CarLength*0.5{$if KraftSIMD};w:0.0{$ifend}),
+                                                         (x:-CarHalfWidth;y:0;z:CarLength*0.5{$if KraftSIMD};w:0.0{$ifend})));
+
 constructor TDemoSceneRaycastVehicle.Create(const aKraftPhysics: TKraft);
 const Height=10;
 var Index,i,j:Int32;
@@ -83,6 +88,7 @@ begin
  RigidBodyFloor.SetRigidBodyType(krbtSTATIC);
  ShapeFloorPlane:=TKraftShapePlane.Create(KraftPhysics,RigidBodyFloor,Plane(Vector3Norm(Vector3(0.0,1.0,0.0)),0.0));
  ShapeFloorPlane.Restitution:=0.3;
+ RigidBodyFloor.ForcedMass:=0.01;
  RigidBodyFloor.Finish;
  RigidBodyFloor.SetWorldTransformation(Matrix4x4Translate(0.0,0.0,0.0));
  RigidBodyFloor.CollisionGroups:=[0];
@@ -179,11 +185,11 @@ begin
  Shape.Restitution:=0.3;
  Shape.Density:=200.0;
  Shape.LocalTransform:=Matrix4x4Translate(0.0,0.0,0.0);
- Shape.Flags:=Shape.Flags+[ksfHasForcedCenterOfMass];
- Shape.ForcedCenterOfMass.x:=0;
- Shape.ForcedCenterOfMass.y:=-0.6;
- Shape.ForcedCenterOfMass.z:=0.0;
- Shape.ForcedMass:=1500.0;
+{Shape.Flags:=Shape.Flags+[ksfHasForcedCenterOfMass];
+ Shape.ForcedCenterOfMass.x:=0.0;
+ Shape.ForcedCenterOfMass.y:=0.0;
+ Shape.ForcedCenterOfMass.z:=0.0;}
+ Shape.ForcedMass:=150.0;
  Vehicle.RigidBody.Finish;
  Vehicle.RigidBody.SetWorldTransformation(Matrix4x4TermMul(Matrix4x4RotateY(PI),Matrix4x4Translate(0.0,CarHeight+5.0,0.0)));
  Vehicle.RigidBody.CollisionGroups:=[1];
@@ -193,28 +199,28 @@ begin
 
  Wheel:=TKraftVehicle.TWheel.Create(Vehicle);
  try
-  Wheel.ChassisConnectionPointLocal:=Vector3(-1.0,0.0,1.0);
+  Wheel.ChassisConnectionPointLocal:=WheelPositions[0,0];
  finally
   Vehicle.AddWheel(Wheel);
  end;
 
  Wheel:=TKraftVehicle.TWheel.Create(Vehicle);
  try
-  Wheel.ChassisConnectionPointLocal:=Vector3(1.0,0.0,1.0);
+  Wheel.ChassisConnectionPointLocal:=WheelPositions[0,1];
  finally
   Vehicle.AddWheel(Wheel);
  end;
 
  Wheel:=TKraftVehicle.TWheel.Create(Vehicle);
  try
-  Wheel.ChassisConnectionPointLocal:=Vector3(-1.0,0.0,-1.0);
+  Wheel.ChassisConnectionPointLocal:=WheelPositions[1,0];
  finally
   Vehicle.AddWheel(Wheel);
  end;
 
  Wheel:=TKraftVehicle.TWheel.Create(Vehicle);
  try
-  Wheel.ChassisConnectionPointLocal:=Vector3(1.0,0.0,-1.0);
+  Wheel.ChassisConnectionPointLocal:=WheelPositions[1,1];
  finally
   Vehicle.AddWheel(Wheel);
  end;
@@ -336,6 +342,10 @@ begin
  Vehicle.InputBrake:=InputKeyBrake;
  Vehicle.InputHandBrake:=InputKeyHandBrake;
  Vehicle.Update;*)
+ Vehicle.Wheels[2].EngineForce:=-1000*((ord(InputKeyUp) and 1)-(ord(InputKeyDown) and 1));
+ Vehicle.Wheels[3].EngineForce:=-1000*((ord(InputKeyUp) and 1)-(ord(InputKeyDown) and 1));
+ Vehicle.Wheels[0].Steering:=(ord(InputKeyLeft) and 1)-(ord(InputKeyRight) and 1);
+ Vehicle.Wheels[1].Steering:=(ord(InputKeyLeft) and 1)-(ord(InputKeyRight) and 1);
  Vehicle.Update(DeltaTime);
 end;
 
@@ -349,7 +359,7 @@ begin
  glPointSize(8);
  glLineWidth(4);
  glColor4f(1,1,1,1);
-//Vehicle.DebugDraw;
+ Vehicle.DebugDraw;
  glDisable(GL_DEPTH_TEST);
  glDisable(GL_POLYGON_OFFSET_LINE);
  glDisable(GL_POLYGON_OFFSET_POINT);
@@ -427,13 +437,13 @@ end;
 procedure TDemoSceneRaycastVehicle.StoreWorldTransforms;
 begin
  inherited StoreWorldTransforms;
-//Vehicle.StoreWorldTransforms;
+ Vehicle.StoreWorldTransforms;
 end;
 
 procedure TDemoSceneRaycastVehicle.InterpolateWorldTransforms(const aAlpha:TKraftScalar);
 begin
  inherited InterpolateWorldTransforms(aAlpha);
-//Vehicle.InterpolateWorldTransforms(aAlpha);
+ Vehicle.InterpolateWorldTransforms(aAlpha);
 end;
 
 initialization

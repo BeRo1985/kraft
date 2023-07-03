@@ -191,7 +191,8 @@ uses {$ifdef windows}
 type { TKraftVehicle }
      TKraftVehicle=class
       public
-       type { TWheel }
+       type TDebugDrawLine=procedure(const aP0,aP1:TKraftVector3;const aColor:TKraftVector4) of object;
+            { TWheel }
             TWheel=class
              private
               fVehicle:TKraftVehicle;
@@ -231,12 +232,18 @@ type { TKraftVehicle }
               fSlipInfo:TKraftScalar;
               fIsInContact:boolean;
               fRayCastHitValid:boolean;
+              fLastRayCastHitValid:boolean;
+              fVisualRayCastHitValid:boolean;
               fContactPointWorld:TKraftVector3;
+              fLastContactPointWorld:TKraftVector3;
+              fVisualContactPointWorld:TKraftVector3;
               fContactNormalWorld:TKraftVector3;
               fContactDistance:TKraftScalar;
               fContactShape:TKraftShape;
               fContactRigidBody:TKraftRigidBody;
               fWorldTransform:TKraftMatrix4x4;
+              fLastWorldTransform:TKraftMatrix4x4;
+              fVisualWorldTransform:TKraftMatrix4x4;
              public
               constructor Create(const aVehicle:TKraftVehicle); reintroduce;
               destructor Destroy; override;
@@ -249,6 +256,8 @@ type { TKraftVehicle }
               procedure UpdateWheelTransform;
               procedure ResetSuspension;
               function RayCast:TKraftScalar;
+              procedure StoreWorldTransforms;
+              procedure InterpolateWorldTransforms(const aAlpha:TKraftScalar);
              public
               property Name:UTF8String read fName write fName;
               property ChassisConnectionPointLocal:TKraftVector3 read fChassisConnectionPointLocal write fChassisConnectionPointLocal;
@@ -286,6 +295,7 @@ type { TKraftVehicle }
               property SlipInfo:TKraftScalar read fSlipInfo write fSlipInfo;
               property IsInContact:boolean read fIsInContact write fIsInContact;
               property WorldTransform:TKraftMatrix4x4 read fWorldTransform write fWorldTransform;
+              property VisualWorldTransform:TKraftMatrix4x4 read fVisualWorldTransform write fVisualWorldTransform;
             end;
             TWheels=array of TWheel;
             TAxisDirection=(
@@ -308,6 +318,9 @@ type { TKraftVehicle }
        fPitchControl:TKraftScalar;
        fSteeringValue:TKraftScalar;
        fCurrentVehicleSpeedKMHour:TKraftScalar;
+       fForwardVectors:array of TKraftVector3;
+       fAxleVectors:array of TKraftVector3;
+       fDebugDrawLine:TDebugDrawLine;
        fWorldTransform:TKraftMatrix4x4;
        fWorldLeft:TKraftVector3;
        fWorldRight:TKraftVector3;
@@ -316,8 +329,29 @@ type { TKraftVehicle }
        fWorldBackward:TKraftVector3;
        fWorldForward:TKraftVector3;
        fWorldPosition:TKraftVector3;
-       fForwardVectors:array of TKraftVector3;
-       fAxleVectors:array of TKraftVector3;
+       fLastWorldTransform:TKraftMatrix4x4;
+       fLastWorldLeft:TKraftVector3;
+       fLastWorldRight:TKraftVector3;
+       fLastWorldDown:TKraftVector3;
+       fLastWorldUp:TKraftVector3;
+       fLastWorldBackward:TKraftVector3;
+       fLastWorldForward:TKraftVector3;
+       fLastWorldPosition:TKraftVector3;
+       fVisualWorldTransform:TKraftMatrix4x4;
+       fVisualWorldLeft:TKraftVector3;
+       fVisualWorldRight:TKraftVector3;
+       fVisualWorldDown:TKraftVector3;
+       fVisualWorldUp:TKraftVector3;
+       fVisualWorldBackward:TKraftVector3;
+       fVisualWorldForward:TKraftVector3;
+       fVisualWorldPosition:TKraftVector3;
+       fInputVertical:TKraftScalar;
+       fInputHorizontal:TKraftScalar;
+       fInputReset:Boolean;
+       fInputBrake:Boolean;
+       fInputHandBrake:Boolean;
+       fSpeed:TKraftScalar;
+       fSpeedKMH:TKraftScalar;
        function GetWheel(const aIndex:TKraftInt32):TWheel;
        function GetAxisDirection(const aAxisDirection:TAxisDirection):TKraftVector3;
       public
@@ -333,15 +367,11 @@ type { TKraftVehicle }
        procedure UpdateSuspension(const aTimeStep:TKraftScalar);
        procedure UpdateFriction(const aTimeStep:TKraftScalar);
        procedure Update(const aTimeStep:TKraftScalar);
-      public
-       property WorldTransform:TKraftMatrix4x4 read fWorldTransform;
-       property WorldLeft:TKraftVector3 read fWorldLeft;
-       property WorldRight:TKraftVector3 read fWorldRight;
-       property WorldDown:TKraftVector3 read fWorldDown;
-       property WorldUp:TKraftVector3 read fWorldUp;
-       property WorldBackward:TKraftVector3 read fWorldBackward;
-       property WorldForward:TKraftVector3 read fWorldForward;
-       property WorldPosition:TKraftVector3 read fWorldPosition; 
+       procedure StoreWorldTransforms;
+       procedure InterpolateWorldTransforms(const aAlpha:TKraftScalar);
+{$ifdef DebugDraw}
+       procedure DebugDraw;
+{$endif}
       published
        property Physics:TKraft read fPhysics write fPhysics;
        property RigidBody:TKraftRigidBody read fRigidBody write fRigidBody; 
@@ -357,6 +387,40 @@ type { TKraftVehicle }
        property PitchControl:TKraftScalar read fPitchControl write fPitchControl;
        property SteeringValue:TKraftScalar read fSteeringValue write fSteeringValue;
        property CurrentVehicleSpeedKMHour:TKraftScalar read fCurrentVehicleSpeedKMHour write fCurrentVehicleSpeedKMHour;
+      public
+       property WorldTransform:TKraftMatrix4x4 read fWorldTransform write fWorldTransform;
+       property WorldLeft:TKraftVector3 read fWorldLeft write fWorldLeft;
+       property WorldRight:TKraftVector3 read fWorldRight write fWorldRight;
+       property WorldDown:TKraftVector3 read fWorldDown write fWorldDown;
+       property WorldUp:TKraftVector3 read fWorldUp write fWorldUp;
+       property WorldBackward:TKraftVector3 read fWorldBackward write fWorldBackward;
+       property WorldForward:TKraftVector3 read fWorldForward write fWorldForward;
+       property WorldPosition:TKraftVector3 read fWorldPosition write fWorldPosition;
+       property LastWorldTransform:TKraftMatrix4x4 read fLastWorldTransform write fLastWorldTransform;
+       property LastWorldLeft:TKraftVector3 read fLastWorldLeft write fLastWorldLeft;
+       property LastWorldRight:TKraftVector3 read fLastWorldRight write fLastWorldRight;
+       property LastWorldDown:TKraftVector3 read fLastWorldDown write fLastWorldDown;
+       property LastWorldUp:TKraftVector3 read fLastWorldUp write fLastWorldUp;
+       property LastWorldBackward:TKraftVector3 read fLastWorldBackward write fLastWorldBackward;
+       property LastWorldForward:TKraftVector3 read fLastWorldForward write fLastWorldForward;
+       property LastWorldPosition:TKraftVector3 read fLastWorldPosition write fLastWorldPosition;
+       property VisualWorldTransform:TKraftMatrix4x4 read fVisualWorldTransform write fVisualWorldTransform;
+       property VisualWorldLeft:TKraftVector3 read fVisualWorldLeft write fVisualWorldLeft;
+       property VisualWorldRight:TKraftVector3 read fVisualWorldRight write fVisualWorldRight;
+       property VisualWorldDown:TKraftVector3 read fVisualWorldDown write fVisualWorldDown;
+       property VisualWorldUp:TKraftVector3 read fVisualWorldUp write fVisualWorldUp;
+       property VisualWorldBackward:TKraftVector3 read fVisualWorldBackward write fVisualWorldBackward;
+       property VisualWorldForward:TKraftVector3 read fVisualWorldForward write fVisualWorldForward;
+       property VisualWorldPosition:TKraftVector3 read fVisualWorldPosition write fVisualWorldPosition;
+      published
+       property InputVertical:TKraftScalar read fInputVertical write fInputVertical;
+       property InputHorizontal:TKraftScalar read fInputHorizontal write fInputHorizontal;
+       property InputReset:Boolean read fInputReset write fInputReset;
+       property InputBrake:Boolean read fInputBrake write fInputBrake;
+       property InputHandBrake:Boolean read fInputHandBrake write fInputHandBrake;
+       property Speed:TKraftScalar read fSpeed write fSpeed;
+       property SpeedKMH:TKraftScalar read fSpeedKMH write fSpeedKMH;
+       property DebugDrawLine:TDebugDrawLine read fDebugDrawLine write fDebugDrawLine;
      end;
 
 implementation
@@ -392,13 +456,13 @@ begin
  fVehicle:=aVehicle;
  fChassisConnectionPointLocal:=Vector3Origin;
  fChassisConnectionPointWorld:=Vector3Origin;
- fDirectionLocal:=Vector3Origin;
+ fDirectionLocal:=Vector3(0.0,-1.0,0.0);
  fDirectionWorld:=Vector3Origin;
- fAxleLocal:=Vector3Origin;
+ fAxleLocal:=Vector3(1.0,0.0,0.0);
  fAxleWorld:=Vector3Origin;
  fSuspensionRestLength:=1.0;
  fSuspensionMaxLength:=2.0;
- fRadius:=1.0;
+ fRadius:=0.5;
  fSuspensionStiffness:=fVehicle.fSuspensionStiffness;
  fDampingCompression:=fVehicle.fSuspensionCompression;
  fDampingRelaxation:=fVehicle.fSuspensionDamping;
@@ -415,8 +479,8 @@ begin
  fSkidInfo:=0.0;
  fSuspensionLength:=0.0;
  fMaxSuspensionTravel:=fVehicle.fMaxSuspensionTravel;
- fUseCustomSlidingRotationalSpeed:=false;
- fCustomSlidingRotationalSpeed:=-0.1;
+ fUseCustomSlidingRotationalSpeed:=true;
+ fCustomSlidingRotationalSpeed:=-0.30;
  fSliding:=false;
  fEngineForce:=0.0;
  fBrake:=0.0;
@@ -424,6 +488,8 @@ begin
  fForwardImpulse:=0.0;
  fIsInContact:=false;
  fRayCastHitValid:=false;
+ fLastRayCastHitValid:=false;
+ fVisualRayCastHitValid:=false;
  fContactPointWorld:=Vector3Origin;
  fContactNormalWorld:=Vector3Origin;
  fContactDistance:=0.0;
@@ -567,8 +633,7 @@ begin
 end;
 
 function TKraftVehicle.TWheel.RayCast:TKraftScalar;
-var RayLen,HitTime,MinSuspensionLength,MaxSuspensionLength,Project,
-    InvProject,ProjectedVelocity:TKraftScalar;
+var RayLen,HitTime,Project,InvProject,ProjectedVelocity:TKraftScalar;
     RayVector,Source,ContactPoint,Target,HitPoint,HitNormal:TKraftVector3;
     HitShape:TKraftShape;    
 begin
@@ -602,9 +667,9 @@ begin
 
   fSuspensionLength:=fContactDistance-fRadius;
 
-  MinSuspensionLength:=fSuspensionRestLength-fMaxSuspensionTravel;
-  MaxSuspensionLength:=fSuspensionRestLength+fMaxSuspensionTravel;
-  fSuspensionLength:=Min(Max(fSuspensionLength,MinSuspensionLength),MaxSuspensionLength);
+  fSuspensionLength:=Min(Max(fSuspensionLength,
+                             fSuspensionRestLength-fMaxSuspensionTravel),
+                         fSuspensionRestLength+fMaxSuspensionTravel);
 
   fContactPointWorld:=HitPoint;
 
@@ -630,6 +695,20 @@ begin
 
 end;
 
+procedure TKraftVehicle.TWheel.StoreWorldTransforms;
+begin
+ fLastRayCastHitValid:=fRayCastHitValid;
+ fLastContactPointWorld:=fContactPointWorld;
+ fLastWorldTransform:=fWorldTransform;
+end;
+
+procedure TKraftVehicle.TWheel.InterpolateWorldTransforms(const aAlpha:TKraftScalar);
+begin
+ fVisualRayCastHitValid:=fLastRayCastHitValid and fRayCastHitValid;
+ fVisualWorldTransform:=Matrix4x4Slerp(fLastWorldTransform,fWorldTransform,aAlpha);
+ fVisualContactPointWorld:=Vector3Lerp(fLastContactPointWorld,fContactPointWorld,aAlpha);
+end;
+
 { TKraftVehicle }
 
 constructor TKraftVehicle.Create(const aPhysics:TKraft);
@@ -646,12 +725,12 @@ begin
  fWheels:=nil;
  fCountWheels:=0;
 
- fSuspensionStiffness:=5.88;
- fSuspensionCompression:=0.83;
- fSuspensionDamping:=0.88;
- fMaxSuspensionTravel:=5.0;
- fFrictionSlip:=10.5;
- fMaxSuspensionForce:=6000.0;
+ fSuspensionStiffness:=30.0;
+ fSuspensionCompression:=2.3;
+ fSuspensionDamping:=4.4;
+ fMaxSuspensionTravel:=0.3;
+ fFrictionSlip:=5.0;
+ fMaxSuspensionForce:=100000.0;
 
  fPitchControl:=0.0;
  fSteeringValue:=0.0;
@@ -659,6 +738,8 @@ begin
 
  fForwardVectors:=nil;
  fAxleVectors:=nil;
+
+ fDebugDrawLine:=nil;
 
 end;
 
@@ -845,12 +926,12 @@ begin
 end;
 
 function ResolveSingleBilateral(const Body1:TKraftRigidBody;
-                                 const Pos1:TKraftVector3;
-                                 const Body2:TKraftRigidBody;
-                                 const Pos2:TKraftVector3;
-                                 const Distance:TKraftScalar;
-                                 const Normal:TKraftVector3;
-                                 const TimeStep:TKraftScalar):TKraftScalar;
+                                const Pos1:TKraftVector3;
+                                const Body2:TKraftRigidBody;
+                                const Pos2:TKraftVector3;
+                                const Distance:TKraftScalar;
+                                const Normal:TKraftVector3;
+                                const TimeStep:TKraftScalar):TKraftScalar;
 const ContactDamping=0.2;
 var NormalLenSqr,RelativeVelocity:TKraftScalar;
     Velocity1,Velocity2,Velocity:TKraftVector3;
@@ -1013,7 +1094,8 @@ begin
   RelativePosition:=Vector3Sub(Wheel.fContactPointWorld,fRigidBody.Sweep.c);
 
   if not IsZero(Wheel.fForwardImpulse) then begin
-   fRigidBody.ApplyImpulseAtRelativePosition(Vector3ScalarMul(fForwardVectors[WheelIndex],Wheel.fForwardImpulse),RelativePosition);
+// fRigidBody.ApplyImpulseAtRelativePosition(Vector3ScalarMul(fForwardVectors[WheelIndex],Wheel.fForwardImpulse),RelativePosition);
+   fRigidBody.AddForceAtRelativePosition(Vector3ScalarMul(fForwardVectors[WheelIndex],Wheel.fForwardImpulse),RelativePosition,kfmImpulse,true);
   end;
 
   if not IsZero(Wheel.fSideImpulse) then begin
@@ -1021,11 +1103,15 @@ begin
    SideImpulse:=Vector3ScalarMul(fAxleVectors[WheelIndex],Wheel.fSideImpulse);
 
    RelativePosition:=Vector3Sub(RelativePosition,Vector3ScalarMul(fWorldUp,Vector3Dot(RelativePosition,fWorldUp)*(1.0-Wheel.fRollInfluence)));
-   
-   fRigidBody.ApplyImpulseAtRelativePosition(SideImpulse,RelativePosition);
+
+{   fRigidBody.AddForceAtRelativePosition(SideImpulse,RelativePosition,kfmImpulse,true);
+
+   Wheel.fContactRigidBody.AddForceAtPosition(Vector3Neg(SideImpulse),Wheel.fContactPointWorld,kfmImpulse,true);
+
+{  fRigidBody.ApplyImpulseAtRelativePosition(SideImpulse,RelativePosition);
 
    Wheel.fContactRigidBody.ApplyImpulseAtPosition(Vector3Neg(SideImpulse),Wheel.fContactPointWorld);
-
+ }
   end;
 
  end;
@@ -1068,8 +1154,12 @@ begin
    SuspensionForce:=Wheel.fMaxSuspensionForce;
   end;
   Impulse:=Vector3ScalarMul(Wheel.fContactNormalWorld,SuspensionForce*aTimeStep);
-  RelativePosition:=Vector3Sub(Wheel.fContactPointWorld,fWorldPosition);
-  fRigidBody.ApplyImpulseAtRelativePosition(Impulse,RelativePosition);
+  if Vector3Length(Impulse)>EPSILON then begin
+{  RelativePosition:=Vector3Sub(Wheel.fContactPointWorld,fWorldPosition);
+   fRigidBody.ApplyImpulseAtRelativePosition(Impulse,RelativePosition);}
+ //fRigidBody.ApplyImpulseAtPosition(Impulse,Wheel.fContactPointWorld);
+   fRigidBody.AddForceAtPosition(Impulse,Wheel.fContactPointWorld,kfmImpulse,true);
+  end;
  end;
 
  UpdateFriction(aTimeStep);
@@ -1097,6 +1187,140 @@ begin
  end;
   
 end;
+
+procedure TKraftVehicle.StoreWorldTransforms;
+var WheelIndex:TKraftInt32;
+begin
+ UpdateWorldTransformVectors;
+ for WheelIndex:=0 to fCountWheels-1 do begin
+  fWheels[WheelIndex].StoreWorldTransforms;
+ end;
+ fLastWorldTransform:=fWorldTransform;
+ fLastWorldRight:=Vector3(PKraftRawVector3(pointer(@fLastWorldTransform[0,0]))^);
+ fLastWorldLeft:=Vector3Neg(fLastWorldRight);
+ fLastWorldUp:=Vector3(PKraftRawVector3(pointer(@fLastWorldTransform[1,0]))^);
+ fLastWorldDown:=Vector3Neg(fLastWorldUp);
+ fLastWorldForward:=Vector3(PKraftRawVector3(pointer(@fLastWorldTransform[2,0]))^);
+ fLastWorldBackward:=Vector3Neg(fLastWorldForward);
+ fLastWorldPosition:=Vector3(PKraftRawVector3(pointer(@fLastWorldTransform[3,0]))^);
+end;
+
+procedure TKraftVehicle.InterpolateWorldTransforms(const aAlpha:TKraftScalar);
+var WheelIndex:TKraftInt32;
+begin
+ UpdateWorldTransformVectors;
+ for WheelIndex:=0 to fCountWheels-1 do begin
+  fWheels[WheelIndex].InterpolateWorldTransforms(aAlpha);
+ end;
+ fVisualWorldTransform:=Matrix4x4Lerp(fLastWorldTransform,fWorldTransform,aAlpha);
+ fVisualWorldRight:=Vector3(PKraftRawVector3(pointer(@fVisualWorldTransform[0,0]))^);
+ fVisualWorldLeft:=Vector3Neg(fVisualWorldRight);
+ fVisualWorldUp:=Vector3(PKraftRawVector3(pointer(@fVisualWorldTransform[1,0]))^);
+ fVisualWorldDown:=Vector3Neg(fVisualWorldUp);
+ fVisualWorldForward:=Vector3(PKraftRawVector3(pointer(@fVisualWorldTransform[2,0]))^);
+ fVisualWorldBackward:=Vector3Neg(fVisualWorldForward);
+ fVisualWorldPosition:=Vector3(PKraftRawVector3(pointer(@fVisualWorldTransform[3,0]))^);
+end;
+
+{$ifdef DebugDraw}
+procedure TKraftVehicle.DebugDraw;
+var WheelIndex:TKraftInt32;
+    Wheel:TKraftVehicle.TWheel;
+    v,v0,v1,v2,v3,f:TKraftVector3;
+    Color:TKraftVector4;
+begin
+{$ifndef NoOpenGL}
+ glDisable(GL_DEPTH_TEST);
+{$endif}
+ for WheelIndex:=0 to fCountWheels-1 do begin
+  Wheel:=fWheels[WheelIndex];
+  v:=Vector3TermMatrixMul(Wheel.ChassisConnectionPointLocal,fRigidBody.InterpolatedWorldTransform);
+
+  f:=Vector3ScalarMul(Vector3Norm(Wheel.fAxleWorld),0.1);
+  v0:=Vector3Sub(v,f);
+  v1:=Vector3Add(v,f);
+  if Wheel.fIsInContact then begin
+   Color:=Vector4(0.0,0.0,1.0,1.0);
+  end else begin
+   Color:=Vector4(1.0,0.0,1.0,1.0);
+  end;
+{$ifdef NoOpenGL}
+  if assigned(fDebugDrawLine) then begin
+   fDebugDrawLine(v0,v1,Color);
+  end;
+{$else}
+  glColor4fv(@Color);
+  glBegin(GL_LINE_STRIP);
+  glVertex3fv(@v0);
+  glVertex3fv(@v1);
+  glEnd;
+{$endif}
+
+  if Wheel.fVisualRayCastHitValid then begin
+   v0:=v;
+   v1:=Wheel.fVisualContactPointWorld;
+{$ifdef NoOpenGL}
+   if assigned(fDebugDrawLine) then begin
+    fDebugDrawLine(v0,v1,Color);
+   end;
+{$else}
+   glColor4fv(@Color);
+   glBegin(GL_LINE_STRIP);
+   glVertex3fv(@v0);
+   glVertex3fv(@v1);
+   glEnd;
+{$endif}
+  end;
+
+  begin
+   v0:=v;
+   f:=Vector3ScalarMul(Vector3Norm(Wheel.fDirectionWorld),Wheel.fSuspensionLength);
+   v1:=Vector3Add(v,f);
+{$ifdef NoOpenGL}
+   if assigned(fDebugDrawLine) then begin
+    fDebugDrawLine(v0,v1,Color);
+   end;
+{$else}
+   glColor4fv(@Color);
+   glBegin(GL_LINE_STRIP);
+   glVertex3fv(@v0);
+   glVertex3fv(@v1);
+   glEnd;
+{$endif}
+  end;
+
+ end;
+{$ifndef NoOpenGL}
+ glEnable(GL_DEPTH_TEST);
+{$endif}
+{$ifdef NoOpenGL}
+ if assigned(fDebugDrawLine) then begin
+  v0:=Vector3Lerp(fAxleFront.fVisualDebugMiddle,v,0.95);
+  fDebugDrawLine(fAxleFront.fVisualDebugMiddle,v0,Vector4(0.0,0.0,1.0,1.0));
+  fDebugDrawLine(v0,v,Vector4(0.0,1.0,1.0,1.0));
+  v0:=Vector3Lerp(fAxleRear.fVisualDebugMiddle,v,0.95);
+  fDebugDrawLine(v,v0,Vector4(0.0,1.0,1.0,1.0));
+  fDebugDrawLine(v0,fAxleRear.fVisualDebugMiddle,Vector4(0.0,0.0,1.0,1.0));
+ end;
+{$else}
+(*glColor4f(0.0,0.0,1.0,1.0);
+ glBegin(GL_LINE_STRIP);
+ glVertex3fv(@fAxleFront.fVisualDebugMiddle);
+ glVertex3fv(@v);
+ glVertex3fv(@fAxleRear.fVisualDebugMiddle);
+ glEnd;
+ begin
+  glColor4f(1.0,1.0,0.0,1.0);
+  glBegin(GL_POINTS);
+  glVertex3fv(@v);
+  glEnd;
+ end;
+ glColor4f(1.0,1.0,1.0,1.0);*)
+ glEnable(GL_DEPTH_TEST);
+{$endif}
+//write(#13,fAxleFront.SteerAngle:1:5,' ',AxleFront.WheelLeft.fYawRad*RAD2DEG:1:5,' ',fSpeed*3.6:1:5,' - ',fWorldForward.x:1:5,' ',fWorldForward.y:1:5,' ',fWorldForward.z:1:5);
+end;
+{$endif}
 
 end.
 

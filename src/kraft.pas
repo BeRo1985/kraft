@@ -2477,6 +2477,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure SetForceAtPosition(const AForce,APosition:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
        procedure AddForceAtPosition(const AForce,APosition:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
 
+       procedure SetForceAtRelativePosition(const AForce,ARelativePosition:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
+       procedure AddForceAtRelativePosition(const AForce,ARelativePosition:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
+
        procedure SetWorldForce(const AForce:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
        procedure AddWorldForce(const AForce:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
 
@@ -31279,6 +31282,28 @@ begin
  if fRigidBodyType=krbtDynamic then begin
   AddWorldForce(AForce,AForceMode,false);
   AddWorldTorque(Vector3Cross(Vector3Sub(APosition,fSweep.c),AForce),AForceMode,false);
+  if aWake and not (krbfAwake in fFlags) then begin
+   SetToAwake;
+  end;
+ end;
+end;
+
+procedure TKraftRigidBody.SetForceAtRelativePosition(const AForce,ARelativePosition:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
+begin
+ if fRigidBodyType=krbtDynamic then begin
+  SetWorldForce(AForce,AForceMode,false);
+  SetWorldTorque(Vector3Cross(ARelativePosition,AForce),AForceMode,false);
+  if aWake and not (krbfAwake in fFlags) then begin
+   SetToAwake;
+  end;
+ end;
+end;
+
+procedure TKraftRigidBody.AddForceAtRelativePosition(const AForce,ARelativePosition:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
+begin
+ if fRigidBodyType=krbtDynamic then begin
+  AddWorldForce(AForce,AForceMode,false);
+  AddWorldTorque(Vector3Cross(ARelativePosition,AForce),AForceMode,false);
   if aWake and not (krbfAwake in fFlags) then begin
    SetToAwake;
   end;

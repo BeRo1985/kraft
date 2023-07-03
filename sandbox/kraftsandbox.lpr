@@ -24,6 +24,7 @@ uses
   kraft in '..\src\kraft.pas',
   KraftArcadeCarPhysics in '..\src\KraftArcadeCarPhysics.pas',
   KraftVehicle in '..\src\KraftVehicle.pas',
+  KraftSimpleVehicle in '..\src\KraftSimpleVehicle.pas',
   UnitDemoScene in 'UnitDemoScene.pas',
   UnitDemoSceneCatapult in 'UnitDemoSceneCatapult.pas',
   UnitDemoSceneRoundabout in 'UnitDemoSceneRoundabout.pas',
