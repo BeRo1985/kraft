@@ -701,7 +701,7 @@ procedure TKraftSimpleVehicle.UpdateAcceleration;
 var Wheel:TWheel;
     ForwardSpeed,Speed:TKraftScalar;
     MovingForward:boolean;
-    Position,WheelForward,Force:TKraftVector3;
+    WheelForward,Force:TKraftVector3;
 begin
  if not IsZero(fAccelerationInput) then begin
   ForwardSpeed:=Vector3Dot(fWorldForward,fRigidBody.LinearVelocity);
@@ -711,12 +711,15 @@ begin
    if IsGrounded(Wheel) and
       ((MovingForward and (Speed<fSettings.fMaximumSpeed)) or 
        ((not MovingForward) and (Speed<fSettings.fMaximumReverseSpeed))) then begin
-    Position:=GetWheelTorquePosition(Wheel);
+
     WheelForward:=GetWheelRollDirection(Wheel);
+
     Force:=Vector3ScalarMul(WheelForward,fAccelerationInput*fSettings.fAccelerationPower);
+
     if Vector3Length(Force)>EPSILON then begin
-     fRigidBody.AddForceAtPosition(Force,Position,kfmForce,true);
+     fRigidBody.AddForceAtPosition(Force,GetWheelTorquePosition(Wheel),kfmForce,true);
     end;
+
    end; 
   end;
  end; 
@@ -730,7 +733,7 @@ var Wheel:TWheel;
     SpringPosition,RollDirection,Force:TKraftVector3;
 begin
 
-ForwardSpeed:=Vector3Dot(fWorldForward,fRigidBody.LinearVelocity);
+ ForwardSpeed:=Vector3Dot(fWorldForward,fRigidBody.LinearVelocity);
  Speed:=abs(ForwardSpeed);
  AlmostStopping:=Speed<AlmostStoppedSpeed;
  if AlmostStopping then begin
