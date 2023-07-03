@@ -193,6 +193,50 @@ type { TKraftSimpleVehicle }
       public
        const CountWheels=4; // Count of wheels
        type TDebugDrawLine=procedure(const aP0,aP1:TKraftVector3;const aColor:TKraftVector4) of object;
+            { TEnvelope }
+            TEnvelope=class
+             public
+              type TMode=
+                    (
+                     Custom,
+                     Linear,
+                     EaseInOut
+                    );
+              type TPoint=record
+                    private
+                     fTime:TKraftScalar;
+                     fValue:TKraftScalar;
+                    public
+                     property Time:TKraftScalar read fTime write fTime;
+                     property Value:TKraftScalar read fValue write fValue;
+                   end;
+                   PPoint=^TPoint;
+                   TPoints=array of TPoint;
+             private
+              fMode:TMode;
+              fPoints:TPoints;
+              fCount:TKraftInt32;
+             public
+              constructor Create; reintroduce;
+              constructor CreateLinear(const aTimeStart,aValueStart,aTimeEnd,aValueEnd:TKraftScalar);
+              constructor CreateEaseInOut(const aTimeStart,aValueStart,aTimeEnd,aValueEnd:TKraftScalar;const aSteps:TKraftInt32=16);
+              destructor Destroy; override;
+              procedure Clear;
+              procedure Assign(const aFrom:TEnvelope);
+              procedure Insert(const aTime,aValue:TKraftScalar);
+              procedure FillLinear(const aTimeStart,aValueStart,aTimeEnd,aValueEnd:TKraftScalar);
+              procedure FillEaseInOut(const aTimeStart,aValueStart,aTimeEnd,aValueEnd:TKraftScalar;const aSteps:TKraftInt32=16);
+{$ifdef KraftPasJSON}
+              procedure LoadFromJSON(const aJSONItem:TPasJSONItem);
+              function SaveToJSON:TPasJSONItem;
+{$endif}
+              function GetTimeAtIndex(const aIndex:TKraftInt32):TKraftScalar;
+              function GetValueAtIndex(const aIndex:TKraftInt32):TKraftScalar;
+              function GetIndexFromTime(const aTime:TKraftScalar):TKraftInt32;
+              function GetValueAtTime(const aTime:TKraftScalar):TKraftScalar;
+             published
+              property Count:TKraftInt32 read fCount;
+            end;
             { TSpringMath }
             TSpringMath=class
              public
@@ -268,10 +312,17 @@ type { TKraftSimpleVehicle }
               fBrakePower:TKraftScalar;
               fMaximumSpeed:TKraftScalar;
               fMaximumReverseSpeed:TKraftScalar;
-              fSteeringAngle:TKraftScalar;
               fFrontWheelsGripFactor:TKraftScalar;
               fBackWheelsGripFactor:TKraftScalar;
               fAirResistance:TKraftScalar;
+              fHandBrakeSlipperyTime:TKraftScalar;
+              fAccelerationCurveEnvelope:TEnvelope;
+              fReverseAccelerationCurveEnvelope:TEnvelope;
+              fReverseEvaluationAccuracy:TKraftInt32;
+              fSteerAngleLimitEnvelope:TEnvelope;
+              fSteeringResetSpeedEnvelope:TEnvelope;
+              fSteeringSpeedEnvelope:TEnvelope;
+              fDownForceCurveEnvelope:TEnvelope;
              public
               constructor Create; reintroduce;
               destructor Destroy; override;
@@ -296,17 +347,17 @@ type { TKraftSimpleVehicle }
               property BrakePower:TKraftScalar read fBrakePower write fBrakePower;
               property MaximumSpeed:TKraftScalar read fMaximumSpeed write fMaximumSpeed;
               property MaximumReverseSpeed:TKraftScalar read fMaximumReverseSpeed write fMaximumReverseSpeed;
-              property SteeringAngle:TKraftScalar read fSteeringAngle write fSteeringAngle;
               property FrontWheelsGripFactor:TKraftScalar read fFrontWheelsGripFactor write fFrontWheelsGripFactor;
               property BackWheelsGripFactor:TKraftScalar read fBackWheelsGripFactor write fBackWheelsGripFactor;
               property AirResistance:TKraftScalar read fAirResistance write fAirResistance;
+              property HandBrakeSlipperyTime:TKraftScalar read fHandBrakeSlipperyTime write fHandBrakeSlipperyTime;
             end;
       private
        fPhysics:TKraft;
        fRigidBody:TKraftRigidBody;
        fShape:TKraftShape;
        fWheels:TWheels;
-       fSteeringInput:TKraftScalar;
+       fControllable:boolean;
        fAccelerationInput:TKraftScalar;
        fSettings:TVehicleSettings;
        fForward:TKraftVector3;
@@ -343,15 +394,25 @@ type { TKraftSimpleVehicle }
        fInputReset:Boolean;
        fInputBrake:Boolean;
        fInputHandBrake:Boolean;
+       fIsAcceleration:Boolean;
+       fIsReverseAcceleration:Boolean;
+       fIsBrake:Boolean;
+       fIsHandBrake:Boolean;
+       fBrakeSlipperyTiresTime:TKraftScalar;
+       fHandBrakeSlipperyTiresTime:TKraftScalar;
+       fSteeringAngle:TKraftScalar;
        fRelativeSpeed:TKraftScalar;
        fMovingForward:boolean;
        fAbsoluteSpeed:TKraftScalar;
        fSpeed:TKraftScalar;
        fSpeedKMH:TKraftScalar;
        procedure CalculateAckermannSteering;
-       procedure SetSteeringInput(const aSteeringInput:TKraftScalar);
-       procedure SetAccelerationInput(const aAccelerationInput:TKraftScalar);
+       function GetHandBrakeK:TKraftScalar;
+       function GetSteeringHandBrakeK:TKraftScalar;
+       function GetSteerAngleLimitInDeg(const aSpeedMetersPerSec:TKraftScalar):TKraftScalar;
+       function GetSpeed:TKraftScalar;
        procedure UpdateGlobals;
+       procedure UpdateInput;
        procedure UpdateWorldTransformVectors;
        procedure UpdateSuspension;
        procedure UpdateSteering;
@@ -363,6 +424,7 @@ type { TKraftSimpleVehicle }
       public
        constructor Create(const aPhysics:TKraft); reintroduce;
        destructor Destroy; override;
+       procedure Reset;
        procedure Finish;
        procedure Update(const aDeltaTime:TKraftScalar);
        procedure StoreWorldTransforms;
@@ -376,8 +438,7 @@ type { TKraftSimpleVehicle }
        property Physics:TKraft read fPhysics;
        property RigidBody:TKraftRigidBody read fRigidBody write fRigidBody;
        property Shape:TKraftShape read fShape write fShape;
-       property SteeringInput:TKraftScalar read fSteeringInput write SetSteeringInput;
-       property AccelerationInput:TKraftScalar read fAccelerationInput write SetAccelerationInput;
+       property Controllable:boolean read fControllable write fControllable;
       public
        property WorldTransform:TKraftMatrix4x4 read fWorldTransform write fWorldTransform;
        property WorldLeft:TKraftVector3 read fWorldLeft write fWorldLeft;
@@ -415,6 +476,359 @@ type { TKraftSimpleVehicle }
      end;
 
 implementation
+
+function Clamp(const aValue,aMin,aMax:TKraftScalar):TKraftScalar; inline;
+begin
+ if aValue<=aMin then begin
+  result:=aMin;
+ end else if aValue>=aMax then begin
+  result:=aMax;
+ end else begin
+  result:=aValue;
+ end;
+end;
+
+function Clamp01(const aValue:TKraftScalar):TKraftScalar; inline;
+begin
+ if aValue<=0.0 then begin
+  result:=0.0;
+ end else if aValue>=1.0 then begin
+  result:=1.0;
+ end else begin
+  result:=aValue;
+ end;
+end;
+
+function Lerp(a,b,x:TKraftScalar):TKraftScalar; inline;
+begin
+ if x<=0.0 then begin
+  result:=a;
+ end else if x>=1.0 then begin
+  result:=b;
+ end else begin
+  result:=(a*(1.0-x))+(b*x);
+ end;
+end;
+
+{ TEnvelope }
+
+constructor TKraftSimpleVehicle.TEnvelope.Create;
+begin
+ inherited Create;
+ fMode:=TKraftSimpleVehicle.TEnvelope.TMode.Custom;
+ fPoints:=nil;
+ fCount:=0;
+end;
+
+constructor TKraftSimpleVehicle.TEnvelope.CreateLinear(const aTimeStart,aValueStart,aTimeEnd,aValueEnd:TKraftScalar);
+begin
+ Create;
+ FillLinear(aTimeStart,aValueStart,aTimeEnd,aValueEnd);
+end;
+
+constructor TKraftSimpleVehicle.TEnvelope.CreateEaseInOut(const aTimeStart,aValueStart,aTimeEnd,aValueEnd:TKraftScalar;const aSteps:TKraftInt32=16);
+begin
+ Create;
+ FillEaseInOut(aTimeStart,aValueStart,aTimeEnd,aValueEnd,aSteps);
+end;
+
+destructor TKraftSimpleVehicle.TEnvelope.Destroy;
+begin
+ fPoints:=nil;
+ inherited Destroy;
+end;
+
+procedure TKraftSimpleVehicle.TEnvelope.Clear;
+begin
+ fMode:=TKraftSimpleVehicle.TEnvelope.TMode.Custom;
+ fPoints:=nil;
+ fCount:=0;
+end;
+
+procedure TKraftSimpleVehicle.TEnvelope.Assign(const aFrom:TEnvelope);
+begin
+ fMode:=aFrom.fMode;
+ fPoints:=copy(aFrom.fPoints);
+ fCount:=aFrom.fCount;
+end;
+
+procedure TKraftSimpleVehicle.TEnvelope.Insert(const aTime,aValue:TKraftScalar);
+var Index,LowIndex,HighIndex,MidIndex:TKraftInt32;
+    Point:PPoint;
+begin
+ if fCount>0 then begin
+  if aTime<fPoints[0].fTime then begin
+   LowIndex:=0;
+  end else if fPoints[fCount-1].fTime<aTime then begin
+   LowIndex:=fCount;
+  end else begin
+   LowIndex:=0;
+   HighIndex:=fCount-1;
+   while LowIndex<=HighIndex do begin
+    MidIndex:=LowIndex+((HighIndex-LowIndex) shr 1);
+    Point:=@fPoints[MidIndex];
+    case Sign(Point^.fTime-aTime) of
+     -1:begin
+      LowIndex:=MidIndex+1;
+     end;
+     1:begin
+      HighIndex:=MidIndex-1;
+     end;
+     else begin
+      Point^.fValue:=aValue;
+      exit;
+     end;
+    end;
+   end;
+  end;
+  inc(fCount);
+  if length(fPoints)<fCount then begin
+   SetLength(fPoints,(fCount*3) shr 1);
+  end;
+  for Index:=fCount-1 downto LowIndex+1 do begin
+   fPoints[Index]:=fPoints[Index-1];
+  end;
+  Index:=LowIndex;
+ end else begin
+  fCount:=1;
+  SetLength(fPoints,1);
+  Index:=0;
+ end;
+ fMode:=TKraftSimpleVehicle.TEnvelope.TMode.Custom;
+ Point:=@fPoints[Index];
+ Point^.fTime:=aTime;
+ Point^.fValue:=aValue;
+end;
+
+procedure TKraftSimpleVehicle.TEnvelope.FillLinear(const aTimeStart,aValueStart,aTimeEnd,aValueEnd:TKraftScalar);
+begin
+ Clear;
+ Insert(aTimeStart,aValueStart);
+ Insert(aTimeEnd,aValueEnd);
+ fMode:=TKraftSimpleVehicle.TEnvelope.TMode.Linear;
+end;
+
+procedure TKraftSimpleVehicle.TEnvelope.FillEaseInOut(const aTimeStart,aValueStart,aTimeEnd,aValueEnd:TKraftScalar;const aSteps:TKraftInt32=16);
+var Index,Last:TKraftInt32;
+    x,Time,Value:TKraftScalar;
+begin
+ Clear;
+ Last:=aSteps-1;
+ for Index:=0 to Last do begin
+  x:=Index/Last;
+  Time:=(aTimeStart*(1.0-x))+(aTimeEnd*x);
+  if x<0.5 then begin
+   x:=(1-sqrt(1-sqr(2*x)))*0.5;
+  end else begin
+   x:=(sqrt(1-sqr((-2*x)+2))+1)*0.5;
+  end;
+  Value:=(aValueStart*(1.0-x))+(aValueEnd*x);
+  Insert(Time,Value);
+ end;
+ fMode:=TKraftSimpleVehicle.TEnvelope.TMode.EaseInOut;
+end;
+
+{$ifdef KraftPasJSON}
+procedure TKraftSimpleVehicle.TEnvelope.LoadFromJSON(const aJSONItem:TPasJSONItem);
+var RootJSONItemObject:TPasJSONItemObject;
+    Mode:TPasJSONUTF8String;
+    JSONItem:TPasJSONItem;
+    JSONItemArray:TPasJSONItemArray;
+    JSONItemObject:TPasJSONItemObject;
+begin
+ if assigned(aJSONItem) and (aJSONItem is TPasJSONItemObject) then begin
+  RootJSONItemObject:=TPasJSONItemObject(aJSONItem);
+  Mode:=TPasJSON.GetString(RootJSONItemObject.Properties['mode'],'');
+  if Mode='linear' then begin
+   FillLinear(TPasJSON.GetNumber(RootJSONItemObject.Properties['timestart'],0.0),
+              TPasJSON.GetNumber(RootJSONItemObject.Properties['valuestart'],0.0),
+              TPasJSON.GetNumber(RootJSONItemObject.Properties['timeend'],0.0),
+              TPasJSON.GetNumber(RootJSONItemObject.Properties['valueend'],0.0));
+  end else if Mode='easeinout' then begin
+   FillEaseInOut(TPasJSON.GetNumber(RootJSONItemObject.Properties['timestart'],0.0),
+                 TPasJSON.GetNumber(RootJSONItemObject.Properties['valuestart'],0.0),
+                 TPasJSON.GetNumber(RootJSONItemObject.Properties['timeend'],0.0),
+                 TPasJSON.GetNumber(RootJSONItemObject.Properties['valueend'],0.0),
+                 TPasJSON.GetInt64(RootJSONItemObject.Properties['steps'],16));
+  end else if Mode='custom' then begin
+   Clear;
+   JSONItem:=RootJSONItemObject.Properties['points'];
+   if assigned(JSONItem) and (JSONItem is TPasJSONItemArray) then begin
+    JSONItemArray:=TPasJSONItemArray(JSONItem);
+    for JSONItem in JSONItemArray do begin
+     if assigned(JSONItem) and (JSONItem is TPasJSONItemObject) then begin
+      JSONItemObject:=TPasJSONItemObject(JSONItem);
+      Insert(TPasJSON.GetNumber(JSONItemObject.Properties['time'],0.0),TPasJSON.GetNumber(JSONItemObject.Properties['value'],0.0));
+     end;
+    end;
+   end;
+  end;
+ end;
+end;
+
+function TKraftSimpleVehicle.TEnvelope.SaveToJSON:TPasJSONItem;
+var Index:TKraftSizeInt;
+    JSONItemArray:TPasJSONItemArray;
+    JSONItemObject:TPasJSONItemObject;
+begin
+ result:=TPasJSONItemObject.Create;
+ case fMode of
+  TKraftSimpleVehicle.TEnvelope.TMode.Linear:begin
+   TPasJSONItemObject(result).Add('mode',TPasJSONItemString.Create('linear'));
+   TPasJSONItemObject(result).Add('timestart',TPasJSONItemNumber.Create(fPoints[0].fTime));
+   TPasJSONItemObject(result).Add('valuestart',TPasJSONItemNumber.Create(fPoints[0].fValue));
+   TPasJSONItemObject(result).Add('timeend',TPasJSONItemNumber.Create(fPoints[1].fTime));
+   TPasJSONItemObject(result).Add('valueend',TPasJSONItemNumber.Create(fPoints[1].fValue));
+  end;
+  TKraftSimpleVehicle.TEnvelope.TMode.EaseInOut:begin
+   TPasJSONItemObject(result).Add('mode',TPasJSONItemString.Create('easeinout'));
+   TPasJSONItemObject(result).Add('timestart',TPasJSONItemNumber.Create(fPoints[0].fTime));
+   TPasJSONItemObject(result).Add('valuestart',TPasJSONItemNumber.Create(fPoints[0].fValue));
+   TPasJSONItemObject(result).Add('timeend',TPasJSONItemNumber.Create(fPoints[fCount-1].fTime));
+   TPasJSONItemObject(result).Add('valueend',TPasJSONItemNumber.Create(fPoints[fCount-1].fValue));
+   TPasJSONItemObject(result).Add('steps',TPasJSONItemNumber.Create(fCount));
+  end;
+  else {TKraftSimpleVehicle.TEnvelope.TMode.Custom:}begin
+   TPasJSONItemObject(result).Add('mode',TPasJSONItemString.Create('custom'));
+   JSONItemArray:=TPasJSONItemArray.Create;
+   try
+    for Index:=0 to length(fPoints)-1 do begin
+     JSONItemObject:=TPasJSONItemObject.Create;
+     try
+      JSONItemObject.Add('time',TPasJSONItemNumber.Create(fPoints[Index].fTime));
+      JSONItemObject.Add('value',TPasJSONItemNumber.Create(fPoints[Index].fValue));
+     finally
+      JSONItemArray.Add(JSONItemObject);
+     end;
+    end;
+   finally
+    TPasJSONItemObject(result).Add('points',JSONItemArray);
+   end;
+  end;
+ end;
+end;
+{$endif}
+
+function TKraftSimpleVehicle.TEnvelope.GetTimeAtIndex(const aIndex:TKraftInt32):TKraftScalar;
+begin
+ if (aIndex>=0) and (aIndex<fCount) then begin
+  result:=fPoints[aIndex].fTime;
+ end else begin
+  result:=0.0;
+ end;
+end;
+
+function TKraftSimpleVehicle.TEnvelope.GetValueAtIndex(const aIndex:TKraftInt32):TKraftScalar;
+begin
+ if (aIndex>=0) and (aIndex<fCount) then begin
+  result:=fPoints[aIndex].fValue;
+ end else begin
+  result:=0.0;
+ end;
+end;
+
+function TKraftSimpleVehicle.TEnvelope.GetIndexFromTime(const aTime:TKraftScalar):TKraftInt32;
+var LowIndex,HighIndex,MidIndex:TKraftInt32;
+    Point:PPoint;
+begin
+ if fCount>0 then begin
+  if aTime<fPoints[0].fTime then begin
+   LowIndex:=0;
+  end else if fPoints[fCount-1].fTime<aTime then begin
+   LowIndex:=fCount;
+  end else begin
+   LowIndex:=0;
+   HighIndex:=fCount-1;
+   while LowIndex<=HighIndex do begin
+    MidIndex:=LowIndex+((HighIndex-LowIndex) shr 1);
+    Point:=@fPoints[MidIndex];
+    case Sign(Point^.fTime-aTime) of
+     -1:begin
+      LowIndex:=MidIndex+1;
+     end;
+     1:begin
+      HighIndex:=MidIndex-1;
+     end;
+     else begin
+      result:=MidIndex;
+      exit;
+     end;
+    end;
+   end;
+  end;
+  HighIndex:=LowIndex;
+  dec(LowIndex);
+  if LowIndex<0 then begin
+   LowIndex:=0;
+  end else if LowIndex>=fCount then begin
+   LowIndex:=fCount-1;
+  end;
+  if HighIndex<0 then begin
+   HighIndex:=0;
+  end else if HighIndex>=fCount then begin
+   HighIndex:=fCount-1;
+  end;
+  if (LowIndex=HighIndex) or SameValue(fPoints[LowIndex].fTime,fPoints[HighIndex].fTime) then begin
+   result:=HighIndex;
+  end else begin
+   result:=LowIndex;
+  end;
+ end else begin
+  result:=-1;
+ end;
+end;
+
+function TKraftSimpleVehicle.TEnvelope.GetValueAtTime(const aTime:TKraftScalar):TKraftScalar;
+var LowIndex,HighIndex,MidIndex:TKraftInt32;
+    Point:PPoint;
+begin
+ if fCount>0 then begin
+  if aTime<fPoints[0].fTime then begin
+   LowIndex:=0;
+  end else if fPoints[fCount-1].fTime<aTime then begin
+   LowIndex:=fCount;
+  end else begin
+   LowIndex:=0;
+   HighIndex:=fCount-1;
+   while LowIndex<=HighIndex do begin
+    MidIndex:=LowIndex+((HighIndex-LowIndex) shr 1);
+    Point:=@fPoints[MidIndex];
+    case Sign(Point^.fTime-aTime) of
+     -1:begin
+      LowIndex:=MidIndex+1;
+     end;
+     1:begin
+      HighIndex:=MidIndex-1;
+     end;
+     else begin
+      result:=Point^.fValue;
+      exit;
+     end;
+    end;
+   end;
+  end;
+  HighIndex:=LowIndex;
+  dec(LowIndex);
+  if LowIndex<0 then begin
+   LowIndex:=0;
+  end else if LowIndex>=fCount then begin
+   LowIndex:=fCount-1;
+  end;
+  if HighIndex<0 then begin
+   HighIndex:=0;
+  end else if HighIndex>=fCount then begin
+   HighIndex:=fCount-1;
+  end;
+  if (LowIndex=HighIndex) or SameValue(fPoints[LowIndex].fTime,fPoints[HighIndex].fTime) then begin
+   result:=fPoints[HighIndex].fValue;
+  end else begin
+   result:=Clamp01((aTime-fPoints[LowIndex].fTime)/(fPoints[HighIndex].fTime-fPoints[LowIndex].fTime));
+   result:=(fPoints[LowIndex].fValue*(1.0-result))+(fPoints[HighIndex].fValue*result);
+  end;
+ end else begin
+  result:=0;
+ end;
+end;
 
 { TKraftSimpleVehicle.TSpringMath }
 
@@ -717,14 +1131,27 @@ begin
  fBrakePower:=1.5;
  fMaximumSpeed:=10;
  fMaximumReverseSpeed:=2.5;
- fSteeringAngle:=20.0;
  fFrontWheelsGripFactor:=0.8;
  fBackWheelsGripFactor:=0.9;
  fAirResistance:=5.0;
+ fHandBrakeSlipperyTime:=2.2;
+ fAccelerationCurveEnvelope:=TEnvelope.CreateLinear(0.0,0.0,5.0,100.0);
+ fReverseAccelerationCurveEnvelope:=TEnvelope.CreateLinear(0.0,0.0,5.0,20.0);
+ fReverseEvaluationAccuracy:=25;
+ fSteerAngleLimitEnvelope:=TEnvelope.CreateLinear(0.0,35.0,100.0,5.0);
+ fSteeringResetSpeedEnvelope:=TEnvelope.CreateEaseInOut(0.0,30.0,100.0,10.0,64);
+ fSteeringSpeedEnvelope:=TEnvelope.CreateLinear(0.0,2.0,100.0,0.5);
+ fDownForceCurveEnvelope:=TEnvelope.CreateLinear(0.0,0.0,200.0,100.0);
 end;
 
 destructor TKraftSimpleVehicle.TVehicleSettings.Destroy;
 begin
+ FreeAndNil(fAccelerationCurveEnvelope);
+ FreeAndNil(fReverseAccelerationCurveEnvelope);
+ FreeAndNil(fSteerAngleLimitEnvelope);
+ FreeAndNil(fSteeringResetSpeedEnvelope);
+ FreeAndNil(fSteeringSpeedEnvelope);
+ FreeAndNil(fDownForceCurveEnvelope);
  inherited Destroy;
 end;
 
@@ -748,10 +1175,17 @@ begin
   fBrakePower:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['brakepower'],fBrakePower);
   fMaximumSpeed:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['maximumspeed'],fMaximumSpeed);
   fMaximumReverseSpeed:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['maximumreversespeed'],fMaximumReverseSpeed);
-  fSteeringAngle:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['steeringangle'],fSteeringAngle);
   fFrontWheelsGripFactor:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['frontwheelsgripfactor'],fFrontWheelsGripFactor);
   fBackWheelsGripFactor:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['backwheelsgripfactor'],fBackWheelsGripFactor);
   fAirResistance:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['airresistance'],fAirResistance);
+  fHandBrakeSlipperyTime:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['handbrakeslipperytime'],fHandBrakeSlipperyTime);
+  fAccelerationCurveEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['accelerationcurveenvelope']);
+  fReverseAccelerationCurveEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['reverseaccelerationcurveenvelope']);
+  fReverseEvaluationAccuracy:=TPasJSON.GetInt64(TPasJSONItemObject(aJSONItem).Properties['reverseevaluationaccuracy'],fReverseEvaluationAccuracy);
+  fSteerAngleLimitEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['steeranglelimitenvelope']);
+  fSteeringResetSpeedEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['steeringresetspeedenvelope']);
+  fSteeringSpeedEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['steeringspeedenvelope']);
+  fDownForceCurveEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['downforcecurveenvelope']);
  end;
 end;
 
@@ -774,10 +1208,17 @@ begin
  TPasJSONItemObject(result).Add('brakepower',TPasJSONItemNumber.Create(fBrakePower));
  TPasJSONItemObject(result).Add('maximumspeed',TPasJSONItemNumber.Create(fMaximumSpeed));
  TPasJSONItemObject(result).Add('maximumreversespeed',TPasJSONItemNumber.Create(fMaximumReverseSpeed));
- TPasJSONItemObject(result).Add('steeringangle',TPasJSONItemNumber.Create(fSteeringAngle));
  TPasJSONItemObject(result).Add('frontwheelsgripfactor',TPasJSONItemNumber.Create(fFrontWheelsGripFactor));
  TPasJSONItemObject(result).Add('backwheelsgripfactor',TPasJSONItemNumber.Create(fBackWheelsGripFactor));
  TPasJSONItemObject(result).Add('airresistance',TPasJSONItemNumber.Create(fAirResistance));
+ TPasJSONItemObject(result).Add('handbrakeslipperytime',TPasJSONItemNumber.Create(fHandBrakeSlipperyTime));
+ TPasJSONItemObject(result).Add('accelerationcurveenvelope',fAccelerationCurveEnvelope.SaveToJSON);
+ TPasJSONItemObject(result).Add('reverseaccelerationcurveenvelope',fReverseAccelerationCurveEnvelope.SaveToJSON);
+ TPasJSONItemObject(result).Add('reverseevaluationaccuracy',TPasJSONItemNumber.Create(fReverseEvaluationAccuracy));
+ TPasJSONItemObject(result).Add('steeranglelimitenvelope',fSteerAngleLimitEnvelope.SaveToJSON);
+ TPasJSONItemObject(result).Add('steeringresetspeedenvelope',fSteeringResetSpeedEnvelope.SaveToJSON);
+ TPasJSONItemObject(result).Add('steeringspeedenvelope',fSteeringSpeedEnvelope.SaveToJSON);
+ TPasJSONItemObject(result).Add('downforcecurveenvelope',fDownForceCurveEnvelope.SaveToJSON);
 end;
 {$endif}
 
@@ -790,14 +1231,15 @@ begin
  fPhysics:=aPhysics;
  fRigidBody:=nil;
  fShape:=nil;
- fSteeringInput:=0;
  fAccelerationInput:=0;
+ fControllable:=true;
  fForward:=Vector3(0.0,0.0,-1.0);
  fVelocity:=Vector3(0.0,0.0,0.0);
  fSettings:=TKraftSimpleVehicle.TVehicleSettings.Create;
  for WheelID:=Low(TWheelID) to High(TWheelID) do begin
   fWheels[WheelID]:=TKraftSimpleVehicle.TWheel.Create(self,WheelID);
  end;
+ Reset;
 end;
 
 destructor TKraftSimpleVehicle.Destroy;
@@ -808,6 +1250,13 @@ begin
  end;
  FreeAndNil(fSettings);
  inherited Destroy;
+end;
+
+procedure TKraftSimpleVehicle.Reset;
+begin
+ fBrakeSlipperyTiresTime:=0.0;
+ fHandBrakeSlipperyTiresTime:=0.0;
+ fSteeringAngle:=0.0;
 end;
 
 procedure TKraftSimpleVehicle.Finish;
@@ -835,16 +1284,6 @@ begin
 
 end;
 
-procedure TKraftSimpleVehicle.SetSteeringInput(const aSteeringInput:TKraftScalar);
-begin
- fSteeringInput:=Min(Max(aSteeringInput,-1.0),1.0);
-end;
-
-procedure TKraftSimpleVehicle.SetAccelerationInput(const aAccelerationInput:TKraftScalar);
-begin
- fAccelerationInput:=Min(Max(aAccelerationInput,-1.0),1.0);
-end;
-
 procedure TKraftSimpleVehicle.UpdateWorldTransformVectors;
 begin
  fWorldTransform:=fRigidBody.WorldTransform;
@@ -857,11 +1296,103 @@ begin
  fWorldPosition:=Vector3(PKraftRawVector3(pointer(@fWorldTransform[3,0]))^);
 end;
 
+function TKraftSimpleVehicle.GetHandBrakeK:TKraftScalar;
+begin
+ result:=fHandBrakeSlipperyTiresTime/Max(0.1,fSettings.fHandBrakeSlipperyTime);
+ result:=result*result*result*(result*((result*6.0)-15.0)+10.0);
+end;
+
+function TKraftSimpleVehicle.GetSteeringHandBrakeK:TKraftScalar;
+begin
+ result:=0.4+(1.0-GetHandBrakeK)*0.6;
+end;
+
+function TKraftSimpleVehicle.GetSteerAngleLimitInDeg(const aSpeedMetersPerSec:TKraftScalar):TKraftScalar;
+begin
+ result:=fSettings.fSteerAngleLimitEnvelope.GetValueAtTime(aSpeedMetersPerSec*3.6*GetSteeringHandBrakeK);
+end;
+
+procedure TKraftSimpleVehicle.UpdateInput;
+var Vertical,Horizontal,NewSteerAngle,AngleReturnSpeedDegressPerSecond:TKraftScalar;
+    IsBrakeNow,IsHandBrakeNow:boolean;
+begin
+
+ if fControllable then begin
+  Vertical:=fInputVertical;
+  Horizontal:=fInputHorizontal;
+  if fInputReset then begin
+//  Reset;
+  end;
+ end else begin
+  Vertical:=0.0;
+  Horizontal:=0.0;
+ end;
+
+ IsBrakeNow:=false;
+ IsHandBrakeNow:=fControllable and fInputHandBrake;
+
+ fIsAcceleration:=false;
+ fIsReverseAcceleration:=false;
+
+ if fInputBrake and fControllable then begin
+  IsBrakeNow:=true;
+ end else if Vertical>0.4 then begin
+  if fSpeed<-0.5 then begin
+   IsBrakeNow:=true;
+  end else begin
+   fIsAcceleration:=true;
+  end;
+ end else if Vertical<-0.4 then begin
+  if fSpeed>0.5 then begin
+   IsBrakeNow:=true;
+  end else begin
+   fIsReverseAcceleration:=true;
+  end;
+ end;
+
+ if IsBrakeNow and not fIsBrake then begin
+  fBrakeSlipperyTiresTime:=1.0;
+ end;
+
+ if IsHandBrakeNow then begin
+  fHandBrakeSlipperyTiresTime:=Max(0.1,fSettings.fHandBrakeSlipperyTime);
+ end;
+
+ fIsBrake:=IsBrakeNow;
+
+ fIsHandBrake:=IsHandBrakeNow and not (fIsAcceleration or fIsReverseAcceleration);
+
+ if abs(Horizontal)>0.001 then begin
+  NewSteerAngle:=fSteeringAngle+(Horizontal*fSettings.fSteeringSpeedEnvelope.GetValueAtTime(fSpeedKMH*GetSteeringHandBrakeK));
+  fSteeringAngle:=Min(abs(NewSteerAngle),GetSteerAngleLimitInDeg(Speed))*Sign(NewSteerAngle);
+ end else begin
+  AngleReturnSpeedDegressPerSecond:=fSettings.fSteeringResetSpeedEnvelope.GetValueAtTime(fSpeedKMH)*Clamp01(fSpeedKMH*0.5);
+  fSteeringAngle:=Max(abs(fSteeringAngle)-(AngleReturnSpeedDegressPerSecond*fDeltaTime),0.0)*Sign(fSteeringAngle);
+ end;
+
+end;
+
+function TKraftSimpleVehicle.GetSpeed:TKraftScalar;
+var LinearVelocity,WorldSpaceForward,ProjectedVector:TKraftVector3;
+    Factor:TKraftScalar;
+begin
+ LinearVelocity:=fRigidBody.LinearVelocity;
+ WorldSpaceForward:=Vector3(PKraftRawVector3(@fRigidBody.WorldTransform[2,0])^);
+ Factor:=Vector3Dot(WorldSpaceForward,LinearVelocity);
+ ProjectedVector:=Vector3ScalarMul(WorldSpaceForward,Factor);
+ result:=Vector3Length(ProjectedVector)*Sign(Factor);
+end;
+
 procedure TKraftSimpleVehicle.UpdateGlobals;
 begin
+
+ fSpeed:=GetSpeed;
+ fSpeedKMH:=abs(fSpeed)*3.6;
+
  fRelativeSpeed:=Vector3Dot(fWorldForward,fRigidBody.LinearVelocity);
  fMovingForward:=fRelativeSpeed>0.0;
  fAbsoluteSpeed:=abs(fRelativeSpeed);
+
 end;
 
 procedure TKraftSimpleVehicle.UpdateSuspension;
@@ -880,7 +1411,7 @@ var SteerAngleRad,AxleSeparation,WheelSeparation,TurningCircleRadius:TKraftScala
     AxleDiff,WheelDiff:TKraftVector3;
 begin
 
- SteerAngleRad:=fSteeringInput*fSettings.fSteeringAngle*DEG2RAD;
+ SteerAngleRad:=fSteeringAngle*DEG2RAD;
 
  AxleDiff:=Vector3Sub(Vector3Avg(fWheels[TWheelID.FrontLeft].GetSpringPosition,fWheels[TWheelID.FrontRight].GetSpringPosition),
                       Vector3Avg(fWheels[TWheelID.BackLeft].GetSpringPosition,fWheels[TWheelID.BackRight].GetSpringPosition));
@@ -957,10 +1488,10 @@ procedure TKraftSimpleVehicle.Update(const aDeltaTime:TKraftScalar);
 begin
  fDeltaTime:=aDeltaTime;
  fInverseDeltaTime:=1.0/fDeltaTime;
- fSteeringInput:=Min(Max(fInputHorizontal,-1.0),1.0);
  fAccelerationInput:=Min(Max(fInputVertical,-1.0),1.0);
  UpdateWorldTransformVectors;
  UpdateGlobals;
+ UpdateInput;
  UpdateSuspension;
  CalculateAckermannSteering;
  UpdateSteering;
