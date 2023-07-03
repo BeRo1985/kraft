@@ -224,8 +224,9 @@ type { TKraftSimpleVehicle }
               fWidth:TKraftScalar;
               fHeight:TKraftScalar;
               fLength:TKraftScalar;
+              fWheelsHeight:TKraftScalar;
               fWheelsPaddingX:TKraftScalar;
-              fWheelsPaddingY:TKraftScalar;
+              fWheelsPaddingZ:TKraftScalar;
               fChassisMass:TKraftScalar;
               fTireMass:TKraftScalar;
               fSpringRestLength:TKraftScalar;
@@ -249,8 +250,9 @@ type { TKraftSimpleVehicle }
               property Width:TKraftScalar read fWidth write fWidth;
               property Height:TKraftScalar read fHeight write fHeight;
               property Length:TKraftScalar read fLength write fLength;
+              property WheelsHeight:TKraftScalar read fWheelsHeight write fWheelsHeight;
               property WheelsPaddingX:TKraftScalar read fWheelsPaddingX write fWheelsPaddingX;
-              property WheelsPaddingY:TKraftScalar read fWheelsPaddingY write fWheelsPaddingY;
+              property WheelsPaddingZ:TKraftScalar read fWheelsPaddingZ write fWheelsPaddingZ;
               property ChassisMass:TKraftScalar read fChassisMass write fChassisMass;
               property TireMass:TKraftScalar read fTireMass write fTireMass;
               property SpringRestLength:TKraftScalar read fSpringRestLength write fSpringRestLength;
@@ -405,17 +407,18 @@ begin
  result.fWidth:=1.9;
  result.fHeight:=0.75;
  result.fLength:=3.4;
+ result.fWheelsHeight:=-0.25;
  result.fWheelsPaddingX:=0.06;
- result.fWheelsPaddingY:=0.12;
+ result.fWheelsPaddingZ:=0.12;
  result.fChassisMass:=60;
  result.fTireMass:=1;
  result.fSpringRestLength:=0.8;
  result.fSpringStrength:=1200;
  result.fSpringDamper:=75;
- result.fAccelerationPower:=300;
+ result.fAccelerationPower:=500;
  result.fBrakePower:=1.5;
  result.fMaximumSpeed:=22;
- result.fMaximumReverseSpeed:=12;
+ result.fMaximumReverseSpeed:=12.5;
  result.fSteeringAngle:=20;
  result.fFrontWheelsGripFactor:=0.8;
  result.fBackWheelsGripFactor:=0.9;
@@ -429,8 +432,9 @@ begin
   fWidth:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['width'],fWidth);
   fHeight:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['height'],fHeight);
   fLength:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['length'],fLength);
+  fWheelsHeight:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['wheelsheight'],fWheelsHeight);
   fWheelsPaddingX:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['wheelspaddingx'],fWheelsPaddingX);
-  fWheelsPaddingY:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['wheelspaddingy'],fWheelsPaddingY);
+  fWheelsPaddingZ:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['wheelspaddingz'],fWheelsPaddingZ);
   fChassisMass:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['chassismass'],fChassisMass);
   fTireMass:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['tiremass'],fTireMass);
   fSpringRestLength:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['springrestlength'],fSpringRestLength);
@@ -453,8 +457,9 @@ begin
  TPasJSONItemObject(result).Add('width',TPasJSONItemNumber.Create(fWidth));
  TPasJSONItemObject(result).Add('height',TPasJSONItemNumber.Create(fHeight));
  TPasJSONItemObject(result).Add('length',TPasJSONItemNumber.Create(fLength));
+ TPasJSONItemObject(result).Add('wheelsheight',TPasJSONItemNumber.Create(fWheelsHeight));
  TPasJSONItemObject(result).Add('wheelspaddingx',TPasJSONItemNumber.Create(fWheelsPaddingX));
- TPasJSONItemObject(result).Add('wheelspaddingy',TPasJSONItemNumber.Create(fWheelsPaddingY));
+ TPasJSONItemObject(result).Add('wheelspaddingz',TPasJSONItemNumber.Create(fWheelsPaddingZ));
  TPasJSONItemObject(result).Add('chassismass',TPasJSONItemNumber.Create(fChassisMass));
  TPasJSONItemObject(result).Add('tiremass',TPasJSONItemNumber.Create(fTireMass));
  TPasJSONItemObject(result).Add('springrestlength',TPasJSONItemNumber.Create(fSpringRestLength));
@@ -498,11 +503,17 @@ begin
   
   fRigidBody:=TKraftRigidBody.Create(fPhysics);
   fRigidBody.SetRigidBodyType(krbtDYNAMIC);
-  fRigidBody.ForcedMass:=fSettings.ChassisMass+(fSettings.TireMass*CountWheels);
+  fRigidBody.ForcedMass:=fSettings.fChassisMass+(fSettings.fTireMass*CountWheels);
   fRigidBody.CollisionGroups:=[1];
   fRigidBody.CollideWithCollisionGroups:=[0,1];
+  fRigidBody.AngularVelocityDamp:=10.0;//10.0;
+  fRigidBody.LinearVelocityDamp:=0.3275;
 
-  fShape:=TKraftShapeBox.Create(fPhysics,fRigidBody,Vector3(fSettings.Width*0.5,fSettings.Height*0.5,fSettings.Length*0.5));
+  fShape:=TKraftShapeBox.Create(fPhysics,fRigidBody,Vector3(fSettings.fWidth*0.5,fSettings.fHeight*0.5,fSettings.fLength*0.5));
+  fShape.Flags:=fShape.Flags+[ksfHasForcedCenterOfMass];
+  fShape.ForcedCenterOfMass.x:=0.0;
+  fShape.ForcedCenterOfMass.y:=fSettings.fWheelsHeight;
+  fShape.ForcedCenterOfMass.z:=0.0;
 
   fRigidBody.Finish;
 
@@ -522,22 +533,20 @@ end;
 
 function TKraftSimpleVehicle.GetSpringRelativePosition(const aWheel:TWheel):TKraftVector3;
 var BoxSize:TKraftVector3;
-    BoxBottom:TKraftScalar;
 begin
- BoxSize:=Vector3(fSettings.Width,fSettings.Height,fSettings.Length);
- BoxBottom:=-0.25*BoxSize.y;
+ BoxSize:=Vector3(fSettings.fWidth,fSettings.fHeight,fSettings.fLength);
  case aWheel of
   TWheel.FrontLeft:begin
-   result:=Vector3(BoxSize.x*(fSettings.WheelsPaddingX-0.5),BoxBottom,BoxSize.z*(0.5-fSettings.WheelsPaddingY));
+   result:=Vector3(BoxSize.x*(fSettings.fWheelsPaddingX-0.5),fSettings.fWheelsHeight,BoxSize.z*(0.5-fSettings.fWheelsPaddingZ));
   end;
   TWheel.FrontRight:begin
-   result:=Vector3(BoxSize.x*(0.5-fSettings.WheelsPaddingX),BoxBottom,BoxSize.z*(0.5-fSettings.WheelsPaddingY));
+   result:=Vector3(BoxSize.x*(0.5-fSettings.fWheelsPaddingX),fSettings.fWheelsHeight,BoxSize.z*(0.5-fSettings.fWheelsPaddingZ));
   end;
   TWheel.BackLeft:begin
-   result:=Vector3(BoxSize.x*(fSettings.WheelsPaddingX-0.5),BoxBottom,BoxSize.z*(fSettings.WheelsPaddingY-0.5));
+   result:=Vector3(BoxSize.x*(fSettings.fWheelsPaddingX-0.5),fSettings.fWheelsHeight,BoxSize.z*(fSettings.fWheelsPaddingZ-0.5));
   end;
   TWheel.BackRight:begin
-   result:=Vector3(BoxSize.x*(0.5-fSettings.WheelsPaddingX),BoxBottom,BoxSize.z*(fSettings.WheelsPaddingY-0.5));
+   result:=Vector3(BoxSize.x*(0.5-fSettings.fWheelsPaddingX),fSettings.fWheelsHeight,BoxSize.z*(fSettings.fWheelsPaddingZ-0.5));
   end;
   else begin
    result:=Vector3(0.0,0.0,0.0);
@@ -558,7 +567,7 @@ end;
 function TKraftSimpleVehicle.GetWheelRollDirection(const aWheel:TWheel):TKraftVector3;
 begin
  if aWheel in [TWheel.FrontLeft,TWheel.FrontRight] then begin
-  result:=Vector3TermQuaternionRotate(fWorldForward,QuaternionFromAxisAngle(Vector3(0.0,1.0,0.0),fSteeringInput*fSettings.SteeringAngle));
+  result:=Vector3TermQuaternionRotate(fWorldForward,QuaternionFromAxisAngle(Vector3(0.0,1.0,0.0),fSteeringInput*fSettings.fSteeringAngle));
  end else begin
   result:=fWorldForward;
  end;
@@ -572,19 +581,19 @@ end;
 function TKraftSimpleVehicle.GetWheelTorqueRelativePosition(const aWheel:TWheel):TKraftVector3;
 var BoxSize:TKraftVector3;
 begin
- BoxSize:=Vector3(fSettings.Width,fSettings.Height,fSettings.Length);
+ BoxSize:=Vector3(fSettings.fWidth,fSettings.fHeight,fSettings.fLength);
  case aWheel of
   TWheel.FrontLeft:begin
-   result:=Vector3(BoxSize.x*(fSettings.WheelsPaddingX-0.5),0.0,BoxSize.z*(0.5-fSettings.WheelsPaddingY));
+   result:=Vector3(BoxSize.x*(fSettings.fWheelsPaddingX-0.5),0.0,BoxSize.z*(0.5-fSettings.fWheelsPaddingZ));
   end;
   TWheel.FrontRight:begin
-   result:=Vector3(BoxSize.x*(0.5-fSettings.WheelsPaddingX),0.0,BoxSize.z*(0.5-fSettings.WheelsPaddingY));
+   result:=Vector3(BoxSize.x*(0.5-fSettings.fWheelsPaddingX),0.0,BoxSize.z*(0.5-fSettings.fWheelsPaddingZ));
   end;
   TWheel.BackLeft:begin
-   result:=Vector3(BoxSize.x*(fSettings.WheelsPaddingX-0.5),0.0,BoxSize.z*(fSettings.WheelsPaddingY-0.5));
+   result:=Vector3(BoxSize.x*(fSettings.fWheelsPaddingX-0.5),0.0,BoxSize.z*(fSettings.fWheelsPaddingZ-0.5));
   end;
   TWheel.BackRight:begin
-   result:=Vector3(BoxSize.x*(0.5-fSettings.WheelsPaddingX),0.0,BoxSize.z*(fSettings.WheelsPaddingY-0.5));
+   result:=Vector3(BoxSize.x*(0.5-fSettings.fWheelsPaddingX),0.0,BoxSize.z*(fSettings.fWheelsPaddingZ-0.5));
   end;
   else begin
    result:=Vector3(0.0,0.0,0.0);
@@ -600,15 +609,15 @@ end;
 function TKraftSimpleVehicle.GetWheelGripFactor(const aWheel:TWheel):TKraftScalar;
 begin
  if aWheel in [TWheel.FrontLeft,TWheel.FrontRight] then begin
-  result:=fSettings.FrontWheelsGripFactor;
+  result:=fSettings.fFrontWheelsGripFactor;
  end else begin
-  result:=fSettings.BackWheelsGripFactor;
+  result:=fSettings.fBackWheelsGripFactor;
  end;
 end;
 
 function TKraftSimpleVehicle.IsGrounded(const aWheel:TWheel):boolean;
 begin
- result:=fSpringDatas[aWheel].fCurrentLength<fSettings.SpringRestLength;
+ result:=fSpringDatas[aWheel].fCurrentLength<fSettings.fSpringRestLength;
 end;
 
 procedure TKraftSimpleVehicle.CastSpring(const aWheel:TWheel);
@@ -619,11 +628,11 @@ begin
  RayOrigin:=GetSpringPosition(aWheel);
  PreviousLength:=fSpringDatas[aWheel].fCurrentLength;
  RayDirection:=fWorldDown;
- RayLength:=fSettings.SpringRestLength;
+ RayLength:=fSettings.fSpringRestLength;
  if fPhysics.RayCast(RayOrigin,RayDirection,RayLength,HitShape,HitTime,HitPoint,HitNormal,[0],nil) then begin
   CurrentLength:=HitTime;
  end else begin
-  CurrentLength:=fSettings.SpringRestLength;
+  CurrentLength:=fSettings.fSpringRestLength;
  end;
  fSpringDatas[aWheel].fCurrentVelocity:=(CurrentLength-PreviousLength)*fInverseDeltaTime;
  fSpringDatas[aWheel].fCurrentLength:=CurrentLength;
@@ -651,9 +660,9 @@ begin
   CurrentVelocity:=fSpringDatas[Wheel].fCurrentVelocity;
   Force:=TKraftSimpleVehicle.TSpringMath.CalculateForceDamped(CurrentLength,
                                                               CurrentVelocity,
-                                                              fSettings.SpringRestLength,
-                                                              fSettings.SpringStrength,
-                                                              fSettings.SpringDamper);
+                                                              fSettings.fSpringRestLength,
+                                                              fSettings.fSpringStrength,
+                                                              fSettings.fSpringDamper);
   if abs(Force)>EPSILON then begin
    fRigidBody.AddForceAtPosition(Vector3ScalarMul(fWorldUp,Force),GetSpringPosition(Wheel),kfmForce,true);
   end; 
@@ -672,7 +681,7 @@ begin
    SlideVelocity:=Vector3Dot(SlideDirection,fRigidBody.GetWorldLinearVelocityFromPoint(SpringPosition));
    DesiredVelocityChange:=-SlideVelocity*GetWheelGripFactor(Wheel);
    DesiredAcceleration:=DesiredVelocityChange*fInverseDeltaTime;
-   Force:=Vector3ScalarMul(SlideDirection,DesiredAcceleration*fSettings.TireMass);
+   Force:=Vector3ScalarMul(SlideDirection,DesiredAcceleration*fSettings.fTireMass);
    if Vector3Length(Force)>EPSILON then begin
     fRigidBody.AddForceAtPosition(Force,GetWheelTorquePosition(Wheel),kfmForce,true);
    end; 
@@ -696,7 +705,7 @@ begin
        ((not MovingForward) and (Speed<fSettings.fMaximumReverseSpeed))) then begin
     Position:=GetWheelTorquePosition(Wheel);
     WheelForward:=GetWheelRollDirection(Wheel);
-    Force:=Vector3ScalarMul(WheelForward,fAccelerationInput*fSettings.AccelerationPower);
+    Force:=Vector3ScalarMul(WheelForward,fAccelerationInput*fSettings.fAccelerationPower);
     if Vector3Length(Force)>EPSILON then begin
      fRigidBody.AddForceAtPosition(Force,Position,kfmForce,true);
     end;
@@ -733,9 +742,9 @@ begin
    SpringPosition:=GetSpringPosition(Wheel);
    RollDirection:=GetWheelRollDirection(Wheel);
    RollVelocity:=Vector3Dot(RollDirection,fRigidBody.GetWorldLinearVelocityFromPoint(SpringPosition));
-   DesiredVelocityChange:=-RollVelocity*BrakeRatio*fSettings.BrakePower;
+   DesiredVelocityChange:=-RollVelocity*BrakeRatio*fSettings.fBrakePower;
    DesiredAcceleration:=DesiredVelocityChange*fInverseDeltaTime;
-   Force:=Vector3ScalarMul(RollDirection,DesiredAcceleration*fSettings.TireMass);
+   Force:=Vector3ScalarMul(RollDirection,DesiredAcceleration*fSettings.fTireMass);
    if Vector3Length(Force)>EPSILON then begin
     fRigidBody.AddForceAtPosition(Force,GetWheelTorquePosition(Wheel),kfmForce,true);
    end;
@@ -747,7 +756,7 @@ end;
 procedure TKraftSimpleVehicle.UpdateAirResistance;
 var Force:TKraftVector3;
 begin
- Force:=Vector3ScalarMul(fVelocity,-fSettings.AirResistance*Vector3Length(Vector3(fSettings.Width,fSettings.Height,fSettings.Length)));
+ Force:=Vector3ScalarMul(fVelocity,-fSettings.fAirResistance*Vector3Length(Vector3(fSettings.fWidth,fSettings.fHeight,fSettings.fLength)));
  if Vector3Length(Force)>EPSILON then begin
   fRigidBody.AddWorldForce(Force,kfmForce,true);
  end;
