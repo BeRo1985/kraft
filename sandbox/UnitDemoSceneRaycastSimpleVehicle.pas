@@ -227,7 +227,7 @@ begin
 
  Vehicle.Finish;
 
- Vehicle.RigidBody.SetWorldTransformation(Matrix4x4TermMul(Matrix4x4RotateY(PI),Matrix4x4Translate(0.0,CarHeight+5.0,0.0)));
+ Vehicle.RigidBody.SetWorldTransformation(Matrix4x4TermMul(Matrix4x4RotateY(PI),Matrix4x4Translate(0.0,1.0,0.0)));
 
 (*
 Vehicle:=TVehicle.Create(KraftPhysics);
