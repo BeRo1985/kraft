@@ -310,12 +310,14 @@ type { TKraftSimpleVehicle }
               fSpringDamper:TKraftScalar;
               fAccelerationPower:TKraftScalar;
               fBrakePower:TKraftScalar;
+              fRollFriction:TKraftScalar;
               fMaximumSpeed:TKraftScalar;
               fMaximumReverseSpeed:TKraftScalar;
               fFrontWheelsGripFactor:TKraftScalar;
               fBackWheelsGripFactor:TKraftScalar;
               fAirResistance:TKraftScalar;
               fHandBrakeSlipperyTime:TKraftScalar;
+              fUseAccelerationCurveEnvelopes:Boolean;
               fAccelerationCurveEnvelope:TEnvelope;
               fReverseAccelerationCurveEnvelope:TEnvelope;
               fReverseEvaluationAccuracy:TKraftInt32;
@@ -345,12 +347,21 @@ type { TKraftSimpleVehicle }
               property SpringDamper:TKraftScalar read fSpringDamper write fSpringDamper;
               property AccelerationPower:TKraftScalar read fAccelerationPower write fAccelerationPower;
               property BrakePower:TKraftScalar read fBrakePower write fBrakePower;
+              property RollFriction:TKraftScalar read fRollFriction write fRollFriction;
               property MaximumSpeed:TKraftScalar read fMaximumSpeed write fMaximumSpeed;
               property MaximumReverseSpeed:TKraftScalar read fMaximumReverseSpeed write fMaximumReverseSpeed;
               property FrontWheelsGripFactor:TKraftScalar read fFrontWheelsGripFactor write fFrontWheelsGripFactor;
               property BackWheelsGripFactor:TKraftScalar read fBackWheelsGripFactor write fBackWheelsGripFactor;
               property AirResistance:TKraftScalar read fAirResistance write fAirResistance;
               property HandBrakeSlipperyTime:TKraftScalar read fHandBrakeSlipperyTime write fHandBrakeSlipperyTime;
+              property UseAccelerationCurveEnvelopes:Boolean read fUseAccelerationCurveEnvelopes write fUseAccelerationCurveEnvelopes;
+              property AccelerationCurveEnvelope:TEnvelope read fAccelerationCurveEnvelope;
+              property ReverseAccelerationCurveEnvelope:TEnvelope read fReverseAccelerationCurveEnvelope;
+              property ReverseEvaluationAccuracy:TKraftInt32 read fReverseEvaluationAccuracy write fReverseEvaluationAccuracy;
+              property SteerAngleLimitEnvelope:TEnvelope read fSteerAngleLimitEnvelope;
+              property SteeringResetSpeedEnvelope:TEnvelope read fSteeringResetSpeedEnvelope;
+              property SteeringSpeedEnvelope:TEnvelope read fSteeringSpeedEnvelope;
+              property DownForceCurveEnvelope:TEnvelope read fDownForceCurveEnvelope;              
             end;
       private
        fPhysics:TKraft;
@@ -401,6 +412,7 @@ type { TKraftSimpleVehicle }
        fBrakeSlipperyTiresTime:TKraftScalar;
        fHandBrakeSlipperyTiresTime:TKraftScalar;
        fSteeringAngle:TKraftScalar;
+       fAccelerationForceMagnitude:TKraftScalar;
        fRelativeSpeed:TKraftScalar;
        fMovingForward:boolean;
        fAbsoluteSpeed:TKraftScalar;
@@ -1020,7 +1032,8 @@ end;
 procedure TKraftSimpleVehicle.TWheel.UpdateAcceleration;
 var WheelForward,Force:TKraftVector3;
 begin
- if not IsZero(fVehicle.fAccelerationInput) then begin
+ if (fVehicle.fSettings.fUseAccelerationCurveEnvelopes and not IsZero(fVehicle.fAccelerationForceMagnitude)) or
+    ((not fVehicle.fSettings.fUseAccelerationCurveEnvelopes) and not IsZero(fVehicle.fAccelerationInput)) then begin
 
   if IsGrounded and
      ((fVehicle.fMovingForward and (fVehicle.fAbsoluteSpeed<fVehicle.fSettings.fMaximumSpeed)) or
@@ -1028,7 +1041,11 @@ begin
 
    WheelForward:=GetWheelRollDirection;
 
-   Force:=Vector3ScalarMul(WheelForward,fVehicle.fAccelerationInput*fVehicle.fSettings.fAccelerationPower);
+   if fVehicle.fSettings.fUseAccelerationCurveEnvelopes then begin
+    Force:=Vector3ScalarMul(WheelForward,(fVehicle.fAccelerationForceMagnitude/TKraftSimpleVehicle.CountWheels)*fVehicle.fInverseDeltaTime);
+   end else begin
+    Force:=Vector3ScalarMul(WheelForward,fVehicle.fAccelerationInput*fVehicle.fSettings.fAccelerationPower);
+   end;
 
    if Vector3Length(Force)>EPSILON then begin
     fVehicle.fRigidBody.AddForceAtPosition(Force,GetWheelTorquePosition,kfmForce,true);
@@ -1041,30 +1058,51 @@ end;
 
 procedure TKraftSimpleVehicle.TWheel.UpdateBraking;
 const AlmostStoppedSpeed=0.1;
-var BrakeRatio,RollVelocity,DesiredVelocityChange,DesiredAcceleration:TKraftScalar;
+var BrakeRatio,RollFrictionRatio,RollVelocity,DesiredVelocityChange,DesiredAcceleration:TKraftScalar;
     AlmostStopping,AccelerationContrary:boolean;
     SpringPosition,RollDirection,Force:TKraftVector3;
 begin
 
- AlmostStopping:=fVehicle.fAbsoluteSpeed<AlmostStoppedSpeed;
- if AlmostStopping then begin
-  BrakeRatio:=1.0;
- end else begin
-  AccelerationContrary:=(not IsZero(fVehicle.fAccelerationInput)) and (Vector3Dot(Vector3ScalarMul(fVehicle.fWorldForward,fVehicle.fAccelerationInput),fVehicle.fRigidBody.LinearVelocity)<0.0);
-  if AccelerationContrary then begin
+ if fVehicle.fSettings.fUseAccelerationCurveEnvelopes then begin
+
+  if fVehicle.fIsBrake or fVehicle.fIsHandBrake then begin
    BrakeRatio:=1.0;
-  end else if IsZero(fVehicle.fAccelerationInput) then begin
-   BrakeRatio:=0.1;
+   RollFrictionRatio:=0.0;
+  end else if not (fVehicle.fIsAcceleration or fVehicle.fIsReverseAcceleration) then begin
+   BrakeRatio:=0.0;
+   RollFrictionRatio:=1.0;
   end else begin
    exit;
   end;
+
+ end else begin
+
+  AlmostStopping:=fVehicle.fAbsoluteSpeed<AlmostStoppedSpeed;
+  if AlmostStopping or fVehicle.fIsBrake or fVehicle.fIsHandBrake then begin
+   BrakeRatio:=1.0;
+   RollFrictionRatio:=0.0;
+  end else begin
+   AccelerationContrary:=(fVehicle.fIsAcceleration or fVehicle.fIsReverseAcceleration) and
+                         (Vector3Dot(Vector3ScalarMul(fVehicle.fWorldForward,fVehicle.fAccelerationInput),fVehicle.fRigidBody.LinearVelocity)<0.0);
+   if AccelerationContrary then begin
+    BrakeRatio:=1.0;
+    RollFrictionRatio:=0.0;
+   end else if not (fVehicle.fIsAcceleration or fVehicle.fIsReverseAcceleration) then begin
+    BrakeRatio:=0.0;
+    RollFrictionRatio:=1.0;
+   end else begin
+    exit;
+   end;
+  end;
+
  end;
 
  if IsGrounded then begin
   SpringPosition:=GetSpringPosition;
   RollDirection:=GetWheelRollDirection;
   RollVelocity:=Vector3Dot(RollDirection,fVehicle.fRigidBody.GetWorldLinearVelocityFromPoint(SpringPosition));
-  DesiredVelocityChange:=-RollVelocity*BrakeRatio*fVehicle.fSettings.fBrakePower;
+  DesiredVelocityChange:=-RollVelocity*((BrakeRatio*fVehicle.fSettings.fBrakePower)+
+                                        (RollFrictionRatio*fVehicle.fSettings.fRollFriction));
   DesiredAcceleration:=DesiredVelocityChange*fVehicle.fInverseDeltaTime;
   Force:=Vector3ScalarMul(RollDirection,DesiredAcceleration*fVehicle.fSettings.fTireMass);
   if Vector3Length(Force)>EPSILON then begin
@@ -1131,12 +1169,14 @@ begin
  fSpringDamper:=75;
  fAccelerationPower:=300;
  fBrakePower:=1.5;
+ fRollFriction:=0.15;
  fMaximumSpeed:=10;
  fMaximumReverseSpeed:=2.5;
  fFrontWheelsGripFactor:=0.8;
  fBackWheelsGripFactor:=0.9;
  fAirResistance:=5.0;
  fHandBrakeSlipperyTime:=2.2;
+ fUseAccelerationCurveEnvelopes:=true;
  fAccelerationCurveEnvelope:=TEnvelope.CreateLinear(0.0,0.0,5.0,100.0);
  fReverseAccelerationCurveEnvelope:=TEnvelope.CreateLinear(0.0,0.0,5.0,20.0);
  fReverseEvaluationAccuracy:=25;
@@ -1175,12 +1215,14 @@ begin
   fSpringDamper:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['springdamper'],fSpringDamper);
   fAccelerationPower:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['accelerationpower'],fAccelerationPower);
   fBrakePower:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['brakepower'],fBrakePower);
+  fRollFriction:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['rollfriction'],fRollFriction);
   fMaximumSpeed:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['maximumspeed'],fMaximumSpeed);
   fMaximumReverseSpeed:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['maximumreversespeed'],fMaximumReverseSpeed);
   fFrontWheelsGripFactor:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['frontwheelsgripfactor'],fFrontWheelsGripFactor);
   fBackWheelsGripFactor:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['backwheelsgripfactor'],fBackWheelsGripFactor);
   fAirResistance:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['airresistance'],fAirResistance);
   fHandBrakeSlipperyTime:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['handbrakeslipperytime'],fHandBrakeSlipperyTime);
+  fUseAccelerationCurveEnvelopes:=TPasJSON.GetBoolean(TPasJSONItemObject(aJSONItem).Properties['useaccelerationcurveenvelopes'],fUseAccelerationCurveEnvelopes);
   fAccelerationCurveEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['accelerationcurveenvelope']);
   fReverseAccelerationCurveEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['reverseaccelerationcurveenvelope']);
   fReverseEvaluationAccuracy:=TPasJSON.GetInt64(TPasJSONItemObject(aJSONItem).Properties['reverseevaluationaccuracy'],fReverseEvaluationAccuracy);
@@ -1208,12 +1250,14 @@ begin
  TPasJSONItemObject(result).Add('springdamper',TPasJSONItemNumber.Create(fSpringDamper));
  TPasJSONItemObject(result).Add('accelerationpower',TPasJSONItemNumber.Create(fAccelerationPower));
  TPasJSONItemObject(result).Add('brakepower',TPasJSONItemNumber.Create(fBrakePower));
+ TPasJSONItemObject(result).Add('rollfriction',TPasJSONItemNumber.Create(fRollFriction));
  TPasJSONItemObject(result).Add('maximumspeed',TPasJSONItemNumber.Create(fMaximumSpeed));
  TPasJSONItemObject(result).Add('maximumreversespeed',TPasJSONItemNumber.Create(fMaximumReverseSpeed));
  TPasJSONItemObject(result).Add('frontwheelsgripfactor',TPasJSONItemNumber.Create(fFrontWheelsGripFactor));
  TPasJSONItemObject(result).Add('backwheelsgripfactor',TPasJSONItemNumber.Create(fBackWheelsGripFactor));
  TPasJSONItemObject(result).Add('airresistance',TPasJSONItemNumber.Create(fAirResistance));
  TPasJSONItemObject(result).Add('handbrakeslipperytime',TPasJSONItemNumber.Create(fHandBrakeSlipperyTime));
+ TPasJSONItemObject(result).Add('useaccelerationcurveenvelopes',TPasJSONItemBoolean.Create(fUseAccelerationCurveEnvelopes));
  TPasJSONItemObject(result).Add('accelerationcurveenvelope',fAccelerationCurveEnvelope.SaveToJSON);
  TPasJSONItemObject(result).Add('reverseaccelerationcurveenvelope',fReverseAccelerationCurveEnvelope.SaveToJSON);
  TPasJSONItemObject(result).Add('reverseevaluationaccuracy',TPasJSONItemNumber.Create(fReverseEvaluationAccuracy));
@@ -1233,7 +1277,7 @@ begin
  fPhysics:=aPhysics;
  fRigidBody:=nil;
  fShape:=nil;
- fAccelerationInput:=0;
+ fAccelerationInput:=0.0;
  fControllable:=true;
  fForward:=Vector3(0.0,0.0,-1.0);
  fVelocity:=Vector3(0.0,0.0,0.0);
@@ -1312,66 +1356,6 @@ end;
 function TKraftSimpleVehicle.GetSteerAngleLimitInDeg(const aSpeedMetersPerSec:TKraftScalar):TKraftScalar;
 begin
  result:=fSettings.fSteerAngleLimitEnvelope.GetValueAtTime(aSpeedMetersPerSec*3.6*GetSteeringHandBrakeK);
-end;
-
-procedure TKraftSimpleVehicle.UpdateInput;
-var Vertical,Horizontal,NewSteerAngle,AngleReturnSpeedDegressPerSecond:TKraftScalar;
-    IsBrakeNow,IsHandBrakeNow:boolean;
-begin
-
- if fControllable then begin
-  Vertical:=fInputVertical;
-  Horizontal:=fInputHorizontal;
-  if fInputReset then begin
-//  Reset;
-  end;
- end else begin
-  Vertical:=0.0;
-  Horizontal:=0.0;
- end;
-
- IsBrakeNow:=false;
- IsHandBrakeNow:=fControllable and fInputHandBrake;
-
- fIsAcceleration:=false;
- fIsReverseAcceleration:=false;
-
- if fInputBrake and fControllable then begin
-  IsBrakeNow:=true;
- end else if Vertical>0.4 then begin
-  if fSpeed<-0.5 then begin
-   IsBrakeNow:=true;
-  end else begin
-   fIsAcceleration:=true;
-  end;
- end else if Vertical<-0.4 then begin
-  if fSpeed>0.5 then begin
-   IsBrakeNow:=true;
-  end else begin
-   fIsReverseAcceleration:=true;
-  end;
- end;
-
- if IsBrakeNow and not fIsBrake then begin
-  fBrakeSlipperyTiresTime:=1.0;
- end;
-
- if IsHandBrakeNow then begin
-  fHandBrakeSlipperyTiresTime:=Max(0.1,fSettings.fHandBrakeSlipperyTime);
- end;
-
- fIsBrake:=IsBrakeNow;
-
- fIsHandBrake:=IsHandBrakeNow and not (fIsAcceleration or fIsReverseAcceleration);
-
- if abs(Horizontal)>0.001 then begin
-  NewSteerAngle:=fSteeringAngle+(Horizontal*fSettings.fSteeringSpeedEnvelope.GetValueAtTime(fSpeedKMH*GetSteeringHandBrakeK));
-  fSteeringAngle:=Min(abs(NewSteerAngle),GetSteerAngleLimitInDeg(Speed))*Sign(NewSteerAngle);
- end else begin
-  AngleReturnSpeedDegressPerSecond:=fSettings.fSteeringResetSpeedEnvelope.GetValueAtTime(fSpeedKMH)*Clamp01(fSpeedKMH*0.5);
-  fSteeringAngle:=Max(abs(fSteeringAngle)-(AngleReturnSpeedDegressPerSecond*fDeltaTime),0.0)*Sign(fSteeringAngle);
- end;
-
 end;
 
 function TKraftSimpleVehicle.GetSpeed:TKraftScalar;
@@ -1475,6 +1459,70 @@ begin
 
 end;
 
+procedure TKraftSimpleVehicle.UpdateInput;
+var Vertical,Horizontal,NewSteerAngle,AngleReturnSpeedDegressPerSecond:TKraftScalar;
+    IsBrakeNow,IsHandBrakeNow:boolean;
+begin
+
+ if fControllable then begin
+  Vertical:=fInputVertical;
+  Horizontal:=fInputHorizontal;
+  if fInputReset then begin
+//  Reset;
+  end;
+ end else begin
+  Vertical:=0.0;
+  Horizontal:=0.0;
+ end;
+
+ fAccelerationInput:=Min(Max(Vertical,-1.0),1.0);
+
+ IsBrakeNow:=false;
+ IsHandBrakeNow:=fControllable and fInputHandBrake;
+
+ fIsAcceleration:=false;
+ fIsReverseAcceleration:=false;
+
+ if fInputBrake and fControllable then begin
+  IsBrakeNow:=true;
+ end else if Vertical>0.4 then begin
+  if fSpeed<-0.5 then begin
+   IsBrakeNow:=true;
+  end else begin
+   fIsAcceleration:=true;
+  end;
+ end else if Vertical<-0.4 then begin
+  if fSpeed>0.5 then begin
+   IsBrakeNow:=true;
+  end else begin
+   fIsReverseAcceleration:=true;
+  end;
+ end;
+
+ if IsBrakeNow and not fIsBrake then begin
+  fBrakeSlipperyTiresTime:=1.0;
+ end;
+
+ if IsHandBrakeNow then begin
+  fHandBrakeSlipperyTiresTime:=Max(0.1,fSettings.fHandBrakeSlipperyTime);
+ end;
+
+ fIsBrake:=IsBrakeNow;
+
+ fIsHandBrake:=IsHandBrakeNow and not (fIsAcceleration or fIsReverseAcceleration);
+
+ if abs(Horizontal)>0.001 then begin
+  NewSteerAngle:=fSteeringAngle+(Horizontal*fSettings.fSteeringSpeedEnvelope.GetValueAtTime(fSpeedKMH*GetSteeringHandBrakeK));
+  fSteeringAngle:=Min(abs(NewSteerAngle),GetSteerAngleLimitInDeg(Speed))*Sign(NewSteerAngle);
+ end else begin
+  AngleReturnSpeedDegressPerSecond:=fSettings.fSteeringResetSpeedEnvelope.GetValueAtTime(fSpeedKMH)*Clamp01(fSpeedKMH*0.5);
+  fSteeringAngle:=Max(abs(fSteeringAngle)-(AngleReturnSpeedDegressPerSecond*fDeltaTime),0.0)*Sign(fSteeringAngle);
+ end;
+
+ fAccelerationForceMagnitude:=CalcAccelerationForceMagnitude*Clamp01(0.8+((1.0-GetHandBrakeK)*0.2));
+
+end;
+
 procedure TKraftSimpleVehicle.UpdateSuspension;
 var WheelID:TWheelID;
     Wheel:TWheel;
@@ -1568,7 +1616,6 @@ procedure TKraftSimpleVehicle.Update(const aDeltaTime:TKraftScalar);
 begin
  fDeltaTime:=aDeltaTime;
  fInverseDeltaTime:=1.0/fDeltaTime;
- fAccelerationInput:=Min(Max(fInputVertical,-1.0),1.0);
  UpdateWorldTransformVectors;
  UpdateGlobals;
  UpdateInput;
