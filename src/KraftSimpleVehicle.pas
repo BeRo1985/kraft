@@ -428,7 +428,7 @@ begin
  fWidth:=1.9;
  fHeight:=0.75;
  fLength:=3.4;
- fWheelsRadius:=0.25;
+ fWheelsRadius:=0.5;
  fWheelsHeight:=-0.25;
  fWheelsPaddingX:=0.06;
  fWheelsPaddingZ:=0.12;
