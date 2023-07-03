@@ -634,7 +634,7 @@ begin
  if AlmostStopping then begin
   BrakeRatio:=1.0;
  end else begin
-  AccelerationContrary:=IsZero(fVehicle.fAccelerationInput) and (Vector3Dot(Vector3ScalarMul(fVehicle.fWorldForward,fVehicle.fAccelerationInput),fVehicle.fRigidBody.LinearVelocity)<0.0);
+  AccelerationContrary:=(not IsZero(fVehicle.fAccelerationInput)) and (Vector3Dot(Vector3ScalarMul(fVehicle.fWorldForward,fVehicle.fAccelerationInput),fVehicle.fRigidBody.LinearVelocity)<0.0);
   if AccelerationContrary then begin
    BrakeRatio:=1.0;
   end else if IsZero(fVehicle.fAccelerationInput) then begin
