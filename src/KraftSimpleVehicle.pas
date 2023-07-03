@@ -271,6 +271,11 @@ type { TKraftSimpleVehicle }
               fWorldTransform:TKraftMatrix4x4;
               fLastWorldTransform:TKraftMatrix4x4;
               fVisualWorldTransform:TKraftMatrix4x4;
+{$ifdef DebugDraw}
+              fDebugAntiRollForce:TKraftVector3;
+              fLastDebugAntiRollForce:TKraftVector3;
+              fVisualDebugAntiRollForce:TKraftVector3;
+{$endif}
               function GetSpringHitPosition:TKraftVector3;
               function GetSpringPosition:TKraftVector3;
               function GetSpringRelativePosition:TKraftVector3;
@@ -288,6 +293,8 @@ type { TKraftSimpleVehicle }
               procedure UpdateBraking;
               procedure UpdateWheelRotation;
               procedure UpdateVisuals;
+              procedure StoreWorldTransforms;
+              procedure InterpolateWorldTransforms(const aAlpha:TKraftScalar);
              public
               constructor Create(const aVehicle:TKraftSimpleVehicle;const aWheelID:TKraftSimpleVehicle.TWheelID); reintroduce;
               destructor Destroy; override;
@@ -1163,6 +1170,22 @@ begin
  fWorldTransform:=GetWheelTransform;
 end;
 
+procedure TKraftSimpleVehicle.TWheel.StoreWorldTransforms;
+begin
+ fLastWorldTransform:=fWorldTransform;
+{$ifdef DebugDraw}
+ fLastDebugAntiRollForce:=fDebugAntiRollForce;
+{$endif}
+end;
+
+procedure TKraftSimpleVehicle.TWheel.InterpolateWorldTransforms(const aAlpha:TKraftScalar);
+begin
+ fVisualWorldTransform:=Matrix4x4Slerp(fLastWorldTransform,fWorldTransform,aAlpha);
+{$ifdef DebugDraw}
+ fVisualDebugAntiRollForce:=Vector3Lerp(fLastDebugAntiRollForce,fDebugAntiRollForce,aAlpha);
+{$endif}
+end;
+
 { TKraftSimpleVehicle.TVehicleSettings }
 
 constructor TKraftSimpleVehicle.TVehicleSettings.Create;
@@ -1612,23 +1635,23 @@ procedure TKraftSimpleVehicle.UpdateAntiRollBar;
   AntiRollForce:=(TravelL-TravelR)*fSettings.fStabilizerBarAntiRollForce;
   if aWheelLeft.IsGrounded then begin
    fRigidBody.AddForceAtPosition(Vector3ScalarMul(fWorldDown,AntiRollForce),aWheelLeft.GetSpringHitPosition,kfmForce,false);
- {$ifdef DebugDraw}
-   //fDebugAntiRollForces[0]:=Vector3ScalarMul(fVehicle.fWorldDown,AntiRollForce);
- {$endif}
+{$ifdef DebugDraw}
+   aWheelLeft.fDebugAntiRollForce:=Vector3ScalarMul(fWorldDown,AntiRollForce);
+{$endif}
   end else begin
- {$ifdef DebugDraw}
-   //fDebugAntiRollForces[0]:=Vector3Origin;
- {$endif}
+{$ifdef DebugDraw}
+   aWheelLeft.fDebugAntiRollForce:=Vector3Origin;
+{$endif}
   end;
   if aWheelRight.IsGrounded then begin
    fRigidBody.AddForceAtPosition(Vector3ScalarMul(fWorldDown,-AntiRollForce),aWheelRight.GetSpringHitPosition,kfmForce,false);
- {$ifdef DebugDraw}
-   //fDebugAntiRollForces[1]:=Vector3ScalarMul(fVehicle.fWorldDown,-AntiRollForce);
- {$endif}
+{$ifdef DebugDraw}
+   aWheelRight.fDebugAntiRollForce:=Vector3ScalarMul(fWorldDown,AntiRollForce);
+{$endif}
   end else begin
- {$ifdef DebugDraw}
-   //fDebugAntiRollForces[1]:=Vector3Origin;
- {$endif}
+{$ifdef DebugDraw}
+   aWheelRight.fDebugAntiRollForce:=Vector3Origin;
+{$endif}
   end;
  end;
 begin
@@ -1691,7 +1714,7 @@ var WheelID:TWheelID;
 begin
  UpdateWorldTransformVectors;
  for WheelID:=Low(TWheelID) to High(TWheelID) do begin
-  fWheels[WheelID].fLastWorldTransform:=fWheels[WheelID].fWorldTransform;
+  fWheels[WheelID].StoreWorldTransforms;
  end;
  fLastWorldTransform:=fWorldTransform;
  fLastWorldRight:=Vector3(PKraftRawVector3(pointer(@fLastWorldTransform[0,0]))^);
@@ -1708,7 +1731,7 @@ var WheelID:TWheelID;
 begin
  UpdateWorldTransformVectors;
  for WheelID:=Low(TWheelID) to High(TWheelID) do begin
-  fWheels[WheelID].fVisualWorldTransform:=Matrix4x4Slerp(fWheels[WheelID].fLastWorldTransform,fWheels[WheelID].fWorldTransform,aAlpha);
+  fWheels[WheelID].InterpolateWorldTransforms(aAlpha);
  end;
  fVisualWorldTransform:=Matrix4x4Slerp(fLastWorldTransform,fWorldTransform,aAlpha);
  fVisualWorldRight:=Vector3(PKraftRawVector3(pointer(@fVisualWorldTransform[0,0]))^);
