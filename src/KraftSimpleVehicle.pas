@@ -411,6 +411,7 @@ type { TKraftSimpleVehicle }
        function GetSteeringHandBrakeK:TKraftScalar;
        function GetSteerAngleLimitInDeg(const aSpeedMetersPerSec:TKraftScalar):TKraftScalar;
        function GetSpeed:TKraftScalar;
+       function GetAccelerationForceMagnitude(const aEnvelope:TEnvelope;const aSpeedMetersPerSec,aDeltaTime:TKraftScalar):TKraftScalar;
        procedure UpdateGlobals;
        procedure UpdateInput;
        procedure UpdateWorldTransformVectors;
@@ -1381,6 +1382,71 @@ begin
  Factor:=Vector3Dot(WorldSpaceForward,LinearVelocity);
  ProjectedVector:=Vector3ScalarMul(WorldSpaceForward,Factor);
  result:=Vector3Length(ProjectedVector)*Sign(Factor);
+end;
+
+function TKraftSimpleVehicle.GetAccelerationForceMagnitude(const aEnvelope:TEnvelope;const aSpeedMetersPerSec,aDeltaTime:TKraftScalar):TKraftScalar;
+const Inv3d6=1.0/3.6;
+var Index,Count:TKraftInt32;
+    SpeedKMH,Mass,MinTime,MaxTime,TimeNow,CurrentSpeed,CurrentSpeedDifference,
+    Step,StepTime,StepSpeed,StepSpeedDifference:TKraftScalar;
+begin
+
+ SpeedKMH:=aSpeedMetersPerSec*3.6;
+
+ Mass:=fRigidBody.Mass;
+
+ Count:=aEnvelope.Count;
+
+ case Count of
+  0:begin
+   result:=0.0;
+  end;
+  1:begin
+   result:=Max(0.0,((aEnvelope.fPoints[0].fValue-SpeedKMH)*Inv3d6)*Mass);
+  end;
+  else begin
+
+   MinTime:=aEnvelope.fPoints[0].fTime;
+   MaxTime:=aEnvelope.fPoints[Count-1].fTime;
+
+   Step:=MaxTime-MinTime;
+
+   TimeNow:=MinTime;
+
+   if SpeedKMH<aEnvelope.fPoints[Count-1].fValue then begin
+
+    for Index:=0 to fSettings.fReverseEvaluationAccuracy-1 do begin
+
+     CurrentSpeed:=aEnvelope.GetValueAtTime(TimeNow);
+     CurrentSpeedDifference:=abs(SpeedKMH-CurrentSpeed);
+
+     StepTime:=TimeNow+Step;
+     StepSpeed:=aEnvelope.GetValueAtTime(StepTime);
+     StepSpeedDifference:=abs(SpeedKMH-StepSpeed);
+
+     if StepSpeedDifference<CurrentSpeedDifference then begin
+      TimeNow:=StepTime;
+      CurrentSpeed:=StepSpeed;
+     end;
+
+     Step:=abs(Step*0.5)*Sign(SpeedKMH-CurrentSpeed);
+
+    end;
+
+    result:=aEnvelope.GetValueAtTime(TimeNow+aDeltaTime);
+
+   end else begin
+
+    result:=aEnvelope.fPoints[Count-1].fValue;
+
+   end;
+
+   result:=Max(0.0,(result-SpeedKMH)*Inv3d6*Mass);
+
+  end;
+
+ end;
+
 end;
 
 procedure TKraftSimpleVehicle.UpdateGlobals;
