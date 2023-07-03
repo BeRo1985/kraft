@@ -344,6 +344,8 @@ type { TKraftSimpleVehicle }
               fSteeringSpeedEnvelope:TEnvelope;
               fDownForceCurveEnvelope:TEnvelope;
               fDownForce:TKraftScalar;
+              fFlightStabilizationDamping:TKraftScalar;
+              fFlightStabilizationForce:TKraftScalar;
              public
               constructor Create; reintroduce;
               destructor Destroy; override;
@@ -383,6 +385,8 @@ type { TKraftSimpleVehicle }
               property SteeringSpeedEnvelope:TEnvelope read fSteeringSpeedEnvelope;
               property DownForceCurveEnvelope:TEnvelope read fDownForceCurveEnvelope;              
               property DownForce:TKraftScalar read fDownForce write fDownForce;
+              property FlightStabilizationDamping:TKraftScalar read fFlightStabilizationDamping write fFlightStabilizationDamping;
+              property FlightStabilizationForce:TKraftScalar read fFlightStabilizationForce write fFlightStabilizationForce;
             end;
       private
        fPhysics:TKraft;
@@ -430,6 +434,7 @@ type { TKraftSimpleVehicle }
        fIsReverseAcceleration:Boolean;
        fIsBrake:Boolean;
        fIsHandBrake:Boolean;
+       fAfterFlightSlipperyTiresTime:TKraftScalar;
        fBrakeSlipperyTiresTime:TKraftScalar;
        fHandBrakeSlipperyTiresTime:TKraftScalar;
        fSteeringAngle:TKraftScalar;
@@ -464,6 +469,7 @@ type { TKraftSimpleVehicle }
        procedure UpdateAntiRollBar;
        procedure UpdateAirResistance;
        procedure UpdateDownForce;
+       procedure UpdateFlightStabilization;
        procedure UpdateWheelRotations;
        procedure UpdateVisuals;
       public
@@ -1269,7 +1275,9 @@ begin
  fSteeringResetSpeedEnvelope:=TEnvelope.CreateEaseInOut(0.0,30.0,100.0,10.0,64);
  fSteeringSpeedEnvelope:=TEnvelope.CreateLinear(0.0,2.0,100.0,0.5);
  fDownForceCurveEnvelope:=TEnvelope.CreateLinear(0.0,0.0,200.0,100.0);
- fDownForce:=5.0;
+ fDownForce:=1.0;
+ fFlightStabilizationForce:=1.0;
+ fFlightStabilizationDamping:=0.1;
 end;
 
 destructor TKraftSimpleVehicle.TVehicleSettings.Destroy;
@@ -1318,7 +1326,9 @@ begin
   fSteeringSpeedEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['steeringspeedenvelope']);
   fDownForceCurveEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['downforcecurveenvelope']);
   fDownForce:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['downforce'],fDownForce);
- end;
+  fFlightStabilizationDamping:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['flightstabilizationdamping'],fFlightStabilizationDamping);
+  fFlightStabilizationForce:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['flightstabilizationforce'],fFlightStabilizationForce);
+ end; 
 end;
 
 function TKraftSimpleVehicle.TVehicleSettings.SaveToJSON:TPasJSONItem;
@@ -1355,6 +1365,8 @@ begin
  TPasJSONItemObject(result).Add('steeringspeedenvelope',fSteeringSpeedEnvelope.SaveToJSON);
  TPasJSONItemObject(result).Add('downforcecurveenvelope',fDownForceCurveEnvelope.SaveToJSON);
  TPasJSONItemObject(result).Add('downforce',TPasJSONItemNumber.Create(fDownForce));
+ TPasJSONItemObject(result).Add('flightstabilizationdamping',TPasJSONItemNumber.Create(fFlightStabilizationDamping));
+ TPasJSONItemObject(result).Add('flightstabilizationforce',TPasJSONItemNumber.Create(fFlightStabilizationForce));
 end;
 {$endif}
 
@@ -1390,6 +1402,7 @@ end;
 
 procedure TKraftSimpleVehicle.Reset;
 begin
+ fAfterFlightSlipperyTiresTime:=0.0;
  fBrakeSlipperyTiresTime:=0.0;
  fHandBrakeSlipperyTiresTime:=0.0;
  fSteeringAngle:=0.0;
@@ -1751,6 +1764,47 @@ begin
  end;
 end;
 
+procedure TKraftSimpleVehicle.UpdateFlightStabilization;
+var WheelID:TWheelID;
+    VehicleUp,AntiGravityUp,Axis,Force:TKraftVector3;
+    AllWheelsGrounded:boolean;
+begin
+ AllWheelsGrounded:=true;
+ for WheelID:=Low(TWheelID) to High(TWheelID) do begin
+  if not fWheels[WheelID].IsGrounded then begin
+   AllWheelsGrounded:=false;
+   break;
+  end;
+ end;
+ if not AllWheelsGrounded then begin
+
+  fAfterFlightSlipperyTiresTime:=1.0;
+
+  // Length of axis depends on the angle - i.e. the further awat
+  // the vehicle is from being upright, the larger the applied impulse
+  // will be, resulting in fast changes when the vehicle is on its
+  // side, but not overcompensating (and therefore shaking) when
+  // the vehicle is not much away from being upright.
+  VehicleUp:=fWorldUp;
+  AntiGravityUp:=Vector3Neg(fPhysics.Gravity.Vector);
+  Axis:=Vector3Norm(Vector3Cross(VehicleUp,AntiGravityUp));
+
+  // To avoid the vehicle going backwards/forwards (or rolling sideways),
+  // set the pitch/roll to 0 before applying the 'straightening' impulse.
+  if fSettings.fFlightStabilizationDamping>0.0 then begin
+   fRigidBody.AngularVelocity:=Vector3Lerp(fRigidBody.AngularVelocity,
+                                           Vector3(0.0,fRigidBody.AngularVelocity.y,0.0),
+                                           Clamp01(fSettings.fFlightStabilizationDamping*fDeltaTime));
+  end;
+
+  // Give a nicely balanced feeling for rebalancing the vehicle
+  if fSettings.fFlightStabilizationForce>0.0 then begin
+   fRigidBody.AddWorldTorque(Vector3ScalarMul(Axis,fSettings.fFlightStabilizationForce*fRigidBody.Mass));
+  end;
+
+ end;
+end;
+
 procedure TKraftSimpleVehicle.UpdateWheelRotations;
 var WheelID:TWheelID;
 begin
@@ -1782,8 +1836,11 @@ begin
  UpdateAntiRollBar;
  UpdateAirResistance;
  UpdateDownForce;
+ UpdateFlightStabilization;
  UpdateWheelRotations;
  UpdateVisuals;
+
+ fAfterFlightSlipperyTiresTime:=Max(0.0,fAfterFlightSlipperyTiresTime-fDeltaTime);
 
  fBrakeSlipperyTiresTime:=Max(0.0,fBrakeSlipperyTiresTime-fDeltaTime);
 
