@@ -682,7 +682,7 @@ begin
  // Circle length = 2 * PI * R
  WheelLengthMeters:=TwoPI*fVehicle.fSettings.fWheelsRadius;
 
- // WheelID "Revolutions per second";
+ // Wheel "Revolutions per second";
  RevolutionsPerSecond:=TireLongSpeed/WheelLengthMeters;
 
  DeltaRotation:=TwoPI*RevolutionsPerSecond*fVehicle.fDeltaTime;
