@@ -219,7 +219,7 @@ type { TKraftSimpleVehicle }
             TSpringDatas=array[TWheel] of TSpringData;
             PSpringDatas=^TSpringDatas;
             { TVehicleSettings }
-            TVehicleSettings=record
+            TVehicleSettings=class
              private
               fWidth:TKraftScalar;
               fHeight:TKraftScalar;
@@ -241,7 +241,8 @@ type { TKraftSimpleVehicle }
               fBackWheelsGripFactor:TKraftScalar;
               fAirResistance:TKraftScalar;
              public
-              class function Create:TVehicleSettings; static;
+              constructor Create; reintroduce;
+              destructor Destroy; override;
 {$ifdef KraftPasJSON}
               procedure LoadFromJSON(const aJSONItem:TPasJSONItem);
               function SaveToJSON:TPasJSONItem;
@@ -402,27 +403,33 @@ end;
 
 { TKraftSimpleVehicle.TVehicleSettings }
 
-class function TKraftSimpleVehicle.TVehicleSettings.Create:TKraftSimpleVehicle.TVehicleSettings;
+constructor TKraftSimpleVehicle.TVehicleSettings.Create;
 begin
- result.fWidth:=1.9;
- result.fHeight:=0.75;
- result.fLength:=3.4;
- result.fWheelsHeight:=-0.25;
- result.fWheelsPaddingX:=0.06;
- result.fWheelsPaddingZ:=0.12;
- result.fChassisMass:=60;
- result.fTireMass:=1;
- result.fSpringRestLength:=0.8;
- result.fSpringStrength:=1200;
- result.fSpringDamper:=75;
- result.fAccelerationPower:=500;
- result.fBrakePower:=1.5;
- result.fMaximumSpeed:=22;
- result.fMaximumReverseSpeed:=12.5;
- result.fSteeringAngle:=20;
- result.fFrontWheelsGripFactor:=0.8;
- result.fBackWheelsGripFactor:=0.9;
- result.fAirResistance:=5.0;
+ inherited Create;
+ fWidth:=1.9;
+ fHeight:=0.75;
+ fLength:=3.4;
+ fWheelsHeight:=-0.25;
+ fWheelsPaddingX:=0.06;
+ fWheelsPaddingZ:=0.12;
+ fChassisMass:=60;
+ fTireMass:=1;
+ fSpringRestLength:=0.8;
+ fSpringStrength:=1200;
+ fSpringDamper:=75;
+ fAccelerationPower:=300;
+ fBrakePower:=1.5;
+ fMaximumSpeed:=10;
+ fMaximumReverseSpeed:=2.5;
+ fSteeringAngle:=20;
+ fFrontWheelsGripFactor:=0.8;
+ fBackWheelsGripFactor:=0.9;
+ fAirResistance:=5.0;
+end;
+
+destructor TKraftSimpleVehicle.TVehicleSettings.Destroy;
+begin
+ inherited Destroy;
 end;
 
 {$ifdef KraftPasJSON}
@@ -493,6 +500,7 @@ end;
 
 destructor TKraftSimpleVehicle.Destroy;
 begin
+ FreeAndNil(fSettings);
  inherited Destroy;
 end;
 
@@ -715,13 +723,14 @@ begin
 end; 
 
 procedure TKraftSimpleVehicle.UpdateBraking;
-const AlmostStoppedSpeed=2.0;
+const AlmostStoppedSpeed=0.1;
 var Wheel:TWheel;
     ForwardSpeed,Speed,BrakeRatio,RollVelocity,DesiredVelocityChange,DesiredAcceleration:TKraftScalar;
     AlmostStopping,AccelerationContrary:boolean;
     SpringPosition,RollDirection,Force:TKraftVector3;
 begin
- ForwardSpeed:=Vector3Dot(fWorldForward,fRigidBody.LinearVelocity);
+
+ForwardSpeed:=Vector3Dot(fWorldForward,fRigidBody.LinearVelocity);
  Speed:=abs(ForwardSpeed);
  AlmostStopping:=Speed<AlmostStoppedSpeed;
  if AlmostStopping then begin
