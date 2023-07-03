@@ -1120,8 +1120,8 @@ begin
     ((not fVehicle.fSettings.fUseAccelerationCurveEnvelopes) and not IsZero(fVehicle.fAccelerationInput)) then begin
 
   if IsGrounded and
-     ((fVehicle.fMovingForward and (fVehicle.fAbsoluteSpeed<fVehicle.fSettings.fMaximumSpeed)) or
-      ((not fVehicle.fMovingForward) and (fVehicle.fAbsoluteSpeed<fVehicle.fSettings.fMaximumReverseSpeed))) then begin
+     ((fVehicle.fMovingForward and (IsZero(fVehicle.fSettings.fMaximumSpeed) or (fVehicle.fAbsoluteSpeed<fVehicle.fSettings.fMaximumSpeed))) or
+      ((not fVehicle.fMovingForward) and (IsZero(fVehicle.fSettings.fMaximumReverseSpeed) or (fVehicle.fAbsoluteSpeed<fVehicle.fSettings.fMaximumReverseSpeed)))) then begin
 
    WheelForward:=GetWheelRollDirection;
 
