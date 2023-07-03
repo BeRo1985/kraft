@@ -451,6 +451,9 @@ type { TKraftSimpleVehicle }
        fDebugDownForce:TKraftVector3;
        fLastDebugDownForce:TKraftVector3;
        fVisualDebugDownForce:TKraftVector3;
+       fDebugFlightStabilizationTorque:TKraftVector3;
+       fLastDebugFlightStabilizationTorque:TKraftVector3;
+       fVisualDebugFlightStabilizationTorque:TKraftVector3;
 {$endif}
        procedure CalculateAckermannSteering;
        function GetHandBrakeK:TKraftScalar;
@@ -1766,9 +1769,14 @@ end;
 
 procedure TKraftSimpleVehicle.UpdateFlightStabilization;
 var WheelID:TWheelID;
-    VehicleUp,AntiGravityUp,Axis,Force:TKraftVector3;
+    VehicleUp,AntiGravityUp,Axis,Torque:TKraftVector3;
     AllWheelsGrounded:boolean;
 begin
+
+{$ifdef DebugDraw}
+ fDebugFlightStabilizationTorque:=Vector3Origin;
+{$endif}
+
  AllWheelsGrounded:=true;
  for WheelID:=Low(TWheelID) to High(TWheelID) do begin
   if not fWheels[WheelID].IsGrounded then begin
@@ -1776,6 +1784,7 @@ begin
    break;
   end;
  end;
+
  if not AllWheelsGrounded then begin
 
   fAfterFlightSlipperyTiresTime:=1.0;
@@ -1791,18 +1800,25 @@ begin
 
   // To avoid the vehicle going backwards/forwards (or rolling sideways),
   // set the pitch/roll to 0 before applying the 'straightening' impulse.
-  if fSettings.fFlightStabilizationDamping>0.0 then begin
+  if not IsZero(fSettings.fFlightStabilizationDamping) then begin
    fRigidBody.AngularVelocity:=Vector3Lerp(fRigidBody.AngularVelocity,
                                            Vector3(0.0,fRigidBody.AngularVelocity.y,0.0),
                                            Clamp01(fSettings.fFlightStabilizationDamping*fDeltaTime));
   end;
 
   // Give a nicely balanced feeling for rebalancing the vehicle
-  if fSettings.fFlightStabilizationForce>0.0 then begin
-   fRigidBody.AddWorldTorque(Vector3ScalarMul(Axis,fSettings.fFlightStabilizationForce*fRigidBody.Mass));
+  if not IsZero(fSettings.fFlightStabilizationForce) then begin
+   Torque:=Vector3ScalarMul(Axis,fSettings.fFlightStabilizationForce*fRigidBody.Mass);
+   if Vector3Length(Torque)>EPSILON then begin
+{$ifdef DebugDraw}
+    fDebugFlightStabilizationTorque:=Torque;
+{$endif}
+    fRigidBody.AddWorldTorque(Torque,kfmForce,true);
+   end;
   end;
 
  end;
+
 end;
 
 procedure TKraftSimpleVehicle.UpdateWheelRotations;
@@ -1866,6 +1882,7 @@ begin
 {$ifdef DebugDraw}
  fLastDebugAirResistanceForce:=fDebugAirResistanceForce;
  fLastDebugDownForce:=fDebugDownForce;
+ fLastDebugFlightStabilizationTorque:=fDebugFlightStabilizationTorque;
 {$endif}
 end;
 
@@ -1887,6 +1904,7 @@ begin
 {$ifdef DebugDraw}
  fVisualDebugAirResistanceForce:=Vector3Lerp(fLastDebugAirResistanceForce,fDebugAirResistanceForce,aAlpha);
  fVisualDebugDownForce:=Vector3Lerp(fLastDebugDownForce,fDebugDownForce,aAlpha);
+ fVisualDebugFlightStabilizationTorque:=Vector3Lerp(fLastDebugFlightStabilizationTorque,fDebugFlightStabilizationTorque,aAlpha);
 {$endif}
 end;
 
@@ -1979,6 +1997,21 @@ begin
   v0:=v;
   v1:=Vector3Add(v0,Vector3ScalarMul(fVisualDebugDownForce,1.0));
   Color:=Vector4(0.5,0.25,0.75,1.0);
+{$ifdef NoOpenGL}
+  if assigned(fDebugDrawLine) then begin
+   fDebugDrawLine(v0,v1,Color);
+  end;
+{$else}
+  glColor4fv(@Color);
+  glBegin(GL_LINE_STRIP);
+  glVertex3fv(@v0);
+  glVertex3fv(@v1);
+  glEnd;
+{$endif}
+
+  v0:=v;
+  v1:=Vector3Add(v0,Vector3ScalarMul(fVisualDebugFlightStabilizationTorque,1.0));
+  Color:=Vector4(0.75,0.25,0.5,1.0);
 {$ifdef NoOpenGL}
   if assigned(fDebugDrawLine) then begin
    fDebugDrawLine(v0,v1,Color);
