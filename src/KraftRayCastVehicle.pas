@@ -572,6 +572,31 @@ begin
  end;
 end;
 
+{$ifdef KraftPasJSON}
+function JSONToVector3(const aVectorJSONItem:TPasJSONItem):TKraftVector3;
+begin
+ if assigned(aVectorJSONItem) and (aVectorJSONItem is TPasJSONItemArray) and (TPasJSONItemArray(aVectorJSONItem).Count=3) then begin
+  result.x:=TPasJSON.GetNumber(TPasJSONItemArray(aVectorJSONItem).Items[0],0.0);
+  result.y:=TPasJSON.GetNumber(TPasJSONItemArray(aVectorJSONItem).Items[1],0.0);
+  result.z:=TPasJSON.GetNumber(TPasJSONItemArray(aVectorJSONItem).Items[2],0.0);
+ end else if assigned(aVectorJSONItem) and (aVectorJSONItem is TPasJSONItemObject) then begin
+  result.x:=TPasJSON.GetNumber(TPasJSONItemObject(aVectorJSONItem).Properties['x'],0.0);
+  result.y:=TPasJSON.GetNumber(TPasJSONItemObject(aVectorJSONItem).Properties['y'],0.0);
+  result.z:=TPasJSON.GetNumber(TPasJSONItemObject(aVectorJSONItem).Properties['z'],0.0);
+ end else begin
+  result:=Vector3Origin;
+ end;
+end;
+
+function Vector3ToJSON(const aVector:TKraftVector3):TPasJSONItemArray;
+begin
+ result:=TPasJSONItemArray.Create;
+ result.Add(TPasJSONItemNumber.Create(aVector.x));
+ result.Add(TPasJSONItemNumber.Create(aVector.y));
+ result.Add(TPasJSONItemNumber.Create(aVector.z));
+end;
+{$endif}
+
 { TEnvelope }
 
 constructor TKraftRayCastVehicle.TEnvelope.Create;
