@@ -324,8 +324,10 @@ type { TKraftRayCastVehicle }
               fCenterOfMass:TKraftVector3;
               fWheelsRadius:TKraftScalar;
               fWheelsHeight:TKraftScalar;
-              fWheelsPaddingX:TKraftScalar;
-              fWheelsPaddingZ:TKraftScalar;
+              fFrontWheelsPaddingX:TKraftScalar;
+              fFrontWheelsPaddingZ:TKraftScalar;
+              fBackWheelsPaddingX:TKraftScalar;
+              fBackWheelsPaddingZ:TKraftScalar;
               fChassisMass:TKraftScalar;
               fTireMass:TKraftScalar;
               fSpringRestLength:TKraftScalar;
@@ -374,8 +376,10 @@ type { TKraftRayCastVehicle }
               property CenterOfMass:TKraftVector3 read fCenterOfMass write fCenterOfMass;
               property WheelsRadius:TKraftScalar read fWheelsRadius write fWheelsRadius;
               property WheelsHeight:TKraftScalar read fWheelsHeight write fWheelsHeight;
-              property WheelsPaddingX:TKraftScalar read fWheelsPaddingX write fWheelsPaddingX;
-              property WheelsPaddingZ:TKraftScalar read fWheelsPaddingZ write fWheelsPaddingZ;
+              property FrontWheelsPaddingX:TKraftScalar read fFrontWheelsPaddingX write fFrontWheelsPaddingX;
+              property FrontWheelsPaddingZ:TKraftScalar read fFrontWheelsPaddingZ write fFrontWheelsPaddingZ;
+              property BackWheelsPaddingX:TKraftScalar read fBackWheelsPaddingX write fBackWheelsPaddingX;
+              property BackWheelsPaddingZ:TKraftScalar read fBackWheelsPaddingZ write fBackWheelsPaddingZ;
               property ChassisMass:TKraftScalar read fChassisMass write fChassisMass;
               property TireMass:TKraftScalar read fTireMass write fTireMass;
               property SpringRestLength:TKraftScalar read fSpringRestLength write fSpringRestLength;
@@ -513,6 +517,8 @@ type { TKraftRayCastVehicle }
        property RigidBody:TKraftRigidBody read fRigidBody write fRigidBody;
        property Shape:TKraftShape read fShape write fShape;
        property Controllable:boolean read fControllable write fControllable;
+       property IsAcceleration:boolean read fIsAcceleration;
+       property IsReverseAcceleration:boolean read fIsReverseAcceleration;
       public
        property WorldTransform:TKraftMatrix4x4 read fWorldTransform write fWorldTransform;
        property WorldLeft:TKraftVector3 read fWorldLeft write fWorldLeft;
@@ -970,16 +976,16 @@ begin
  BoxSize:=Vector3(fVehicle.fSettings.fWidth,fVehicle.fSettings.fHeight,fVehicle.fSettings.fLength);
  case fWheelID of
   TWheelID.FrontLeft:begin
-   result:=Vector3(BoxSize.x*(fVehicle.fSettings.fWheelsPaddingX-0.5),fVehicle.fSettings.fWheelsHeight,BoxSize.z*(0.5-fVehicle.fSettings.fWheelsPaddingZ));
+   result:=Vector3(BoxSize.x*(fVehicle.fSettings.fFrontWheelsPaddingX-0.5),fVehicle.fSettings.fWheelsHeight,BoxSize.z*(0.5-fVehicle.fSettings.fFrontWheelsPaddingZ));
   end;
   TWheelID.FrontRight:begin
-   result:=Vector3(BoxSize.x*(0.5-fVehicle.fSettings.fWheelsPaddingX),fVehicle.fSettings.fWheelsHeight,BoxSize.z*(0.5-fVehicle.fSettings.fWheelsPaddingZ));
+   result:=Vector3(BoxSize.x*(0.5-fVehicle.fSettings.fFrontWheelsPaddingX),fVehicle.fSettings.fWheelsHeight,BoxSize.z*(0.5-fVehicle.fSettings.fFrontWheelsPaddingZ));
   end;
   TWheelID.BackLeft:begin
-   result:=Vector3(BoxSize.x*(fVehicle.fSettings.fWheelsPaddingX-0.5),fVehicle.fSettings.fWheelsHeight,BoxSize.z*(fVehicle.fSettings.fWheelsPaddingZ-0.5));
+   result:=Vector3(BoxSize.x*(fVehicle.fSettings.fBackWheelsPaddingX-0.5),fVehicle.fSettings.fWheelsHeight,BoxSize.z*(fVehicle.fSettings.fBackWheelsPaddingZ-0.5));
   end;
   TWheelID.BackRight:begin
-   result:=Vector3(BoxSize.x*(0.5-fVehicle.fSettings.fWheelsPaddingX),fVehicle.fSettings.fWheelsHeight,BoxSize.z*(fVehicle.fSettings.fWheelsPaddingZ-0.5));
+   result:=Vector3(BoxSize.x*(0.5-fVehicle.fSettings.fBackWheelsPaddingX),fVehicle.fSettings.fWheelsHeight,BoxSize.z*(fVehicle.fSettings.fBackWheelsPaddingZ-0.5));
   end;
   else begin
    result:=Vector3(0.0,0.0,0.0);
@@ -1017,16 +1023,16 @@ begin
  BoxSize:=Vector3(fVehicle.fSettings.fWidth,fVehicle.fSettings.fHeight,fVehicle.fSettings.fLength);
  case fWheelID of
   TWheelID.FrontLeft:begin
-   result:=Vector3(BoxSize.x*(fVehicle.fSettings.fWheelsPaddingX-0.5),0.0,BoxSize.z*(0.5-fVehicle.fSettings.fWheelsPaddingZ));
+   result:=Vector3(BoxSize.x*(fVehicle.fSettings.fFrontWheelsPaddingX-0.5),0.0,BoxSize.z*(0.5-fVehicle.fSettings.fFrontWheelsPaddingZ));
   end;
   TWheelID.FrontRight:begin
-   result:=Vector3(BoxSize.x*(0.5-fVehicle.fSettings.fWheelsPaddingX),0.0,BoxSize.z*(0.5-fVehicle.fSettings.fWheelsPaddingZ));
+   result:=Vector3(BoxSize.x*(0.5-fVehicle.fSettings.fFrontWheelsPaddingX),0.0,BoxSize.z*(0.5-fVehicle.fSettings.fFrontWheelsPaddingZ));
   end;
   TWheelID.BackLeft:begin
-   result:=Vector3(BoxSize.x*(fVehicle.fSettings.fWheelsPaddingX-0.5),0.0,BoxSize.z*(fVehicle.fSettings.fWheelsPaddingZ-0.5));
+   result:=Vector3(BoxSize.x*(fVehicle.fSettings.fBackWheelsPaddingX-0.5),0.0,BoxSize.z*(fVehicle.fSettings.fBackWheelsPaddingZ-0.5));
   end;
   TWheelID.BackRight:begin
-   result:=Vector3(BoxSize.x*(0.5-fVehicle.fSettings.fWheelsPaddingX),0.0,BoxSize.z*(fVehicle.fSettings.fWheelsPaddingZ-0.5));
+   result:=Vector3(BoxSize.x*(0.5-fVehicle.fSettings.fBackWheelsPaddingX),0.0,BoxSize.z*(fVehicle.fSettings.fBackWheelsPaddingZ-0.5));
   end;
   else begin
    result:=Vector3(0.0,0.0,0.0);
@@ -1328,8 +1334,10 @@ begin
  fCenterOfMass:=Vector3(0.0,-0.25,0.0);
  fWheelsRadius:=0.5;
  fWheelsHeight:=-0.25;
- fWheelsPaddingX:=0.06;
- fWheelsPaddingZ:=0.12;
+ fFrontWheelsPaddingX:=0.06;
+ fFrontWheelsPaddingZ:=0.12;
+ fBackWheelsPaddingX:=0.06;
+ fBackWheelsPaddingZ:=0.12;
  fChassisMass:=60;
  fTireMass:=1;
  fSpringRestLength:=0.8;
@@ -1387,8 +1395,10 @@ begin
   fCenterOfMass:=JSONToVector3(TPasJSONItemObject(aJSONItem).Properties['centerofmass']);
   fWheelsRadius:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['wheelsradius'],fWheelsRadius);
   fWheelsHeight:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['wheelsheight'],fWheelsHeight);
-  fWheelsPaddingX:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['wheelspaddingx'],fWheelsPaddingX);
-  fWheelsPaddingZ:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['wheelspaddingz'],fWheelsPaddingZ);
+  fFrontWheelsPaddingX:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['frontwheelspaddingx'],fFrontWheelsPaddingX);
+  fFrontWheelsPaddingZ:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['frontwheelspaddingz'],fFrontWheelsPaddingZ);
+  fBackWheelsPaddingX:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['backwheelspaddingx'],fBackWheelsPaddingX);
+  fBackWheelsPaddingZ:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['backwheelspaddingz'],fBackWheelsPaddingZ);
   fChassisMass:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['chassismass'],fChassisMass);
   fTireMass:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['tiremass'],fTireMass);
   fSpringRestLength:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['springrestlength'],fSpringRestLength);
@@ -1435,8 +1445,10 @@ begin
  TPasJSONItemObject(result).Add('centerofmass',Vector3ToJSON(fCenterOfMass));
  TPasJSONItemObject(result).Add('wheelsradius',TPasJSONItemNumber.Create(fWheelsRadius));
  TPasJSONItemObject(result).Add('wheelsheight',TPasJSONItemNumber.Create(fWheelsHeight));
- TPasJSONItemObject(result).Add('wheelspaddingx',TPasJSONItemNumber.Create(fWheelsPaddingX));
- TPasJSONItemObject(result).Add('wheelspaddingz',TPasJSONItemNumber.Create(fWheelsPaddingZ));
+ TPasJSONItemObject(result).Add('frontwheelspaddingx',TPasJSONItemNumber.Create(fFrontWheelsPaddingX));
+ TPasJSONItemObject(result).Add('frontwheelspaddingz',TPasJSONItemNumber.Create(fFrontWheelsPaddingZ));
+ TPasJSONItemObject(result).Add('backwheelspaddingx',TPasJSONItemNumber.Create(fBackWheelsPaddingX));
+ TPasJSONItemObject(result).Add('backwheelspaddingz',TPasJSONItemNumber.Create(fBackWheelsPaddingZ));
  TPasJSONItemObject(result).Add('chassismass',TPasJSONItemNumber.Create(fChassisMass));
  TPasJSONItemObject(result).Add('tiremass',TPasJSONItemNumber.Create(fTireMass));
  TPasJSONItemObject(result).Add('springrestlength',TPasJSONItemNumber.Create(fSpringRestLength));
@@ -1502,6 +1514,8 @@ end;
 
 procedure TKraftRayCastVehicle.Reset;
 begin
+ fIsAcceleration:=false;
+ fIsReverseAcceleration:=false;
  fAfterFlightSlipperyTiresTime:=0.0;
  fBrakeSlipperyTiresTime:=0.0;
  fHandBrakeSlipperyTiresTime:=0.0;
