@@ -346,6 +346,8 @@ begin
  Vehicle.Wheels[3].EngineForce:=-1000*((ord(InputKeyUp) and 1)-(ord(InputKeyDown) and 1));
  Vehicle.Wheels[0].Steering:=(ord(InputKeyLeft) and 1)-(ord(InputKeyRight) and 1);
  Vehicle.Wheels[1].Steering:=(ord(InputKeyLeft) and 1)-(ord(InputKeyRight) and 1);
+ Vehicle.Wheels[2].Steering:=(ord(InputKeyLeft) and 1)-(ord(InputKeyRight) and 1);
+ Vehicle.Wheels[3].Steering:=(ord(InputKeyLeft) and 1)-(ord(InputKeyRight) and 1);
  Vehicle.Update(DeltaTime);
 end;
 

@@ -591,6 +591,7 @@ var Up,Right,Forwards:TKraftVector3;
     RotatingMat:TKraftMatrix3x3;
     Basis2:TKraftMatrix3x3;
     CombinedMat:TKraftMatrix3x3;
+    LocalWheelRotation,WorldWheelRotation:TKraftQuaternion;
 begin
  
  UpdateWheelTransformsWS;
@@ -598,8 +599,8 @@ begin
  Up:=Vector3Neg(fDirectionWorld);
  Right:=fAxleWorld;
  Forwards:=Vector3Norm(Vector3Cross(Up,Right));
- 
- Steering:=fSteering;
+
+ Steering:=fSteering*0.1;
  SteeringOrn:=QuaternionFromAxisAngle(Up,Steering);
  SteeringMat:=QuaternionToMatrix3x3(SteeringOrn);
  
@@ -616,11 +617,23 @@ begin
  Basis2[2,1]:=Forwards.y;
  Basis2[2,2]:=Forwards.z;
 
- CombinedMat:=Matrix3x3TermMul(Matrix3x3TermMul(SteeringMat,RotatingMat),Basis2);
+ CombinedMat:=Matrix3x3TermMul(Basis2,Matrix3x3TermMul(RotatingMat,SteeringMat));
+
+ //CombinedMat:=Matrix3x3TermMul(Matrix3x3TermMul(SteeringMat,RotatingMat),Basis2);
 
  fWorldTransform:=Matrix4x4Set(CombinedMat);
 
  PKraftVector3(@fWorldTransform[3,0])^.xyz:=Vector3Add(fChassisConnectionPointWorld,Vector3ScalarMul(fDirectionWorld,fSuspensionLength)).xyz;
+//*)
+
+(**
+ LocalWheelRotation:=QuaternionFromAngles(fSteering*0.2,0.0,-fRotation);
+ WorldWheelRotation:=QuaternionMul(fVehicle.fRigidBody.Sweep.q,LocalWheelRotation);
+ fWorldTransform:=QuaternionToMatrix4x4(WorldWheelRotation);
+ fWorldTransform[0,0]:=-fWorldTransform[0,0];
+ fWorldTransform[0,1]:=-fWorldTransform[0,1];
+ fWorldTransform[0,2]:=-fWorldTransform[0,2];//}
+ PKraftVector3(@fWorldTransform[3,0])^.xyz:=Vector3Add(fChassisConnectionPointWorld,Vector3ScalarMul(fDirectionWorld,fSuspensionLength)).xyz;///*)
 
 end;
 
@@ -1106,7 +1119,7 @@ begin
 
 {   fRigidBody.AddForceAtRelativePosition(SideImpulse,RelativePosition,kfmImpulse,true);
 
-   Wheel.fContactRigidBody.AddForceAtPosition(Vector3Neg(SideImpulse),Wheel.fContactPointWorld,kfmImpulse,true);
+   Wheel.fContactRigidBody.AddForceAtPosition(Vector3Neg(SideImpulse),Wheel.fContactPointWorld,kfmImpulse,true);//}
 
 {  fRigidBody.ApplyImpulseAtRelativePosition(SideImpulse,RelativePosition);
 
