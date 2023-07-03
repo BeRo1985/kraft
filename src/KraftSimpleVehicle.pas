@@ -267,8 +267,8 @@ type { TKraftSimpleVehicle }
             end;
       private
        fPhysics:TKraft;
-       fChassisBody:TKraftRigidBody;
-       fChassisShape:TKraftShape;
+       fRigidBody:TKraftRigidBody;
+       fShape:TKraftShape;
        fSpringDatas:TSpringDatas;
        fSteeringInput:TKraftScalar;
        fAccelerationInput:TKraftScalar;
@@ -342,8 +342,8 @@ type { TKraftSimpleVehicle }
        property Settings:TVehicleSettings read fSettings write fSettings;       
       published
        property Physics:TKraft read fPhysics;
-       property ChassisBody:TKraftRigidBody read fChassisBody write fChassisBody;
-       property ChassisShape:TKraftShape read fChassisShape write fChassisShape;
+       property RigidBody:TKraftRigidBody read fRigidBody write fRigidBody;
+       property Shape:TKraftShape read fShape write fShape;
        property SteeringInput:TKraftScalar read fSteeringInput write SetSteeringInput;
        property AccelerationInput:TKraftScalar read fAccelerationInput write SetAccelerationInput;
       public
@@ -477,8 +477,8 @@ constructor TKraftSimpleVehicle.Create(const aPhysics:TKraft);
 begin
  inherited Create;
  fPhysics:=aPhysics;
- fChassisBody:=nil;
- fChassisShape:=nil;
+ fRigidBody:=nil;
+ fShape:=nil;
  fSteeringInput:=0;
  fAccelerationInput:=0;
  fForward:=Vector3(0.0,0.0,-1.0);
@@ -493,15 +493,15 @@ end;
 procedure TKraftSimpleVehicle.Initialize;
 begin
  
- if not (assigned(fChassisBody) and assigned(fChassisShape)) then begin
+ if not (assigned(fRigidBody) and assigned(fShape)) then begin
   
-  fChassisBody:=TKraftRigidBody.Create(fPhysics);
-  fChassisBody.SetRigidBodyType(krbtDYNAMIC);
-  fChassisBody.ForcedMass:=fSettings.ChassisMass+(fSettings.TireMass*CountWheels);
+  fRigidBody:=TKraftRigidBody.Create(fPhysics);
+  fRigidBody.SetRigidBodyType(krbtDYNAMIC);
+  fRigidBody.ForcedMass:=fSettings.ChassisMass+(fSettings.TireMass*CountWheels);
 
-  fChassisShape:=TKraftShapeBox.Create(fPhysics,fChassisBody,Vector3(fSettings.Width*0.5,fSettings.Height*0.5,fSettings.Length*0.5));
+  fShape:=TKraftShapeBox.Create(fPhysics,fRigidBody,Vector3(fSettings.Width*0.5,fSettings.Height*0.5,fSettings.Length*0.5));
 
-  fChassisBody.Finish;
+  fRigidBody.Finish;
 
  end;
 
@@ -628,7 +628,7 @@ end;
 
 procedure TKraftSimpleVehicle.UpdateWorldTransformVectors;
 begin
- fWorldTransform:=fChassisBody.WorldTransform;
+ fWorldTransform:=fRigidBody.WorldTransform;
  fWorldRight:=Vector3(PKraftRawVector3(pointer(@fWorldTransform[0,0]))^);
  fWorldLeft:=Vector3Neg(fWorldRight);
  fWorldUp:=Vector3(PKraftRawVector3(pointer(@fWorldTransform[1,0]))^);
@@ -648,7 +648,7 @@ begin
   CurrentVelocity:=fSpringDatas[Wheel].fCurrentVelocity;
   Force:=TSpringMath.CalculateForceDamped(CurrentLength,CurrentVelocity,fSettings.SpringRestLength,fSettings.SpringStrength,fSettings.SpringDamper);
   if abs(Force)>EPSILON then begin
-   fChassisBody.AddForceAtPosition(Vector3ScalarMul(fWorldUp,Force),GetSpringPosition(Wheel),kfmForce,true);
+   fRigidBody.AddForceAtPosition(Vector3ScalarMul(fWorldUp,Force),GetSpringPosition(Wheel),kfmForce,true);
   end; 
  end;
 end;
@@ -662,12 +662,12 @@ begin
   if IsGrounded(Wheel) then begin
    SpringPosition:=GetSpringPosition(Wheel);
    SlideDirection:=GetWheelSlideDirection(Wheel);
-   SlideVelocity:=Vector3Dot(SlideDirection,fChassisBody.GetWorldLinearVelocityFromPoint(SpringPosition));
+   SlideVelocity:=Vector3Dot(SlideDirection,fRigidBody.GetWorldLinearVelocityFromPoint(SpringPosition));
    DesiredVelocityChange:=-SlideVelocity*GetWheelGripFactor(Wheel);
    DesiredAcceleration:=DesiredVelocityChange*fInverseDeltaTime;
    Force:=Vector3ScalarMul(SlideDirection,DesiredAcceleration*fSettings.TireMass);
    if Vector3Length(Force)>EPSILON then begin
-    fChassisBody.AddForceAtPosition(Force,GetWheelTorquePosition(Wheel),kfmForce,true);
+    fRigidBody.AddForceAtPosition(Force,GetWheelTorquePosition(Wheel),kfmForce,true);
    end; 
   end; 
  end;
@@ -680,7 +680,7 @@ var Wheel:TWheel;
     Position,WheelForward,Force:TKraftVector3;
 begin
  if not IsZero(fAccelerationInput) then begin
-  ForwardSpeed:=Vector3Dot(fWorldForward,fChassisBody.LinearVelocity);
+  ForwardSpeed:=Vector3Dot(fWorldForward,fRigidBody.LinearVelocity);
   MovingForward:=ForwardSpeed>0.0;
   Speed:=abs(ForwardSpeed);
   for Wheel:=Low(TWheel) to High(TWheel) do begin
@@ -691,7 +691,7 @@ begin
     WheelForward:=GetWheelRollDirection(Wheel);
     Force:=Vector3ScalarMul(WheelForward,fAccelerationInput*fSettings.AccelerationPower);
     if Vector3Length(Force)>EPSILON then begin
-     fChassisBody.AddForceAtPosition(Force,Position,kfmForce,true);
+     fRigidBody.AddForceAtPosition(Force,Position,kfmForce,true);
     end;
    end; 
   end;
@@ -705,13 +705,13 @@ var Wheel:TWheel;
     AlmostStopping,AccelerationContrary:boolean;
     SpringPosition,RollDirection,Force:TKraftVector3;
 begin
- ForwardSpeed:=Vector3Dot(fWorldForward,fChassisBody.LinearVelocity);
+ ForwardSpeed:=Vector3Dot(fWorldForward,fRigidBody.LinearVelocity);
  Speed:=abs(ForwardSpeed);
  AlmostStopping:=Speed<AlmostStoppedSpeed;
  if AlmostStopping then begin
   BrakeRatio:=1.0;
  end else begin
-  AccelerationContrary:=IsZero(fAccelerationInput) and (Vector3Dot(Vector3ScalarMul(fWorldForward,fAccelerationInput),fChassisBody.LinearVelocity)<0.0);
+  AccelerationContrary:=IsZero(fAccelerationInput) and (Vector3Dot(Vector3ScalarMul(fWorldForward,fAccelerationInput),fRigidBody.LinearVelocity)<0.0);
   if AccelerationContrary then begin
    BrakeRatio:=1.0;
   end else if IsZero(fAccelerationInput) then begin
@@ -725,12 +725,12 @@ begin
   if IsGrounded(Wheel) then begin
    SpringPosition:=GetSpringPosition(Wheel);
    RollDirection:=GetWheelRollDirection(Wheel);
-   RollVelocity:=Vector3Dot(RollDirection,fChassisBody.GetWorldLinearVelocityFromPoint(SpringPosition));
+   RollVelocity:=Vector3Dot(RollDirection,fRigidBody.GetWorldLinearVelocityFromPoint(SpringPosition));
    DesiredVelocityChange:=-RollVelocity*BrakeRatio*fSettings.BrakePower;
    DesiredAcceleration:=DesiredVelocityChange*fInverseDeltaTime;
    Force:=Vector3ScalarMul(RollDirection,DesiredAcceleration*fSettings.TireMass);
    if Vector3Length(Force)>EPSILON then begin
-    fChassisBody.AddForceAtPosition(Force,GetWheelTorquePosition(Wheel),kfmForce,true);
+    fRigidBody.AddForceAtPosition(Force,GetWheelTorquePosition(Wheel),kfmForce,true);
    end;
   end; 
  end;
@@ -742,7 +742,7 @@ var Force:TKraftVector3;
 begin
  Force:=Vector3ScalarMul(fVelocity,-fSettings.AirResistance*Vector3Length(Vector3(fSettings.Width,fSettings.Height,fSettings.Length)));
  if Vector3Length(Force)>EPSILON then begin
-  fChassisBody.AddWorldForce(Force,kfmForce,true);
+  fRigidBody.AddWorldForce(Force,kfmForce,true);
  end;
 end;
 
