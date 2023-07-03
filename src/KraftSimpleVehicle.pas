@@ -1754,6 +1754,33 @@ begin
 {$ifndef NoOpenGL}
  glDisable(GL_DEPTH_TEST);
 {$endif}
+ begin
+  Color:=Vector4(0.0,0.0,1.0,1.0);
+{ v0:=Vector3TermMatrixMul(Vector3Origin,fWheels[TWheelID.FrontLeft].fVisualWorldTransform);
+  v1:=Vector3TermMatrixMul(Vector3Origin,fWheels[TWheelID.FrontRight].fVisualWorldTransform);
+  v2:=Vector3TermMatrixMul(Vector3Origin,fWheels[TWheelID.BackLeft].fVisualWorldTransform);
+  v3:=Vector3TermMatrixMul(Vector3Origin,fWheels[TWheelID.BackRight].fVisualWorldTransform);}
+  v0:=Vector3TermMatrixMul(fWheels[TWheelID.FrontLeft].GetSpringRelativePosition,fVisualWorldTransform);
+  v1:=Vector3TermMatrixMul(fWheels[TWheelID.FrontRight].GetSpringRelativePosition,fVisualWorldTransform);
+  v2:=Vector3TermMatrixMul(fWheels[TWheelID.BackLeft].GetSpringRelativePosition,fVisualWorldTransform);
+  v3:=Vector3TermMatrixMul(fWheels[TWheelID.BackRight].GetSpringRelativePosition,fVisualWorldTransform);
+{$ifdef NoOpenGL}
+  if assigned(fDebugDrawLine) then begin
+   fDebugDrawLine(v0,v1,Color);
+   fDebugDrawLine(v2,v3,Color);
+  end;
+{$else}
+  glColor4fv(@Color);
+  glBegin(GL_LINE_STRIP);
+  glVertex3fv(@v0);
+  glVertex3fv(@v1);
+  glEnd;
+  glBegin(GL_LINE_STRIP);
+  glVertex3fv(@v2);
+  glVertex3fv(@v3);
+  glEnd;
+{$endif}
+ end;
  for WheelID:=Low(TWheelID) to High(TWheelID) do begin
 
   Wheel:=fWheels[WheelID];
@@ -1764,9 +1791,8 @@ begin
    Color:=Vector4(1.0,0.0,1.0,1.0);
   end;
 
-  v2:=Vector3TermMatrixMul(Wheel.GetSpringRelativePosition,fVisualWorldTransform);
-  v0:=Vector3Add(v2,Vector3ScalarMul(fVisualWorldLeft,0.1));
-  v1:=Vector3Add(v2,Vector3ScalarMul(fVisualWorldRight,0.1));
+  v0:=Vector3TermMatrixMul(Wheel.GetSpringRelativePosition,fVisualWorldTransform);
+  v1:=Vector3Add(v0,Vector3ScalarMul(fVisualWorldDown,Wheel.fSpring.fCurrentLength));
 {$ifdef NoOpenGL}
   if assigned(fDebugDrawLine) then begin
    fDebugDrawLine(v0,v1,Color);
@@ -1779,8 +1805,9 @@ begin
   glEnd;
 {$endif}
 
+  Color:=Vector4(1.0,0.0,1.0,1.0);
   v0:=Vector3TermMatrixMul(Wheel.GetSpringRelativePosition,fVisualWorldTransform);
-  v1:=Vector3Add(v0,Vector3ScalarMul(fVisualWorldDown,Wheel.fSpring.fCurrentLength));
+  v1:=Vector3Add(v0,Wheel.fVisualDebugAntiRollForce);
 {$ifdef NoOpenGL}
   if assigned(fDebugDrawLine) then begin
    fDebugDrawLine(v0,v1,Color);
