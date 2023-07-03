@@ -460,7 +460,7 @@ begin
  fDirectionWorld:=Vector3Origin;
  fAxleLocal:=Vector3(1.0,0.0,0.0);
  fAxleWorld:=Vector3Origin;
- fSuspensionRestLength:=1.0;
+ fSuspensionRestLength:=0.3;
  fSuspensionMaxLength:=2.0;
  fRadius:=0.5;
  fSuspensionStiffness:=fVehicle.fSuspensionStiffness;

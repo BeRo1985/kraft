@@ -185,10 +185,10 @@ begin
  Shape.Restitution:=0.3;
  Shape.Density:=200.0;
  Shape.LocalTransform:=Matrix4x4Translate(0.0,0.0,0.0);
-{Shape.Flags:=Shape.Flags+[ksfHasForcedCenterOfMass];
+ Shape.Flags:=Shape.Flags+[ksfHasForcedCenterOfMass];
  Shape.ForcedCenterOfMass.x:=0.0;
- Shape.ForcedCenterOfMass.y:=0.0;
- Shape.ForcedCenterOfMass.z:=0.0;}
+ Shape.ForcedCenterOfMass.y:=-0.3;
+ Shape.ForcedCenterOfMass.z:=0.0;
  Shape.ForcedMass:=150.0;
  Vehicle.RigidBody.Finish;
  Vehicle.RigidBody.SetWorldTransformation(Matrix4x4TermMul(Matrix4x4RotateY(PI),Matrix4x4Translate(0.0,CarHeight+5.0,0.0)));
@@ -447,5 +447,5 @@ begin
 end;
 
 initialization
-// RegisterDemoScene('Raycast vehicle',TDemoSceneRaycastVehicle);
+ RegisterDemoScene('Raycast vehicle',TDemoSceneRaycastVehicle);
 end.
