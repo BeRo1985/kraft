@@ -267,7 +267,14 @@ type { TKraftRayCastVehicle }
               fWheelID:TKraftRayCastVehicle.TWheelID;
               fSpring:TSpring;
               fYawRad:TKraftScalar;
+              fLastYawRad:TKraftScalar;
+              fVisualYawRad:TKraftScalar;
               fRotationRad:TKraftScalar;
+              fLastRotationRad:TKraftScalar;
+              fVisualRotationRad:TKraftScalar;
+              fSuspensionLength:TKraftScalar;
+              fLastSuspensionLength:TKraftScalar;
+              fVisualSuspensionLength:TKraftScalar;
               fWorldTransform:TKraftMatrix4x4;
               fLastWorldTransform:TKraftMatrix4x4;
               fVisualWorldTransform:TKraftMatrix4x4;
@@ -285,6 +292,7 @@ type { TKraftRayCastVehicle }
               fLastDebugSlideForce:TKraftVector3;
               fVisualDebugSlideForce:TKraftVector3;
 {$endif}
+             public
               function GetSpringHitPosition:TKraftVector3;
               function GetSpringPosition:TKraftVector3;
               function GetSpringRelativePosition:TKraftVector3;
@@ -294,6 +302,7 @@ type { TKraftRayCastVehicle }
               function GetWheelTorquePosition:TKraftVector3;
               function GetWheelTorqueRelativePosition:TKraftVector3;
               function GetWheelTransform:TKraftMatrix4x4;
+             private
               function IsGrounded:boolean;
               procedure CastSpring;
               procedure UpdateSuspension;
@@ -307,6 +316,10 @@ type { TKraftRayCastVehicle }
              public
               constructor Create(const aVehicle:TKraftRayCastVehicle;const aWheelID:TKraftRayCastVehicle.TWheelID); reintroduce;
               destructor Destroy; override;
+             published
+              property VisualYawRad:TKraftScalar read fVisualYawRad;
+              property VisualRotationRad:TKraftScalar read fVisualRotationRad;
+              property VisualSuspensionLength:TKraftScalar read fVisualSuspensionLength;
             end;
             { TWheels }
             TWheels=array[TWheelID] of TWheel;
@@ -512,6 +525,7 @@ type { TKraftRayCastVehicle }
       public
        property Settings:TVehicleSettings read fSettings write fSettings;
        property CastCollisionGroup:TKraftRigidBodyCollisionGroups read fCastCollisionGroup write fCastCollisionGroup;
+       property Wheels:TWheels read fWheels;
       published
        property Physics:TKraft read fPhysics;
        property RigidBody:TKraftRigidBody read fRigidBody write fRigidBody;
@@ -1092,6 +1106,7 @@ end;
 procedure TKraftRayCastVehicle.TWheel.UpdateSuspension;
 var CurrentLength,CurrentVelocity,Force:TKraftScalar;
 begin
+ fSuspensionLength:=fSpring.fCurrentLength;
  CurrentLength:=fSpring.fCurrentLength;
  CurrentVelocity:=fSpring.fCurrentVelocity;
  Force:=TKraftRayCastVehicle.TSpringMath.CalculateForceDamped(CurrentLength,
@@ -1298,6 +1313,9 @@ end;
 
 procedure TKraftRayCastVehicle.TWheel.StoreWorldTransforms;
 begin
+ fLastYawRad:=fYawRad;
+ fLastRotationRad:=fRotationRad;
+ fLastSuspensionLength:=fSuspensionLength;
  fLastWorldTransform:=fWorldTransform;
 {$ifdef DebugDraw}
  fLastDebugAntiRollForce:=fDebugAntiRollForce;
@@ -1309,6 +1327,9 @@ end;
 
 procedure TKraftRayCastVehicle.TWheel.InterpolateWorldTransforms(const aAlpha:TKraftScalar);
 begin
+ fVisualYawRad:=AngleLerp(fLastYawRad,fYawRad,aAlpha);
+ fVisualRotationRad:=AngleLerp(fLastRotationRad,fRotationRad,aAlpha);
+ fVisualSuspensionLength:=Lerp(fLastSuspensionLength,fSuspensionLength,aAlpha);
  fVisualWorldTransform:=Matrix4x4Slerp(fLastWorldTransform,fWorldTransform,aAlpha);
 {$ifdef DebugDraw}
  fVisualDebugAntiRollForce:=Vector3Lerp(fLastDebugAntiRollForce,fDebugAntiRollForce,aAlpha);
