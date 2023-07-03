@@ -450,6 +450,7 @@ type { TKraftSimpleVehicle }
        fAbsoluteSpeed:TKraftScalar;
        fSpeed:TKraftScalar;
        fSpeedKMH:TKraftScalar;
+       fCastCollisionGroup:TKraftRigidBodyCollisionGroups;
 {$ifdef DebugDraw}
        fDebugAirResistanceForce:TKraftVector3;
        fLastDebugAirResistanceForce:TKraftVector3;
@@ -494,6 +495,7 @@ type { TKraftSimpleVehicle }
 {$endif}
       public
        property Settings:TVehicleSettings read fSettings write fSettings;
+       property CastCollisionGroup:TKraftRigidBodyCollisionGroups read fCastCollisionGroup write fCastCollisionGroup;
       published
        property Physics:TKraft read fPhysics;
        property RigidBody:TKraftRigidBody read fRigidBody write fRigidBody;
@@ -1034,7 +1036,7 @@ begin
  PreviousLength:=fSpring.fCurrentLength;
  RayDirection:=fVehicle.fWorldDown;
  RayLength:=fVehicle.fSettings.fSpringRestLength;
- if fVehicle.fPhysics.RayCast(RayOrigin,RayDirection,RayLength,HitShape,HitTime,HitPoint,HitNormal,[0],nil) then begin
+ if fVehicle.fPhysics.RayCast(RayOrigin,RayDirection,RayLength,HitShape,HitTime,HitPoint,HitNormal,fVehicle.fCastCollisionGroup,nil) then begin
   CurrentLength:=HitTime;
  end else begin
   CurrentLength:=fVehicle.fSettings.fSpringRestLength;
@@ -1425,6 +1427,7 @@ begin
  fControllable:=true;
  fForward:=Vector3(0.0,0.0,-1.0);
  fVelocity:=Vector3(0.0,0.0,0.0);
+ fCastCollisionGroup:=[0];
  fSettings:=TKraftSimpleVehicle.TVehicleSettings.Create;
  for WheelID:=Low(TWheelID) to High(TWheelID) do begin
   fWheels[WheelID]:=TKraftSimpleVehicle.TWheel.Create(self,WheelID);
