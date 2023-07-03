@@ -944,7 +944,7 @@ begin
   for Index:=0 to 16 do begin
    if assigned(fVehicle.fDebugDrawLine) then begin
     v1:=v0;
-    v0:=Vector3TermMatrixMul(Vector3Add(Vector3Add(Vector3Origin,Vector3ScalarMul(Vector3YAxis,Sin((Index/16)*PI*2))),Vector3ScalarMul(Vector3ZAxis,Cos((Index/16)*PI*2))),fWheelDatas[Wheel].fVisualWorldTransform);
+    v0:=Vector3TermMatrixMul(Vector3Add(Vector3Add(Vector3Origin,Vector3ScalarMul(Vector3YAxis,Sin((Index/16)*PI*2)*fSettings.fWheelsRadius)),Vector3ScalarMul(Vector3ZAxis,Cos((Index/16)*PI*2)*fSettings.fWheelsRadius)),fWheelDatas[Wheel].fVisualWorldTransform);
     if Index>0 then begin
      fVehicle.fDebugDrawLine(v,v0,Vector4(1.0,1.0,1.0,1.0));
      fVehicle.fDebugDrawLine(v0,v1,Vector4(1.0,1.0,1.0,1.0));
@@ -958,7 +958,7 @@ begin
   v0:=Vector3TermMatrixMul(Vector3Origin,fWheelDatas[Wheel].fVisualWorldTransform);
   glVertex3fv(@v0);
   for Index:=0 to 16 do begin
-   v0:=Vector3TermMatrixMul(Vector3Add(Vector3Add(Vector3Origin,Vector3ScalarMul(Vector3YAxis,Sin((Index/16)*PI*2))),Vector3ScalarMul(Vector3ZAxis,Cos((Index/16)*PI*2))),fWheelDatas[Wheel].fVisualWorldTransform);
+   v0:=Vector3TermMatrixMul(Vector3Add(Vector3Add(Vector3Origin,Vector3ScalarMul(Vector3YAxis,Sin((Index/16)*PI*2)*fSettings.fWheelsRadius)),Vector3ScalarMul(Vector3ZAxis,Cos((Index/16)*PI*2)*fSettings.fWheelsRadius)),fWheelDatas[Wheel].fVisualWorldTransform);
    glVertex3fv(@v0);
   end;
   glEnd;
