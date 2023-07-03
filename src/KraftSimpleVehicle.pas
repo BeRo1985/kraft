@@ -443,6 +443,9 @@ type { TKraftSimpleVehicle }
        fDebugAirResistanceForce:TKraftVector3;
        fLastDebugAirResistanceForce:TKraftVector3;
        fVisualDebugAirResistanceForce:TKraftVector3;
+       fDebugDownForce:TKraftVector3;
+       fLastDebugDownForce:TKraftVector3;
+       fVisualDebugDownForce:TKraftVector3;
 {$endif}
        procedure CalculateAckermannSteering;
        function GetHandBrakeK:TKraftScalar;
@@ -460,6 +463,7 @@ type { TKraftSimpleVehicle }
        procedure UpdateBraking;
        procedure UpdateAntiRollBar;
        procedure UpdateAirResistance;
+       procedure UpdateDownForce;
        procedure UpdateWheelRotations;
        procedure UpdateVisuals;
       public
@@ -1718,6 +1722,26 @@ begin
  end;
 end;
 
+procedure TKraftSimpleVehicle.UpdateDownForce;
+var DownForceAmount:TKraftScalar;
+    Force:TKraftVector3;
+begin
+ if not IsZero(fSettings.fDownForce) then begin
+  DownForceAmount:=fSettings.fDownForceCurveEnvelope.GetValueAtTime(fSpeedKMH)*0.01;
+  Force:=Vector3ScalarMul(fWorldDown,fRigidBody.Mass*DownForceAmount*fSettings.fDownForce);
+{$ifdef DebugDraw}
+  fDebugDownForce:=Force;
+{$endif}
+  if Vector3Length(Force)>EPSILON then begin
+   fRigidBody.AddWorldForce(Force,kfmForce,true);
+  end;
+{$ifdef DebugDraw}
+ end else begin
+  fDebugDownForce:=Vector3Origin;
+{$endif}
+ end;
+end;
+
 procedure TKraftSimpleVehicle.UpdateWheelRotations;
 var WheelID:TWheelID;
 begin
@@ -1748,6 +1772,7 @@ begin
  UpdateBraking;
  UpdateAntiRollBar;
  UpdateAirResistance;
+ UpdateDownForce;
  UpdateWheelRotations;
  UpdateVisuals;
 
@@ -1774,6 +1799,7 @@ begin
  fLastWorldPosition:=Vector3(PKraftRawVector3(pointer(@fLastWorldTransform[3,0]))^);
 {$ifdef DebugDraw}
  fLastDebugAirResistanceForce:=fDebugAirResistanceForce;
+ fLastDebugDownForce:=fDebugDownForce;
 {$endif}
 end;
 
@@ -1794,6 +1820,7 @@ begin
  fVisualWorldPosition:=Vector3(PKraftRawVector3(pointer(@fVisualWorldTransform[3,0]))^);
 {$ifdef DebugDraw}
  fVisualDebugAirResistanceForce:=Vector3Lerp(fLastDebugAirResistanceForce,fDebugAirResistanceForce,aAlpha);
+ fVisualDebugDownForce:=Vector3Lerp(fLastDebugDownForce,fDebugDownForce,aAlpha);
 {$endif}
 end;
 
@@ -1871,6 +1898,21 @@ begin
   v0:=v;
   v1:=Vector3Add(v0,Vector3ScalarMul(fVisualDebugAirResistanceForce,1.0));
   Color:=Vector4(0.0,1.0,0.0,1.0);
+{$ifdef NoOpenGL}
+  if assigned(fDebugDrawLine) then begin
+   fDebugDrawLine(v0,v1,Color);
+  end;
+{$else}
+  glColor4fv(@Color);
+  glBegin(GL_LINE_STRIP);
+  glVertex3fv(@v0);
+  glVertex3fv(@v1);
+  glEnd;
+{$endif}
+
+  v0:=v;
+  v1:=Vector3Add(v0,Vector3ScalarMul(fVisualDebugDownForce,1.0));
+  Color:=Vector4(0.5,0.25,0.75,1.0);
 {$ifdef NoOpenGL}
   if assigned(fDebugDrawLine) then begin
    fDebugDrawLine(v0,v1,Color);
