@@ -248,6 +248,7 @@ type { TKraftSimpleVehicle }
              private
               fCurrentLength:TKraftScalar;
               fCurrentVelocity:TKraftScalar;
+              fCompression:TKraftScalar;
             end; 
             PSpring=^TSpring;
             { TWheelID }
@@ -308,8 +309,9 @@ type { TKraftSimpleVehicle }
               fSpringRestLength:TKraftScalar;
               fSpringStrength:TKraftScalar;
               fSpringDamper:TKraftScalar;
-              fAccelerationPower:TKraftScalar;
-              fBrakePower:TKraftScalar;
+              fStabilizerBarAntiRollForce:TKraftScalar;
+              fAccelerationForce:TKraftScalar;
+              fBrakeForce:TKraftScalar;
               fRollFriction:TKraftScalar;
               fMaximumSpeed:TKraftScalar;
               fMaximumReverseSpeed:TKraftScalar;
@@ -345,8 +347,9 @@ type { TKraftSimpleVehicle }
               property SpringRestLength:TKraftScalar read fSpringRestLength write fSpringRestLength;
               property SpringStrength:TKraftScalar read fSpringStrength write fSpringStrength;
               property SpringDamper:TKraftScalar read fSpringDamper write fSpringDamper;
-              property AccelerationPower:TKraftScalar read fAccelerationPower write fAccelerationPower;
-              property BrakePower:TKraftScalar read fBrakePower write fBrakePower;
+              property StabilizerBarAntiRollForce:TKraftScalar read fStabilizerBarAntiRollForce write fStabilizerBarAntiRollForce;
+              property AccelerationForce:TKraftScalar read fAccelerationForce write fAccelerationForce;
+              property BrakeForce:TKraftScalar read fBrakeForce write fBrakeForce;
               property RollFriction:TKraftScalar read fRollFriction write fRollFriction;
               property MaximumSpeed:TKraftScalar read fMaximumSpeed write fMaximumSpeed;
               property MaximumReverseSpeed:TKraftScalar read fMaximumReverseSpeed write fMaximumReverseSpeed;
@@ -432,6 +435,7 @@ type { TKraftSimpleVehicle }
        procedure UpdateSteering;
        procedure UpdateAcceleration;
        procedure UpdateBraking;
+       procedure UpdateAntiRollBar;
        procedure UpdateAirResistance;
        procedure UpdateWheelRotations;
        procedure UpdateVisuals;
@@ -995,6 +999,7 @@ begin
  end;
  fSpring.fCurrentVelocity:=(CurrentLength-PreviousLength)*fVehicle.fInverseDeltaTime;
  fSpring.fCurrentLength:=CurrentLength;
+ fSpring.fCompression:=1.0-Clamp01(CurrentLength/fVehicle.fSettings.fSpringRestLength);
 end;
 
 procedure TKraftSimpleVehicle.TWheel.UpdateSuspension;
@@ -1044,7 +1049,7 @@ begin
    if fVehicle.fSettings.fUseAccelerationCurveEnvelopes then begin
     Force:=Vector3ScalarMul(WheelForward,(fVehicle.fAccelerationForceMagnitude/TKraftSimpleVehicle.CountWheels)*fVehicle.fInverseDeltaTime);
    end else begin
-    Force:=Vector3ScalarMul(WheelForward,fVehicle.fAccelerationInput*fVehicle.fSettings.fAccelerationPower);
+    Force:=Vector3ScalarMul(WheelForward,fVehicle.fAccelerationInput*fVehicle.fSettings.fAccelerationForce);
    end;
 
    if Vector3Length(Force)>EPSILON then begin
@@ -1066,7 +1071,11 @@ begin
  if fVehicle.fSettings.fUseAccelerationCurveEnvelopes then begin
 
   if fVehicle.fIsBrake or fVehicle.fIsHandBrake then begin
-   BrakeRatio:=1.0;
+   if fVehicle.fIsHandBrake and not fVehicle.fIsBrake then begin
+    BrakeRatio:=0.8;
+   end else begin
+    BrakeRatio:=1.0;
+   end;
    RollFrictionRatio:=0.0;
   end else if not (fVehicle.fIsAcceleration or fVehicle.fIsReverseAcceleration) then begin
    BrakeRatio:=0.0;
@@ -1079,7 +1088,11 @@ begin
 
   AlmostStopping:=fVehicle.fAbsoluteSpeed<AlmostStoppedSpeed;
   if AlmostStopping or fVehicle.fIsBrake or fVehicle.fIsHandBrake then begin
-   BrakeRatio:=1.0;
+   if fVehicle.fIsHandBrake and not fVehicle.fIsBrake then begin
+    BrakeRatio:=0.8;
+   end else begin
+    BrakeRatio:=1.0;
+   end;
    RollFrictionRatio:=0.0;
   end else begin
    AccelerationContrary:=(fVehicle.fIsAcceleration or fVehicle.fIsReverseAcceleration) and
@@ -1101,7 +1114,7 @@ begin
   SpringPosition:=GetSpringPosition;
   RollDirection:=GetWheelRollDirection;
   RollVelocity:=Vector3Dot(RollDirection,fVehicle.fRigidBody.GetWorldLinearVelocityFromPoint(SpringPosition));
-  DesiredVelocityChange:=-RollVelocity*((BrakeRatio*fVehicle.fSettings.fBrakePower)+
+  DesiredVelocityChange:=-RollVelocity*((BrakeRatio*fVehicle.fSettings.fBrakeForce)+
                                         (RollFrictionRatio*fVehicle.fSettings.fRollFriction));
   DesiredAcceleration:=DesiredVelocityChange*fVehicle.fInverseDeltaTime;
   Force:=Vector3ScalarMul(RollDirection,DesiredAcceleration*fVehicle.fSettings.fTireMass);
@@ -1166,9 +1179,10 @@ begin
  fTireMass:=1;
  fSpringRestLength:=0.8;
  fSpringStrength:=1200;
- fSpringDamper:=75;
- fAccelerationPower:=300;
- fBrakePower:=1.5;
+ fSpringDamper:=75.0;
+ fStabilizerBarAntiRollForce:=100.0;
+ fAccelerationForce:=300.0;
+ fBrakeForce:=1.5;
  fRollFriction:=0.15;
  fMaximumSpeed:=10;
  fMaximumReverseSpeed:=2.5;
@@ -1213,8 +1227,9 @@ begin
   fSpringRestLength:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['springrestlength'],fSpringRestLength);
   fSpringStrength:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['springstrength'],fSpringStrength);
   fSpringDamper:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['springdamper'],fSpringDamper);
-  fAccelerationPower:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['accelerationpower'],fAccelerationPower);
-  fBrakePower:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['brakepower'],fBrakePower);
+  fStabilizerBarAntiRollForce:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['stabilizerbarantirollforce'],fStabilizerBarAntiRollForce);
+  fAccelerationForce:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['accelerationforce'],fAccelerationForce);
+  fBrakeForce:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['brakeforce'],fBrakeForce);
   fRollFriction:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['rollfriction'],fRollFriction);
   fMaximumSpeed:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['maximumspeed'],fMaximumSpeed);
   fMaximumReverseSpeed:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['maximumreversespeed'],fMaximumReverseSpeed);
@@ -1248,8 +1263,9 @@ begin
  TPasJSONItemObject(result).Add('springrestlength',TPasJSONItemNumber.Create(fSpringRestLength));
  TPasJSONItemObject(result).Add('springstrength',TPasJSONItemNumber.Create(fSpringStrength));
  TPasJSONItemObject(result).Add('springdamper',TPasJSONItemNumber.Create(fSpringDamper));
- TPasJSONItemObject(result).Add('accelerationpower',TPasJSONItemNumber.Create(fAccelerationPower));
- TPasJSONItemObject(result).Add('brakepower',TPasJSONItemNumber.Create(fBrakePower));
+ TPasJSONItemObject(result).Add('stabilizerbarantirollforce',TPasJSONItemNumber.Create(fStabilizerBarAntiRollForce));
+ TPasJSONItemObject(result).Add('accelerationforce',TPasJSONItemNumber.Create(fAccelerationForce));
+ TPasJSONItemObject(result).Add('brakeforce',TPasJSONItemNumber.Create(fBrakeForce));
  TPasJSONItemObject(result).Add('rollfriction',TPasJSONItemNumber.Create(fRollFriction));
  TPasJSONItemObject(result).Add('maximumspeed',TPasJSONItemNumber.Create(fMaximumSpeed));
  TPasJSONItemObject(result).Add('maximumreversespeed',TPasJSONItemNumber.Create(fMaximumReverseSpeed));
@@ -1587,6 +1603,41 @@ begin
  end;
 end;
 
+procedure TKraftSimpleVehicle.UpdateAntiRollBar;
+ procedure ProcessAxle(const aWheelLeft,aWheelRight:TKraftSimpleVehicle.TWheel);
+ var TravelL,TravelR,AntiRollForce:TKraftScalar;
+ begin
+  TravelL:=1.0-Clamp01(aWheelLeft.fSpring.fCompression);
+  TravelR:=1.0-Clamp01(aWheelRight.fSpring.fCompression);
+  AntiRollForce:=(TravelL-TravelR)*fSettings.fStabilizerBarAntiRollForce;
+  if aWheelLeft.IsGrounded then begin
+   fRigidBody.AddForceAtPosition(Vector3ScalarMul(fWorldDown,AntiRollForce),aWheelLeft.GetSpringHitPosition,kfmForce,false);
+ {$ifdef DebugDraw}
+   //fDebugAntiRollForces[0]:=Vector3ScalarMul(fVehicle.fWorldDown,AntiRollForce);
+ {$endif}
+  end else begin
+ {$ifdef DebugDraw}
+   //fDebugAntiRollForces[0]:=Vector3Origin;
+ {$endif}
+  end;
+  if aWheelRight.IsGrounded then begin
+   fRigidBody.AddForceAtPosition(Vector3ScalarMul(fWorldDown,-AntiRollForce),aWheelRight.GetSpringHitPosition,kfmForce,false);
+ {$ifdef DebugDraw}
+   //fDebugAntiRollForces[1]:=Vector3ScalarMul(fVehicle.fWorldDown,-AntiRollForce);
+ {$endif}
+  end else begin
+ {$ifdef DebugDraw}
+   //fDebugAntiRollForces[1]:=Vector3Origin;
+ {$endif}
+  end;
+ end;
+begin
+ if not IsZero(fSettings.fStabilizerBarAntiRollForce) then begin
+  ProcessAxle(fWheels[TWheelID.FrontLeft],fWheels[TWheelID.FrontRight]);
+  ProcessAxle(fWheels[TWheelID.BackLeft],fWheels[TWheelID.BackRight]);
+ end; 
+end;
+
 procedure TKraftSimpleVehicle.UpdateAirResistance;
 var Force:TKraftVector3;
 begin
@@ -1624,9 +1675,15 @@ begin
  UpdateSteering;
  UpdateAcceleration;
  UpdateBraking;
+ UpdateAntiRollBar;
  UpdateAirResistance;
  UpdateWheelRotations;
  UpdateVisuals;
+
+ fBrakeSlipperyTiresTime:=Max(0.0,fBrakeSlipperyTiresTime-fDeltaTime);
+
+ fHandBrakeSlipperyTiresTime:=Max(0.0,fHandBrakeSlipperyTiresTime-fDeltaTime);
+
 end;
 
 procedure TKraftSimpleVehicle.StoreWorldTransforms;
