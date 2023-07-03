@@ -275,6 +275,12 @@ type { TKraftSimpleVehicle }
               fDebugAntiRollForce:TKraftVector3;
               fLastDebugAntiRollForce:TKraftVector3;
               fVisualDebugAntiRollForce:TKraftVector3;
+              fDebugAccelerationForce:TKraftVector3;
+              fLastDebugAccelerationForce:TKraftVector3;
+              fVisualDebugAccelerationForce:TKraftVector3;
+              fDebugDeaccelerationForce:TKraftVector3;
+              fLastDebugDeaccelerationForce:TKraftVector3;
+              fVisualDebugDeaccelerationForce:TKraftVector3;
 {$endif}
               function GetSpringHitPosition:TKraftVector3;
               function GetSpringPosition:TKraftVector3;
@@ -1044,6 +1050,11 @@ end;
 procedure TKraftSimpleVehicle.TWheel.UpdateAcceleration;
 var WheelForward,Force:TKraftVector3;
 begin
+
+{$ifdef DebugDraw}
+ fDebugAccelerationForce:=Vector3Origin;
+{$endif}
+
  if (fVehicle.fSettings.fUseAccelerationCurveEnvelopes and not IsZero(fVehicle.fAccelerationForceMagnitude)) or
     ((not fVehicle.fSettings.fUseAccelerationCurveEnvelopes) and not IsZero(fVehicle.fAccelerationInput)) then begin
 
@@ -1058,6 +1069,10 @@ begin
    end else begin
     Force:=Vector3ScalarMul(WheelForward,fVehicle.fAccelerationInput*fVehicle.fSettings.fAccelerationForce);
    end;
+
+{$ifdef DebugDraw}
+   Vector3DirectAdd(fDebugAccelerationForce,Force);
+{$endif}
 
    if Vector3Length(Force)>EPSILON then begin
     fVehicle.fRigidBody.AddForceAtPosition(Force,GetWheelTorquePosition,kfmForce,true);
@@ -1074,6 +1089,10 @@ var BrakeRatio,RollFrictionRatio,RollVelocity,DesiredVelocityChange,DesiredAccel
     AlmostStopping,AccelerationContrary:boolean;
     SpringPosition,RollDirection,Force:TKraftVector3;
 begin
+
+{$ifdef DebugDraw}
+ fDebugDeaccelerationForce:=Vector3Origin;
+{$endif}
 
  if fVehicle.fSettings.fUseAccelerationCurveEnvelopes then begin
 
@@ -1125,6 +1144,9 @@ begin
                                         (RollFrictionRatio*fVehicle.fSettings.fRollFriction));
   DesiredAcceleration:=DesiredVelocityChange*fVehicle.fInverseDeltaTime;
   Force:=Vector3ScalarMul(RollDirection,DesiredAcceleration*fVehicle.fSettings.fTireMass);
+{$ifdef DebugDraw}
+  Vector3DirectAdd(fDebugDeaccelerationForce,Force);
+{$endif}
   if Vector3Length(Force)>EPSILON then begin
    fVehicle.fRigidBody.AddForceAtPosition(Force,GetWheelTorquePosition,kfmForce,true);
   end;
@@ -1175,6 +1197,8 @@ begin
  fLastWorldTransform:=fWorldTransform;
 {$ifdef DebugDraw}
  fLastDebugAntiRollForce:=fDebugAntiRollForce;
+ fLastDebugAccelerationForce:=fDebugAccelerationForce;
+ fLastDebugDeaccelerationForce:=fDebugDeaccelerationForce;
 {$endif}
 end;
 
@@ -1183,6 +1207,8 @@ begin
  fVisualWorldTransform:=Matrix4x4Slerp(fLastWorldTransform,fWorldTransform,aAlpha);
 {$ifdef DebugDraw}
  fVisualDebugAntiRollForce:=Vector3Lerp(fLastDebugAntiRollForce,fDebugAntiRollForce,aAlpha);
+ fVisualDebugAccelerationForce:=Vector3Lerp(fLastDebugAccelerationForce,fDebugAccelerationForce,aAlpha);
+ fVisualDebugDeaccelerationForce:=Vector3Lerp(fLastDebugDeaccelerationForce,fDebugDeaccelerationForce,aAlpha);
 {$endif}
 end;
 
@@ -1611,10 +1637,8 @@ end;
 procedure TKraftSimpleVehicle.UpdateAcceleration;
 var WheelID:TWheelID;
 begin
- if not IsZero(fAccelerationInput) then begin
-  for WheelID:=Low(TWheelID) to High(TWheelID) do begin
-   fWheels[WheelID].UpdateAcceleration;
-  end;
+ for WheelID:=Low(TWheelID) to High(TWheelID) do begin
+  fWheels[WheelID].UpdateAcceleration;
  end;
 end; 
 
@@ -1841,6 +1865,36 @@ begin
   Color:=Vector4(1.0,0.0,1.0,1.0);
   v0:=Vector3TermMatrixMul(Wheel.GetSpringRelativePosition,fVisualWorldTransform);
   v1:=Vector3Add(v0,Wheel.fVisualDebugAntiRollForce);
+{$ifdef NoOpenGL}
+  if assigned(fDebugDrawLine) then begin
+   fDebugDrawLine(v0,v1,Color);
+  end;
+{$else}
+  glColor4fv(@Color);
+  glBegin(GL_LINE_STRIP);
+  glVertex3fv(@v0);
+  glVertex3fv(@v1);
+  glEnd;
+{$endif}
+
+  Color:=Vector4(1.0,0.0,0.0,1.0);
+  v0:=Vector3TermMatrixMul(Wheel.GetSpringRelativePosition,fVisualWorldTransform);
+  v1:=Vector3Add(v0,Wheel.fVisualDebugAccelerationForce);
+{$ifdef NoOpenGL}
+  if assigned(fDebugDrawLine) then begin
+   fDebugDrawLine(v0,v1,Color);
+  end;
+{$else}
+  glColor4fv(@Color);
+  glBegin(GL_LINE_STRIP);
+  glVertex3fv(@v0);
+  glVertex3fv(@v1);
+  glEnd;
+{$endif}
+
+  Color:=Vector4(1.0,0.5,0.5,1.0);
+  v0:=Vector3TermMatrixMul(Wheel.GetSpringRelativePosition,fVisualWorldTransform);
+  v1:=Vector3Add(v0,Wheel.fVisualDebugDeaccelerationForce);
 {$ifdef NoOpenGL}
   if assigned(fDebugDrawLine) then begin
    fDebugDrawLine(v0,v1,Color);
