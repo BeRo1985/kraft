@@ -437,6 +437,11 @@ type { TKraftSimpleVehicle }
        fAbsoluteSpeed:TKraftScalar;
        fSpeed:TKraftScalar;
        fSpeedKMH:TKraftScalar;
+{$ifdef DebugDraw}
+       fDebugAirResistanceForce:TKraftVector3;
+       fLastDebugAirResistanceForce:TKraftVector3;
+       fVisualDebugAirResistanceForce:TKraftVector3;
+{$endif}
        procedure CalculateAckermannSteering;
        function GetHandBrakeK:TKraftScalar;
        function GetSteeringHandBrakeK:TKraftScalar;
@@ -1699,7 +1704,10 @@ end;
 procedure TKraftSimpleVehicle.UpdateAirResistance;
 var Force:TKraftVector3;
 begin
- Force:=Vector3ScalarMul(fVelocity,-fSettings.fAirResistance*Vector3Length(Vector3(fSettings.fWidth,fSettings.fHeight,fSettings.fLength)));
+ Force:=Vector3ScalarMul(fRigidBody.LinearVelocity,-fSettings.fAirResistance*Vector3Length(Vector3(fSettings.fWidth,fSettings.fHeight,fSettings.fLength)));
+{$ifdef DebugDraw}
+ fDebugAirResistanceForce:=Force;
+{$endif}
  if Vector3Length(Force)>EPSILON then begin
   fRigidBody.AddWorldForce(Force,kfmForce,true);
  end;
@@ -1759,6 +1767,9 @@ begin
  fLastWorldForward:=Vector3(PKraftRawVector3(pointer(@fLastWorldTransform[2,0]))^);
  fLastWorldBackward:=Vector3Neg(fLastWorldForward);
  fLastWorldPosition:=Vector3(PKraftRawVector3(pointer(@fLastWorldTransform[3,0]))^);
+{$ifdef DebugDraw}
+ fLastDebugAirResistanceForce:=fDebugAirResistanceForce;
+{$endif}
 end;
 
 procedure TKraftSimpleVehicle.InterpolateWorldTransforms(const aAlpha:TKraftScalar);
@@ -1776,6 +1787,9 @@ begin
  fVisualWorldForward:=Vector3(PKraftRawVector3(pointer(@fVisualWorldTransform[2,0]))^);
  fVisualWorldBackward:=Vector3Neg(fVisualWorldForward);
  fVisualWorldPosition:=Vector3(PKraftRawVector3(pointer(@fVisualWorldTransform[3,0]))^);
+{$ifdef DebugDraw}
+ fVisualDebugAirResistanceForce:=Vector3Lerp(fLastDebugAirResistanceForce,fDebugAirResistanceForce,aAlpha);
+{$endif}
 end;
 
 {$ifdef DebugDraw}
@@ -1848,6 +1862,22 @@ begin
   glVertex3fv(@v2);
   glEnd;
 {$endif}
+
+  v0:=v;
+  v1:=Vector3Add(v0,Vector3ScalarMul(fVisualDebugAirResistanceForce,1.0));
+  Color:=Vector4(0.0,1.0,0.0,1.0);
+{$ifdef NoOpenGL}
+  if assigned(fDebugDrawLine) then begin
+   fDebugDrawLine(v0,v1,Color);
+  end;
+{$else}
+  glColor4fv(@Color);
+  glBegin(GL_LINE_STRIP);
+  glVertex3fv(@v0);
+  glVertex3fv(@v1);
+  glEnd;
+{$endif}
+
  end;
  for WheelID:=Low(TWheelID) to High(TWheelID) do begin
 
