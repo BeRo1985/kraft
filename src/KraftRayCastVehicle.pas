@@ -47,7 +47,7 @@
  *     and double precision.                                                  *
  *                                                                            *
  ******************************************************************************)
-unit KraftSimpleVehicle;
+unit KraftRayCastVehicle;
 {$ifdef fpc}
  {$mode delphi}
  {$warnings off}
@@ -188,8 +188,8 @@ uses {$ifdef windows}
      Math,
      Kraft;
 
-type { TKraftSimpleVehicle }
-     TKraftSimpleVehicle=class
+type { TKraftRayCastVehicle }
+     TKraftRayCastVehicle=class
       public
        const CountWheels=4; // Count of wheels
        type TDebugDrawLine=procedure(const aP0,aP1:TKraftVector3;const aColor:TKraftVector4) of object;
@@ -263,8 +263,8 @@ type { TKraftSimpleVehicle }
             { TWheel }
             TWheel=class
              private
-              fVehicle:TKraftSimpleVehicle;
-              fWheelID:TKraftSimpleVehicle.TWheelID;
+              fVehicle:TKraftRayCastVehicle;
+              fWheelID:TKraftRayCastVehicle.TWheelID;
               fSpring:TSpring;
               fYawRad:TKraftScalar;
               fRotationRad:TKraftScalar;
@@ -305,7 +305,7 @@ type { TKraftSimpleVehicle }
               procedure StoreWorldTransforms;
               procedure InterpolateWorldTransforms(const aAlpha:TKraftScalar);
              public
-              constructor Create(const aVehicle:TKraftSimpleVehicle;const aWheelID:TKraftSimpleVehicle.TWheelID); reintroduce;
+              constructor Create(const aVehicle:TKraftRayCastVehicle;const aWheelID:TKraftRayCastVehicle.TWheelID); reintroduce;
               destructor Destroy; override;
             end;
             { TWheels }
@@ -574,47 +574,47 @@ end;
 
 { TEnvelope }
 
-constructor TKraftSimpleVehicle.TEnvelope.Create;
+constructor TKraftRayCastVehicle.TEnvelope.Create;
 begin
  inherited Create;
- fMode:=TKraftSimpleVehicle.TEnvelope.TMode.Custom;
+ fMode:=TKraftRayCastVehicle.TEnvelope.TMode.Custom;
  fPoints:=nil;
  fCount:=0;
 end;
 
-constructor TKraftSimpleVehicle.TEnvelope.CreateLinear(const aTimeStart,aValueStart,aTimeEnd,aValueEnd:TKraftScalar);
+constructor TKraftRayCastVehicle.TEnvelope.CreateLinear(const aTimeStart,aValueStart,aTimeEnd,aValueEnd:TKraftScalar);
 begin
  Create;
  FillLinear(aTimeStart,aValueStart,aTimeEnd,aValueEnd);
 end;
 
-constructor TKraftSimpleVehicle.TEnvelope.CreateEaseInOut(const aTimeStart,aValueStart,aTimeEnd,aValueEnd:TKraftScalar;const aSteps:TKraftInt32=16);
+constructor TKraftRayCastVehicle.TEnvelope.CreateEaseInOut(const aTimeStart,aValueStart,aTimeEnd,aValueEnd:TKraftScalar;const aSteps:TKraftInt32=16);
 begin
  Create;
  FillEaseInOut(aTimeStart,aValueStart,aTimeEnd,aValueEnd,aSteps);
 end;
 
-destructor TKraftSimpleVehicle.TEnvelope.Destroy;
+destructor TKraftRayCastVehicle.TEnvelope.Destroy;
 begin
  fPoints:=nil;
  inherited Destroy;
 end;
 
-procedure TKraftSimpleVehicle.TEnvelope.Clear;
+procedure TKraftRayCastVehicle.TEnvelope.Clear;
 begin
- fMode:=TKraftSimpleVehicle.TEnvelope.TMode.Custom;
+ fMode:=TKraftRayCastVehicle.TEnvelope.TMode.Custom;
  fPoints:=nil;
  fCount:=0;
 end;
 
-procedure TKraftSimpleVehicle.TEnvelope.Assign(const aFrom:TEnvelope);
+procedure TKraftRayCastVehicle.TEnvelope.Assign(const aFrom:TEnvelope);
 begin
  fMode:=aFrom.fMode;
  fPoints:=copy(aFrom.fPoints);
  fCount:=aFrom.fCount;
 end;
 
-procedure TKraftSimpleVehicle.TEnvelope.Insert(const aTime,aValue:TKraftScalar);
+procedure TKraftRayCastVehicle.TEnvelope.Insert(const aTime,aValue:TKraftScalar);
 var Index,LowIndex,HighIndex,MidIndex:TKraftInt32;
     Point:PPoint;
 begin
@@ -656,21 +656,21 @@ begin
   SetLength(fPoints,1);
   Index:=0;
  end;
- fMode:=TKraftSimpleVehicle.TEnvelope.TMode.Custom;
+ fMode:=TKraftRayCastVehicle.TEnvelope.TMode.Custom;
  Point:=@fPoints[Index];
  Point^.fTime:=aTime;
  Point^.fValue:=aValue;
 end;
 
-procedure TKraftSimpleVehicle.TEnvelope.FillLinear(const aTimeStart,aValueStart,aTimeEnd,aValueEnd:TKraftScalar);
+procedure TKraftRayCastVehicle.TEnvelope.FillLinear(const aTimeStart,aValueStart,aTimeEnd,aValueEnd:TKraftScalar);
 begin
  Clear;
  Insert(aTimeStart,aValueStart);
  Insert(aTimeEnd,aValueEnd);
- fMode:=TKraftSimpleVehicle.TEnvelope.TMode.Linear;
+ fMode:=TKraftRayCastVehicle.TEnvelope.TMode.Linear;
 end;
 
-procedure TKraftSimpleVehicle.TEnvelope.FillEaseInOut(const aTimeStart,aValueStart,aTimeEnd,aValueEnd:TKraftScalar;const aSteps:TKraftInt32=16);
+procedure TKraftRayCastVehicle.TEnvelope.FillEaseInOut(const aTimeStart,aValueStart,aTimeEnd,aValueEnd:TKraftScalar;const aSteps:TKraftInt32=16);
 var Index,Last:TKraftInt32;
     x,Time,Value:TKraftScalar;
 begin
@@ -687,11 +687,11 @@ begin
   Value:=(aValueStart*(1.0-x))+(aValueEnd*x);
   Insert(Time,Value);
  end;
- fMode:=TKraftSimpleVehicle.TEnvelope.TMode.EaseInOut;
+ fMode:=TKraftRayCastVehicle.TEnvelope.TMode.EaseInOut;
 end;
 
 {$ifdef KraftPasJSON}
-procedure TKraftSimpleVehicle.TEnvelope.LoadFromJSON(const aJSONItem:TPasJSONItem);
+procedure TKraftRayCastVehicle.TEnvelope.LoadFromJSON(const aJSONItem:TPasJSONItem);
 var RootJSONItemObject:TPasJSONItemObject;
     Mode:TPasJSONUTF8String;
     JSONItem:TPasJSONItem;
@@ -728,21 +728,21 @@ begin
  end;
 end;
 
-function TKraftSimpleVehicle.TEnvelope.SaveToJSON:TPasJSONItem;
+function TKraftRayCastVehicle.TEnvelope.SaveToJSON:TPasJSONItem;
 var Index:TKraftSizeInt;
     JSONItemArray:TPasJSONItemArray;
     JSONItemObject:TPasJSONItemObject;
 begin
  result:=TPasJSONItemObject.Create;
  case fMode of
-  TKraftSimpleVehicle.TEnvelope.TMode.Linear:begin
+  TKraftRayCastVehicle.TEnvelope.TMode.Linear:begin
    TPasJSONItemObject(result).Add('mode',TPasJSONItemString.Create('linear'));
    TPasJSONItemObject(result).Add('timestart',TPasJSONItemNumber.Create(fPoints[0].fTime));
    TPasJSONItemObject(result).Add('valuestart',TPasJSONItemNumber.Create(fPoints[0].fValue));
    TPasJSONItemObject(result).Add('timeend',TPasJSONItemNumber.Create(fPoints[1].fTime));
    TPasJSONItemObject(result).Add('valueend',TPasJSONItemNumber.Create(fPoints[1].fValue));
   end;
-  TKraftSimpleVehicle.TEnvelope.TMode.EaseInOut:begin
+  TKraftRayCastVehicle.TEnvelope.TMode.EaseInOut:begin
    TPasJSONItemObject(result).Add('mode',TPasJSONItemString.Create('easeinout'));
    TPasJSONItemObject(result).Add('timestart',TPasJSONItemNumber.Create(fPoints[0].fTime));
    TPasJSONItemObject(result).Add('valuestart',TPasJSONItemNumber.Create(fPoints[0].fValue));
@@ -750,7 +750,7 @@ begin
    TPasJSONItemObject(result).Add('valueend',TPasJSONItemNumber.Create(fPoints[fCount-1].fValue));
    TPasJSONItemObject(result).Add('steps',TPasJSONItemNumber.Create(fCount));
   end;
-  else {TKraftSimpleVehicle.TEnvelope.TMode.Custom:}begin
+  else {TKraftRayCastVehicle.TEnvelope.TMode.Custom:}begin
    TPasJSONItemObject(result).Add('mode',TPasJSONItemString.Create('custom'));
    JSONItemArray:=TPasJSONItemArray.Create;
    try
@@ -771,7 +771,7 @@ begin
 end;
 {$endif}
 
-function TKraftSimpleVehicle.TEnvelope.GetTimeAtIndex(const aIndex:TKraftInt32):TKraftScalar;
+function TKraftRayCastVehicle.TEnvelope.GetTimeAtIndex(const aIndex:TKraftInt32):TKraftScalar;
 begin
  if (aIndex>=0) and (aIndex<fCount) then begin
   result:=fPoints[aIndex].fTime;
@@ -780,7 +780,7 @@ begin
  end;
 end;
 
-function TKraftSimpleVehicle.TEnvelope.GetValueAtIndex(const aIndex:TKraftInt32):TKraftScalar;
+function TKraftRayCastVehicle.TEnvelope.GetValueAtIndex(const aIndex:TKraftInt32):TKraftScalar;
 begin
  if (aIndex>=0) and (aIndex<fCount) then begin
   result:=fPoints[aIndex].fValue;
@@ -789,7 +789,7 @@ begin
  end;
 end;
 
-function TKraftSimpleVehicle.TEnvelope.GetIndexFromTime(const aTime:TKraftScalar):TKraftInt32;
+function TKraftRayCastVehicle.TEnvelope.GetIndexFromTime(const aTime:TKraftScalar):TKraftInt32;
 var LowIndex,HighIndex,MidIndex:TKraftInt32;
     Point:PPoint;
 begin
@@ -840,7 +840,7 @@ begin
  end;
 end;
 
-function TKraftSimpleVehicle.TEnvelope.GetValueAtTime(const aTime:TKraftScalar):TKraftScalar;
+function TKraftRayCastVehicle.TEnvelope.GetValueAtTime(const aTime:TKraftScalar):TKraftScalar;
 var LowIndex,HighIndex,MidIndex:TKraftInt32;
     Point:PPoint;
 begin
@@ -892,23 +892,23 @@ begin
  end;
 end;
 
-{ TKraftSimpleVehicle.TSpringMath }
+{ TKraftRayCastVehicle.TSpringMath }
 
 // Calculates the force which wants to restore the spring to its rest length.
-class function TKraftSimpleVehicle.TSpringMath.CalculateForce(const aCurrentLength,aRestLength,aStrength:TKraftScalar):TKraftScalar;
+class function TKraftRayCastVehicle.TSpringMath.CalculateForce(const aCurrentLength,aRestLength,aStrength:TKraftScalar):TKraftScalar;
 begin
  result:=(aRestLength-aCurrentLength)*aStrength;
 end;
 
 // Combines the force which wants to restore the spring to its rest length with the force which wants to damp the spring's motion.
-class function TKraftSimpleVehicle.TSpringMath.CalculateForceDamped(const aCurrentLength,aLengthVelocity,aRestLength,aStrength,aDamper:TKraftScalar):TKraftScalar;
+class function TKraftRayCastVehicle.TSpringMath.CalculateForceDamped(const aCurrentLength,aLengthVelocity,aRestLength,aStrength,aDamper:TKraftScalar):TKraftScalar;
 begin
  result:=((aRestLength-aCurrentLength)*aStrength)-(aLengthVelocity*aDamper);
 end;
 
-{ TKraftSimpleVehicle.TWheel }
+{ TKraftRayCastVehicle.TWheel }
 
-constructor TKraftSimpleVehicle.TWheel.Create(const aVehicle:TKraftSimpleVehicle;const aWheelID:TKraftSimpleVehicle.TWheelID);
+constructor TKraftRayCastVehicle.TWheel.Create(const aVehicle:TKraftRayCastVehicle;const aWheelID:TKraftRayCastVehicle.TWheelID);
 begin
  inherited Create;
  fVehicle:=aVehicle;
@@ -922,12 +922,12 @@ begin
  fVisualWorldTransform:=Matrix4x4Identity;
 end;
 
-destructor TKraftSimpleVehicle.TWheel.Destroy;
+destructor TKraftRayCastVehicle.TWheel.Destroy;
 begin
  inherited Destroy;
 end;
 
-function TKraftSimpleVehicle.TWheel.GetSpringRelativePosition:TKraftVector3;
+function TKraftRayCastVehicle.TWheel.GetSpringRelativePosition:TKraftVector3;
 var BoxSize:TKraftVector3;
 begin
  BoxSize:=Vector3(fVehicle.fSettings.fWidth,fVehicle.fSettings.fHeight,fVehicle.fSettings.fLength);
@@ -950,17 +950,17 @@ begin
  end;
 end;
 
-function TKraftSimpleVehicle.TWheel.GetSpringPosition:TKraftVector3;
+function TKraftRayCastVehicle.TWheel.GetSpringPosition:TKraftVector3;
 begin
  result:=Vector3TermMatrixMul(GetSpringRelativePosition,fVehicle.fWorldTransform);
 end;
 
-function TKraftSimpleVehicle.TWheel.GetSpringHitPosition:TKraftVector3;
+function TKraftRayCastVehicle.TWheel.GetSpringHitPosition:TKraftVector3;
 begin
  result:=Vector3Add(GetSpringPosition,Vector3ScalarMul(fVehicle.fWorldDown,fSpring.fCurrentLength));
 end;
 
-function TKraftSimpleVehicle.TWheel.GetWheelRollDirection:TKraftVector3;
+function TKraftRayCastVehicle.TWheel.GetWheelRollDirection:TKraftVector3;
 begin
  if fWheelID in [TWheelID.FrontLeft,TWheelID.FrontRight] then begin
   result:=Vector3TermQuaternionRotate(fVehicle.fWorldForward,QuaternionFromAxisAngle(Vector3(0.0,1.0,0.0),fYawRad));
@@ -969,12 +969,12 @@ begin
  end;
 end;
 
-function TKraftSimpleVehicle.TWheel.GetWheelSlideDirection:TKraftVector3;
+function TKraftRayCastVehicle.TWheel.GetWheelSlideDirection:TKraftVector3;
 begin
  result:=Vector3Cross(fVehicle.fWorldUp,GetWheelRollDirection);
 end;
 
-function TKraftSimpleVehicle.TWheel.GetWheelTorqueRelativePosition:TKraftVector3;
+function TKraftRayCastVehicle.TWheel.GetWheelTorqueRelativePosition:TKraftVector3;
 var BoxSize:TKraftVector3;
 begin
  BoxSize:=Vector3(fVehicle.fSettings.fWidth,fVehicle.fSettings.fHeight,fVehicle.fSettings.fLength);
@@ -997,12 +997,12 @@ begin
  end;
 end;
 
-function TKraftSimpleVehicle.TWheel.GetWheelTorquePosition:TKraftVector3;
+function TKraftRayCastVehicle.TWheel.GetWheelTorquePosition:TKraftVector3;
 begin
  result:=Vector3TermMatrixMul(GetWheelTorqueRelativePosition,fVehicle.fWorldTransform);
 end;
 
-function TKraftSimpleVehicle.TWheel.GetWheelGripFactor:TKraftScalar;
+function TKraftRayCastVehicle.TWheel.GetWheelGripFactor:TKraftScalar;
 begin
  if fWheelID in [TWheelID.FrontLeft,TWheelID.FrontRight] then begin
   result:=fVehicle.fSettings.fFrontWheelsGripFactor;
@@ -1011,7 +1011,7 @@ begin
  end;
 end;
 
-function TKraftSimpleVehicle.TWheel.GetWheelTransform:TKraftMatrix4x4;
+function TKraftRayCastVehicle.TWheel.GetWheelTransform:TKraftMatrix4x4;
 var {LocalWheelPosition,}WorldWheelPosition:TKraftVector3;
     LocalWheelRotation,WorldWheelRotation:TKraftQuaternion;
 begin
@@ -1022,12 +1022,12 @@ begin
  PKraftVector3(@result[3,0])^.xyz:=WorldWheelPosition.xyz;
 end;
 
-function TKraftSimpleVehicle.TWheel.IsGrounded:boolean;
+function TKraftRayCastVehicle.TWheel.IsGrounded:boolean;
 begin
  result:=fSpring.fCurrentLength<fVehicle.fSettings.fSpringRestLength;
 end;
 
-procedure TKraftSimpleVehicle.TWheel.CastSpring;
+procedure TKraftRayCastVehicle.TWheel.CastSpring;
 var RayOrigin,RayDirection,HitPoint,HitNormal:TKraftVector3;
     RayLength,PreviousLength,CurrentLength,HitTime:TKraftScalar;
     HitShape:TKraftShape;
@@ -1046,12 +1046,12 @@ begin
  fSpring.fCompression:=1.0-Clamp01(CurrentLength/fVehicle.fSettings.fSpringRestLength);
 end;
 
-procedure TKraftSimpleVehicle.TWheel.UpdateSuspension;
+procedure TKraftRayCastVehicle.TWheel.UpdateSuspension;
 var CurrentLength,CurrentVelocity,Force:TKraftScalar;
 begin
  CurrentLength:=fSpring.fCurrentLength;
  CurrentVelocity:=fSpring.fCurrentVelocity;
- Force:=TKraftSimpleVehicle.TSpringMath.CalculateForceDamped(CurrentLength,
+ Force:=TKraftRayCastVehicle.TSpringMath.CalculateForceDamped(CurrentLength,
                                                              CurrentVelocity,
                                                              fVehicle.fSettings.fSpringRestLength,
                                                              fVehicle.fSettings.fSpringStrength,
@@ -1061,7 +1061,7 @@ begin
  end;
 end;
 
-procedure TKraftSimpleVehicle.TWheel.UpdateSteering;
+procedure TKraftRayCastVehicle.TWheel.UpdateSteering;
 var SpringPosition,SlideDirection,Force:TKraftVector3;
     SlipperyK,HandBrakeK,SlideVelocity,DesiredVelocityChange,DesiredAcceleration:TKraftScalar;
 begin
@@ -1108,7 +1108,7 @@ begin
  end;
 end;
 
-procedure TKraftSimpleVehicle.TWheel.UpdateAcceleration;
+procedure TKraftRayCastVehicle.TWheel.UpdateAcceleration;
 var WheelForward,Force:TKraftVector3;
 begin
 
@@ -1126,7 +1126,7 @@ begin
    WheelForward:=GetWheelRollDirection;
 
    if fVehicle.fSettings.fUseAccelerationCurveEnvelopes then begin
-    Force:=Vector3ScalarMul(WheelForward,(fVehicle.fAccelerationForceMagnitude/TKraftSimpleVehicle.CountWheels)*fVehicle.fInverseDeltaTime);
+    Force:=Vector3ScalarMul(WheelForward,(fVehicle.fAccelerationForceMagnitude/TKraftRayCastVehicle.CountWheels)*fVehicle.fInverseDeltaTime);
    end else begin
     Force:=Vector3ScalarMul(WheelForward,fVehicle.fAccelerationInput*fVehicle.fSettings.fAccelerationForce);
    end;
@@ -1144,7 +1144,7 @@ begin
  end;
 end;
 
-procedure TKraftSimpleVehicle.TWheel.UpdateBraking;
+procedure TKraftRayCastVehicle.TWheel.UpdateBraking;
 const AlmostStoppedSpeed=0.1;
 var BrakeRatio,RollFrictionRatio,RollVelocity,DesiredVelocityChange,DesiredAcceleration:TKraftScalar;
     AlmostStopping,AccelerationContrary:boolean;
@@ -1215,7 +1215,7 @@ begin
 
 end;
 
-procedure TKraftSimpleVehicle.TWheel.UpdateWheelRotation;
+procedure TKraftRayCastVehicle.TWheel.UpdateWheelRotation;
 const TwoPI=2.0*PI;
 var WheelID:TWheelID;
     WorldWheelPosition,WorldWheelForward,VelocityQueryPos,WheelVelocity:TKraftVector3;
@@ -1248,12 +1248,12 @@ begin
 
 end;
 
-procedure TKraftSimpleVehicle.TWheel.UpdateVisuals;
+procedure TKraftRayCastVehicle.TWheel.UpdateVisuals;
 begin
  fWorldTransform:=GetWheelTransform;
 end;
 
-procedure TKraftSimpleVehicle.TWheel.StoreWorldTransforms;
+procedure TKraftRayCastVehicle.TWheel.StoreWorldTransforms;
 begin
  fLastWorldTransform:=fWorldTransform;
 {$ifdef DebugDraw}
@@ -1264,7 +1264,7 @@ begin
 {$endif}
 end;
 
-procedure TKraftSimpleVehicle.TWheel.InterpolateWorldTransforms(const aAlpha:TKraftScalar);
+procedure TKraftRayCastVehicle.TWheel.InterpolateWorldTransforms(const aAlpha:TKraftScalar);
 begin
  fVisualWorldTransform:=Matrix4x4Slerp(fLastWorldTransform,fWorldTransform,aAlpha);
 {$ifdef DebugDraw}
@@ -1275,9 +1275,9 @@ begin
 {$endif}
 end;
 
-{ TKraftSimpleVehicle.TVehicleSettings }
+{ TKraftRayCastVehicle.TVehicleSettings }
 
-constructor TKraftSimpleVehicle.TVehicleSettings.Create;
+constructor TKraftRayCastVehicle.TVehicleSettings.Create;
 begin
  inherited Create;
  fWidth:=1.9;
@@ -1318,7 +1318,7 @@ begin
  fFlightStabilizationDamping:=0.1;
 end;
 
-destructor TKraftSimpleVehicle.TVehicleSettings.Destroy;
+destructor TKraftRayCastVehicle.TVehicleSettings.Destroy;
 begin
  FreeAndNil(fAccelerationCurveEnvelope);
  FreeAndNil(fReverseAccelerationCurveEnvelope);
@@ -1330,7 +1330,7 @@ begin
 end;
 
 {$ifdef KraftPasJSON}
-procedure TKraftSimpleVehicle.TVehicleSettings.LoadFromJSON(const aJSONItem:TPasJSONItem);
+procedure TKraftRayCastVehicle.TVehicleSettings.LoadFromJSON(const aJSONItem:TPasJSONItem);
 begin
  if assigned(aJSONItem) and (aJSONItem is TPasJSONItemObject) then begin
   fWidth:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['width'],fWidth);
@@ -1372,7 +1372,7 @@ begin
  end; 
 end;
 
-function TKraftSimpleVehicle.TVehicleSettings.SaveToJSON:TPasJSONItem;
+function TKraftRayCastVehicle.TVehicleSettings.SaveToJSON:TPasJSONItem;
 begin
  result:=TPasJSONItemObject.Create;
  TPasJSONItemObject(result).Add('width',TPasJSONItemNumber.Create(fWidth));
@@ -1414,9 +1414,9 @@ begin
 end;
 {$endif}
 
-{ TKraftSimpleVehicle }
+{ TKraftRayCastVehicle }
 
-constructor TKraftSimpleVehicle.Create(const aPhysics:TKraft);
+constructor TKraftRayCastVehicle.Create(const aPhysics:TKraft);
 var WheelID:TWheelID;
 begin
  inherited Create;
@@ -1428,14 +1428,14 @@ begin
  fForward:=Vector3(0.0,0.0,-1.0);
  fVelocity:=Vector3(0.0,0.0,0.0);
  fCastCollisionGroup:=[0];
- fSettings:=TKraftSimpleVehicle.TVehicleSettings.Create;
+ fSettings:=TKraftRayCastVehicle.TVehicleSettings.Create;
  for WheelID:=Low(TWheelID) to High(TWheelID) do begin
-  fWheels[WheelID]:=TKraftSimpleVehicle.TWheel.Create(self,WheelID);
+  fWheels[WheelID]:=TKraftRayCastVehicle.TWheel.Create(self,WheelID);
  end;
  Reset;
 end;
 
-destructor TKraftSimpleVehicle.Destroy;
+destructor TKraftRayCastVehicle.Destroy;
 var WheelID:TWheelID;
 begin
  for WheelID:=Low(TWheelID) to High(TWheelID) do begin
@@ -1445,7 +1445,7 @@ begin
  inherited Destroy;
 end;
 
-procedure TKraftSimpleVehicle.Reset;
+procedure TKraftRayCastVehicle.Reset;
 begin
  fAfterFlightSlipperyTiresTime:=0.0;
  fBrakeSlipperyTiresTime:=0.0;
@@ -1453,7 +1453,7 @@ begin
  fSteeringAngle:=0.0;
 end;
 
-procedure TKraftSimpleVehicle.Finish;
+procedure TKraftRayCastVehicle.Finish;
 begin
  
  if not (assigned(fRigidBody) and assigned(fShape)) then begin
@@ -1478,7 +1478,7 @@ begin
 
 end;
 
-procedure TKraftSimpleVehicle.UpdateWorldTransformVectors;
+procedure TKraftRayCastVehicle.UpdateWorldTransformVectors;
 begin
  fWorldTransform:=fRigidBody.WorldTransform;
  fWorldRight:=Vector3(PKraftRawVector3(pointer(@fWorldTransform[0,0]))^);
@@ -1490,23 +1490,23 @@ begin
  fWorldPosition:=Vector3(PKraftRawVector3(pointer(@fWorldTransform[3,0]))^);
 end;
 
-function TKraftSimpleVehicle.GetHandBrakeK:TKraftScalar;
+function TKraftRayCastVehicle.GetHandBrakeK:TKraftScalar;
 begin
  result:=fHandBrakeSlipperyTiresTime/Max(0.1,fSettings.fHandBrakeSlipperyTime);
  result:=result*result*result*(result*((result*6.0)-15.0)+10.0);
 end;
 
-function TKraftSimpleVehicle.GetSteeringHandBrakeK:TKraftScalar;
+function TKraftRayCastVehicle.GetSteeringHandBrakeK:TKraftScalar;
 begin
  result:=0.4+(1.0-GetHandBrakeK)*0.6;
 end;
 
-function TKraftSimpleVehicle.GetSteerAngleLimitInDeg(const aSpeedMetersPerSec:TKraftScalar):TKraftScalar;
+function TKraftRayCastVehicle.GetSteerAngleLimitInDeg(const aSpeedMetersPerSec:TKraftScalar):TKraftScalar;
 begin
  result:=fSettings.fSteerAngleLimitEnvelope.GetValueAtTime(aSpeedMetersPerSec*3.6*GetSteeringHandBrakeK);
 end;
 
-function TKraftSimpleVehicle.GetSpeed:TKraftScalar;
+function TKraftRayCastVehicle.GetSpeed:TKraftScalar;
 var LinearVelocity,WorldSpaceForward,ProjectedVector:TKraftVector3;
     Factor:TKraftScalar;
 begin
@@ -1517,7 +1517,7 @@ begin
  result:=Vector3Length(ProjectedVector)*Sign(Factor);
 end;
 
-function TKraftSimpleVehicle.GetAccelerationForceMagnitude(const aEnvelope:TEnvelope;const aSpeedMetersPerSec,aDeltaTime:TKraftScalar):TKraftScalar;
+function TKraftRayCastVehicle.GetAccelerationForceMagnitude(const aEnvelope:TEnvelope;const aSpeedMetersPerSec,aDeltaTime:TKraftScalar):TKraftScalar;
 const Inv3d6=1.0/3.6;
 var Index,Count:TKraftInt32;
     SpeedKMH,Mass,MinTime,MaxTime,TimeNow,CurrentSpeed,CurrentSpeedDifference,
@@ -1582,7 +1582,7 @@ begin
 
 end;
 
-function TKraftSimpleVehicle.CalcAccelerationForceMagnitude:TKraftScalar;
+function TKraftRayCastVehicle.CalcAccelerationForceMagnitude:TKraftScalar;
 begin
  if fIsAcceleration or fIsReverseAcceleration then begin
   if fIsAcceleration then begin
@@ -1595,7 +1595,7 @@ begin
  end;
 end;
 
-procedure TKraftSimpleVehicle.UpdateGlobals;
+procedure TKraftRayCastVehicle.UpdateGlobals;
 begin
 
  fSpeed:=GetSpeed;
@@ -1607,7 +1607,7 @@ begin
 
 end;
 
-procedure TKraftSimpleVehicle.UpdateInput;
+procedure TKraftRayCastVehicle.UpdateInput;
 var Vertical,Horizontal,NewSteerAngle,AngleReturnSpeedDegressPerSecond:TKraftScalar;
     IsBrakeNow,IsHandBrakeNow:boolean;
 begin
@@ -1671,7 +1671,7 @@ begin
 
 end;
 
-procedure TKraftSimpleVehicle.UpdateSuspension;
+procedure TKraftRayCastVehicle.UpdateSuspension;
 var WheelID:TWheelID;
     Wheel:TWheel;
 begin
@@ -1682,7 +1682,7 @@ begin
  end;
 end;
 
-procedure TKraftSimpleVehicle.CalculateAckermannSteering;
+procedure TKraftRayCastVehicle.CalculateAckermannSteering;
 var SteerAngleRad,AxleSeparation,WheelSeparation,TurningCircleRadius:TKraftScalar;
     AxleDiff,WheelDiff:TKraftVector3;
 begin
@@ -1701,15 +1701,15 @@ begin
   TurningCircleRadius:=0.0;
  end;
 
- fWheels[TKraftSimpleVehicle.TWheelID.FrontLeft].fYawRad:=ArcTan(AxleSeparation/(TurningCircleRadius+(WheelSeparation*0.5)));
- fWheels[TKraftSimpleVehicle.TWheelID.FrontRight].fYawRad:=ArcTan(AxleSeparation/(TurningCircleRadius-(WheelSeparation*0.5)));
+ fWheels[TKraftRayCastVehicle.TWheelID.FrontLeft].fYawRad:=ArcTan(AxleSeparation/(TurningCircleRadius+(WheelSeparation*0.5)));
+ fWheels[TKraftRayCastVehicle.TWheelID.FrontRight].fYawRad:=ArcTan(AxleSeparation/(TurningCircleRadius-(WheelSeparation*0.5)));
 
- fWheels[TKraftSimpleVehicle.TWheelID.BackLeft].fYawRad:=0.0;
- fWheels[TKraftSimpleVehicle.TWheelID.BackRight].fYawRad:=0.0;
+ fWheels[TKraftRayCastVehicle.TWheelID.BackLeft].fYawRad:=0.0;
+ fWheels[TKraftRayCastVehicle.TWheelID.BackRight].fYawRad:=0.0;
 
 end;
 
-procedure TKraftSimpleVehicle.UpdateSteering;
+procedure TKraftRayCastVehicle.UpdateSteering;
 var WheelID:TWheelID;
 begin
  for WheelID:=Low(TWheelID) to High(TWheelID) do begin
@@ -1717,7 +1717,7 @@ begin
  end;
 end;
 
-procedure TKraftSimpleVehicle.UpdateAcceleration;
+procedure TKraftRayCastVehicle.UpdateAcceleration;
 var WheelID:TWheelID;
 begin
  for WheelID:=Low(TWheelID) to High(TWheelID) do begin
@@ -1725,7 +1725,7 @@ begin
  end;
 end; 
 
-procedure TKraftSimpleVehicle.UpdateBraking;
+procedure TKraftRayCastVehicle.UpdateBraking;
 var WheelID:TWheelID;
 begin
  for WheelID:=Low(TWheelID) to High(TWheelID) do begin
@@ -1733,8 +1733,8 @@ begin
  end;
 end;
 
-procedure TKraftSimpleVehicle.UpdateAntiRollBar;
- procedure ProcessAxle(const aWheelLeft,aWheelRight:TKraftSimpleVehicle.TWheel);
+procedure TKraftRayCastVehicle.UpdateAntiRollBar;
+ procedure ProcessAxle(const aWheelLeft,aWheelRight:TKraftRayCastVehicle.TWheel);
  var TravelL,TravelR,AntiRollForce:TKraftScalar;
  begin
   TravelL:=1.0-Clamp01(aWheelLeft.fSpring.fCompression);
@@ -1768,7 +1768,7 @@ begin
  end; 
 end;
 
-procedure TKraftSimpleVehicle.UpdateAirResistance;
+procedure TKraftRayCastVehicle.UpdateAirResistance;
 var Force:TKraftVector3;
 begin
  Force:=Vector3ScalarMul(fRigidBody.LinearVelocity,-fSettings.fAirResistance*Vector3Length(Vector3(fSettings.fWidth,fSettings.fHeight,fSettings.fLength)));
@@ -1780,7 +1780,7 @@ begin
  end;
 end;
 
-procedure TKraftSimpleVehicle.UpdateDownForce;
+procedure TKraftRayCastVehicle.UpdateDownForce;
 var WheelID:TWheelID;
     DownForceAmount:TKraftScalar;
     Force:TKraftVector3;
@@ -1809,7 +1809,7 @@ begin
  end;
 end;
 
-procedure TKraftSimpleVehicle.UpdateFlightStabilization;
+procedure TKraftRayCastVehicle.UpdateFlightStabilization;
 var WheelID:TWheelID;
     VehicleUp,AntiGravityUp,Axis,Torque:TKraftVector3;
     AllWheelsGrounded:boolean;
@@ -1863,7 +1863,7 @@ begin
 
 end;
 
-procedure TKraftSimpleVehicle.UpdateWheelRotations;
+procedure TKraftRayCastVehicle.UpdateWheelRotations;
 var WheelID:TWheelID;
 begin
  for WheelID:=Low(TWheelID) to High(TWheelID) do begin
@@ -1871,7 +1871,7 @@ begin
  end;
 end;
 
-procedure TKraftSimpleVehicle.UpdateVisuals;
+procedure TKraftRayCastVehicle.UpdateVisuals;
 var WheelID:TWheelID;
 begin
  for WheelID:=Low(TWheelID) to High(TWheelID) do begin
@@ -1879,7 +1879,7 @@ begin
  end;
 end;
 
-procedure TKraftSimpleVehicle.Update(const aDeltaTime:TKraftScalar);
+procedure TKraftRayCastVehicle.Update(const aDeltaTime:TKraftScalar);
 begin
  fDeltaTime:=aDeltaTime;
  fInverseDeltaTime:=1.0/fDeltaTime;
@@ -1906,7 +1906,7 @@ begin
 
 end;
 
-procedure TKraftSimpleVehicle.StoreWorldTransforms;
+procedure TKraftRayCastVehicle.StoreWorldTransforms;
 var WheelID:TWheelID;
 begin
  UpdateWorldTransformVectors;
@@ -1928,7 +1928,7 @@ begin
 {$endif}
 end;
 
-procedure TKraftSimpleVehicle.InterpolateWorldTransforms(const aAlpha:TKraftScalar);
+procedure TKraftRayCastVehicle.InterpolateWorldTransforms(const aAlpha:TKraftScalar);
 var WheelID:TWheelID;
 begin
  UpdateWorldTransformVectors;
@@ -1951,7 +1951,7 @@ begin
 end;
 
 {$ifdef DebugDraw}
-procedure TKraftSimpleVehicle.DebugDraw;
+procedure TKraftRayCastVehicle.DebugDraw;
 var WheelID:TWheelID;
     Wheel:TWheel;
     Index:TKraftInt32;

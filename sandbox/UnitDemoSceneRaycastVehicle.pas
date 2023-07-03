@@ -1,18 +1,18 @@
-unit UnitDemoSceneRaycastSimpleVehicle;
+unit UnitDemoSceneRaycastVehicle;
 
 {$MODE Delphi}
 
 interface
 
-uses LCLIntf,LCLType,LMessages,SysUtils,Classes,Math,Kraft,KraftSimpleVehicle,UnitDemoScene,gl,glext;
+uses LCLIntf,LCLType,LMessages,SysUtils,Classes,Math,Kraft,KraftRayCastVehicle,UnitDemoScene,gl,glext;
 
-type { TDemoSceneRaycastSimpleVehicle }
+type { TDemoSceneRaycastVehicle }
 
-     TDemoSceneRaycastSimpleVehicle=class(TDemoScene)
+     TDemoSceneRaycastVehicle=class(TDemoScene)
       public
        RigidBodyFloor:TKraftRigidBody;
        ShapeFloorPlane:TKraftShapePlane;
-       Vehicle:TKraftSimpleVehicle;
+       Vehicle:TKraftRayCastVehicle;
        CarSteering:double;
        CarSpeed:double;
        Time:double;
@@ -64,14 +64,14 @@ const CarWidth=1.0;
                                                                 (x:-JumpingRampHalfWidth;y:0.0;z:JumpingRampLength{$if KraftSIMD};w:0.0{$ifend}),
                                                                 (x:JumpingRampHalfWidth;y:0.0;z:JumpingRampLength{$if KraftSIMD};w:0.0{$ifend}));{}
 
-{ TDemoSceneRaycastSimpleVehicle }
+{ TDemoSceneRaycastVehicle }
 
 const WheelPositions:array[0..1,0..1] of TKraftVector3=(((x:CarHalfWidth;y:0;z:-CarLength*0.5{$if KraftSIMD};w:0.0{$ifend}),
                                                          (x:-CarHalfWidth;y:0;z:-CarLength*0.5{$if KraftSIMD};w:0.0{$ifend})),
                                                         ((x:CarHalfWidth;y:0;z:CarLength*0.5{$if KraftSIMD};w:0.0{$ifend}),
                                                          (x:-CarHalfWidth;y:0;z:CarLength*0.5{$if KraftSIMD};w:0.0{$ifend})));
 
-constructor TDemoSceneRaycastSimpleVehicle.Create(const aKraftPhysics: TKraft);
+constructor TDemoSceneRaycastVehicle.Create(const aKraftPhysics: TKraft);
 const Height=10;
 var Index,i,j:Int32;
     RigidBody:TKraftRigidBody;
@@ -177,7 +177,7 @@ begin
   end;
  end;    //}
 
- Vehicle:=TKraftSimpleVehicle.Create(KraftPhysics);
+ Vehicle:=TKraftRayCastVehicle.Create(KraftPhysics);
 
 (*Vehicle.RigidBody:=TKraftRigidBody.Create(aKraftPhysics);
  Vehicle.RigidBody.SetRigidBodyType(krbtDYNAMIC);
@@ -332,13 +332,13 @@ Vehicle:=TVehicle.Create(KraftPhysics);
 
 end;
 
-destructor TDemoSceneRaycastSimpleVehicle.Destroy;
+destructor TDemoSceneRaycastVehicle.Destroy;
 begin
  FreeAndNil(Vehicle);
  inherited Destroy;
 end;
 
-procedure TDemoSceneRaycastSimpleVehicle.Step(const DeltaTime:double);
+procedure TDemoSceneRaycastVehicle.Step(const DeltaTime:double);
 begin
  Time:=Time+DeltaTime;
  Vehicle.InputVertical:=(ord(InputKeyUp) and 1)-(ord(InputKeyDown) and 1);
@@ -348,7 +348,7 @@ begin
  Vehicle.Update(DeltaTime);
 end;
 
-procedure TDemoSceneRaycastSimpleVehicle.DebugDraw;
+procedure TDemoSceneRaycastVehicle.DebugDraw;
 begin
  inherited DebugDraw;
  glDisable(GL_LIGHTING);
@@ -364,12 +364,12 @@ begin
  glDisable(GL_POLYGON_OFFSET_POINT);
 end;
 
-function TDemoSceneRaycastSimpleVehicle.HasOwnKeyboardControls:boolean;
+function TDemoSceneRaycastVehicle.HasOwnKeyboardControls:boolean;
 begin
  result:=true;
 end;
 
-procedure TDemoSceneRaycastSimpleVehicle.KeyDown(const aKey:Int32);
+procedure TDemoSceneRaycastVehicle.KeyDown(const aKey:Int32);
 begin
  case aKey of
   VK_LEFT:begin
@@ -393,7 +393,7 @@ begin
  end;
 end;
 
-procedure TDemoSceneRaycastSimpleVehicle.KeyUp(const aKey:Int32);
+procedure TDemoSceneRaycastVehicle.KeyUp(const aKey:Int32);
 begin
  case aKey of
   VK_LEFT:begin
@@ -417,7 +417,7 @@ begin
  end;
 end;
 
-function TDemoSceneRaycastSimpleVehicle.UpdateCamera(var aCameraPosition:TKraftVector3;var aCameraOrientation:TKraftQuaternion):boolean;
+function TDemoSceneRaycastVehicle.UpdateCamera(var aCameraPosition:TKraftVector3;var aCameraOrientation:TKraftQuaternion):boolean;
 var Position:TKraftVector3;
     TargetMatrix:TKraftMatrix3x3;
     LerpFactor:TKraftScalar;
@@ -433,18 +433,18 @@ begin
  result:=true;
 end;
 
-procedure TDemoSceneRaycastSimpleVehicle.StoreWorldTransforms;
+procedure TDemoSceneRaycastVehicle.StoreWorldTransforms;
 begin
  inherited StoreWorldTransforms;
  Vehicle.StoreWorldTransforms;
 end;
 
-procedure TDemoSceneRaycastSimpleVehicle.InterpolateWorldTransforms(const aAlpha:TKraftScalar);
+procedure TDemoSceneRaycastVehicle.InterpolateWorldTransforms(const aAlpha:TKraftScalar);
 begin
  inherited InterpolateWorldTransforms(aAlpha);
  Vehicle.InterpolateWorldTransforms(aAlpha);
 end;
 
 initialization
- RegisterDemoScene('Raycast simple vehicle',TDemoSceneRaycastSimpleVehicle);
+ RegisterDemoScene('Raycast vehicle',TDemoSceneRaycastVehicle);
 end.
