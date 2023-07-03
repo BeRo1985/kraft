@@ -218,6 +218,15 @@ type { TKraftSimpleVehicle }
             { TSpringDatas }
             TSpringDatas=array[TWheel] of TSpringData;
             PSpringDatas=^TSpringDatas;
+            { TWheelData }
+            TWheelData=record
+             private
+              fYawRad:TKraftScalar;
+            end;
+            PWheelData=^TWheelData;
+            { TWheelDatas }
+            TWheelDatas=array[TWheel] of TWheelData;
+            PWheelDatas=^TWheelDatas;
             { TVehicleSettings }
             TVehicleSettings=class
              private
@@ -273,6 +282,7 @@ type { TKraftSimpleVehicle }
        fRigidBody:TKraftRigidBody;
        fShape:TKraftShape;
        fSpringDatas:TSpringDatas;
+       fWheelDatas:TWheelDatas;
        fSteeringInput:TKraftScalar;
        fAccelerationInput:TKraftScalar;
        fSettings:TVehicleSettings;
@@ -312,6 +322,7 @@ type { TKraftSimpleVehicle }
        fInputHandBrake:Boolean;
        fSpeed:TKraftScalar;
        fSpeedKMH:TKraftScalar;
+       procedure CalculateAckermannSteering;
        procedure SetSteeringInput(const aSteeringInput:TKraftScalar);
        procedure SetAccelerationInput(const aAccelerationInput:TKraftScalar);
        function GetSpringRelativePosition(const aWheel:TWheel):TKraftVector3;
@@ -421,7 +432,7 @@ begin
  fBrakePower:=1.5;
  fMaximumSpeed:=10;
  fMaximumReverseSpeed:=2.5;
- fSteeringAngle:=20;
+ fSteeringAngle:=20.0;
  fFrontWheelsGripFactor:=0.8;
  fBackWheelsGripFactor:=0.9;
  fAirResistance:=5.0;
@@ -575,7 +586,7 @@ end;
 function TKraftSimpleVehicle.GetWheelRollDirection(const aWheel:TWheel):TKraftVector3;
 begin
  if aWheel in [TWheel.FrontLeft,TWheel.FrontRight] then begin
-  result:=Vector3TermQuaternionRotate(fWorldForward,QuaternionFromAxisAngle(Vector3(0.0,1.0,0.0),fSteeringInput*fSettings.fSteeringAngle));
+  result:=Vector3TermQuaternionRotate(fWorldForward,QuaternionFromAxisAngle(Vector3(0.0,1.0,0.0),fWheelDatas[aWheel].fYawRad));
  end else begin
   result:=fWorldForward;
  end;
@@ -677,11 +688,39 @@ begin
  end;
 end;
 
+procedure TKraftSimpleVehicle.CalculateAckermannSteering;
+var SteerAngleRad,AxleSeparation,WheelSeparation,TurningCircleRadius:TKraftScalar;
+    AxleDiff,WheelDiff:TKraftVector3;
+begin
+
+ SteerAngleRad:=fSteeringInput*fSettings.fSteeringAngle*DEG2RAD;
+
+ AxleDiff:=Vector3Sub(Vector3Avg(GetSpringPosition(TWheel.FrontLeft),GetSpringPosition(TWheel.FrontRight)),
+                      Vector3Avg(GetSpringPosition(TWheel.BackLeft),GetSpringPosition(TWheel.BackRight)));
+ AxleSeparation:=Vector3Length(AxleDiff);
+
+ WheelDiff:=Vector3Sub(GetSpringPosition(TWheel.FrontLeft),GetSpringPosition(TWheel.FrontRight));
+ WheelSeparation:=Vector3Length(WheelDiff);
+
+ TurningCircleRadius:=AxleSeparation/Tan(SteerAngleRad);
+ if IsNaN(TurningCircleRadius) then begin
+  TurningCircleRadius:=0.0;
+ end;
+
+ fWheelDatas[TKraftSimpleVehicle.TWheel.FrontLeft].fYawRad:=ArcTan(AxleSeparation/(TurningCircleRadius+(WheelSeparation*0.5)));
+ fWheelDatas[TKraftSimpleVehicle.TWheel.FrontRight].fYawRad:=ArcTan(AxleSeparation/(TurningCircleRadius-(WheelSeparation*0.5)));
+
+ fWheelDatas[TKraftSimpleVehicle.TWheel.BackLeft].fYawRad:=0.0;
+ fWheelDatas[TKraftSimpleVehicle.TWheel.BackRight].fYawRad:=0.0;
+
+end;
+
 procedure TKraftSimpleVehicle.UpdateSteering;
 var Wheel:TWheel;
     SpringPosition,SlideDirection,Force:TKraftVector3;
     SlideVelocity,DesiredVelocityChange,DesiredAcceleration:TKraftScalar;
 begin
+ CalculateAckermannSteering;
  for Wheel:=Low(TWheel) to High(TWheel) do begin
   if IsGrounded(Wheel) then begin
    SpringPosition:=GetSpringPosition(Wheel);
@@ -778,8 +817,8 @@ procedure TKraftSimpleVehicle.Update(const aDeltaTime:TKraftScalar);
 begin
  fDeltaTime:=aDeltaTime;
  fInverseDeltaTime:=1.0/fDeltaTime;
- SetSteeringInput(fInputHorizontal);
- SetAccelerationInput(fInputVertical);
+ fSteeringInput:=Min(Max(fInputHorizontal,-1.0),1.0);
+ fAccelerationInput:=Min(Max(fInputVertical,-1.0),1.0);
  UpdateWorldTransformVectors;
  UpdateSuspension;
  UpdateSteering;
