@@ -750,6 +750,8 @@ procedure TKraftSimpleVehicle.Update(const aDeltaTime:TKraftScalar);
 begin
  fDeltaTime:=aDeltaTime;
  fInverseDeltaTime:=1.0/fDeltaTime;
+ SetSteeringInput(fInputHorizontal);
+ SetAccelerationInput(fInputVertical);
  UpdateWorldTransformVectors;
  UpdateSuspension;
  UpdateSteering;
