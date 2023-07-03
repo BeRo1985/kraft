@@ -233,6 +233,7 @@ type { TKraftSimpleVehicle }
               fWidth:TKraftScalar;
               fHeight:TKraftScalar;
               fLength:TKraftScalar;
+              fWheelsRadius:TKraftScalar;
               fWheelsHeight:TKraftScalar;
               fWheelsPaddingX:TKraftScalar;
               fWheelsPaddingZ:TKraftScalar;
@@ -260,6 +261,7 @@ type { TKraftSimpleVehicle }
               property Width:TKraftScalar read fWidth write fWidth;
               property Height:TKraftScalar read fHeight write fHeight;
               property Length:TKraftScalar read fLength write fLength;
+              property WheelsRadius:TKraftScalar read fWheelsRadius write fWheelsRadius;
               property WheelsHeight:TKraftScalar read fWheelsHeight write fWheelsHeight;
               property WheelsPaddingX:TKraftScalar read fWheelsPaddingX write fWheelsPaddingX;
               property WheelsPaddingZ:TKraftScalar read fWheelsPaddingZ write fWheelsPaddingZ;
@@ -420,6 +422,7 @@ begin
  fWidth:=1.9;
  fHeight:=0.75;
  fLength:=3.4;
+ fWheelsRadius:=0.25;
  fWheelsHeight:=-0.25;
  fWheelsPaddingX:=0.06;
  fWheelsPaddingZ:=0.12;
@@ -450,6 +453,7 @@ begin
   fWidth:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['width'],fWidth);
   fHeight:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['height'],fHeight);
   fLength:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['length'],fLength);
+  fWheelsRadius:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['wheelsradius'],fWheelsRadius);
   fWheelsHeight:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['wheelsheight'],fWheelsHeight);
   fWheelsPaddingX:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['wheelspaddingx'],fWheelsPaddingX);
   fWheelsPaddingZ:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['wheelspaddingz'],fWheelsPaddingZ);
@@ -475,6 +479,7 @@ begin
  TPasJSONItemObject(result).Add('width',TPasJSONItemNumber.Create(fWidth));
  TPasJSONItemObject(result).Add('height',TPasJSONItemNumber.Create(fHeight));
  TPasJSONItemObject(result).Add('length',TPasJSONItemNumber.Create(fLength));
+ TPasJSONItemObject(result).Add('wheelsradius',TPasJSONItemNumber.Create(fWheelsRadius));
  TPasJSONItemObject(result).Add('wheelsheight',TPasJSONItemNumber.Create(fWheelsHeight));
  TPasJSONItemObject(result).Add('wheelspaddingx',TPasJSONItemNumber.Create(fWheelsPaddingX));
  TPasJSONItemObject(result).Add('wheelspaddingz',TPasJSONItemNumber.Create(fWheelsPaddingZ));

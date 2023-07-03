@@ -23,7 +23,6 @@ uses
 {$endif}
   kraft in '..\src\kraft.pas',
   KraftArcadeCarPhysics in '..\src\KraftArcadeCarPhysics.pas',
-  KraftVehicle in '..\src\KraftVehicle.pas',
   KraftSimpleVehicle in '..\src\KraftSimpleVehicle.pas',
   UnitDemoScene in 'UnitDemoScene.pas',
   UnitDemoSceneCatapult in 'UnitDemoSceneCatapult.pas',
@@ -44,7 +43,6 @@ uses
   UnitDemoSceneConvexHull in 'UnitDemoSceneConvexHull.pas',
   UnitDemoSceneConstraintVehicle in 'UnitDemoSceneConstraintVehicle.pas',
   UnitDemoSceneRaycastArcadeVehicle in 'UnitDemoSceneRaycastArcadeVehicle.pas',
-  UnitDemoSceneRaycastVehicle in 'UnitDemoSceneRaycastVehicle.pas',
   UnitDemoSceneRaycastSimpleVehicle in 'UnitDemoSceneRaycastSimpleVehicle.pas';
 
 {$R *.res}
