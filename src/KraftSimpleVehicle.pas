@@ -1748,7 +1748,7 @@ procedure TKraftSimpleVehicle.DebugDraw;
 var WheelID:TWheelID;
     Wheel:TWheel;
     Index:TKraftInt32;
-    v0,v1,v2,v3:TKraftVector3;
+    v0,v1,v2,v3,v:TKraftVector3;
     Color:TKraftVector4;
 begin
 {$ifndef NoOpenGL}
@@ -1778,6 +1778,39 @@ begin
   glBegin(GL_LINE_STRIP);
   glVertex3fv(@v2);
   glVertex3fv(@v3);
+  glEnd;
+{$endif}
+  v0:=Vector3Avg(v0,v1);
+  v3:=Vector3Avg(v2,v3);
+  v:=Vector3TermMatrixMul(Vector3Origin,fVisualWorldTransform);
+  v1:=Vector3Lerp(v0,v,0.9);
+  v2:=Vector3Lerp(v3,v,0.9);
+{$ifdef NoOpenGL}
+  if assigned(fDebugDrawLine) then begin
+   fDebugDrawLine(v0,v1,Color);
+   fDebugDrawLine(v2,v3,Color);
+  end;
+{$else}
+  glColor4fv(@Color);
+  glBegin(GL_LINE_STRIP);
+  glVertex3fv(@v0);
+  glVertex3fv(@v1);
+  glEnd;
+  glBegin(GL_LINE_STRIP);
+  glVertex3fv(@v2);
+  glVertex3fv(@v3);
+  glEnd;
+{$endif}
+  Color:=Vector4(0.0,1.0,1.0,1.0);
+{$ifdef NoOpenGL}
+  if assigned(fDebugDrawLine) then begin
+   fDebugDrawLine(v1,v2,Color);
+  end;
+{$else}
+  glColor4fv(@Color);
+  glBegin(GL_LINE_STRIP);
+  glVertex3fv(@v1);
+  glVertex3fv(@v2);
   glEnd;
 {$endif}
  end;
