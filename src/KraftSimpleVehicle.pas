@@ -412,6 +412,7 @@ type { TKraftSimpleVehicle }
        function GetSteerAngleLimitInDeg(const aSpeedMetersPerSec:TKraftScalar):TKraftScalar;
        function GetSpeed:TKraftScalar;
        function GetAccelerationForceMagnitude(const aEnvelope:TEnvelope;const aSpeedMetersPerSec,aDeltaTime:TKraftScalar):TKraftScalar;
+       function CalcAccelerationForceMagnitude:TKraftScalar;
        procedure UpdateGlobals;
        procedure UpdateInput;
        procedure UpdateWorldTransformVectors;
@@ -1447,6 +1448,19 @@ begin
 
  end;
 
+end;
+
+function TKraftSimpleVehicle.CalcAccelerationForceMagnitude:TKraftScalar;
+begin
+ if fIsAcceleration or fIsReverseAcceleration then begin
+  if fIsAcceleration then begin
+   result:=GetAccelerationForceMagnitude(fSettings.fAccelerationCurveEnvelope,fSpeed,fDeltaTime);
+  end else begin
+   result:=-GetAccelerationForceMagnitude(fSettings.fReverseAccelerationCurveEnvelope,-fSpeed,fDeltaTime);
+  end;
+ end else begin
+  result:=0.0;
+ end;
 end;
 
 procedure TKraftSimpleVehicle.UpdateGlobals;
