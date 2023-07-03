@@ -333,6 +333,9 @@ type { TKraftSimpleVehicle }
               fMaximumReverseSpeed:TKraftScalar;
               fFrontWheelsGripFactor:TKraftScalar;
               fBackWheelsGripFactor:TKraftScalar;
+              fAfterFlightSlipperyK:TKraftScalar;
+              fBrakeSlipperyK:TKraftScalar;
+              fHandBrakeSlipperyK:TKraftScalar;
               fAirResistance:TKraftScalar;
               fHandBrakeSlipperyTime:TKraftScalar;
               fUseAccelerationCurveEnvelopes:Boolean;
@@ -1055,16 +1058,40 @@ end;
 
 procedure TKraftSimpleVehicle.TWheel.UpdateSteering;
 var SpringPosition,SlideDirection,Force:TKraftVector3;
-    SlideVelocity,DesiredVelocityChange,DesiredAcceleration:TKraftScalar;
+    SlipperyK,HandBrakeK,SlideVelocity,DesiredVelocityChange,DesiredAcceleration:TKraftScalar;
 begin
 {$ifdef DebugDraw}
  fDebugSlideForce:=Vector3Origin;
 {$endif}
  if IsGrounded then begin
+
+  begin
+
+   // Simulate slippery tires
+
+   SlipperyK:=1.0;
+
+   if (fVehicle.fAfterFlightSlipperyTiresTime>0.0) and not IsZero(fVehicle.fSettings.fAfterFlightSlipperyK) then begin
+    SlipperyK:=Min(SlipperyK,Lerp(1.0,fVehicle.fSettings.fAfterFlightSlipperyK,Clamp01(fVehicle.fAfterFlightSlipperyTiresTime)));
+   end;
+
+   if (fVehicle.fBrakeSlipperyTiresTime>0.0) and not IsZero(fVehicle.fSettings.fBrakeSlipperyK) then begin
+    SlipperyK:=Min(SlipperyK,Lerp(1.0,fVehicle.fSettings.fBrakeSlipperyK,Clamp01(fVehicle.fBrakeSlipperyTiresTime)));
+   end;
+
+   if not IsZero(fVehicle.fSettings.fHandBrakeSlipperyK) then begin
+    HandBrakeK:=fVehicle.GetHandBrakeK;
+    if HandBrakeK>0.0 then begin
+     SlipperyK:=Min(SlipperyK,Lerp(1.0,fVehicle.fSettings.fHandBrakeSlipperyK,HandBrakeK));
+    end;
+   end;
+
+  end;
+
   SpringPosition:=GetSpringPosition;
   SlideDirection:=GetWheelSlideDirection;
   SlideVelocity:=Vector3Dot(SlideDirection,fVehicle.fRigidBody.GetWorldLinearVelocityFromPoint(SpringPosition));
-  DesiredVelocityChange:=-SlideVelocity*GetWheelGripFactor;
+  DesiredVelocityChange:=-SlideVelocity*GetWheelGripFactor*SlipperyK;
   DesiredAcceleration:=DesiredVelocityChange*fVehicle.fInverseDeltaTime;
   Force:=Vector3ScalarMul(SlideDirection,DesiredAcceleration*fVehicle.fSettings.fTireMass);
 {$ifdef DebugDraw}
@@ -1268,6 +1295,9 @@ begin
  fMaximumReverseSpeed:=2.5;
  fFrontWheelsGripFactor:=0.8;
  fBackWheelsGripFactor:=0.9;
+ fAfterFlightSlipperyK:=0.02;
+ fBrakeSlipperyK:=0.5;
+ fHandBrakeSlipperyK:=0.01;
  fAirResistance:=5.0;
  fHandBrakeSlipperyTime:=2.2;
  fUseAccelerationCurveEnvelopes:=true;
