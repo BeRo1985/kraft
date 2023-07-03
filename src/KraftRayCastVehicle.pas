@@ -2155,12 +2155,12 @@ begin
   v:=Vector3TermMatrixMul(Vector3Origin,Wheel.fVisualWorldTransform);
   v0:=v;
   for Index:=0 to 16 do begin
-   if assigned(fVehicle.fDebugDrawLine) then begin
+   if assigned(fDebugDrawLine) then begin
     v1:=v0;
     v0:=Vector3TermMatrixMul(Vector3Add(Vector3Add(Vector3Origin,Vector3ScalarMul(Vector3YAxis,Sin((Index/16)*PI*2)*fSettings.fWheelsRadius)),Vector3ScalarMul(Vector3ZAxis,Cos((Index/16)*PI*2)*fSettings.fWheelsRadius)),Wheel.fVisualWorldTransform);
     if Index>0 then begin
-     fVehicle.fDebugDrawLine(v,v0,Vector4(1.0,1.0,1.0,1.0));
-     fVehicle.fDebugDrawLine(v0,v1,Vector4(1.0,1.0,1.0,1.0));
+     fDebugDrawLine(v,v0,Vector4(1.0,1.0,1.0,1.0));
+     fDebugDrawLine(v0,v1,Vector4(1.0,1.0,1.0,1.0));
     end;
    end;
   end;
