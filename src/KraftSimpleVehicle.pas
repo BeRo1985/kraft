@@ -1723,10 +1723,19 @@ begin
 end;
 
 procedure TKraftSimpleVehicle.UpdateDownForce;
-var DownForceAmount:TKraftScalar;
+var WheelID:TWheelID;
+    DownForceAmount:TKraftScalar;
     Force:TKraftVector3;
+    AllWheelsGrounded:boolean;
 begin
- if not IsZero(fSettings.fDownForce) then begin
+ AllWheelsGrounded:=true;
+ for WheelID:=Low(TWheelID) to High(TWheelID) do begin
+  if not fWheels[WheelID].IsGrounded then begin
+   AllWheelsGrounded:=false;
+   break;
+  end;
+ end;
+ if AllWheelsGrounded and not IsZero(fSettings.fDownForce) then begin
   DownForceAmount:=fSettings.fDownForceCurveEnvelope.GetValueAtTime(fSpeedKMH)*0.01;
   Force:=Vector3ScalarMul(fWorldDown,fRigidBody.Mass*DownForceAmount*fSettings.fDownForce);
 {$ifdef DebugDraw}
