@@ -343,6 +343,7 @@ type { TKraftSimpleVehicle }
               fSteeringResetSpeedEnvelope:TEnvelope;
               fSteeringSpeedEnvelope:TEnvelope;
               fDownForceCurveEnvelope:TEnvelope;
+              fDownForce:TKraftScalar;
              public
               constructor Create; reintroduce;
               destructor Destroy; override;
@@ -381,6 +382,7 @@ type { TKraftSimpleVehicle }
               property SteeringResetSpeedEnvelope:TEnvelope read fSteeringResetSpeedEnvelope;
               property SteeringSpeedEnvelope:TEnvelope read fSteeringSpeedEnvelope;
               property DownForceCurveEnvelope:TEnvelope read fDownForceCurveEnvelope;              
+              property DownForce:TKraftScalar read fDownForce write fDownForce;
             end;
       private
        fPhysics:TKraft;
@@ -1256,13 +1258,14 @@ begin
  fAirResistance:=5.0;
  fHandBrakeSlipperyTime:=2.2;
  fUseAccelerationCurveEnvelopes:=true;
- fAccelerationCurveEnvelope:=TEnvelope.CreateLinear(0.0,0.0,5.0,100.0);
+ fAccelerationCurveEnvelope:=TEnvelope.CreateLinear(0.0,0.0,5.0,300.0);
  fReverseAccelerationCurveEnvelope:=TEnvelope.CreateLinear(0.0,0.0,5.0,20.0);
  fReverseEvaluationAccuracy:=25;
  fSteerAngleLimitEnvelope:=TEnvelope.CreateLinear(0.0,35.0,100.0,5.0);
  fSteeringResetSpeedEnvelope:=TEnvelope.CreateEaseInOut(0.0,30.0,100.0,10.0,64);
  fSteeringSpeedEnvelope:=TEnvelope.CreateLinear(0.0,2.0,100.0,0.5);
  fDownForceCurveEnvelope:=TEnvelope.CreateLinear(0.0,0.0,200.0,100.0);
+ fDownForce:=5.0;
 end;
 
 destructor TKraftSimpleVehicle.TVehicleSettings.Destroy;
@@ -1310,6 +1313,7 @@ begin
   fSteeringResetSpeedEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['steeringresetspeedenvelope']);
   fSteeringSpeedEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['steeringspeedenvelope']);
   fDownForceCurveEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['downforcecurveenvelope']);
+  fDownForce:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['downforce'],fDownForce);
  end;
 end;
 
@@ -1346,6 +1350,7 @@ begin
  TPasJSONItemObject(result).Add('steeringresetspeedenvelope',fSteeringResetSpeedEnvelope.SaveToJSON);
  TPasJSONItemObject(result).Add('steeringspeedenvelope',fSteeringSpeedEnvelope.SaveToJSON);
  TPasJSONItemObject(result).Add('downforcecurveenvelope',fDownForceCurveEnvelope.SaveToJSON);
+ TPasJSONItemObject(result).Add('downforce',TPasJSONItemNumber.Create(fDownForce));
 end;
 {$endif}
 
