@@ -348,6 +348,7 @@ type { TKraftSimpleVehicle }
        procedure UpdateAcceleration;
        procedure UpdateBraking;
        procedure UpdateAirResistance;
+       procedure UpdateWheelRotations;
        procedure UpdateVisuals;
       public
        constructor Create(const aPhysics:TKraft); reintroduce;
@@ -835,6 +836,43 @@ begin
  end;
 end;
 
+procedure TKraftSimpleVehicle.UpdateWheelRotations;
+const TwoPI=2.0*PI;
+var Wheel:TWheel;
+    WorldWheelPosition,WorldWheelForward,VelocityQueryPos,WheelVelocity:TKraftVector3;
+    LocalWheelRotation,WorldWheelRotation:TKraftQuaternion;
+    TireLongSpeed,WheelLengthMeters,RevolutionsPerSecond,DeltaRotation:TKraftScalar;
+begin
+
+ for Wheel:=Low(TWheel) to High(TWheel) do begin
+
+  LocalWheelRotation:=QuaternionFromAngles(fWheelDatas[Wheel].fYawRad,0.0,0);
+
+  WorldWheelPosition:=Vector3Add(GetSpringPosition(Wheel),Vector3ScalarMul(fWorldDown,fSpringDatas[Wheel].fCurrentLength));
+  WorldWheelRotation:=QuaternionMul(fRigidBody.Sweep.q,LocalWheelRotation);
+
+  WorldWheelForward:=Vector3TermQuaternionRotate(Vector3(0.0,0.0,1.0),WorldWheelRotation);
+
+  VelocityQueryPos:=WorldWheelPosition;
+  WheelVelocity:=fRigidBody.GetWorldLinearVelocityFromPoint(VelocityQueryPos);
+
+  // Longitudinal speed (meters/sec)
+  TireLongSpeed:=Vector3Dot(WheelVelocity,WorldWheelForward);
+
+  // Circle length = 2 * PI * R
+  WheelLengthMeters:=TwoPI*fSettings.fWheelsRadius;
+
+  // Wheel "Revolutions per second";
+  RevolutionsPerSecond:=TireLongSpeed/WheelLengthMeters;
+
+  DeltaRotation:=TwoPI*RevolutionsPerSecond*fDeltaTime;
+
+  fWheelDatas[Wheel].fRotationRad:=fWheelDatas[Wheel].fRotationRad+DeltaRotation;
+
+ end;
+
+end;
+
 procedure TKraftSimpleVehicle.UpdateVisuals;
 var Wheel:TWheel;
 begin
@@ -855,6 +893,7 @@ begin
  UpdateAcceleration;
  UpdateBraking;
  UpdateAirResistance;
+ UpdateWheelRotations;
  UpdateVisuals;
 end;
 
