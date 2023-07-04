@@ -512,6 +512,7 @@ type { TKraftRayCastVehicle }
        fIsReverseAcceleration:Boolean;
        fIsBrake:Boolean;
        fIsHandBrake:Boolean;
+       fCountPoweredWheels:TKraftInt32;
        fAfterFlightSlipperyTiresTime:TKraftScalar;
        fBrakeSlipperyTiresTime:TKraftScalar;
        fHandBrakeSlipperyTiresTime:TKraftScalar;
@@ -578,6 +579,7 @@ type { TKraftRayCastVehicle }
        property Controllable:boolean read fControllable write fControllable;
        property IsAcceleration:boolean read fIsAcceleration;
        property IsReverseAcceleration:boolean read fIsReverseAcceleration;
+       property CountPoweredWheels:TKraftInt32 read fCountPoweredWheels;
       public
        property WorldTransform:TKraftMatrix4x4 read fWorldTransform write fWorldTransform;
        property WorldLeft:TKraftVector3 read fWorldLeft write fWorldLeft;
@@ -1201,7 +1203,7 @@ begin
 
    SlipperyK:=1.0;
 
-   if Assigned(fAxle) and (fAxle.fAxleID=TAxleID.Front) then begin
+   if assigned(fAxle) and (fAxle.fAxleID=TAxleID.Front) then begin
     AfterFlightSlipperyK:=fVehicle.fSettings.fFrontAfterFlightSlipperyK;
     BrakeSlipperyK:=fVehicle.fSettings.fFrontBrakeSlipperyK;
     HandBrakeSlipperyK:=fVehicle.fSettings.fFrontHandBrakeSlipperyK;
@@ -1251,6 +1253,13 @@ begin
  fDebugAccelerationForce:=Vector3Origin;
 {$endif}
 
+ // If the wheel at the current axle is not powered, then exit
+ if assigned(fAxle) and 
+    (((fAxle.fAxleID=TAxleID.Front) and not fVehicle.fSettings.fFrontPowered) or
+     ((fAxle.fAxleID=TAxleID.Rear) and not fVehicle.fSettings.fRearPowered)) then begin
+  exit;
+ end;
+    
  if (fVehicle.fSettings.fUseAccelerationCurveEnvelopes and not IsZero(fVehicle.fAccelerationForceMagnitude)) or
     ((not fVehicle.fSettings.fUseAccelerationCurveEnvelopes) and not IsZero(fVehicle.fAccelerationInput)) then begin
 
@@ -1261,9 +1270,9 @@ begin
    WheelForward:=GetWheelLongitudinalDirection;
 
    if fVehicle.fSettings.fUseAccelerationCurveEnvelopes then begin
-    Force:=Vector3ScalarMul(WheelForward,(fVehicle.fAccelerationForceMagnitude/TKraftRayCastVehicle.CountWheels)*fVehicle.fInverseDeltaTime);
+    Force:=Vector3ScalarMul(WheelForward,(fVehicle.fAccelerationForceMagnitude/fVehicle.fCountPoweredWheels)*fVehicle.fInverseDeltaTime);
    end else begin
-    Force:=Vector3ScalarMul(WheelForward,fVehicle.fAccelerationInput*(fVehicle.fSettings.fAccelerationForce/TKraftRayCastVehicle.CountWheels));
+    Force:=Vector3ScalarMul(WheelForward,fVehicle.fAccelerationInput*(fVehicle.fSettings.fAccelerationForce/fVehicle.fCountPoweredWheels));
    end;
 
 {$ifdef DebugDraw}
@@ -1332,13 +1341,19 @@ begin
 
  end;
 
+ {if assigned(fAxle) and 
+    (((fAxle.fAxleID=TAxleID.Front) and not fVehicle.fSettings.fFrontPowered) or
+     ((fAxle.fAxleID=TAxleID.Rear) and not fVehicle.fSettings.fRearPowered)) then begin 
+  BrakeRatio:=0.0; // If the wheel at the current axle is not powered, then disable braking
+ end;}
+
  if IsGrounded then begin
   SpringPosition:=GetSpringPosition;
   LongitudinalDirection:=GetWheelLongitudinalDirection;
   LongitudinalVelocity:=Vector3Dot(LongitudinalDirection,fVehicle.fRigidBody.GetWorldLinearVelocityFromPoint(SpringPosition));
   Force:=Vector3Origin;
   if not IsZero(BrakeRatio) then begin
-   DesiredVelocityChange:=-Clamp(BrakeRatio*(fVehicle.fSettings.fBrakeForce/CountWheels),0.0,abs(LongitudinalVelocity))*Sign(LongitudinalVelocity);
+   DesiredVelocityChange:=-Clamp(BrakeRatio*(fVehicle.fSettings.fBrakeForce/TKraftRayCastVehicle.CountWheels),0.0,abs(LongitudinalVelocity))*Sign(LongitudinalVelocity);
    DesiredAcceleration:=DesiredVelocityChange*fVehicle.fInverseDeltaTime;
    Vector3DirectAdd(Force,Vector3ScalarMul(LongitudinalDirection,DesiredAcceleration));
   end;
@@ -1738,7 +1753,7 @@ begin
   fShape:=TKraftShapeBox.Create(fPhysics,fRigidBody,Vector3(fSettings.fWidth*0.5,fSettings.fHeight*0.5,fSettings.fLength*0.5));
   fShape.Flags:=fShape.Flags+[ksfHasForcedCenterOfMass];
   fShape.ForcedCenterOfMass.Vector:=fSettings.fCenterOfMass;
-  fShape.ForcedMass:=fSettings.fChassisMass+(fSettings.fTireMass*CountWheels);
+  fShape.ForcedMass:=fSettings.fChassisMass+(fSettings.fTireMass*TKraftRayCastVehicle.CountWheels);
   fShape.Restitution:=fSettings.fRigidBodyRestitution;
   fShape.Density:=fSettings.fRigidBodyDensity;
   fShape.Friction:=fSettings.fRigidBodyFriction;
@@ -1867,7 +1882,19 @@ begin
 end;
 
 procedure TKraftRayCastVehicle.UpdateGlobals;
+var WheelID:TWheelID;
+    Axle:TAxle;
 begin
+
+ fCountPoweredWheels:=0;
+ for WheelID:=Low(TWheelID) to High(TWheelID) do begin
+  Axle:=fWheels[WheelID].fAxle;
+  if assigned(Axle) and
+     (((Axle.fAxleID=TAxleID.Front) and fSettings.fFrontPowered) or
+      ((Axle.fAxleID=TAxleID.Rear) and fSettings.fRearPowered)) then begin
+   inc(fCountPoweredWheels);
+  end;
+ end;
 
  fSpeed:=GetSpeed;
  fSpeedKMH:=abs(fSpeed)*3.6;
