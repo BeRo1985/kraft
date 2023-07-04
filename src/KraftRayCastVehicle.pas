@@ -1999,21 +1999,30 @@ end;
 
 procedure TKraftRayCastVehicle.Update(const aDeltaTime:TKraftScalar);
 begin
+
  fDeltaTime:=aDeltaTime;
  fInverseDeltaTime:=1.0/fDeltaTime;
+
  UpdateWorldTransformVectors;
+
  UpdateGlobals;
+
  UpdateInput;
- UpdateSuspension;
- CalculateAckermannSteering;
- UpdateSteering;
- UpdateAcceleration;
- UpdateBraking;
- UpdateAntiRollBar;
- UpdateAirResistance;
- UpdateDownForce;
- UpdateFlightStabilization;
+
+{if krbfAwake in fRigidBody.Flags then}begin
+  UpdateSuspension;
+  CalculateAckermannSteering;
+  UpdateSteering;
+  UpdateAcceleration;
+  UpdateBraking;
+  UpdateAntiRollBar;
+  UpdateAirResistance;
+  UpdateDownForce;
+  UpdateFlightStabilization;
+ end;
+
  UpdateWheelRotations;
+
  UpdateVisuals;
 
  fAfterFlightSlipperyTiresTime:=Max(0.0,fAfterFlightSlipperyTiresTime-fDeltaTime);
