@@ -263,11 +263,19 @@ type { TKraftRayCastVehicle }
               BackRight=3   
              );
             PWheelID=^TWheelID;
+            TAxleID=
+             (
+              Front,
+              Rear
+             );
+            TWheel=class;
+            TAxle=class;
             { TWheel }
             TWheel=class
              private
               fVehicle:TKraftRayCastVehicle;
               fWheelID:TKraftRayCastVehicle.TWheelID;
+              fAxle:TKraftRayCastVehicle.TAxle;
               fSpring:TSpring;
               fYawRad:TKraftScalar;
               fLastYawRad:TKraftScalar;
@@ -320,12 +328,32 @@ type { TKraftRayCastVehicle }
               constructor Create(const aVehicle:TKraftRayCastVehicle;const aWheelID:TKraftRayCastVehicle.TWheelID); reintroduce;
               destructor Destroy; override;
              published
+              property WheelID:TKraftRayCastVehicle.TWheelID read fWheelID write fWheelID;
+              property Axle:TKraftRayCastVehicle.TAxle read fAxle write fAxle;
               property VisualYawRad:TKraftScalar read fVisualYawRad;
               property VisualRotationRad:TKraftScalar read fVisualRotationRad;
               property VisualSuspensionLength:TKraftScalar read fVisualSuspensionLength;
             end;
             { TWheels }
             TWheels=array[TWheelID] of TWheel;
+            { TAxle }
+            TAxle=class
+             private
+              fVehicle:TKraftRayCastVehicle;
+              fAxleID:TKraftRayCastVehicle.TAxleID;
+              fWheelLeft:TKraftRayCastVehicle.TWheel;
+              fWheelRight:TKraftRayCastVehicle.TWheel;
+             public
+              constructor Create(const aVehicle:TKraftRayCastVehicle;const aAxleID:TKraftRayCastVehicle.TAxleID;const aWheelLeft,aWheelRight:TKraftRayCastVehicle.TWheel); reintroduce;
+              destructor Destroy; override;
+              procedure UpdateAntiRollBar;
+             published
+              property AxleID:TKraftRayCastVehicle.TAxleID read fAxleID write fAxleID;
+              property WheelLeft:TKraftRayCastVehicle.TWheel read fWheelLeft write fWheelLeft;
+              property WheelRight:TKraftRayCastVehicle.TWheel read fWheelRight write fWheelRight; 
+            end;
+            { TAxles }
+            TAxles=array[TAxleID] of TAxle;
             { TVehicleSettings }
             TVehicleSettings=class
              private
@@ -431,6 +459,7 @@ type { TKraftRayCastVehicle }
        fRigidBody:TKraftRigidBody;
        fShape:TKraftShape;
        fWheels:TWheels;
+       fAxles:TAxles;
        fControllable:boolean;
        fAccelerationInput:TKraftScalar;
        fSettings:TVehicleSettings;
@@ -530,6 +559,7 @@ type { TKraftRayCastVehicle }
        property Settings:TVehicleSettings read fSettings write fSettings;
        property CastCollisionGroup:TKraftRigidBodyCollisionGroups read fCastCollisionGroup write fCastCollisionGroup;
        property Wheels:TWheels read fWheels;
+       property Axles:TAxles read fAxles;
       published
        property Physics:TKraft read fPhysics;
        property RigidBody:TKraftRigidBody read fRigidBody write fRigidBody;
@@ -993,6 +1023,7 @@ begin
  inherited Create;
  fVehicle:=aVehicle;
  fWheelID:=aWheelID;
+ fAxle:=nil;
  fSpring.fCurrentLength:=0.0;
  fSpring.fCurrentVelocity:=0.0;
  fYawRad:=0.0;
@@ -1368,6 +1399,60 @@ begin
 {$endif}
 end;
 
+{ TKraftRayCastVehicle.TAxle }
+
+constructor TKraftRayCastVehicle.TAxle.Create(const aVehicle:TKraftRayCastVehicle;const aAxleID:TKraftRayCastVehicle.TAxleID;const aWheelLeft,aWheelRight:TKraftRayCastVehicle.TWheel);
+begin
+
+ inherited Create;
+
+ fVehicle:=aVehicle;
+
+ fAxleID:=aAxleID;
+
+ fWheelLeft:=aWheelLeft;
+ fWheelLeft.fAxle:=self;
+
+ fWheelRight:=aWheelRight;
+ fWheelRight.fAxle:=self;
+ 
+end;
+
+destructor TKraftRayCastVehicle.TAxle.Destroy;
+begin
+ inherited Destroy;
+end;
+
+procedure TKraftRayCastVehicle.TAxle.UpdateAntiRollBar;
+var TravelL,TravelR,AntiRollForce:TKraftScalar;
+begin
+ if not IsZero(fVehicle.fSettings.fStabilizerBarAntiRollForce) then begin
+  TravelL:=1.0-Clamp01(fWheelLeft.fSpring.fCompression);
+  TravelR:=1.0-Clamp01(fWheelRight.fSpring.fCompression);
+  AntiRollForce:=(TravelL-TravelR)*fVehicle.fSettings.fStabilizerBarAntiRollForce;
+  if fWheelLeft.IsGrounded and (abs(AntiRollForce)>EPSILON) then begin
+   fVehicle.fRigidBody.AddForceAtPosition(Vector3ScalarMul(fVehicle.fWorldDown,AntiRollForce),fWheelLeft.GetSpringHitPosition,kfmForce,false);
+{$ifdef DebugDraw}
+   fWheelLeft.fDebugAntiRollForce:=Vector3ScalarMul(fVehicle.fWorldDown,AntiRollForce);
+{$endif}
+  end else begin
+{$ifdef DebugDraw}
+   fWheelLeft.fDebugAntiRollForce:=Vector3Origin;
+{$endif}
+  end;
+  if fWheelRight.IsGrounded and (abs(AntiRollForce)>EPSILON) then begin
+   fVehicle.fRigidBody.AddForceAtPosition(Vector3ScalarMul(fVehicle.fWorldDown,-AntiRollForce),fWheelRight.GetSpringHitPosition,kfmForce,false);
+{$ifdef DebugDraw}
+   fWheelRight.fDebugAntiRollForce:=Vector3ScalarMul(fVehicle.fWorldDown,-AntiRollForce);
+{$endif}
+  end else begin
+{$ifdef DebugDraw}
+   fWheelRight.fDebugAntiRollForce:=Vector3Origin;
+{$endif}
+  end;
+ end;
+end;
+
 { TKraftRayCastVehicle.TVehicleSettings }
 
 constructor TKraftRayCastVehicle.TVehicleSettings.Create;
@@ -1534,7 +1619,9 @@ end;
 { TKraftRayCastVehicle }
 
 constructor TKraftRayCastVehicle.Create(const aPhysics:TKraft);
+const AxleIDWheelID:array[TAxleID,0..1] of TWheelID=((TWheelID.FrontLeft,TWheelID.FrontRight),(TWheelID.BackLeft,TWheelID.BackRight));
 var WheelID:TWheelID;
+    AxleID:TAxleID;
 begin
  inherited Create;
  fPhysics:=aPhysics;
@@ -1549,14 +1636,21 @@ begin
  for WheelID:=Low(TWheelID) to High(TWheelID) do begin
   fWheels[WheelID]:=TKraftRayCastVehicle.TWheel.Create(self,WheelID);
  end;
+ for AxleID:=Low(TAxleID) to High(TAxleID) do begin
+  fAxles[AxleID]:=TKraftRayCastVehicle.TAxle.Create(self,AxleID,fWheels[AxleIDWheelID[AxleID,0]],fWheels[AxleIDWheelID[AxleID,1]]);
+ end;
  Reset;
 end;
 
 destructor TKraftRayCastVehicle.Destroy;
 var WheelID:TWheelID;
+    AxleID:TAxleID;
 begin
  for WheelID:=Low(TWheelID) to High(TWheelID) do begin
   FreeAndNil(fWheels[WheelID]);
+ end;
+ for AxleID:=Low(TAxleID) to High(TAxleID) do begin
+  FreeAndNil(fAxles[AxleID]);
  end;
  FreeAndNil(fSettings);
  inherited Destroy;
@@ -1863,39 +1957,12 @@ begin
 end;
 
 procedure TKraftRayCastVehicle.UpdateAntiRollBar;
- procedure ProcessAxle(const aWheelLeft,aWheelRight:TKraftRayCastVehicle.TWheel);
- var TravelL,TravelR,AntiRollForce:TKraftScalar;
- begin
-  TravelL:=1.0-Clamp01(aWheelLeft.fSpring.fCompression);
-  TravelR:=1.0-Clamp01(aWheelRight.fSpring.fCompression);
-  AntiRollForce:=(TravelL-TravelR)*fSettings.fStabilizerBarAntiRollForce;
-  if aWheelLeft.IsGrounded and (abs(AntiRollForce)>EPSILON) then begin
-   fRigidBody.AddForceAtPosition(Vector3ScalarMul(fWorldDown,AntiRollForce),aWheelLeft.GetSpringHitPosition,kfmForce,false);
-{$ifdef DebugDraw}
-   aWheelLeft.fDebugAntiRollForce:=Vector3ScalarMul(fWorldDown,AntiRollForce);
-{$endif}
-  end else begin
-{$ifdef DebugDraw}
-   aWheelLeft.fDebugAntiRollForce:=Vector3Origin;
-{$endif}
-  end;
-  if aWheelRight.IsGrounded and (abs(AntiRollForce)>EPSILON) then begin
-   fRigidBody.AddForceAtPosition(Vector3ScalarMul(fWorldDown,-AntiRollForce),aWheelRight.GetSpringHitPosition,kfmForce,false);
-{$ifdef DebugDraw}
-   aWheelRight.fDebugAntiRollForce:=Vector3ScalarMul(fWorldDown,-AntiRollForce);
-{$endif}
-  end else begin
-{$ifdef DebugDraw}
-   aWheelRight.fDebugAntiRollForce:=Vector3Origin;
-{$endif}
-  end;
- end;
+var AxleID:TAxleID;
 begin
- if not IsZero(fSettings.fStabilizerBarAntiRollForce) then begin
-  ProcessAxle(fWheels[TWheelID.FrontLeft],fWheels[TWheelID.FrontRight]);
-  ProcessAxle(fWheels[TWheelID.BackLeft],fWheels[TWheelID.BackRight]);
- end; 
-end;
+ for AxleID:=Low(TAxleID) to High(TAxleID) do begin
+  fAxles[AxleID].UpdateAntiRollBar;
+ end;
+end; 
 
 procedure TKraftRayCastVehicle.UpdateAirResistance;
 var Velocity,Force:TKraftVector3;
