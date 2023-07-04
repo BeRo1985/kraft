@@ -141,10 +141,6 @@ unit kraft;
 
 {-$define DebugDraw}
 
-{$ifdef NoOpenGL}
- {$undef DebugDraw}
-{$endif}
-
 {-$define memdebug}
 
 {$ifdef KraftUseDouble}
@@ -197,11 +193,13 @@ uses {$ifdef windows}
       {$endif}
      {$endif}
      {$ifdef DebugDraw}
-      {$ifdef fpc}
-       GL,
-       GLext,
-      {$else}
-       OpenGL,
+      {$ifndef NoOpenGL}
+       {$ifdef fpc}
+        GL,
+        GLext,
+       {$else}
+        OpenGL,
+       {$endif}
       {$endif}
      {$endif}
      SysUtils,
@@ -1507,7 +1505,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fOnContactStay:TKraftShapeOnContactStayHook;
 
 {$ifdef DebugDraw}
+{$ifndef NoOpenGL}
        fDrawDisplayList:glUint;
+{$endif}
 {$endif}
 
        fIsMesh:boolean;
@@ -1618,7 +1618,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property ContinuousMinimumRadiusScaleFactor:TKraftScalar read fContinuousMinimumRadiusScaleFactor write fContinuousMinimumRadiusScaleFactor;
 
 {$ifdef DebugDraw}
+{$ifndef NoOpenGL}
        property DrawDisplayList:glUint read fDrawDisplayList write fDrawDisplayList;
+{$endif}
 {$endif}
 
        property IsMesh:boolean read fIsMesh write fIsMesh;
@@ -23031,7 +23033,9 @@ begin
  fContinuousMinimumRadiusScaleFactor:=0.0;
 
 {$ifdef DebugDraw}
+{$ifndef NoOpenGL}
  fDrawDisplayList:=0;
+{$endif}
 {$endif}
 
  fOnContactBegin:=nil;
@@ -23044,10 +23048,12 @@ destructor TKraftShape.Destroy;
 begin
 
 {$ifdef DebugDraw}
+{$ifndef NoOpenGL}
  if fDrawDisplayList<>0 then begin
   glDeleteLists(fDrawDisplayList,1);
   fDrawDisplayList:=0;
  end;
+{$endif}
 {$endif}
 
  RemoveContactPairEdges;
@@ -23560,6 +23566,10 @@ end;
 
 {$ifdef DebugDraw}
 procedure TKraftShapeSphere.Draw(const CameraMatrix:TKraftMatrix4x4);
+{$ifdef NoOpenGL}
+begin
+end;
+{$else}
 const lats=16;
       longs=16;
       pi2=pi*2.0;
@@ -23609,6 +23619,7 @@ begin
 
  glPopMatrix;
 end;
+{$endif}
 {$endif}
 
 constructor TKraftShapeCapsule.Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody;const ARadius,AHeight:TKraftScalar);
@@ -24077,6 +24088,10 @@ end;
 
 {$ifdef DebugDraw}
 procedure TKraftShapeCapsule.Draw(const CameraMatrix:TKraftMatrix4x4);
+{$ifdef NoOpenGL}
+begin
+end;
+{$else}
 const lats=16;
       longs=16;
      pi2=pi*2.0;
@@ -24138,6 +24153,7 @@ begin
 
  glPopMatrix;
 end;
+{$endif}
 {$endif}
 
 constructor TKraftShapeConvexHull.Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody;const AConvexHull:TKraftConvexHull);
@@ -24360,6 +24376,10 @@ end;
 
 {$ifdef DebugDraw}
 procedure TKraftShapeConvexHull.Draw(const CameraMatrix:TKraftMatrix4x4);
+{$ifdef NoOpenGL}
+begin
+end;
+{$else}
 var i,j:TKraftInt32;
     ModelViewMatrix:TKraftMatrix4x4;
     Face:PKraftConvexHullFace;
@@ -24419,6 +24439,7 @@ begin
 
  glPopMatrix;
 end;
+{$endif}
 {$endif}
 
 constructor TKraftShapeBox.Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody;const AExtents:TKraftVector3);
@@ -25075,6 +25096,10 @@ end;
 
 {$ifdef DebugDraw}
 procedure TKraftShapeBox.Draw(const CameraMatrix:TKraftMatrix4x4);
+{$ifdef NoOpenGL}
+begin
+end;
+{$else}
 var ModelViewMatrix:TKraftMatrix4x4;
 begin
  glPushMatrix;
@@ -25130,6 +25155,7 @@ begin
 
  glPopMatrix;
 end;
+{$endif}
 {$endif}
 
 const PlaneSize=32768.0;
@@ -25376,6 +25402,10 @@ end;
 
 {$ifdef DebugDraw}
 procedure TKraftShapePlane.Draw(const CameraMatrix:TKraftMatrix4x4);
+{$ifdef NoOpenGL}
+begin
+end;
+{$else}
 const PlaneSize=2048;
 var ModelViewMatrix:TKraftMatrix4x4;
     n,b,p,q:TKraftVector3;
@@ -25452,6 +25482,7 @@ begin
 
  glPopMatrix;
 end;
+{$endif}
 {$endif}
 
 constructor TKraftShapeTriangle.Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody;const AVertex0,AVertex1,AVertex2:TKraftVector3);
@@ -25829,6 +25860,10 @@ end;
 
 {$ifdef DebugDraw}
 procedure TKraftShapeTriangle.Draw(const CameraMatrix:TKraftMatrix4x4);
+{$ifdef NoOpenGL}
+begin
+end;
+{$else}
 var ModelViewMatrix:TKraftMatrix4x4;
     Vertices:PPKraftConvexHullVertices;
     n:TKraftVector3;
@@ -25886,6 +25921,7 @@ begin
 
  glPopMatrix;
 end;
+{$endif}
 {$endif}
 
 constructor TKraftShapeMesh.Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody;const AMesh:TKraftMesh);
@@ -26113,6 +26149,10 @@ end;
 
 {$ifdef DebugDraw}
 procedure TKraftShapeMesh.Draw(const CameraMatrix:TKraftMatrix4x4);
+{$ifdef NoOpenGL}
+begin
+end;
+{$else}
 var i:TKraftInt32;
     ModelViewMatrix:TKraftMatrix4x4;
     Triangle:PKraftMeshTriangle;
@@ -26161,6 +26201,7 @@ begin
 
  glPopMatrix;
 end;
+{$endif}
 {$endif}
 
 constructor TKraftShapeSignedDistanceField.Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody;const aAABB:PKraftAABB=nil);
@@ -26535,6 +26576,10 @@ end;
 
 {$ifdef DebugDraw}
 procedure TKraftShapeSignedDistanceField.Draw(const CameraMatrix:TKraftMatrix4x4);
+{$ifdef NoOpenGL}
+begin
+end;
+{$else}
  function GetOffset(a,b,t:TKraftScalar):TKraftScalar;
  var d:Double;
  begin
@@ -26710,6 +26755,7 @@ begin
 
  glPopMatrix;
 end;
+{$endif}
 {$endif}
 
 procedure TKraftContactPair.GetSolverContactManifold(out SolverContactManifold:TKraftSolverContactManifold;const WorldTransformA,WorldTransformB:TKraftMatrix4x4;const ContactManifoldMode:TKraftContactPairContactManifoldMode);
@@ -29789,6 +29835,10 @@ end;
 
 {$ifdef DebugDraw}
 procedure TKraftContactManager.DebugDraw(const CameraMatrix:TKraftMatrix4x4);
+{$ifdef NoOpenGL}
+begin
+end;
+{$else}
 var i,j:TKraftInt32;
     ContactPair:PKraftContactPair;
     ContactManifold:PKraftContactManifold;
@@ -29928,6 +29978,7 @@ begin
  glPopMatrix;
 
 end;
+{$endif}
 {$endif}
 
 function TKraftContactManager.ReduceContacts(const AInputContacts:PKraftContacts;const ACountInputContacts:TKraftInt32;const AOutputContacts:PKraftContacts):TKraftInt32;
