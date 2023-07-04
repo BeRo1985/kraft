@@ -200,7 +200,8 @@ type { TKraftRayCastVehicle }
                     (
                      Custom,
                      Linear,
-                     EaseInOut
+                     EaseInOut,
+                     Value
                     );
               type TPoint=record
                     private
@@ -220,12 +221,14 @@ type { TKraftRayCastVehicle }
               constructor Create; reintroduce;
               constructor CreateLinear(const aTimeStart,aValueStart,aTimeEnd,aValueEnd:TKraftScalar);
               constructor CreateEaseInOut(const aTimeStart,aValueStart,aTimeEnd,aValueEnd:TKraftScalar;const aSteps:TKraftInt32=16);
+              constructor CreateValue(const aValue:TKraftScalar);
               destructor Destroy; override;
               procedure Clear;
               procedure Assign(const aFrom:TEnvelope);
               procedure Insert(const aTime,aValue:TKraftScalar);
               procedure FillLinear(const aTimeStart,aValueStart,aTimeEnd,aValueEnd:TKraftScalar);
               procedure FillEaseInOut(const aTimeStart,aValueStart,aTimeEnd,aValueEnd:TKraftScalar;const aSteps:TKraftInt32=16);
+              procedure FillValue(const aValue:TKraftScalar);
 {$ifdef KraftPasJSON}
               procedure LoadFromJSON(const aJSONItem:TPasJSONItem);
               function SaveToJSON:TPasJSONItem;
@@ -651,6 +654,12 @@ begin
  FillEaseInOut(aTimeStart,aValueStart,aTimeEnd,aValueEnd,aSteps);
 end;
 
+constructor TKraftRayCastVehicle.TEnvelope.CreateValue(const aValue:TKraftScalar);
+begin
+ Create;
+ FillValue(aValue);
+end;
+
 destructor TKraftRayCastVehicle.TEnvelope.Destroy;
 begin
  fPoints:=nil;
@@ -747,6 +756,13 @@ begin
  fMode:=TKraftRayCastVehicle.TEnvelope.TMode.EaseInOut;
 end;
 
+procedure TKraftRayCastVehicle.TEnvelope.FillValue(const aValue:TKraftScalar);
+begin
+ Clear;
+ Insert(0.0,aValue);
+ fMode:=TKraftRayCastVehicle.TEnvelope.TMode.Value;
+end;
+
 {$ifdef KraftPasJSON}
 procedure TKraftRayCastVehicle.TEnvelope.LoadFromJSON(const aJSONItem:TPasJSONItem);
 var RootJSONItemObject:TPasJSONItemObject;
@@ -769,6 +785,8 @@ begin
                  TPasJSON.GetNumber(RootJSONItemObject.Properties['timeend'],0.0),
                  TPasJSON.GetNumber(RootJSONItemObject.Properties['valueend'],0.0),
                  TPasJSON.GetInt64(RootJSONItemObject.Properties['steps'],16));
+  end else if Mode='value' then begin
+   FillValue(TPasJSON.GetNumber(RootJSONItemObject.Properties['value'],0.0));
   end else if Mode='custom' then begin
    Clear;
    JSONItem:=RootJSONItemObject.Properties['points'];
@@ -806,6 +824,10 @@ begin
    TPasJSONItemObject(result).Add('timeend',TPasJSONItemNumber.Create(fPoints[fCount-1].fTime));
    TPasJSONItemObject(result).Add('valueend',TPasJSONItemNumber.Create(fPoints[fCount-1].fValue));
    TPasJSONItemObject(result).Add('steps',TPasJSONItemNumber.Create(fCount));
+  end;
+  TKraftRayCastVehicle.TEnvelope.TMode.Value:begin
+   TPasJSONItemObject(result).Add('mode',TPasJSONItemString.Create('value'));
+   TPasJSONItemObject(result).Add('value',TPasJSONItemNumber.Create(fPoints[0].fValue));
   end;
   else {TKraftRayCastVehicle.TEnvelope.TMode.Custom:}begin
    TPasJSONItemObject(result).Add('mode',TPasJSONItemString.Create('custom'));
