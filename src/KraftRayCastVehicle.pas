@@ -1853,7 +1853,7 @@ procedure TKraftRayCastVehicle.UpdateAntiRollBar;
   TravelL:=1.0-Clamp01(aWheelLeft.fSpring.fCompression);
   TravelR:=1.0-Clamp01(aWheelRight.fSpring.fCompression);
   AntiRollForce:=(TravelL-TravelR)*fSettings.fStabilizerBarAntiRollForce;
-  if aWheelLeft.IsGrounded then begin
+  if aWheelLeft.IsGrounded and (abs(AntiRollForce)>EPSILON) then begin
    fRigidBody.AddForceAtPosition(Vector3ScalarMul(fWorldDown,AntiRollForce),aWheelLeft.GetSpringHitPosition,kfmForce,false);
 {$ifdef DebugDraw}
    aWheelLeft.fDebugAntiRollForce:=Vector3ScalarMul(fWorldDown,AntiRollForce);
@@ -1863,10 +1863,10 @@ procedure TKraftRayCastVehicle.UpdateAntiRollBar;
    aWheelLeft.fDebugAntiRollForce:=Vector3Origin;
 {$endif}
   end;
-  if aWheelRight.IsGrounded then begin
+  if aWheelRight.IsGrounded and (abs(AntiRollForce)>EPSILON) then begin
    fRigidBody.AddForceAtPosition(Vector3ScalarMul(fWorldDown,-AntiRollForce),aWheelRight.GetSpringHitPosition,kfmForce,false);
 {$ifdef DebugDraw}
-   aWheelRight.fDebugAntiRollForce:=Vector3ScalarMul(fWorldDown,AntiRollForce);
+   aWheelRight.fDebugAntiRollForce:=Vector3ScalarMul(fWorldDown,-AntiRollForce);
 {$endif}
   end else begin
 {$ifdef DebugDraw}
