@@ -508,10 +508,12 @@ type { TKraftRayCastVehicle }
        fInputReset:Boolean;
        fInputBrake:Boolean;
        fInputHandBrake:Boolean;
+       fInputDrift:Boolean;
        fIsAcceleration:Boolean;
        fIsReverseAcceleration:Boolean;
        fIsBrake:Boolean;
        fIsHandBrake:Boolean;
+       fIsDrift:Boolean;
        fCountPoweredWheels:TKraftInt32;
        fAfterFlightSlipperyTiresTime:TKraftScalar;
        fBrakeSlipperyTiresTime:TKraftScalar;
@@ -612,6 +614,7 @@ type { TKraftRayCastVehicle }
        property InputReset:Boolean read fInputReset write fInputReset;
        property InputBrake:Boolean read fInputBrake write fInputBrake;
        property InputHandBrake:Boolean read fInputHandBrake write fInputHandBrake;
+       property InputDrift:Boolean read fInputDrift write fInputDrift;
        property Speed:TKraftScalar read fSpeed write fSpeed;
        property SpeedKMH:TKraftScalar read fSpeedKMH write fSpeedKMH;
        property DebugDrawLine:TDebugDrawLine read fDebugDrawLine write fDebugDrawLine;
@@ -1227,6 +1230,10 @@ begin
     if HandBrakeK>0.0 then begin
      SlipperyK:=Min(SlipperyK,Lerp(1.0,HandBrakeSlipperyK,HandBrakeK));
     end;
+   end;
+
+   if fVehicle.fIsDrift then begin
+    SlipperyK:=SlipperyK*0.0;
    end;
 
   end;
@@ -1964,6 +1971,8 @@ begin
  fIsBrake:=IsBrakeNow;
 
  fIsHandBrake:=IsHandBrakeNow and not (fIsAcceleration or fIsReverseAcceleration);
+
+ fIsDrift:=fInputDrift;
 
  if abs(Horizontal)>0.001 then begin
   NewSteerAngle:=fSteeringAngle+(Horizontal*fSettings.fSteeringSpeedEnvelope.GetValueAtTime(fSpeedKMH*GetSteeringHandBrakeK));
