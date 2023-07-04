@@ -30019,7 +30019,16 @@ begin
 {$endif}
  for i:=0 to fCountDebugClipVertexLists-1 do begin
 {$ifdef NoOpenGL}
+  c.x:=fDebugClipVertexLists[i].Color.r;
+  c.y:=fDebugClipVertexLists[i].Color.g;
+  c.z:=fDebugClipVertexLists[i].Color.b;
+  c.w:=fDebugClipVertexLists[i].Color.a;
   for j:=0 to fDebugClipVertexLists[i].Count-1 do begin
+   if j=0 then begin
+    fPhysics.fDebugDrawLine(fDebugClipVertexLists[i].Vertices[fDebugClipVertexLists[i].Count-1].Position,fDebugClipVertexLists[i].Vertices[j].Position,c);
+   end else begin
+    fPhysics.fDebugDrawLine(fDebugClipVertexLists[i].Vertices[j-1].Position,fDebugClipVertexLists[i].Vertices[j].Position,c);
+   end;
   end;
 {$else}
 {$ifdef KraftUseDouble}
