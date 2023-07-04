@@ -3609,6 +3609,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftOnSphereCastFilterHook=function(const aPoint,aNormal:TKraftVector3;const aTime:TKraftScalar;const aShape:TKraftShape):boolean of object;
 
+     TKraftDebugDrawLine=procedure(const aP0,aP1:TKraftVector3;const aColor:TKraftVector4) of object;
+
      TKraft=class(TPersistent)
       private
 
@@ -3763,6 +3765,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fTriangleShapes:TKraftShapes;
 
        fJobTimeStep:TKraftTimeStep;
+
+       fDebugDrawLine:TKraftDebugDrawLine;
 
        procedure Integrate(var Position:TKraftVector3;var Orientation:TKraftQuaternion;const LinearVelocity,AngularVelocity:TKraftVector3;const DeltaTime:TKraftScalar);
 
@@ -3967,6 +3971,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property AngularVelocityRK4Integration:boolean read fAngularVelocityRK4Integration write fAngularVelocityRK4Integration;
 
        property ContactBreakingThreshold:TKraftScalar read fContactBreakingThreshold write fContactBreakingThreshold;
+
+       property DebugDrawLine:TKraftDebugDrawLine read fDebugDrawLine write fDebugDrawLine;
 
      end;
 
@@ -29835,10 +29841,6 @@ end;
 
 {$ifdef DebugDraw}
 procedure TKraftContactManager.DebugDraw(const CameraMatrix:TKraftMatrix4x4);
-{$ifdef NoOpenGL}
-begin
-end;
-{$else}
 var i,j:TKraftInt32;
     ContactPair:PKraftContactPair;
     ContactManifold:PKraftContactManifold;
@@ -29846,8 +29848,12 @@ var i,j:TKraftInt32;
     SolverContact:PKraftSolverContact;
     SolverContactManifold:TKraftSolverContactManifold;
     f:TKraftScalar;
+{$ifdef NoOpenGL}
+    c:TKraftVector4;
+{$endif}
 begin
-
+{$ifdef NoOpenGL}
+{$else}
  glPushMatrix;
  glMatrixMode(GL_MODELVIEW);
 
@@ -29855,6 +29861,7 @@ begin
  glLoadMatrixd(pointer(@CameraMatrix));
 {$else}
  glLoadMatrixf(pointer(@CameraMatrix));
+{$endif}
 {$endif}
 
  ContactPair:=fContactPairFirst;
@@ -29878,10 +29885,24 @@ begin
     if ContactPair^.Manifold.ContactManifoldType=kcmtSPECULATIVE then begin
 
      if krbfAwake in ContactPair^.Shapes[0].fRigidBody.fFlags then begin
+{$ifdef NoOpenGL}
+      c:=Vector4(0.0,f,1.0-f,1.0);
+{$else}
       glColor4f(0.0,f,1.0-f,1.0);
+{$endif}
      end else begin
+{$ifdef NoOpenGL}
+      c:=Vector4(0.0,1.0,0.0,1.0);
+{$else}
       glColor4f(0.0,1.0,0.0,1.0);
+{$endif}
      end;
+{$ifdef NoOpenGL}
+     if assigned(fPhysics.fDebugDrawLine) then begin
+      fPhysics.fDebugDrawLine(SolverContactManifold.Points[0],Vector3Add(SolverContactManifold.Points[0],Vector3(0.1,0.1,0.1)),c);
+      fPhysics.fDebugDrawLine(SolverContactManifold.Points[1],Vector3Add(SolverContactManifold.Points[1],Vector3(0.1,0.1,0.1)),c);
+     end;
+{$else}
      glBegin(GL_POINTS);
 {$ifdef KraftUseDouble}
      glVertex3fd(@SolverContactManifold.Points[0]);
@@ -29891,12 +29912,26 @@ begin
      glVertex3fv(@SolverContactManifold.Points[1]);
 {$endif}
      glEnd;
+{$endif}
 
      if krbfAwake in ContactPair^.Shapes[0].fRigidBody.fFlags then begin
+{$ifdef NoOpenGL}
+      c:=Vector4(1.0,1.0,1.0,1.0);
+{$else}
       glColor4f(1.0,1.0,1.0,1.0);
+{$endif}
      end else begin
+{$ifdef NoOpenGL}
+      c:=Vector4(0.2,0.2,0.2,1.0);
+{$else}
       glColor4f(0.2,0.2,0.2,1.0);
+{$endif}
      end;
+{$ifdef NoOpenGL}
+     if assigned(fPhysics.fDebugDrawLine) then begin
+      fPhysics.fDebugDrawLine(SolverContactManifold.Points[0],SolverContactManifold.Points[1],c);
+     end;
+{$else}
      glBegin(GL_LINES);
 {$ifdef KraftUseDouble}
      glVertex3fd(@SolverContactManifold.Points[0]);
@@ -29906,14 +29941,28 @@ begin
      glVertex3fv(@SolverContactManifold.Points[1]);
 {$endif}
      glEnd;
+{$endif}
 
     end else begin
 
      if krbfAwake in ContactPair^.Shapes[0].fRigidBody.fFlags then begin
+{$ifdef NoOpenGL}
+      c:=Vector4(1.0-f,f,f,1.0);
+{$else}
       glColor4f(1.0-f,f,f,1.0);
+{$endif}
      end else begin
+{$ifdef NoOpenGL}
+      c:=Vector4(1.0,1.0,0.0,1.0);
+{$else}
       glColor4f(1.0,1.0,0.0,1.0);
+{$endif}
      end;
+{$ifdef NoOpenGL}
+     if assigned(fPhysics.fDebugDrawLine) then begin
+      fPhysics.fDebugDrawLine(SolverContact^.Point,Vector3Add(SolverContact^.Point,Vector3(0.1,0.1,0.1)),c);
+     end;
+{$else}
      glBegin(GL_POINTS);
 {$ifdef KraftUseDouble}
      glVertex3dv(@SolverContact^.Point);
@@ -29921,12 +29970,26 @@ begin
      glVertex3fv(@SolverContact^.Point);
 {$endif}
      glEnd;
+{$endif}
 
      if krbfAwake in ContactPair^.Shapes[0].fRigidBody.fFlags then begin
+{$ifdef NoOpenGL}
+      c:=Vector4(1.0,1.0,1.0,1.0);
+{$else}
       glColor4f(1.0,1.0,1.0,1.0);
+{$endif}
      end else begin
+{$ifdef NoOpenGL}
+      c:=Vector4(0.2,0.2,0.2,1.0);
+{$else}
       glColor4f(0.2,0.2,0.2,1.0);
+{$endif}
      end;
+{$ifdef NoOpenGL}
+     if assigned(fPhysics.fDebugDrawLine) then begin
+      fPhysics.fDebugDrawLine(SolverContact^.Point,Vector3Add(SolverContact^.Point,Vector3ScalarMul(SolverContactManifold.Normal,SolverContact^.Separation)),c);
+     end;
+{$else}
      glBegin(GL_LINES);
 {$ifdef KraftUseDouble}
      glVertex3dv(@SolverContact^.Point);
@@ -29937,6 +30000,7 @@ begin
                 SolverContact^.Point.y+(SolverContactManifold.Normal.y*SolverContact^.Separation),
                 SolverContact^.Point.z+(SolverContactManifold.Normal.z*SolverContact^.Separation));
      glEnd;
+{$endif}
 
     end;
 
@@ -29948,9 +30012,16 @@ begin
 
  end;
 
+{$ifdef NoOpenGL}
+{$else}
  glLineWidth(2);
  glBegin(GL_LINES);
+{$endif}
  for i:=0 to fCountDebugClipVertexLists-1 do begin
+{$ifdef NoOpenGL}
+  for j:=0 to fDebugClipVertexLists[i].Count-1 do begin
+  end;
+{$else}
 {$ifdef KraftUseDouble}
   glColor4dv(@fDebugClipVertexLists[i].Color);
   for j:=0 to fDebugClipVertexLists[i].Count-1 do begin
@@ -29972,13 +30043,18 @@ begin
    glVertex3fv(@fDebugClipVertexLists[i].Vertices[j].Position);
   end;
 {$endif}
+{$endif}
  end;
+{$ifndef NoOpenGL}
  glEnd;
+{$endif}
 
+{$ifdef NoOpenGL}
+{$else}
  glPopMatrix;
+{$endif}
 
 end;
-{$endif}
 {$endif}
 
 function TKraftContactManager.ReduceContacts(const AInputContacts:PKraftContacts;const ACountInputContacts:TKraftInt32;const AOutputContacts:PKraftContacts):TKraftInt32;
@@ -37160,6 +37236,8 @@ begin
  fAngularVelocityRK4Integration:=false;
 
  fContactBreakingThreshold:=0.02;
+
+ fDebugDrawLine:=nil;
 
  fTriangleShapes:=nil;
  SetLength(fTriangleShapes,Max(1,fCountThreads));
