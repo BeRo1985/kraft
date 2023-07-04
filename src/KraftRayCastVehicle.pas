@@ -386,9 +386,12 @@ type { TKraftRayCastVehicle }
               fMaximumReverseSpeed:TKraftScalar;
               fFrontWheelsGripFactor:TKraftScalar;
               fRearWheelsGripFactor:TKraftScalar;
-              fAfterFlightSlipperyK:TKraftScalar;
-              fBrakeSlipperyK:TKraftScalar;
-              fHandBrakeSlipperyK:TKraftScalar;
+              fFrontAfterFlightSlipperyK:TKraftScalar;
+              fFrontBrakeSlipperyK:TKraftScalar;
+              fFrontHandBrakeSlipperyK:TKraftScalar;
+              fRearAfterFlightSlipperyK:TKraftScalar;
+              fRearBrakeSlipperyK:TKraftScalar;
+              fRearHandBrakeSlipperyK:TKraftScalar;
               fAirResistance:TKraftScalar;
               fHandBrakeSlipperyTime:TKraftScalar;
               fUseAccelerationCurveEnvelopes:Boolean;
@@ -438,9 +441,12 @@ type { TKraftRayCastVehicle }
               property MaximumReverseSpeed:TKraftScalar read fMaximumReverseSpeed write fMaximumReverseSpeed;
               property FrontWheelsGripFactor:TKraftScalar read fFrontWheelsGripFactor write fFrontWheelsGripFactor;
               property RearWheelsGripFactor:TKraftScalar read fRearWheelsGripFactor write fRearWheelsGripFactor;
-              property AfterFlightSlipperyK:TKraftScalar read fAfterFlightSlipperyK write fAfterFlightSlipperyK;
-              property BrakeSlipperyK:TKraftScalar read fBrakeSlipperyK write fBrakeSlipperyK;
-              property HandBrakeSlipperyK:TKraftScalar read fHandBrakeSlipperyK write fHandBrakeSlipperyK;
+              property FrontAfterFlightSlipperyK:TKraftScalar read fFrontAfterFlightSlipperyK write fFrontAfterFlightSlipperyK;
+              property FrontBrakeSlipperyK:TKraftScalar read fFrontBrakeSlipperyK write fFrontBrakeSlipperyK;
+              property FrontHandBrakeSlipperyK:TKraftScalar read fFrontHandBrakeSlipperyK write fFrontHandBrakeSlipperyK;
+              property RearAfterFlightSlipperyK:TKraftScalar read fRearAfterFlightSlipperyK write fRearAfterFlightSlipperyK;
+              property RearBrakeSlipperyK:TKraftScalar read fRearBrakeSlipperyK write fRearBrakeSlipperyK;
+              property RearHandBrakeSlipperyK:TKraftScalar read fRearHandBrakeSlipperyK write fRearHandBrakeSlipperyK;
               property AirResistance:TKraftScalar read fAirResistance write fAirResistance;
               property HandBrakeSlipperyTime:TKraftScalar read fHandBrakeSlipperyTime write fHandBrakeSlipperyTime;
               property UseAccelerationCurveEnvelopes:Boolean read fUseAccelerationCurveEnvelopes write fUseAccelerationCurveEnvelopes;
@@ -1176,7 +1182,8 @@ end;
 
 procedure TKraftRayCastVehicle.TWheel.UpdateLaterialForce;
 var SpringPosition,LaterialDirection,Force:TKraftVector3;
-    SlipperyK,HandBrakeK,LaterialVelocity,DesiredVelocityChange,DesiredAcceleration:TKraftScalar;
+    SlipperyK,HandBrakeK,LaterialVelocity,DesiredVelocityChange,DesiredAcceleration,
+    AfterFlightSlipperyK,BrakeSlipperyK,HandBrakeSlipperyK:TKraftScalar;
 begin
 
 {$ifdef DebugDraw}
@@ -1190,18 +1197,28 @@ begin
 
    SlipperyK:=1.0;
 
-   if (fVehicle.fAfterFlightSlipperyTiresTime>0.0) and not IsZero(fVehicle.fSettings.fAfterFlightSlipperyK) then begin
-    SlipperyK:=Min(SlipperyK,Lerp(1.0,fVehicle.fSettings.fAfterFlightSlipperyK,Clamp01(fVehicle.fAfterFlightSlipperyTiresTime)));
+   if Assigned(fAxle) and (fAxle.fAxleID=TAxleID.Front) then begin
+    AfterFlightSlipperyK:=fVehicle.fSettings.fFrontAfterFlightSlipperyK;
+    BrakeSlipperyK:=fVehicle.fSettings.fFrontBrakeSlipperyK;
+    HandBrakeSlipperyK:=fVehicle.fSettings.fFrontHandBrakeSlipperyK;
+   end else begin
+    AfterFlightSlipperyK:=fVehicle.fSettings.fRearAfterFlightSlipperyK;
+    BrakeSlipperyK:=fVehicle.fSettings.fRearBrakeSlipperyK;
+    HandBrakeSlipperyK:=fVehicle.fSettings.fRearHandBrakeSlipperyK;
    end;
 
-   if (fVehicle.fBrakeSlipperyTiresTime>0.0) and not IsZero(fVehicle.fSettings.fBrakeSlipperyK) then begin
-    SlipperyK:=Min(SlipperyK,Lerp(1.0,fVehicle.fSettings.fBrakeSlipperyK,Clamp01(fVehicle.fBrakeSlipperyTiresTime)));
+   if (fVehicle.fAfterFlightSlipperyTiresTime>0.0) and not IsZero(AfterFlightSlipperyK) then begin
+    SlipperyK:=Min(SlipperyK,Lerp(1.0,AfterFlightSlipperyK,Clamp01(fVehicle.fAfterFlightSlipperyTiresTime)));
    end;
 
-   if not IsZero(fVehicle.fSettings.fHandBrakeSlipperyK) then begin
+   if (fVehicle.fBrakeSlipperyTiresTime>0.0) and not IsZero(BrakeSlipperyK) then begin
+    SlipperyK:=Min(SlipperyK,Lerp(1.0,BrakeSlipperyK,Clamp01(fVehicle.fBrakeSlipperyTiresTime)));
+   end;
+
+   if not IsZero(HandBrakeSlipperyK) then begin
     HandBrakeK:=fVehicle.GetHandBrakeK;
     if HandBrakeK>0.0 then begin
-     SlipperyK:=Min(SlipperyK,Lerp(1.0,fVehicle.fSettings.fHandBrakeSlipperyK,HandBrakeK));
+     SlipperyK:=Min(SlipperyK,Lerp(1.0,HandBrakeSlipperyK,HandBrakeK));
     end;
    end;
 
@@ -1502,9 +1519,12 @@ begin
  fMaximumReverseSpeed:=2.5;
  fFrontWheelsGripFactor:=0.8;
  fRearWheelsGripFactor:=0.9;
- fAfterFlightSlipperyK:=0.02;
- fBrakeSlipperyK:=0.5;
- fHandBrakeSlipperyK:=0.01;
+ fFrontAfterFlightSlipperyK:=0.02;
+ fFrontBrakeSlipperyK:=0.5;
+ fFrontHandBrakeSlipperyK:=0.01;
+ fRearAfterFlightSlipperyK:=0.02;
+ fRearBrakeSlipperyK:=0.5;
+ fRearHandBrakeSlipperyK:=0.01;
  fAirResistance:=5.0;
  fHandBrakeSlipperyTime:=2.2;
  fUseAccelerationCurveEnvelopes:=true;
@@ -1563,9 +1583,12 @@ begin
   fMaximumReverseSpeed:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['maximumreversespeed'],fMaximumReverseSpeed);
   fFrontWheelsGripFactor:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['frontwheelsgripfactor'],fFrontWheelsGripFactor);
   fRearWheelsGripFactor:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['rearwheelsgripfactor'],fRearWheelsGripFactor);
-  fAfterFlightSlipperyK:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['afterflightslipperyk'],fAfterFlightSlipperyK);
-  fBrakeSlipperyK:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['brakeslipperyk'],fBrakeSlipperyK);
-  fHandBrakeSlipperyK:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['handbrakeslipperyk'],fHandBrakeSlipperyK);
+  fFrontAfterFlightSlipperyK:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['frontafterflightslipperyk'],fFrontAfterFlightSlipperyK);
+  fFrontBrakeSlipperyK:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['frontbrakeslipperyk'],fFrontBrakeSlipperyK);
+  fFrontHandBrakeSlipperyK:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['fronthandbrakeslipperyk'],fFrontHandBrakeSlipperyK);
+  fRearAfterFlightSlipperyK:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['rearafterflightslipperyk'],fRearAfterFlightSlipperyK);
+  fRearBrakeSlipperyK:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['rearbrakeslipperyk'],fRearBrakeSlipperyK);
+  fRearHandBrakeSlipperyK:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['rearhandbrakeslipperyk'],fRearHandBrakeSlipperyK);
   fAirResistance:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['airresistance'],fAirResistance);
   fHandBrakeSlipperyTime:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['handbrakeslipperytime'],fHandBrakeSlipperyTime);
   fUseAccelerationCurveEnvelopes:=TPasJSON.GetBoolean(TPasJSONItemObject(aJSONItem).Properties['useaccelerationcurveenvelopes'],fUseAccelerationCurveEnvelopes);
@@ -1613,9 +1636,12 @@ begin
  TPasJSONItemObject(result).Add('maximumreversespeed',TPasJSONItemNumber.Create(fMaximumReverseSpeed));
  TPasJSONItemObject(result).Add('frontwheelsgripfactor',TPasJSONItemNumber.Create(fFrontWheelsGripFactor));
  TPasJSONItemObject(result).Add('rearwheelsgripfactor',TPasJSONItemNumber.Create(fRearWheelsGripFactor));
- TPasJSONItemObject(result).Add('afterflightslipperyk',TPasJSONItemNumber.Create(fAfterFlightSlipperyK));
- TPasJSONItemObject(result).Add('brakeslipperyk',TPasJSONItemNumber.Create(fBrakeSlipperyK));
- TPasJSONItemObject(result).Add('handbrakeslipperyk',TPasJSONItemNumber.Create(fHandBrakeSlipperyK));
+ TPasJSONItemObject(result).Add('frontafterflightslipperyk',TPasJSONItemNumber.Create(fFrontAfterFlightSlipperyK));
+ TPasJSONItemObject(result).Add('frontbrakeslipperyk',TPasJSONItemNumber.Create(fFrontBrakeSlipperyK));
+ TPasJSONItemObject(result).Add('fronthandbrakeslipperyk',TPasJSONItemNumber.Create(fFrontHandBrakeSlipperyK));
+ TPasJSONItemObject(result).Add('rearafterflightslipperyk',TPasJSONItemNumber.Create(fRearAfterFlightSlipperyK));
+ TPasJSONItemObject(result).Add('rearbrakeslipperyk',TPasJSONItemNumber.Create(fRearBrakeSlipperyK));
+ TPasJSONItemObject(result).Add('rearhandbrakeslipperyk',TPasJSONItemNumber.Create(fRearHandBrakeSlipperyK)); 
  TPasJSONItemObject(result).Add('airresistance',TPasJSONItemNumber.Create(fAirResistance));
  TPasJSONItemObject(result).Add('handbrakeslipperytime',TPasJSONItemNumber.Create(fHandBrakeSlipperyTime));
  TPasJSONItemObject(result).Add('useaccelerationcurveenvelopes',TPasJSONItemBoolean.Create(fUseAccelerationCurveEnvelopes));
