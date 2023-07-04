@@ -1477,8 +1477,8 @@ begin
  fWidth:=1.9;
  fHeight:=0.75;
  fLength:=3.4;
- fAngularVelocityDamp:=10.0;
- fLinearVelocityDamp:=0.3275;
+ fAngularVelocityDamp:=0.0;//10.0;
+ fLinearVelocityDamp:=0.0;//0.3275;
  fRigidBodyRestitution:=0.3;
  fRigidBodyDensity:=1.0;
  fRigidBodyFriction:=0.0;
