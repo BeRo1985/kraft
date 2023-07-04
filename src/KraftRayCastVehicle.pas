@@ -369,6 +369,8 @@ type { TKraftRayCastVehicle }
               fCenterOfMass:TKraftVector3;
               fWheelsRadius:TKraftScalar;
               fWheelsHeight:TKraftScalar;
+              fFrontPowered:Boolean;
+              fRearPowered:Boolean;
               fFrontWheelsPaddingX:TKraftScalar;
               fFrontWheelsPaddingZ:TKraftScalar;
               fRearWheelsPaddingX:TKraftScalar;
@@ -424,6 +426,8 @@ type { TKraftRayCastVehicle }
               property CenterOfMass:TKraftVector3 read fCenterOfMass write fCenterOfMass;
               property WheelsRadius:TKraftScalar read fWheelsRadius write fWheelsRadius;
               property WheelsHeight:TKraftScalar read fWheelsHeight write fWheelsHeight;
+              property FrontPowered:Boolean read fFrontPowered write fFrontPowered;
+              property RearPowered:Boolean read fRearPowered write fRearPowered;
               property FrontWheelsPaddingX:TKraftScalar read fFrontWheelsPaddingX write fFrontWheelsPaddingX;
               property FrontWheelsPaddingZ:TKraftScalar read fFrontWheelsPaddingZ write fFrontWheelsPaddingZ;
               property RearWheelsPaddingX:TKraftScalar read fRearWheelsPaddingX write fRearWheelsPaddingX;
@@ -1502,6 +1506,8 @@ begin
  fCenterOfMass:=Vector3(0.0,-0.25,0.0);
  fWheelsRadius:=0.5;
  fWheelsHeight:=-0.25;
+ fFrontPowered:=true;
+ fRearPowered:=true;
  fFrontWheelsPaddingX:=0.06;
  fFrontWheelsPaddingZ:=0.12;
  fRearWheelsPaddingX:=0.06;
@@ -1557,7 +1563,7 @@ begin
  if assigned(aJSONItem) and (aJSONItem is TPasJSONItemObject) then begin
   fWidth:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['width'],fWidth);
   fHeight:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['height'],fHeight);
-  fLength:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['length'],fLength);
+  fLength:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['length'],fLength);  
   fAngularVelocityDamp:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['angularvelocitydamp'],fAngularVelocityDamp);
   fLinearVelocityDamp:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['linearvelocitydamp'],fLinearVelocityDamp);
   fRigidBodyRestitution:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['rigidbodyrestitution'],fRigidBodyRestitution);
@@ -1566,6 +1572,8 @@ begin
   fCenterOfMass:=JSONToVector3(TPasJSONItemObject(aJSONItem).Properties['centerofmass']);
   fWheelsRadius:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['wheelsradius'],fWheelsRadius);
   fWheelsHeight:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['wheelsheight'],fWheelsHeight);
+  fFrontPowered:=TPasJSON.GetBoolean(TPasJSONItemObject(aJSONItem).Properties['frontpowered'],fFrontPowered);
+  fRearPowered:=TPasJSON.GetBoolean(TPasJSONItemObject(aJSONItem).Properties['rearpowered'],fRearPowered);
   fFrontWheelsPaddingX:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['frontwheelspaddingx'],fFrontWheelsPaddingX);
   fFrontWheelsPaddingZ:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['frontwheelspaddingz'],fFrontWheelsPaddingZ);
   fRearWheelsPaddingX:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['rearwheelspaddingx'],fRearWheelsPaddingX);
@@ -1619,6 +1627,8 @@ begin
  TPasJSONItemObject(result).Add('centerofmass',Vector3ToJSON(fCenterOfMass));
  TPasJSONItemObject(result).Add('wheelsradius',TPasJSONItemNumber.Create(fWheelsRadius));
  TPasJSONItemObject(result).Add('wheelsheight',TPasJSONItemNumber.Create(fWheelsHeight));
+ TPasJSONItemObject(result).Add('frontpowered',TPasJSONItemBoolean.Create(fFrontPowered));
+ TPasJSONItemObject(result).Add('rearpowered',TPasJSONItemBoolean.Create(fRearPowered));
  TPasJSONItemObject(result).Add('frontwheelspaddingx',TPasJSONItemNumber.Create(fFrontWheelsPaddingX));
  TPasJSONItemObject(result).Add('frontwheelspaddingz',TPasJSONItemNumber.Create(fFrontWheelsPaddingZ));
  TPasJSONItemObject(result).Add('rearwheelspaddingx',TPasJSONItemNumber.Create(fRearWheelsPaddingX));
