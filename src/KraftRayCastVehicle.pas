@@ -259,8 +259,8 @@ type { TKraftRayCastVehicle }
              (
               FrontLeft=0,
               FrontRight=1,
-              BackLeft=2,
-              BackRight=3   
+              RearLeft=2,
+              RearRight=3
              );
             PWheelID=^TWheelID;
             TAxleID=
@@ -343,6 +343,7 @@ type { TKraftRayCastVehicle }
               fAxleID:TKraftRayCastVehicle.TAxleID;
               fWheelLeft:TKraftRayCastVehicle.TWheel;
               fWheelRight:TKraftRayCastVehicle.TWheel;
+              function GetWheelGripFactor:TKraftScalar;
              public
               constructor Create(const aVehicle:TKraftRayCastVehicle;const aAxleID:TKraftRayCastVehicle.TAxleID;const aWheelLeft,aWheelRight:TKraftRayCastVehicle.TWheel); reintroduce;
               destructor Destroy; override;
@@ -370,8 +371,8 @@ type { TKraftRayCastVehicle }
               fWheelsHeight:TKraftScalar;
               fFrontWheelsPaddingX:TKraftScalar;
               fFrontWheelsPaddingZ:TKraftScalar;
-              fBackWheelsPaddingX:TKraftScalar;
-              fBackWheelsPaddingZ:TKraftScalar;
+              fRearWheelsPaddingX:TKraftScalar;
+              fRearWheelsPaddingZ:TKraftScalar;
               fChassisMass:TKraftScalar;
               fTireMass:TKraftScalar;
               fSpringRestLength:TKraftScalar;
@@ -384,7 +385,7 @@ type { TKraftRayCastVehicle }
               fMaximumSpeed:TKraftScalar;
               fMaximumReverseSpeed:TKraftScalar;
               fFrontWheelsGripFactor:TKraftScalar;
-              fBackWheelsGripFactor:TKraftScalar;
+              fRearWheelsGripFactor:TKraftScalar;
               fAfterFlightSlipperyK:TKraftScalar;
               fBrakeSlipperyK:TKraftScalar;
               fHandBrakeSlipperyK:TKraftScalar;
@@ -422,8 +423,8 @@ type { TKraftRayCastVehicle }
               property WheelsHeight:TKraftScalar read fWheelsHeight write fWheelsHeight;
               property FrontWheelsPaddingX:TKraftScalar read fFrontWheelsPaddingX write fFrontWheelsPaddingX;
               property FrontWheelsPaddingZ:TKraftScalar read fFrontWheelsPaddingZ write fFrontWheelsPaddingZ;
-              property BackWheelsPaddingX:TKraftScalar read fBackWheelsPaddingX write fBackWheelsPaddingX;
-              property BackWheelsPaddingZ:TKraftScalar read fBackWheelsPaddingZ write fBackWheelsPaddingZ;
+              property RearWheelsPaddingX:TKraftScalar read fRearWheelsPaddingX write fRearWheelsPaddingX;
+              property RearWheelsPaddingZ:TKraftScalar read fRearWheelsPaddingZ write fRearWheelsPaddingZ;
               property ChassisMass:TKraftScalar read fChassisMass write fChassisMass;
               property TireMass:TKraftScalar read fTireMass write fTireMass;
               property SpringRestLength:TKraftScalar read fSpringRestLength write fSpringRestLength;
@@ -436,7 +437,7 @@ type { TKraftRayCastVehicle }
               property MaximumSpeed:TKraftScalar read fMaximumSpeed write fMaximumSpeed;
               property MaximumReverseSpeed:TKraftScalar read fMaximumReverseSpeed write fMaximumReverseSpeed;
               property FrontWheelsGripFactor:TKraftScalar read fFrontWheelsGripFactor write fFrontWheelsGripFactor;
-              property BackWheelsGripFactor:TKraftScalar read fBackWheelsGripFactor write fBackWheelsGripFactor;
+              property RearWheelsGripFactor:TKraftScalar read fRearWheelsGripFactor write fRearWheelsGripFactor;
               property AfterFlightSlipperyK:TKraftScalar read fAfterFlightSlipperyK write fAfterFlightSlipperyK;
               property BrakeSlipperyK:TKraftScalar read fBrakeSlipperyK write fBrakeSlipperyK;
               property HandBrakeSlipperyK:TKraftScalar read fHandBrakeSlipperyK write fHandBrakeSlipperyK;
@@ -1049,11 +1050,11 @@ begin
   TWheelID.FrontRight:begin
    result:=Vector3(BoxSize.x*(0.5-fVehicle.fSettings.fFrontWheelsPaddingX),fVehicle.fSettings.fWheelsHeight,BoxSize.z*(0.5-fVehicle.fSettings.fFrontWheelsPaddingZ));
   end;
-  TWheelID.BackLeft:begin
-   result:=Vector3(BoxSize.x*(fVehicle.fSettings.fBackWheelsPaddingX-0.5),fVehicle.fSettings.fWheelsHeight,BoxSize.z*(fVehicle.fSettings.fBackWheelsPaddingZ-0.5));
+  TWheelID.RearLeft:begin
+   result:=Vector3(BoxSize.x*(fVehicle.fSettings.fRearWheelsPaddingX-0.5),fVehicle.fSettings.fWheelsHeight,BoxSize.z*(fVehicle.fSettings.fRearWheelsPaddingZ-0.5));
   end;
-  TWheelID.BackRight:begin
-   result:=Vector3(BoxSize.x*(0.5-fVehicle.fSettings.fBackWheelsPaddingX),fVehicle.fSettings.fWheelsHeight,BoxSize.z*(fVehicle.fSettings.fBackWheelsPaddingZ-0.5));
+  TWheelID.RearRight:begin
+   result:=Vector3(BoxSize.x*(0.5-fVehicle.fSettings.fRearWheelsPaddingX),fVehicle.fSettings.fWheelsHeight,BoxSize.z*(fVehicle.fSettings.fRearWheelsPaddingZ-0.5));
   end;
   else begin
    result:=Vector3(0.0,0.0,0.0);
@@ -1096,11 +1097,11 @@ begin
   TWheelID.FrontRight:begin
    result:=Vector3(BoxSize.x*(0.5-fVehicle.fSettings.fFrontWheelsPaddingX),0.0,BoxSize.z*(0.5-fVehicle.fSettings.fFrontWheelsPaddingZ));
   end;
-  TWheelID.BackLeft:begin
-   result:=Vector3(BoxSize.x*(fVehicle.fSettings.fBackWheelsPaddingX-0.5),0.0,BoxSize.z*(fVehicle.fSettings.fBackWheelsPaddingZ-0.5));
+  TWheelID.RearLeft:begin
+   result:=Vector3(BoxSize.x*(fVehicle.fSettings.fRearWheelsPaddingX-0.5),0.0,BoxSize.z*(fVehicle.fSettings.fRearWheelsPaddingZ-0.5));
   end;
-  TWheelID.BackRight:begin
-   result:=Vector3(BoxSize.x*(0.5-fVehicle.fSettings.fBackWheelsPaddingX),0.0,BoxSize.z*(fVehicle.fSettings.fBackWheelsPaddingZ-0.5));
+  TWheelID.RearRight:begin
+   result:=Vector3(BoxSize.x*(0.5-fVehicle.fSettings.fRearWheelsPaddingX),0.0,BoxSize.z*(fVehicle.fSettings.fRearWheelsPaddingZ-0.5));
   end;
   else begin
    result:=Vector3(0.0,0.0,0.0);
@@ -1115,10 +1116,10 @@ end;
 
 function TKraftRayCastVehicle.TWheel.GetWheelGripFactor:TKraftScalar;
 begin
- if fWheelID in [TWheelID.FrontLeft,TWheelID.FrontRight] then begin
-  result:=fVehicle.fSettings.fFrontWheelsGripFactor;
+ if assigned(fAxle) then begin
+  result:=fAxle.GetWheelGripFactor;
  end else begin
-  result:=fVehicle.fSettings.fBackWheelsGripFactor;
+  result:=0.0;
  end;
 end;
 
@@ -1423,6 +1424,21 @@ begin
  inherited Destroy;
 end;
 
+function TKraftRayCastVehicle.TAxle.GetWheelGripFactor:TKraftScalar;
+begin
+ case fAxleID of
+  TAxleID.Front:begin
+   result:=fVehicle.fSettings.fFrontWheelsGripFactor;
+  end;
+  TAxleID.Rear:begin
+   result:=fVehicle.fSettings.fRearWheelsGripFactor;
+  end;
+  else begin
+   result:=0.0;
+  end;
+ end;
+end;
+
 procedure TKraftRayCastVehicle.TAxle.UpdateAntiRollBar;
 var TravelL,TravelR,AntiRollForce:TKraftScalar;
 begin
@@ -1471,8 +1487,8 @@ begin
  fWheelsHeight:=-0.25;
  fFrontWheelsPaddingX:=0.06;
  fFrontWheelsPaddingZ:=0.12;
- fBackWheelsPaddingX:=0.06;
- fBackWheelsPaddingZ:=0.12;
+ fRearWheelsPaddingX:=0.06;
+ fRearWheelsPaddingZ:=0.12;
  fChassisMass:=60;
  fTireMass:=1;
  fSpringRestLength:=0.8;
@@ -1485,7 +1501,7 @@ begin
  fMaximumSpeed:=10;
  fMaximumReverseSpeed:=2.5;
  fFrontWheelsGripFactor:=0.8;
- fBackWheelsGripFactor:=0.9;
+ fRearWheelsGripFactor:=0.9;
  fAfterFlightSlipperyK:=0.02;
  fBrakeSlipperyK:=0.5;
  fHandBrakeSlipperyK:=0.01;
@@ -1532,8 +1548,8 @@ begin
   fWheelsHeight:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['wheelsheight'],fWheelsHeight);
   fFrontWheelsPaddingX:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['frontwheelspaddingx'],fFrontWheelsPaddingX);
   fFrontWheelsPaddingZ:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['frontwheelspaddingz'],fFrontWheelsPaddingZ);
-  fBackWheelsPaddingX:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['backwheelspaddingx'],fBackWheelsPaddingX);
-  fBackWheelsPaddingZ:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['backwheelspaddingz'],fBackWheelsPaddingZ);
+  fRearWheelsPaddingX:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['rearwheelspaddingx'],fRearWheelsPaddingX);
+  fRearWheelsPaddingZ:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['rearwheelspaddingz'],fRearWheelsPaddingZ);
   fChassisMass:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['chassismass'],fChassisMass);
   fTireMass:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['tiremass'],fTireMass);
   fSpringRestLength:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['springrestlength'],fSpringRestLength);
@@ -1546,7 +1562,7 @@ begin
   fMaximumSpeed:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['maximumspeed'],fMaximumSpeed);
   fMaximumReverseSpeed:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['maximumreversespeed'],fMaximumReverseSpeed);
   fFrontWheelsGripFactor:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['frontwheelsgripfactor'],fFrontWheelsGripFactor);
-  fBackWheelsGripFactor:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['backwheelsgripfactor'],fBackWheelsGripFactor);
+  fRearWheelsGripFactor:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['rearwheelsgripfactor'],fRearWheelsGripFactor);
   fAfterFlightSlipperyK:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['afterflightslipperyk'],fAfterFlightSlipperyK);
   fBrakeSlipperyK:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['brakeslipperyk'],fBrakeSlipperyK);
   fHandBrakeSlipperyK:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['handbrakeslipperyk'],fHandBrakeSlipperyK);
@@ -1582,8 +1598,8 @@ begin
  TPasJSONItemObject(result).Add('wheelsheight',TPasJSONItemNumber.Create(fWheelsHeight));
  TPasJSONItemObject(result).Add('frontwheelspaddingx',TPasJSONItemNumber.Create(fFrontWheelsPaddingX));
  TPasJSONItemObject(result).Add('frontwheelspaddingz',TPasJSONItemNumber.Create(fFrontWheelsPaddingZ));
- TPasJSONItemObject(result).Add('backwheelspaddingx',TPasJSONItemNumber.Create(fBackWheelsPaddingX));
- TPasJSONItemObject(result).Add('backwheelspaddingz',TPasJSONItemNumber.Create(fBackWheelsPaddingZ));
+ TPasJSONItemObject(result).Add('rearwheelspaddingx',TPasJSONItemNumber.Create(fRearWheelsPaddingX));
+ TPasJSONItemObject(result).Add('rearwheelspaddingz',TPasJSONItemNumber.Create(fRearWheelsPaddingZ));
  TPasJSONItemObject(result).Add('chassismass',TPasJSONItemNumber.Create(fChassisMass));
  TPasJSONItemObject(result).Add('tiremass',TPasJSONItemNumber.Create(fTireMass));
  TPasJSONItemObject(result).Add('springrestlength',TPasJSONItemNumber.Create(fSpringRestLength));
@@ -1596,7 +1612,7 @@ begin
  TPasJSONItemObject(result).Add('maximumspeed',TPasJSONItemNumber.Create(fMaximumSpeed));
  TPasJSONItemObject(result).Add('maximumreversespeed',TPasJSONItemNumber.Create(fMaximumReverseSpeed));
  TPasJSONItemObject(result).Add('frontwheelsgripfactor',TPasJSONItemNumber.Create(fFrontWheelsGripFactor));
- TPasJSONItemObject(result).Add('backwheelsgripfactor',TPasJSONItemNumber.Create(fBackWheelsGripFactor));
+ TPasJSONItemObject(result).Add('rearwheelsgripfactor',TPasJSONItemNumber.Create(fRearWheelsGripFactor));
  TPasJSONItemObject(result).Add('afterflightslipperyk',TPasJSONItemNumber.Create(fAfterFlightSlipperyK));
  TPasJSONItemObject(result).Add('brakeslipperyk',TPasJSONItemNumber.Create(fBrakeSlipperyK));
  TPasJSONItemObject(result).Add('handbrakeslipperyk',TPasJSONItemNumber.Create(fHandBrakeSlipperyK));
@@ -1619,7 +1635,7 @@ end;
 { TKraftRayCastVehicle }
 
 constructor TKraftRayCastVehicle.Create(const aPhysics:TKraft);
-const AxleIDWheelID:array[TAxleID,0..1] of TWheelID=((TWheelID.FrontLeft,TWheelID.FrontRight),(TWheelID.BackLeft,TWheelID.BackRight));
+const AxleIDWheelID:array[TAxleID,0..1] of TWheelID=((TWheelID.FrontLeft,TWheelID.FrontRight),(TWheelID.RearLeft,TWheelID.RearRight));
 var WheelID:TWheelID;
     AxleID:TAxleID;
 begin
@@ -1913,7 +1929,7 @@ begin
  SteerAngleRad:=fSteeringAngle*DEG2RAD;
 
  AxleDiff:=Vector3Sub(Vector3Avg(fWheels[TWheelID.FrontLeft].GetSpringPosition,fWheels[TWheelID.FrontRight].GetSpringPosition),
-                      Vector3Avg(fWheels[TWheelID.BackLeft].GetSpringPosition,fWheels[TWheelID.BackRight].GetSpringPosition));
+                      Vector3Avg(fWheels[TWheelID.RearLeft].GetSpringPosition,fWheels[TWheelID.RearRight].GetSpringPosition));
  AxleSeparation:=Vector3Length(AxleDiff);
 
  WheelDiff:=Vector3Sub(fWheels[TWheelID.FrontLeft].GetSpringPosition,fWheels[TWheelID.FrontRight].GetSpringPosition);
@@ -1927,8 +1943,8 @@ begin
  fWheels[TKraftRayCastVehicle.TWheelID.FrontLeft].fYawRad:=ArcTan(AxleSeparation/(TurningCircleRadius+(WheelSeparation*0.5)));
  fWheels[TKraftRayCastVehicle.TWheelID.FrontRight].fYawRad:=ArcTan(AxleSeparation/(TurningCircleRadius-(WheelSeparation*0.5)));
 
- fWheels[TKraftRayCastVehicle.TWheelID.BackLeft].fYawRad:=0.0;
- fWheels[TKraftRayCastVehicle.TWheelID.BackRight].fYawRad:=0.0;
+ fWheels[TKraftRayCastVehicle.TWheelID.RearLeft].fYawRad:=0.0;
+ fWheels[TKraftRayCastVehicle.TWheelID.RearRight].fYawRad:=0.0;
 
 end;
 
@@ -2176,12 +2192,12 @@ begin
   Color:=Vector4(0.0,0.0,1.0,1.0);
 { v0:=Vector3TermMatrixMul(Vector3Origin,fWheels[TWheelID.FrontLeft].fVisualWorldTransform);
   v1:=Vector3TermMatrixMul(Vector3Origin,fWheels[TWheelID.FrontRight].fVisualWorldTransform);
-  v2:=Vector3TermMatrixMul(Vector3Origin,fWheels[TWheelID.BackLeft].fVisualWorldTransform);
-  v3:=Vector3TermMatrixMul(Vector3Origin,fWheels[TWheelID.BackRight].fVisualWorldTransform);}
+  v2:=Vector3TermMatrixMul(Vector3Origin,fWheels[TWheelID.RearLeft].fVisualWorldTransform);
+  v3:=Vector3TermMatrixMul(Vector3Origin,fWheels[TWheelID.RearRight].fVisualWorldTransform);}
   v0:=Vector3TermMatrixMul(fWheels[TWheelID.FrontLeft].GetSpringRelativePosition,fVisualWorldTransform);
   v1:=Vector3TermMatrixMul(fWheels[TWheelID.FrontRight].GetSpringRelativePosition,fVisualWorldTransform);
-  v2:=Vector3TermMatrixMul(fWheels[TWheelID.BackLeft].GetSpringRelativePosition,fVisualWorldTransform);
-  v3:=Vector3TermMatrixMul(fWheels[TWheelID.BackRight].GetSpringRelativePosition,fVisualWorldTransform);
+  v2:=Vector3TermMatrixMul(fWheels[TWheelID.RearLeft].GetSpringRelativePosition,fVisualWorldTransform);
+  v3:=Vector3TermMatrixMul(fWheels[TWheelID.RearRight].GetSpringRelativePosition,fVisualWorldTransform);
 {$ifdef NoOpenGL}
   if assigned(fDebugDrawLine) then begin
    fDebugDrawLine(v0,v1,Color);
