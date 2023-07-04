@@ -494,6 +494,7 @@ type { TKraftRayCastVehicle }
        fLastDebugFlightStabilizationTorque:TKraftVector3;
        fVisualDebugFlightStabilizationTorque:TKraftVector3;
 {$endif}
+       function RayCastFilter(const aPoint,aNormal:TKraftVector3;const aTime:TKraftScalar;const aShape:TKraftShape):boolean;
        procedure CalculateAckermannSteering;
        function GetHandBrakeK:TKraftScalar;
        function GetSteeringHandBrakeK:TKraftScalar;
@@ -1115,7 +1116,7 @@ begin
  PreviousLength:=fSpring.fCurrentLength;
  RayDirection:=fVehicle.fWorldDown;
  RayLength:=fVehicle.fSettings.fSpringRestLength;
- if fVehicle.fPhysics.RayCast(RayOrigin,RayDirection,RayLength,HitShape,HitTime,HitPoint,HitNormal,fVehicle.fCastCollisionGroup,nil) then begin
+ if fVehicle.fPhysics.RayCast(RayOrigin,RayDirection,RayLength,HitShape,HitTime,HitPoint,HitNormal,fVehicle.fCastCollisionGroup,fVehicle.RayCastFilter) then begin
   CurrentLength:=HitTime;
  end else begin
   CurrentLength:=fVehicle.fSettings.fSpringRestLength;
@@ -1538,7 +1539,7 @@ begin
  fControllable:=true;
  fForward:=Vector3(0.0,0.0,-1.0);
  fVelocity:=Vector3(0.0,0.0,0.0);
- fCastCollisionGroup:=[0];
+ fCastCollisionGroup:=[Low(TKraftRigidBodyCollisionGroup)..High(TKraftRigidBodyCollisionGroup)];
  fSettings:=TKraftRayCastVehicle.TVehicleSettings.Create;
  for WheelID:=Low(TWheelID) to High(TWheelID) do begin
   fWheels[WheelID]:=TKraftRayCastVehicle.TWheel.Create(self,WheelID);
@@ -1554,6 +1555,11 @@ begin
  end;
  FreeAndNil(fSettings);
  inherited Destroy;
+end;
+
+function TKraftRayCastVehicle.RayCastFilter(const aPoint,aNormal:TKraftVector3;const aTime:TKraftScalar;const aShape:TKraftShape):boolean;
+begin
+ result:=aShape<>fShape;
 end;
 
 procedure TKraftRayCastVehicle.Reset;
