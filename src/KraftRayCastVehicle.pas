@@ -1137,7 +1137,7 @@ begin
                                                              fVehicle.fSettings.fSpringStrength,
                                                              fVehicle.fSettings.fSpringDamper);
  if abs(Force)>EPSILON then begin
-  fVehicle.fRigidBody.AddForceAtPosition(Vector3ScalarMul(fVehicle.fWorldUp,Force),GetSpringPosition,kfmForce,true);
+  fVehicle.fRigidBody.AddForceAtPosition(Vector3ScalarMul(fVehicle.fWorldUp,Force),GetSpringPosition,kfmForce,false);
  end;
 end;
 
@@ -1184,7 +1184,7 @@ begin
   Vector3DirectAdd(fDebugSlideForce,Force);
 {$endif}
   if Vector3Length(Force)>EPSILON then begin
-   fVehicle.fRigidBody.AddForceAtPosition(Force,GetWheelTorquePosition,kfmForce,true);
+   fVehicle.fRigidBody.AddForceAtPosition(Force,GetWheelTorquePosition,kfmForce,false);
   end;
  end;
 end;
@@ -1290,7 +1290,7 @@ begin
   Vector3DirectAdd(fDebugDeaccelerationForce,Force);
 {$endif}
   if Vector3Length(Force)>EPSILON then begin
-   fVehicle.fRigidBody.AddForceAtPosition(Force,GetWheelTorquePosition,kfmForce,true);
+   fVehicle.fRigidBody.AddForceAtPosition(Force,GetWheelTorquePosition,kfmForce,false);
   end;
  end;
 
@@ -1783,6 +1783,10 @@ begin
 
  fAccelerationForceMagnitude:=CalcAccelerationForceMagnitude*Clamp01(0.8+((1.0-GetHandBrakeK)*0.2));
 
+ if fIsAcceleration or fIsReverseAcceleration then begin
+  fRigidBody.SetToAwake;
+ end;
+
 end;
 
 procedure TKraftRayCastVehicle.UpdateSuspension;
@@ -1969,7 +1973,7 @@ begin
 {$ifdef DebugDraw}
     fDebugFlightStabilizationTorque:=Torque;
 {$endif}
-    fRigidBody.AddWorldTorque(Torque,kfmForce,true);
+    fRigidBody.AddWorldTorque(Torque,kfmForce,false);
    end;
   end;
 
