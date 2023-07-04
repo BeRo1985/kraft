@@ -1441,6 +1441,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      TKraftShapeOnContactEndHook=procedure(const ContactPair:PKraftContactPair;const WithShape:TKraftShape) of object;
      TKraftShapeOnContactStayHook=procedure(const ContactPair:PKraftContactPair;const WithShape:TKraftShape) of object;
 
+     TKraftShapeOnCanCollideWithHook=function(const WithShape:TKraftShape):boolean of object;
+
      TKraftShape=class(TPersistent)
       private
 
@@ -1503,6 +1505,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fOnContactBegin:TKraftShapeOnContactBeginHook;
        fOnContactEnd:TKraftShapeOnContactEndHook;
        fOnContactStay:TKraftShapeOnContactStayHook;
+
+       fOnCanCollideWith:TKraftShapeOnCanCollideWithHook;
 
 {$ifdef DebugDraw}
 {$ifndef NoOpenGL}
@@ -1642,6 +1646,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property OnContactBegin:TKraftShapeOnContactBeginHook read fOnContactBegin write fOnContactBegin;
        property OnContactEnd:TKraftShapeOnContactEndHook read fOnContactEnd write fOnContactEnd;
        property OnContactStay:TKraftShapeOnContactStayHook read fOnContactStay write fOnContactStay;
+
+       property OnCanCollideWith:TKraftShapeOnCanCollideWithHook read fOnCanCollideWith write fOnCanCollideWith;
 
      end;
 
@@ -23048,6 +23054,8 @@ begin
  fOnContactEnd:=nil;
  fOnContactStay:=nil;
 
+ fOnCanCollideWith:=nil;
+
 end;
 
 destructor TKraftShape.Destroy;
@@ -29439,7 +29447,9 @@ begin
  RigidBodyB:=AShapeB.fRigidBody;
 
  if (not RigidBodyA.CanCollideWith(RigidBodyB)) or
-    (assigned(fOnCanCollide) and not fOnCanCollide(AShapeA,AShapeB)) then begin
+    (assigned(fOnCanCollide) and not fOnCanCollide(AShapeA,AShapeB)) or
+    (assigned(AShapeA.fOnCanCollideWith) and not AShapeA.fOnCanCollideWith(AShapeB)) or
+    (assigned(AShapeB.fOnCanCollideWith) and not AShapeB.fOnCanCollideWith(AShapeA)) then begin
   exit;
  end;
 
