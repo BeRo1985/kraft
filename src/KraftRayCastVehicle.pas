@@ -1394,8 +1394,8 @@ begin
  fSpringStrength:=1200;
  fSpringDamper:=75.0;
  fStabilizerBarAntiRollForce:=100.0;
- fAccelerationForce:=300.0*CountWheels;
- fBrakeForce:=1.5;
+ fAccelerationForce:=1200.0;
+ fBrakeForce:=4.0;
  fRollingFriction:=0.01;
  fMaximumSpeed:=10;
  fMaximumReverseSpeed:=2.5;
