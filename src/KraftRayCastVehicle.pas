@@ -1145,6 +1145,7 @@ procedure TKraftRayCastVehicle.TWheel.UpdateSteering;
 var SpringPosition,SlideDirection,Force:TKraftVector3;
     SlipperyK,HandBrakeK,SlideVelocity,DesiredVelocityChange,DesiredAcceleration:TKraftScalar;
 begin
+
 {$ifdef DebugDraw}
  fDebugSlideForce:=Vector3Origin;
 {$endif}
