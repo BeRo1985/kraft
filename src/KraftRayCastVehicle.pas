@@ -3040,122 +3040,62 @@ end;
 
 {$ifdef DebugDraw}
 procedure TKraftRayCastVehicle.DebugDraw;
-var Index,OtherIndex:TKraftInt32;
+var Index,OtherIndex,OtherOtherIndex:TKraftInt32;
+    AckermannGroup:TAckermannGroup;
     Axle:TAxle;
     Wheel:TWheel;
-    v0,v1,v2,v3,v:TKraftVector3;
+    v0,v1,v:TKraftVector3;
     Color:TKraftVector4;
 begin
 {$ifndef NoOpenGL}
  glDisable(GL_DEPTH_TEST);
 {$endif}
-(*begin
-  Color:=Vector4(0.0,0.0,1.0,1.0);
-{ v0:=Vector3TermMatrixMul(Vector3Origin,fWheels[TWheelID.FrontLeft].fVisualWorldTransform);
-  v1:=Vector3TermMatrixMul(Vector3Origin,fWheels[TWheelID.FrontRight].fVisualWorldTransform);
-  v2:=Vector3TermMatrixMul(Vector3Origin,fWheels[TWheelID.RearLeft].fVisualWorldTransform);
-  v3:=Vector3TermMatrixMul(Vector3Origin,fWheels[TWheelID.RearRight].fVisualWorldTransform);}
-  v0:=Vector3TermMatrixMul(fWheels[TWheelID.FrontLeft].GetSpringRelativePosition,fVisualWorldTransform);
-  v1:=Vector3TermMatrixMul(fWheels[TWheelID.FrontRight].GetSpringRelativePosition,fVisualWorldTransform);
-  v2:=Vector3TermMatrixMul(fWheels[TWheelID.RearLeft].GetSpringRelativePosition,fVisualWorldTransform);
-  v3:=Vector3TermMatrixMul(fWheels[TWheelID.RearRight].GetSpringRelativePosition,fVisualWorldTransform);
-{$ifdef NoOpenGL}
-  if assigned(fDebugDrawLine) then begin
-   fDebugDrawLine(v0,v1,Color);
-   fDebugDrawLine(v2,v3,Color);
-  end;
-{$else}
-  glColor4fv(@Color);
-  glBegin(GL_LINE_STRIP);
-  glVertex3fv(@v0);
-  glVertex3fv(@v1);
-  glEnd;
-  glBegin(GL_LINE_STRIP);
-  glVertex3fv(@v2);
-  glVertex3fv(@v3);
-  glEnd;
-{$endif}
-  v0:=Vector3Avg(v0,v1);
-  v3:=Vector3Avg(v2,v3);
-  v:=Vector3TermMatrixMul(Vector3Origin,fVisualWorldTransform);
-  v1:=Vector3Lerp(v0,v,0.9);
-  v2:=Vector3Lerp(v3,v,0.9);
-{$ifdef NoOpenGL}
-  if assigned(fDebugDrawLine) then begin
-   fDebugDrawLine(v0,v1,Color);
-   fDebugDrawLine(v2,v3,Color);
-  end;
-{$else}
-  glColor4fv(@Color);
-  glBegin(GL_LINE_STRIP);
-  glVertex3fv(@v0);
-  glVertex3fv(@v1);
-  glEnd;
-  glBegin(GL_LINE_STRIP);
-  glVertex3fv(@v2);
-  glVertex3fv(@v3);
-  glEnd;
-{$endif}
-  Color:=Vector4(0.0,1.0,1.0,1.0);
-{$ifdef NoOpenGL}
-  if assigned(fDebugDrawLine) then begin
-   fDebugDrawLine(v1,v2,Color);
-  end;
-{$else}
-  glColor4fv(@Color);
-  glBegin(GL_LINE_STRIP);
-  glVertex3fv(@v1);
-  glVertex3fv(@v2);
-  glEnd;
-{$endif}
 
-  v0:=v;
-  v1:=Vector3Add(v0,Vector3ScalarMul(fVisualDebugAirResistanceForce,1.0));
-  Color:=Vector4(0.0,1.0,0.0,1.0);
-{$ifdef NoOpenGL}
-  if assigned(fDebugDrawLine) then begin
-   fDebugDrawLine(v0,v1,Color);
-  end;
-{$else}
-  glColor4fv(@Color);
-  glBegin(GL_LINE_STRIP);
-  glVertex3fv(@v0);
-  glVertex3fv(@v1);
-  glEnd;
-{$endif}
+ v1:=Vector3Origin;
+ for Index:=0 to fAckermannGroups.Count-1 do begin
+  AckermannGroup:=fAckermannGroups[Index];
 
-  v0:=v;
-  v1:=Vector3Add(v0,Vector3ScalarMul(fVisualDebugDownForce,1.0));
-  Color:=Vector4(0.5,0.25,0.75,1.0);
-{$ifdef NoOpenGL}
-  if assigned(fDebugDrawLine) then begin
-   fDebugDrawLine(v0,v1,Color);
-  end;
-{$else}
-  glColor4fv(@Color);
-  glBegin(GL_LINE_STRIP);
-  glVertex3fv(@v0);
-  glVertex3fv(@v1);
-  glEnd;
-{$endif}
+  if AckermannGroup.fAxles.Count>0 then begin
+   
+   Color:=Vector4(0.0625,0.125,0.5,1.0);
 
-  v0:=v;
-  v1:=Vector3Add(v0,Vector3ScalarMul(fVisualDebugFlightStabilizationTorque,1.0));
-  Color:=Vector4(0.75,0.25,0.5,1.0);
-{$ifdef NoOpenGL}
-  if assigned(fDebugDrawLine) then begin
-   fDebugDrawLine(v0,v1,Color);
-  end;
-{$else}
-  glColor4fv(@Color);
-  glBegin(GL_LINE_STRIP);
-  glVertex3fv(@v0);
-  glVertex3fv(@v1);
-  glEnd;
-{$endif}
+   for OtherIndex:=0 to AckermannGroup.fAxles.Count-1 do begin
 
- end;      *)
- 
+    Axle:=AckermannGroup.fAxles[OtherIndex];
+    if Axle.fWheels.Count>0 then begin
+
+     v0:=v1;
+     v1:=Vector3Origin;
+     for OtherOtherIndex:=0 to Axle.fWheels.Count-1 do begin
+      Vector3DirectAdd(v1,Axle.fWheels[OtherOtherIndex].GetSpringRelativePosition);
+     end;
+     v1:=Vector3TermMatrixMul(Vector3ScalarMul(v1,1.0/Axle.fWheels.Count),fVisualWorldTransform);
+
+     if OtherIndex>0 then begin
+
+ {$ifdef NoOpenGL}
+      if assigned(fDebugDrawLine) then begin
+       fDebugDrawLine(v0,v1,Color);
+      end;
+ {$else}
+      glColor4fv(@Color);
+      glBegin(GL_LINE_STRIP);
+      glVertex3fv(@v0);
+      glVertex3fv(@v1);
+      glEnd;
+ {$endif}
+
+     end;
+
+    end;
+
+   end;
+
+  end;
+  
+
+ end;
+
  for Index:=0 to fAxles.Count-1 do begin
   Axle:=fAxles[Index];
 
