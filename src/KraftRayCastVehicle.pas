@@ -2698,7 +2698,11 @@ begin
  // Update steering without Ackermann steering as fallback first
  for Index:=0 to fWheels.Count-1 do begin
   Wheel:=fWheels[Index];
-  Wheel.fYawRad:=fSteeringAngle*DEG2RAD;
+  if Wheel.fSettings.fSteering then begin
+   Wheel.fYawRad:=fSteeringAngle*DEG2RAD;
+  end else begin
+   Wheel.fYawRad:=0.0;
+  end;
  end;
  
  // Then do the Ackermann steering by overwriting the steering angles per wheel
