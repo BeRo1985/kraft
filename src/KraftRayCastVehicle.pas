@@ -1194,7 +1194,7 @@ begin
   fRadius:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['radius'],fRadius);
   fLength:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['length'],fLength);
   fHeight:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['height'],fHeight);
-  fUseSphereCast:=TPasJSON.GetString(TPasJSONItemObject(aJSONItem).Properties['castsphere'],'raycast')='spherecast';
+  fUseSphereCast:=TPasJSON.GetString(TPasJSONItemObject(aJSONItem).Properties['castmode'],'raycast')='spherecast';
   fPowered:=TPasJSON.GetBoolean(TPasJSONItemObject(aJSONItem).Properties['powered'],fPowered);
   fSteering:=TPasJSON.GetBoolean(TPasJSONItemObject(aJSONItem).Properties['steering'],fSteering);
   fMass:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['mass'],fMass);
