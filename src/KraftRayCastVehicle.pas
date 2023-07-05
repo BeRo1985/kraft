@@ -179,6 +179,7 @@ uses {$ifdef windows}
      SysUtils,
      Classes,
      SyncObjs,
+     Generics.Collections,
 {$ifdef KraftPasMP}
      PasMP,
 {$endif}
@@ -254,27 +255,176 @@ type { TKraftRayCastVehicle }
               fCompression:TKraftScalar;
             end; 
             PSpring=^TSpring;
-            { TWheelID }
-            TWheelID=
-             (
-              FrontLeft=0,
-              FrontRight=1,
-              RearLeft=2,
-              RearRight=3
-             );
-            PWheelID=^TWheelID;
-            TAxleID=
-             (
-              Front,
-              Rear
-             );
+            { TSettings }
+            TSettings=class // Vehicle settings
+             public
+              type { TWheel }
+                   TWheel=class // A single wheel
+                    private
+                     fSettings:TSettings;
+                     fName:UTF8String; // Name of the wheel
+                     fOffset:TKraftVector2; // x = left/right, y = front/back (no z, because it is a 2D offset, the radius and height properties are used for the 3D offset stuff)
+                     fRadius:TKraftScalar; // Radius of the wheel
+                     fLength:TKraftScalar; // Length of the wheel for the usage with a future-implemented cylinder cast
+                     fHeight:TKraftScalar; // Height position of of the wheel
+                     fUseSphereCast:Boolean; // Use sphere cast instead of ray cast
+                     fPowered:Boolean; // Is the wheel powered?
+                     fSteering:Boolean; // Can the wheel do steering?
+                     fMass:TKraftScalar; // Mass of the wheel
+                     fSuspensionRestLength:TKraftScalar; // Rest length of the suspension
+                     fSuspensionStrength:TKraftScalar; // Strength of the suspension
+                     fSuspensionDamping:TKraftScalar; // Damping of the suspension
+                     fAccelerationForce:TKraftScalar; // Acceleration force, when no acceleration curve envelope is used
+                     fBrakeForce:TKraftScalar; // Brake force
+                     fRollingFriction:TKraftScalar; // Rolling friction
+                     fMaximumSpeed:TKraftScalar; // Maximum speed in forward direction
+                     fMaximumReverseSpeed:TKraftScalar; // Maximum speed in reverse direction
+                     fGripFactor:TKraftScalar; // Grip factor at lateral forces
+                     fAfterFlightSlipperyK:TKraftScalar; // Slippery K factor after flight at lateral forces
+                     fBrakeSlipperyK:TKraftScalar; // Slippery K factor at brake at lateral forces
+                     fHandBrakeSlipperyK:TKraftScalar; // Slippery K factor at hand brake at lateral forces
+                     fDriftSlipperyK:TKraftScalar; // Slippery K factor at drift at lateral forces
+                    public
+                     constructor Create(const aSettings:TSettings); reintroduce;
+                     destructor Destroy; overload;
+{$ifdef KraftPasJSON}
+                     procedure LoadFromJSON(const aJSONItem:TPasJSONItem);
+                     function SaveToJSON:TPasJSONItem;
+{$endif}
+                    public
+                     property Name:UTF8String read fName write fName;
+                     property Offset:TKraftVector2 read fOffset write fOffset;
+                     property Radius:TKraftScalar read fRadius write fRadius;
+                     property Length:TKraftScalar read fLength write fLength;
+                     property Height:TKraftScalar read fHeight write fHeight;
+                     property UseSphereCast:Boolean read fUseSphereCast write fUseSphereCast;
+                     property Powered:Boolean read fPowered write fPowered;
+                     property Steering:Boolean read fSteering write fSteering;
+                     property Mass:TKraftScalar read fMass write fMass;
+                     property SuspensionRestLength:TKraftScalar read fSuspensionRestLength write fSuspensionRestLength;
+                     property SuspensionStrength:TKraftScalar read fSuspensionStrength write fSuspensionStrength;
+                     property SuspensionDamping:TKraftScalar read fSuspensionDamping write fSuspensionDamping;
+                     property AccelerationForce:TKraftScalar read fAccelerationForce write fAccelerationForce;
+                     property BrakeForce:TKraftScalar read fBrakeForce write fBrakeForce;
+                     property RollingFriction:TKraftScalar read fRollingFriction write fRollingFriction;
+                     property MaximumSpeed:TKraftScalar read fMaximumSpeed write fMaximumSpeed;
+                     property MaximumReverseSpeed:TKraftScalar read fMaximumReverseSpeed write fMaximumReverseSpeed;
+                     property GripFactor:TKraftScalar read fGripFactor write fGripFactor;
+                     property AfterFlightSlipperyK:TKraftScalar read fAfterFlightSlipperyK write fAfterFlightSlipperyK;
+                     property BrakeSlipperyK:TKraftScalar read fBrakeSlipperyK write fBrakeSlipperyK;
+                     property HandBrakeSlipperyK:TKraftScalar read fHandBrakeSlipperyK write fHandBrakeSlipperyK;
+                     property DriftSlipperyK:TKraftScalar read fDriftSlipperyK write fDriftSlipperyK;
+                   end;
+                   TWheels=Generics.Collections.TObjectList<TWheel>;
+                   { TAxle }
+                   TAxle=class // Axle with two or more wheels
+                    private
+                     fSettings:TKraftRaycastVehicle.TSettings;
+                     fName:UTF8String; // Name of the axle
+                     fWheels:TKraftRaycastVehicle.TSettings.TWheels; // Wheels of the axle
+                     fStabilizerBarAntiRollForce:TKraftScalar; // Anti roll force of the stabilizer bar
+                    public
+                     constructor Create(const aSettings:TKraftRaycastVehicle.TSettings); reintroduce;
+                     destructor Destroy; override;
+{$ifdef KraftPasJSON}
+                     procedure LoadFromJSON(const aJSONItem:TPasJSONItem);
+                     function SaveToJSON:TPasJSONItem;
+{$endif}
+                    public
+                     property Name:UTF8String read fName write fName;
+                     property Wheels:TKraftRaycastVehicle.TSettings.TWheels read fWheels;
+                     property StabilizerBarAntiRollForce:TKraftScalar read fStabilizerBarAntiRollForce write fStabilizerBarAntiRollForce;
+                   end;
+                   TAxles=Generics.Collections.TObjectList<TAxle>;
+                   { TAckermannGroup }
+                   TAckermannGroup=class // Group of axles with Ackermann steering
+                    private
+                     fSettings:TKraftRaycastVehicle.TSettings;
+                     fName:UTF8String; // Name of the Ackermann group
+                     fAxles:TKraftRaycastVehicle.TSettings.TAxles; // Axles of the Ackermann group
+                    public
+                     constructor Create(const aSettings:TKraftRaycastVehicle.TSettings); reintroduce;
+                     destructor Destroy; override;
+{$ifdef KraftPasJSON}
+                     procedure LoadFromJSON(const aJSONItem:TPasJSONItem);
+                     function SaveToJSON:TPasJSONItem;
+{$endif}
+                    public
+                     property Name:UTF8String read fName write fName;
+                     property Axles:TKraftRaycastVehicle.TSettings.TAxles read fAxles;
+                   end;
+                   TAckermannGroups=Generics.Collections.TObjectList<TAckermannGroup>;
+             private
+              fWidth:TKraftScalar;
+              fHeight:TKraftScalar;
+              fLength:TKraftScalar;
+              fAngularVelocityDamp:TKraftScalar;
+              fLinearVelocityDamp:TKraftScalar;
+              fRigidBodyRestitution:TKraftScalar;
+              fRigidBodyDensity:TKraftScalar;
+              fRigidBodyFriction:TKraftScalar;
+              fCenterOfMass:TKraftVector3;
+              fChassisMass:TKraftScalar;
+              fAirResistance:TKraftScalar;
+              fHandBrakeSlipperyTime:TKraftScalar;
+              fUseAccelerationCurveEnvelopes:Boolean;
+              fAccelerationCurveEnvelope:TEnvelope;
+              fReverseAccelerationCurveEnvelope:TEnvelope;
+              fReverseEvaluationAccuracy:TKraftInt32;
+              fSteerAngleLimitEnvelope:TEnvelope;
+              fSteeringResetSpeedEnvelope:TEnvelope;
+              fSteeringSpeedEnvelope:TEnvelope;
+              fDownForceCurveEnvelope:TEnvelope;
+              fDownForce:TKraftScalar;
+              fFlightStabilizationDamping:TKraftScalar;
+              fFlightStabilizationForce:TKraftScalar;
+              fWheels:TWheels;
+              fAxles:TAxles;
+              fAckermannGroups:TAckermannGroups;
+             public
+              constructor Create; reintroduce;
+              destructor Destroy; override;
+              procedure LoadDefaultFourWheelsConfiguration;
+{$ifdef KraftPasJSON}
+              procedure LoadFromJSON(const aJSONItem:TPasJSONItem);
+              function SaveToJSON:TPasJSONItem;
+{$endif}
+             public
+              property Width:TKraftScalar read fWidth write fWidth;
+              property Height:TKraftScalar read fHeight write fHeight;
+              property Length:TKraftScalar read fLength write fLength;
+              property AngularVelocityDamp:TKraftScalar read fAngularVelocityDamp write fAngularVelocityDamp;
+              property LinearVelocityDamp:TKraftScalar read fLinearVelocityDamp write fLinearVelocityDamp;
+              property RigidBodyRestitution:TKraftScalar read fRigidBodyRestitution write fRigidBodyRestitution;
+              property RigidBodyDensity:TKraftScalar read fRigidBodyDensity write fRigidBodyDensity;
+              property RigidBodyFriction:TKraftScalar read fRigidBodyFriction write fRigidBodyFriction;
+              property CenterOfMass:TKraftVector3 read fCenterOfMass write fCenterOfMass;
+              property ChassisMass:TKraftScalar read fChassisMass write fChassisMass;
+              property AirResistance:TKraftScalar read fAirResistance write fAirResistance;
+              property HandBrakeSlipperyTime:TKraftScalar read fHandBrakeSlipperyTime write fHandBrakeSlipperyTime;
+              property UseAccelerationCurveEnvelopes:Boolean read fUseAccelerationCurveEnvelopes write fUseAccelerationCurveEnvelopes;
+              property AccelerationCurveEnvelope:TEnvelope read fAccelerationCurveEnvelope;
+              property ReverseAccelerationCurveEnvelope:TEnvelope read fReverseAccelerationCurveEnvelope;
+              property ReverseEvaluationAccuracy:TKraftInt32 read fReverseEvaluationAccuracy write fReverseEvaluationAccuracy;
+              property SteerAngleLimitEnvelope:TEnvelope read fSteerAngleLimitEnvelope;
+              property SteeringResetSpeedEnvelope:TEnvelope read fSteeringResetSpeedEnvelope;
+              property SteeringSpeedEnvelope:TEnvelope read fSteeringSpeedEnvelope;
+              property DownForceCurveEnvelope:TEnvelope read fDownForceCurveEnvelope;
+              property DownForce:TKraftScalar read fDownForce write fDownForce;
+              property FlightStabilizationDamping:TKraftScalar read fFlightStabilizationDamping write fFlightStabilizationDamping;
+              property FlightStabilizationForce:TKraftScalar read fFlightStabilizationForce write fFlightStabilizationForce;
+              property Wheels:TWheels read fWheels;
+              property Axles:TAxles read fAxles;
+              property AckermannGroups:TAckermannGroups read fAckermannGroups;
+            end;
             TWheel=class;
             TAxle=class;
+            TAckermannGroup=class;            
             { TWheel }
             TWheel=class
              private
               fVehicle:TKraftRayCastVehicle;
-              fWheelID:TKraftRayCastVehicle.TWheelID;
+              fSettings:TKraftRayCastVehicle.TSettings.TWheel;
               fAxle:TKraftRayCastVehicle.TAxle;
               fSpring:TSpring;
               fYawRad:TKraftScalar;
@@ -325,161 +475,61 @@ type { TKraftRayCastVehicle }
               procedure StoreWorldTransforms;
               procedure InterpolateWorldTransforms(const aAlpha:TKraftScalar);
              public
-              constructor Create(const aVehicle:TKraftRayCastVehicle;const aWheelID:TKraftRayCastVehicle.TWheelID); reintroduce;
+              constructor Create(const aVehicle:TKraftRayCastVehicle;const aSettings:TKraftRayCastVehicle.TSettings.TWheel); reintroduce;
               destructor Destroy; override;
              published
-              property WheelID:TKraftRayCastVehicle.TWheelID read fWheelID write fWheelID;
+              property Settings:TKraftRayCastVehicle.TSettings.TWheel read fSettings;
               property Axle:TKraftRayCastVehicle.TAxle read fAxle write fAxle;
               property VisualYawRad:TKraftScalar read fVisualYawRad;
               property VisualRotationRad:TKraftScalar read fVisualRotationRad;
               property VisualSuspensionLength:TKraftScalar read fVisualSuspensionLength;
             end;
             { TWheels }
-            TWheels=array[TWheelID] of TWheel;
+            TWheels=Generics.Collections.TObjectList<TWheel>;
             { TAxle }
             TAxle=class
              private
               fVehicle:TKraftRayCastVehicle;
-              fAxleID:TKraftRayCastVehicle.TAxleID;
-              fWheelLeft:TKraftRayCastVehicle.TWheel;
-              fWheelRight:TKraftRayCastVehicle.TWheel;
-              function GetWheelGripFactor:TKraftScalar;
+              fSettings:TKraftRayCastVehicle.TSettings.TAxle;
+              fAckermannGroup:TKraftRayCastVehicle.TAckermannGroup;
+              fWheels:TKraftRayCastVehicle.TWheels;
              public
-              constructor Create(const aVehicle:TKraftRayCastVehicle;const aAxleID:TKraftRayCastVehicle.TAxleID;const aWheelLeft,aWheelRight:TKraftRayCastVehicle.TWheel); reintroduce;
+              constructor Create(const aVehicle:TKraftRayCastVehicle;const aSettings:TKraftRayCastVehicle.TSettings.TAxle); reintroduce;
               destructor Destroy; override;
               procedure UpdateAntiRollBar;
              published
-              property AxleID:TKraftRayCastVehicle.TAxleID read fAxleID write fAxleID;
-              property WheelLeft:TKraftRayCastVehicle.TWheel read fWheelLeft write fWheelLeft;
-              property WheelRight:TKraftRayCastVehicle.TWheel read fWheelRight write fWheelRight; 
+              property Settings:TKraftRayCastVehicle.TSettings.TAxle read fSettings;
+              property AckermannGroup:TKraftRayCastVehicle.TAckermannGroup read fAckermannGroup write fAckermannGroup;
+              property Wheels:TKraftRayCastVehicle.TWheels read fWheels;
             end;
             { TAxles }
-            TAxles=array[TAxleID] of TAxle;
-            { TVehicleSettings }
-            TVehicleSettings=class
+            TAxles=Generics.Collections.TObjectList<TAxle>;
+            { TAckermannGroup }
+            TAckermannGroup=class
              private
-              fWidth:TKraftScalar;
-              fHeight:TKraftScalar;
-              fLength:TKraftScalar;
-              fAngularVelocityDamp:TKraftScalar;
-              fLinearVelocityDamp:TKraftScalar;
-              fRigidBodyRestitution:TKraftScalar;
-              fRigidBodyDensity:TKraftScalar;
-              fRigidBodyFriction:TKraftScalar;
-              fCenterOfMass:TKraftVector3;
-              fWheelsRadius:TKraftScalar;
-              fWheelsHeight:TKraftScalar;
-              fUseSphereCast:Boolean;
-              fFrontPowered:Boolean;
-              fRearPowered:Boolean;
-              fFrontWheelsPaddingX:TKraftScalar;
-              fFrontWheelsPaddingZ:TKraftScalar;
-              fRearWheelsPaddingX:TKraftScalar;
-              fRearWheelsPaddingZ:TKraftScalar;
-              fChassisMass:TKraftScalar;
-              fTireMass:TKraftScalar;
-              fSpringRestLength:TKraftScalar;
-              fSpringStrength:TKraftScalar;
-              fSpringDamper:TKraftScalar;
-              fStabilizerBarAntiRollForce:TKraftScalar;
-              fAccelerationForce:TKraftScalar;
-              fBrakeForce:TKraftScalar;
-              fRollingFriction:TKraftScalar;
-              fMaximumSpeed:TKraftScalar;
-              fMaximumReverseSpeed:TKraftScalar;
-              fFrontWheelsGripFactor:TKraftScalar;
-              fRearWheelsGripFactor:TKraftScalar;
-              fFrontAfterFlightSlipperyK:TKraftScalar;
-              fFrontBrakeSlipperyK:TKraftScalar;
-              fFrontHandBrakeSlipperyK:TKraftScalar;
-              fFrontDriftSlipperyK:TKraftScalar;
-              fRearAfterFlightSlipperyK:TKraftScalar;
-              fRearBrakeSlipperyK:TKraftScalar;
-              fRearHandBrakeSlipperyK:TKraftScalar;
-              fRearDriftSlipperyK:TKraftScalar;
-              fAirResistance:TKraftScalar;
-              fHandBrakeSlipperyTime:TKraftScalar;
-              fUseAccelerationCurveEnvelopes:Boolean;
-              fAccelerationCurveEnvelope:TEnvelope;
-              fReverseAccelerationCurveEnvelope:TEnvelope;
-              fReverseEvaluationAccuracy:TKraftInt32;
-              fSteerAngleLimitEnvelope:TEnvelope;
-              fSteeringResetSpeedEnvelope:TEnvelope;
-              fSteeringSpeedEnvelope:TEnvelope;
-              fDownForceCurveEnvelope:TEnvelope;
-              fDownForce:TKraftScalar;
-              fFlightStabilizationDamping:TKraftScalar;
-              fFlightStabilizationForce:TKraftScalar;
+              fVehicle:TKraftRayCastVehicle;
+              fSettings:TKraftRayCastVehicle.TSettings.TAckermannGroup;
+              fAxles:TKraftRayCastVehicle.TAxles;
              public
-              constructor Create; reintroduce;
+              constructor Create(const aVehicle:TKraftRayCastVehicle;const aSettings:TKraftRayCastVehicle.TSettings.TAckermannGroup); reintroduce;
               destructor Destroy; override;
-{$ifdef KraftPasJSON}
-              procedure LoadFromJSON(const aJSONItem:TPasJSONItem);
-              function SaveToJSON:TPasJSONItem;
-{$endif}
-             public
-              property Width:TKraftScalar read fWidth write fWidth;
-              property Height:TKraftScalar read fHeight write fHeight;
-              property Length:TKraftScalar read fLength write fLength;
-              property AngularVelocityDamp:TKraftScalar read fAngularVelocityDamp write fAngularVelocityDamp;
-              property LinearVelocityDamp:TKraftScalar read fLinearVelocityDamp write fLinearVelocityDamp;
-              property RigidBodyRestitution:TKraftScalar read fRigidBodyRestitution write fRigidBodyRestitution;
-              property RigidBodyDensity:TKraftScalar read fRigidBodyDensity write fRigidBodyDensity;
-              property RigidBodyFriction:TKraftScalar read fRigidBodyFriction write fRigidBodyFriction;
-              property CenterOfMass:TKraftVector3 read fCenterOfMass write fCenterOfMass;
-              property WheelsRadius:TKraftScalar read fWheelsRadius write fWheelsRadius;
-              property WheelsHeight:TKraftScalar read fWheelsHeight write fWheelsHeight;
-              property UseSphereCast:Boolean read fUseSphereCast write fUseSphereCast;
-              property FrontPowered:Boolean read fFrontPowered write fFrontPowered;
-              property RearPowered:Boolean read fRearPowered write fRearPowered;
-              property FrontWheelsPaddingX:TKraftScalar read fFrontWheelsPaddingX write fFrontWheelsPaddingX;
-              property FrontWheelsPaddingZ:TKraftScalar read fFrontWheelsPaddingZ write fFrontWheelsPaddingZ;
-              property RearWheelsPaddingX:TKraftScalar read fRearWheelsPaddingX write fRearWheelsPaddingX;
-              property RearWheelsPaddingZ:TKraftScalar read fRearWheelsPaddingZ write fRearWheelsPaddingZ;
-              property ChassisMass:TKraftScalar read fChassisMass write fChassisMass;
-              property TireMass:TKraftScalar read fTireMass write fTireMass;
-              property SpringRestLength:TKraftScalar read fSpringRestLength write fSpringRestLength;
-              property SpringStrength:TKraftScalar read fSpringStrength write fSpringStrength;
-              property SpringDamper:TKraftScalar read fSpringDamper write fSpringDamper;
-              property StabilizerBarAntiRollForce:TKraftScalar read fStabilizerBarAntiRollForce write fStabilizerBarAntiRollForce;
-              property AccelerationForce:TKraftScalar read fAccelerationForce write fAccelerationForce;
-              property BrakeForce:TKraftScalar read fBrakeForce write fBrakeForce;
-              property RollingFriction:TKraftScalar read fRollingFriction write fRollingFriction;
-              property MaximumSpeed:TKraftScalar read fMaximumSpeed write fMaximumSpeed;
-              property MaximumReverseSpeed:TKraftScalar read fMaximumReverseSpeed write fMaximumReverseSpeed;
-              property FrontWheelsGripFactor:TKraftScalar read fFrontWheelsGripFactor write fFrontWheelsGripFactor;
-              property RearWheelsGripFactor:TKraftScalar read fRearWheelsGripFactor write fRearWheelsGripFactor;
-              property FrontAfterFlightSlipperyK:TKraftScalar read fFrontAfterFlightSlipperyK write fFrontAfterFlightSlipperyK;
-              property FrontBrakeSlipperyK:TKraftScalar read fFrontBrakeSlipperyK write fFrontBrakeSlipperyK;
-              property FrontHandBrakeSlipperyK:TKraftScalar read fFrontHandBrakeSlipperyK write fFrontHandBrakeSlipperyK;
-              property FrontDriftSlipperyK:TKraftScalar read fFrontDriftSlipperyK write fFrontDriftSlipperyK;
-              property RearAfterFlightSlipperyK:TKraftScalar read fRearAfterFlightSlipperyK write fRearAfterFlightSlipperyK;
-              property RearBrakeSlipperyK:TKraftScalar read fRearBrakeSlipperyK write fRearBrakeSlipperyK;
-              property RearHandBrakeSlipperyK:TKraftScalar read fRearHandBrakeSlipperyK write fRearHandBrakeSlipperyK;
-              property RearDriftSlipperyK:TKraftScalar read fRearDriftSlipperyK write fRearDriftSlipperyK;
-              property AirResistance:TKraftScalar read fAirResistance write fAirResistance;
-              property HandBrakeSlipperyTime:TKraftScalar read fHandBrakeSlipperyTime write fHandBrakeSlipperyTime;
-              property UseAccelerationCurveEnvelopes:Boolean read fUseAccelerationCurveEnvelopes write fUseAccelerationCurveEnvelopes;
-              property AccelerationCurveEnvelope:TEnvelope read fAccelerationCurveEnvelope;
-              property ReverseAccelerationCurveEnvelope:TEnvelope read fReverseAccelerationCurveEnvelope;
-              property ReverseEvaluationAccuracy:TKraftInt32 read fReverseEvaluationAccuracy write fReverseEvaluationAccuracy;
-              property SteerAngleLimitEnvelope:TEnvelope read fSteerAngleLimitEnvelope;
-              property SteeringResetSpeedEnvelope:TEnvelope read fSteeringResetSpeedEnvelope;
-              property SteeringSpeedEnvelope:TEnvelope read fSteeringSpeedEnvelope;
-              property DownForceCurveEnvelope:TEnvelope read fDownForceCurveEnvelope;              
-              property DownForce:TKraftScalar read fDownForce write fDownForce;
-              property FlightStabilizationDamping:TKraftScalar read fFlightStabilizationDamping write fFlightStabilizationDamping;
-              property FlightStabilizationForce:TKraftScalar read fFlightStabilizationForce write fFlightStabilizationForce;
+              procedure UpdateAckermannSteering;
+             published
+              property Settings:TKraftRayCastVehicle.TSettings.TAckermannGroup read fSettings;
+              property Axles:TKraftRayCastVehicle.TAxles read fAxles;
             end;
+            { TAckermannGroups }
+            TAckermannGroups=Generics.Collections.TObjectList<TAckermannGroup>;
       private
        fPhysics:TKraft;
        fRigidBody:TKraftRigidBody;
        fShape:TKraftShape;
        fWheels:TWheels;
        fAxles:TAxles;
+       fAckermannGroups:TAckermannGroups;
        fControllable:boolean;
        fAccelerationInput:TKraftScalar;
-       fSettings:TVehicleSettings;
+       fSettings:TSettings;
        fForward:TKraftVector3;
        fVelocity:TKraftVector3;       
        fDeltaTime:TKraftScalar;
@@ -545,7 +595,6 @@ type { TKraftRayCastVehicle }
 {$endif}
        function ShapeCanCollideWith(const WithShape:TKraftShape):boolean;
        function RayCastFilter(const aPoint,aNormal:TKraftVector3;const aTime:TKraftScalar;const aShape:TKraftShape):boolean;
-       procedure CalculateAckermannSteering;
        function GetHandBrakeK:TKraftScalar;
        function GetSteeringHandBrakeK:TKraftScalar;
        function GetSteerAngleLimitInDeg(const aSpeedMetersPerSec:TKraftScalar):TKraftScalar;
@@ -556,6 +605,7 @@ type { TKraftRayCastVehicle }
        procedure UpdateInput;
        procedure UpdateWorldTransformVectors;
        procedure UpdateSuspension;
+       procedure UpdateAckermannSteering;
        procedure UpdateSteering;
        procedure UpdateAcceleration;
        procedure UpdateBraking;
@@ -577,7 +627,7 @@ type { TKraftRayCastVehicle }
        procedure DebugDraw;
 {$endif}
       public
-       property Settings:TVehicleSettings read fSettings write fSettings;
+       property Settings:TSettings read fSettings write fSettings;
        property CastCollisionGroup:TKraftRigidBodyCollisionGroups read fCastCollisionGroup write fCastCollisionGroup;
        property Wheels:TWheels read fWheels;
        property Axles:TAxles read fAxles;
@@ -662,7 +712,27 @@ begin
 end;
 
 {$ifdef KraftPasJSON}
-function JSONToVector3(const aVectorJSONItem:TPasJSONItem):TKraftVector3;
+function JSONToVector2(const aVectorJSONItem:TPasJSONItem;const aDefault:TKraftVector2):TKraftVector2;
+begin
+ if assigned(aVectorJSONItem) and (aVectorJSONItem is TPasJSONItemArray) and (TPasJSONItemArray(aVectorJSONItem).Count=2) then begin
+  result.x:=TPasJSON.GetNumber(TPasJSONItemArray(aVectorJSONItem).Items[0],0.0);
+  result.y:=TPasJSON.GetNumber(TPasJSONItemArray(aVectorJSONItem).Items[1],0.0);
+ end else if assigned(aVectorJSONItem) and (aVectorJSONItem is TPasJSONItemObject) then begin
+  result.x:=TPasJSON.GetNumber(TPasJSONItemObject(aVectorJSONItem).Properties['x'],0.0);
+  result.y:=TPasJSON.GetNumber(TPasJSONItemObject(aVectorJSONItem).Properties['y'],0.0);
+ end else begin
+  result:=aDefault;
+ end;
+end;
+
+function Vector2ToJSON(const aVector:TKraftVector2):TPasJSONItemArray;
+begin
+ result:=TPasJSONItemArray.Create;
+ result.Add(TPasJSONItemNumber.Create(aVector.x));
+ result.Add(TPasJSONItemNumber.Create(aVector.y));
+end;
+
+function JSONToVector3(const aVectorJSONItem:TPasJSONItem;const aDefault:TKraftVector3):TKraftVector3;
 begin
  if assigned(aVectorJSONItem) and (aVectorJSONItem is TPasJSONItemArray) and (TPasJSONItemArray(aVectorJSONItem).Count=3) then begin
   result.x:=TPasJSON.GetNumber(TPasJSONItemArray(aVectorJSONItem).Items[0],0.0);
@@ -673,7 +743,7 @@ begin
   result.y:=TPasJSON.GetNumber(TPasJSONItemObject(aVectorJSONItem).Properties['y'],0.0);
   result.z:=TPasJSON.GetNumber(TPasJSONItemObject(aVectorJSONItem).Properties['z'],0.0);
  end else begin
-  result:=Vector3Origin;
+  result:=aDefault;
  end;
 end;
 
@@ -1039,13 +1109,748 @@ begin
  result:=((aRestLength-aCurrentLength)*aStrength)-(aLengthVelocity*aDamper);
 end;
 
+{ TKraftRayCastVehicle.TSettings.TWheel }
+
+constructor TKraftRayCastVehicle.TSettings.TWheel.Create(const aSettings:TSettings);
+begin
+ inherited Create;
+ fSettings:=aSettings;
+ fName:='';
+end;
+
+destructor TKraftRayCastVehicle.TSettings.TWheel.Destroy;
+begin
+ inherited Destroy;
+end;
+
+{$ifdef KraftPasJSON}
+procedure TKraftRayCastVehicle.TSettings.TWheel.LoadFromJSON(const aJSONItem:TPasJSONItem);
+begin
+ if assigned(aJSONItem) and (aJSONItem is TPasJSONItemObject) then begin
+  fName:=TPasJSON.GetString(TPasJSONItemObject(aJSONItem).Properties['name'],fName);
+  fOffset:=JSONToVector2(TPasJSONItemObject(aJSONItem).Properties['offset'],fOffset);
+  fRadius:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['radius'],fRadius);
+  fLength:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['length'],fLength);
+  fHeight:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['height'],fHeight);
+  fUseSphereCast:=TPasJSON.GetString(TPasJSONItemObject(aJSONItem).Properties['castsphere'],'raycast')='spherecast';
+  fPowered:=TPasJSON.GetBoolean(TPasJSONItemObject(aJSONItem).Properties['powered'],fPowered);
+  fSteering:=TPasJSON.GetBoolean(TPasJSONItemObject(aJSONItem).Properties['steering'],fSteering);
+  fMass:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['mass'],fMass);
+  fSuspensionRestLength:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['suspensionrestlength'],fSuspensionRestLength);
+  fSuspensionStrength:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['suspensionstrength'],fSuspensionStrength);
+  fSuspensionDamping:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['suspensiondamping'],fSuspensionDamping);
+  fAccelerationForce:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['accelerationforce'],fAccelerationForce);
+  fBrakeForce:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['brakeforce'],fBrakeForce);
+  fRollingFriction:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['rollingfriction'],fRollingFriction);
+  fMaximumSpeed:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['maximumspeed'],fMaximumSpeed);
+  fMaximumReverseSpeed:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['maximumreversespeed'],fMaximumReverseSpeed);
+  fGripFactor:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['gripfactor'],fGripFactor);
+  fAfterFlightSlipperyK:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['afterflightslipperyk'],fAfterFlightSlipperyK);
+  fBrakeSlipperyK:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['brakeslipperyk'],fBrakeSlipperyK);
+  fHandBrakeSlipperyK:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['handbrakeslipperyk'],fHandBrakeSlipperyK);
+  fDriftSlipperyK:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['driftslipperyk'],fDriftSlipperyK);  
+ end;
+end;
+
+function TKraftRayCastVehicle.TSettings.TWheel.SaveToJSON:TPasJSONItem;
+begin
+ result:=TPasJSONItemObject.Create;
+ TPasJSONItemObject(result).Add('name',TPasJSONItemString.Create(fName));
+ TPasJSONItemObject(result).Add('offset',Vector2ToJSON(fOffset));
+ TPasJSONItemObject(result).Add('radius',TPasJSONItemNumber.Create(fRadius));
+ TPasJSONItemObject(result).Add('length',TPasJSONItemNumber.Create(fLength));
+ TPasJSONItemObject(result).Add('height',TPasJSONItemNumber.Create(fHeight));
+ if fUseSphereCast then begin
+  TPasJSONItemObject(result).Add('castmode',TPasJSONItemString.Create('spherecast'));
+ end else begin
+  TPasJSONItemObject(result).Add('castmode',TPasJSONItemString.Create('raycast'));
+ end;
+ TPasJSONItemObject(result).Add('powered',TPasJSONItemBoolean.Create(fPowered));
+ TPasJSONItemObject(result).Add('steering',TPasJSONItemBoolean.Create(fSteering));
+ TPasJSONItemObject(result).Add('mass',TPasJSONItemNumber.Create(fMass));
+ TPasJSONItemObject(result).Add('suspensionrestlength',TPasJSONItemNumber.Create(fSuspensionRestLength));
+ TPasJSONItemObject(result).Add('suspensionstrength',TPasJSONItemNumber.Create(fSuspensionStrength));
+ TPasJSONItemObject(result).Add('suspensiondamping',TPasJSONItemNumber.Create(fSuspensionDamping));
+ TPasJSONItemObject(result).Add('accelerationforce',TPasJSONItemNumber.Create(fAccelerationForce));
+ TPasJSONItemObject(result).Add('brakeforce',TPasJSONItemNumber.Create(fBrakeForce));
+ TPasJSONItemObject(result).Add('rollingfriction',TPasJSONItemNumber.Create(fRollingFriction));
+ TPasJSONItemObject(result).Add('maximumspeed',TPasJSONItemNumber.Create(fMaximumSpeed));
+ TPasJSONItemObject(result).Add('maximumreversespeed',TPasJSONItemNumber.Create(fMaximumReverseSpeed));
+ TPasJSONItemObject(result).Add('gripfactor',TPasJSONItemNumber.Create(fGripFactor));
+ TPasJSONItemObject(result).Add('afterflightslipperyk',TPasJSONItemNumber.Create(fAfterFlightSlipperyK));
+ TPasJSONItemObject(result).Add('brakeslipperyk',TPasJSONItemNumber.Create(fBrakeSlipperyK));
+ TPasJSONItemObject(result).Add('handbrakeslipperyk',TPasJSONItemNumber.Create(fHandBrakeSlipperyK));
+ TPasJSONItemObject(result).Add('driftslipperyk',TPasJSONItemNumber.Create(fDriftSlipperyK));
+end;
+{$endif}
+
+{ TKraftRayCastVehicle.TSettings.TAxle }
+
+constructor TKraftRayCastVehicle.TSettings.TAxle.Create(const aSettings:TSettings);
+begin
+ inherited Create;
+ fSettings:=aSettings;
+ fName:='';
+ fWheels:=TWheels.Create(false);
+end;
+
+destructor TKraftRayCastVehicle.TSettings.TAxle.Destroy;
+begin
+ FreeAndNil(fWheels);
+ inherited Destroy;
+end;
+
+{$ifdef KraftPasJSON}
+procedure TKraftRayCastVehicle.TSettings.TAxle.LoadFromJSON(const aJSONItem:TPasJSONItem);
+var Index,OtherIndex:TPasJSONSizeInt;
+    JSONItemArray:TPasJSONItemArray;
+    JSONItem:TPasJSONItem;
+    WheelName:UTF8String;
+    Wheel:TWheel;
+begin
+ if assigned(aJSONItem) and (aJSONItem is TPasJSONItemObject) then begin
+  fWheels.Clear;
+  fName:=TPasJSON.GetString(TPasJSONItemObject(aJSONItem).Properties['name'],fName);
+  JSONItem:=TPasJSONItemObject(aJSONItem).Properties['wheels'];
+  if assigned(JSONItem) and (JSONItem is TPasJSONItemArray) then begin
+   JSONItemArray:=TPasJSONItemArray(JSONItem);
+   for Index:=0 to JSONItemArray.Count-1 do begin
+    JSONItem:=JSONItemArray.Items[Index];
+    if assigned(JSONItem) and (JSONItem is TPasJSONItemString) then begin
+     WheelName:=Trim(LowerCase(TPasJSONItemString(JSONItem).Value));
+     for OtherIndex:=0 to fSettings.fWheels.Count-1 do begin
+      Wheel:=fSettings.fWheels[OtherIndex];
+      if Trim(LowerCase(Wheel.fName))=WheelName then begin
+       fWheels.Add(Wheel);
+       break;
+      end;
+     end;     
+    end;
+   end;
+  end; 
+ end;
+end;
+
+function TKraftRayCastVehicle.TSettings.TAxle.SaveToJSON:TPasJSONItem;
+var Index:TPasJSONSizeInt;
+    JSONItemArray:TPasJSONItemArray;
+    Wheel:TWheel;
+begin
+ result:=TPasJSONItemObject.Create;
+ TPasJSONItemObject(result).Add('name',TPasJSONItemString.Create(fName));
+ JSONItemArray:=TPasJSONItemArray.Create;
+ try
+  for Index:=0 to fWheels.Count-1 do begin
+   Wheel:=fWheels[Index];
+   if assigned(Wheel) then begin
+    JSONItemArray.Add(TPasJSONItemString.Create(Wheel.fName));
+   end;
+  end;
+ finally
+  TPasJSONItemObject(result).Add('wheels',JSONItemArray);
+ end;
+end;
+{$endif}
+
+{ TKraftRayCastVehicle.TSettings.TAckermannGroup }
+
+constructor TKraftRayCastVehicle.TSettings.TAckermannGroup.Create(const aSettings:TSettings);
+begin
+ inherited Create;
+ fSettings:=aSettings;
+ fName:='';
+ fAxles:=TAxles.Create(false);
+end;
+
+destructor TKraftRayCastVehicle.TSettings.TAckermannGroup.Destroy;
+begin
+ FreeAndNil(fAxles);
+ inherited Destroy;
+end;
+
+{$ifdef KraftPasJSON}
+procedure TKraftRayCastVehicle.TSettings.TAckermannGroup.LoadFromJSON(const aJSONItem:TPasJSONItem);
+var Index,OtherIndex:TPasJSONSizeInt;
+    JSONItemArray:TPasJSONItemArray;
+    JSONItem:TPasJSONItem;
+    AxleName:UTF8String;
+    Axle:TAxle;
+begin
+ if assigned(aJSONItem) and (aJSONItem is TPasJSONItemObject) then begin
+  fAxles.Clear;
+  fName:=TPasJSON.GetString(TPasJSONItemObject(aJSONItem).Properties['name'],fName);
+  JSONItem:=TPasJSONItemObject(aJSONItem).Properties['axles'];
+  if assigned(JSONItem) and (JSONItem is TPasJSONItemArray) then begin
+   JSONItemArray:=TPasJSONItemArray(JSONItem);
+   for Index:=0 to JSONItemArray.Count-1 do begin
+    JSONItem:=JSONItemArray.Items[Index];
+    if assigned(JSONItem) and (JSONItem is TPasJSONItemString) then begin
+     AxleName:=Trim(LowerCase(TPasJSONItemString(JSONItem).Value));
+     for OtherIndex:=0 to fSettings.fAxles.Count-1 do begin
+      Axle:=fSettings.fAxles[OtherIndex];
+      if Trim(LowerCase(Axle.fName))=AxleName then begin
+       fAxles.Add(Axle);
+       break;
+      end;
+     end;     
+    end;
+   end;
+  end; 
+ end;
+end;
+
+function TKraftRayCastVehicle.TSettings.TAckermannGroup.SaveToJSON:TPasJSONItem;
+var Index:TPasJSONSizeInt;
+    JSONItemArray:TPasJSONItemArray;
+    Axle:TAxle;
+begin
+ result:=TPasJSONItemObject.Create;
+ TPasJSONItemObject(result).Add('name',TPasJSONItemString.Create(fName));
+ JSONItemArray:=TPasJSONItemArray.Create;
+ try
+  for Index:=0 to fAxles.Count-1 do begin
+   Axle:=fAxles[Index];
+   if assigned(Axle) then begin
+    JSONItemArray.Add(TPasJSONItemString.Create(Axle.fName));
+   end;
+  end;
+ finally
+  TPasJSONItemObject(result).Add('axles',JSONItemArray);
+ end;
+end;
+
+{$endif}
+
+{ TKraftRayCastVehicle.TSettings }
+
+constructor TKraftRayCastVehicle.TSettings.Create;
+begin
+ inherited Create;
+
+ fWidth:=1.9;
+ fHeight:=0.75;
+
+ fLength:=3.4;
+
+ fAngularVelocityDamp:=10.0;
+ fLinearVelocityDamp:=0.3275;
+
+ fRigidBodyRestitution:=0.3;
+ fRigidBodyDensity:=1.0;
+ fRigidBodyFriction:=0.0;
+
+ fCenterOfMass:=Vector3(0.0,-0.25,0.0);
+
+ fChassisMass:=60;
+
+ fAirResistance:=5.0;
+
+ fHandBrakeSlipperyTime:=2.2;
+
+ fUseAccelerationCurveEnvelopes:=true;
+
+ fAccelerationCurveEnvelope:=TEnvelope.CreateLinear(0.0,0.0,5.0,300.0);
+
+ fReverseAccelerationCurveEnvelope:=TEnvelope.CreateLinear(0.0,0.0,5.0,20.0);
+ fReverseEvaluationAccuracy:=25;
+
+ fSteerAngleLimitEnvelope:=TEnvelope.CreateLinear(0.0,35.0,100.0,5.0);
+
+ fSteeringResetSpeedEnvelope:=TEnvelope.CreateEaseInOut(0.0,30.0,100.0,10.0,64);
+
+ fSteeringSpeedEnvelope:=TEnvelope.CreateLinear(0.0,2.0,100.0,0.5);
+
+ fDownForceCurveEnvelope:=TEnvelope.CreateLinear(0.0,0.0,200.0,100.0);
+ fDownForce:=1.0;
+
+ fFlightStabilizationForce:=1.0;
+ fFlightStabilizationDamping:=0.1;
+
+ fWheels:=TWheels.Create(true);
+
+ fAxles:=TAxles.Create(true);
+
+ fAckermannGroups:=TAckermannGroups.Create(true);
+
+ LoadDefaultFourWheelsConfiguration;
+
+end;
+
+destructor TKraftRayCastVehicle.TSettings.Destroy;
+begin
+ FreeAndNil(fWheels);
+ FreeAndNil(fAxles);
+ FreeAndNil(fAckermannGroups);
+ FreeAndNil(fAccelerationCurveEnvelope);
+ FreeAndNil(fReverseAccelerationCurveEnvelope);
+ FreeAndNil(fSteerAngleLimitEnvelope);
+ FreeAndNil(fSteeringResetSpeedEnvelope);
+ FreeAndNil(fSteeringSpeedEnvelope);
+ FreeAndNil(fDownForceCurveEnvelope);
+ inherited Destroy;
+end;
+
+procedure TKraftRayCastVehicle.TSettings.LoadDefaultFourWheelsConfiguration;
+// This default configuration is for a car or kart with four wheels with two axles with a single ackermann group
+var WheelFrontLeft,WheelFrontRight,WheelRearLeft,WheelRearRight:TKraftRayCastVehicle.TSettings.TWheel;
+    AxleFront,AxleRear:TKraftRayCastVehicle.TSettings.TAxle;
+    AckermannGroup:TKraftRayCastVehicle.TSettings.TAckermannGroup;
+begin
+
+ // The rigid body physical dimensions as a box 
+ fWidth:=1.9;
+ fHeight:=0.75;
+ fLength:=3.4;
+
+ // The rigid body physical damping factors
+ fAngularVelocityDamp:=10.0;
+ fLinearVelocityDamp:=0.3275;
+
+ // The rigid body physical properties
+ fRigidBodyRestitution:=0.3;
+ fRigidBodyDensity:=1.0;
+ fRigidBodyFriction:=0.0;
+
+ // The rigid body center of mass
+ fCenterOfMass:=Vector3(0.0,-0.25,0.0);
+
+ // The chassis mass
+ fChassisMass:=60;
+
+ // Air resistance
+ fAirResistance:=5.0;
+
+ // Hand brake slippery time
+ fHandBrakeSlipperyTime:=2.2;
+
+ // The wheels
+ begin
+
+  fWheels.Clear;
+ 
+  WheelFrontLeft:=TKraftRayCastVehicle.TSettings.TWheel.Create(self);
+  try
+   WheelFrontLeft.fName:='frontleft';
+   WheelFrontLeft.fOffset:=Vector2(-0.63870317,0.8170225);
+   WheelFrontLeft.fRadius:=0.25;
+   WheelFrontLeft.fLength:=0.25;
+   WheelFrontLeft.fHeight:=-0.25;
+   WheelFrontLeft.fUseSphereCast:=true;
+   WheelFrontLeft.fPowered:=true;
+   WheelFrontLeft.fMass:=1.0;
+   WheelFrontLeft.fSuspensionRestLength:=0.8;
+   WheelFrontLeft.fSuspensionStrength:=1200.0;
+   WheelFrontLeft.fSuspensionDamping:=75.0;
+   WheelFrontLeft.fAccelerationForce:=1200.0;
+   WheelFrontLeft.fBrakeForce:=10.0;
+   WheelFrontLeft.fRollingFriction:=0.15;
+   WheelFrontLeft.fMaximumSpeed:=10.0;
+   WheelFrontLeft.fMaximumReverseSpeed:=2.5;
+   WheelFrontLeft.fGripFactor:=0.8;
+   WheelFrontLeft.fAfterFlightSlipperyK:=0.02;
+   WheelFrontLeft.fBrakeSlipperyK:=0.5;
+   WheelFrontLeft.fHandBrakeSlipperyK:=0.01;
+   WheelFrontLeft.fDriftSlipperyK:=0.01;
+  finally 
+   fWheels.Add(WheelFrontLeft);
+  end; 
+
+  WheelFrontRight:=TKraftRayCastVehicle.TSettings.TWheel.Create(self);
+  try
+   WheelFrontRight.fName:='frontright';
+   WheelFrontRight.fOffset:=Vector2(0.63870317,0.8170225);
+   WheelFrontRight.fRadius:=0.25;
+   WheelFrontRight.fLength:=0.25;
+   WheelFrontRight.fHeight:=-0.25;
+   WheelFrontRight.fUseSphereCast:=true;
+   WheelFrontRight.fPowered:=true;
+   WheelFrontRight.fMass:=1.0;
+   WheelFrontRight.fSuspensionRestLength:=0.8;
+   WheelFrontRight.fSuspensionStrength:=1200.0;
+   WheelFrontRight.fSuspensionDamping:=75.0;
+   WheelFrontRight.fAccelerationForce:=1200.0;
+   WheelFrontRight.fBrakeForce:=10.0;
+   WheelFrontRight.fRollingFriction:=0.15;
+   WheelFrontRight.fMaximumSpeed:=10.0;
+   WheelFrontRight.fMaximumReverseSpeed:=2.5;
+   WheelFrontRight.fGripFactor:=0.8;
+   WheelFrontRight.fAfterFlightSlipperyK:=0.02;
+   WheelFrontRight.fBrakeSlipperyK:=0.5;
+   WheelFrontRight.fHandBrakeSlipperyK:=0.01;
+   WheelFrontRight.fDriftSlipperyK:=0.01;
+  finally 
+   fWheels.Add(WheelFrontRight);
+  end;
+
+  WheelRearLeft:=TKraftRayCastVehicle.TSettings.TWheel.Create(self);
+  try
+   WheelRearLeft.fName:='rearleft';
+   WheelRearLeft.fOffset:=Vector2(-0.63870317,-0.42946056);
+   WheelRearLeft.fRadius:=0.25;
+   WheelRearLeft.fLength:=0.25;
+   WheelRearLeft.fHeight:=-0.25;
+   WheelRearLeft.fUseSphereCast:=true;
+   WheelRearLeft.fPowered:=true;
+   WheelRearLeft.fMass:=1.0;
+   WheelRearLeft.fSuspensionRestLength:=0.8;
+   WheelRearLeft.fSuspensionStrength:=1200.0;
+   WheelRearLeft.fSuspensionDamping:=75.0;
+   WheelRearLeft.fAccelerationForce:=1200.0;
+   WheelRearLeft.fBrakeForce:=10.0;
+   WheelRearLeft.fRollingFriction:=0.15;
+   WheelRearLeft.fMaximumSpeed:=10.0;
+   WheelRearLeft.fMaximumReverseSpeed:=2.5;
+   WheelRearLeft.fGripFactor:=0.9;
+   WheelRearLeft.fAfterFlightSlipperyK:=0.02;
+   WheelRearLeft.fBrakeSlipperyK:=0.5;
+   WheelRearLeft.fHandBrakeSlipperyK:=0.01;
+   WheelRearLeft.fDriftSlipperyK:=0.01;
+  finally 
+   fWheels.Add(WheelRearLeft);
+  end;
+
+  WheelRearRight:=TKraftRayCastVehicle.TSettings.TWheel.Create(self);
+  try
+   WheelRearRight.fName:='rearright';
+   WheelRearRight.fOffset:=Vector2(0.63870317,-0.42946056);
+   WheelRearRight.fRadius:=0.25;
+   WheelRearRight.fLength:=0.25;
+   WheelRearRight.fHeight:=-0.25;
+   WheelRearRight.fUseSphereCast:=true;
+   WheelRearRight.fPowered:=true;
+   WheelRearRight.fMass:=1.0;
+   WheelRearRight.fSuspensionRestLength:=0.8;
+   WheelRearRight.fSuspensionStrength:=1200.0;
+   WheelRearRight.fSuspensionDamping:=75.0;
+   WheelRearRight.fAccelerationForce:=1200.0;
+   WheelRearRight.fBrakeForce:=10.0;
+   WheelRearRight.fRollingFriction:=0.15;
+   WheelRearRight.fMaximumSpeed:=10.0;
+   WheelRearRight.fMaximumReverseSpeed:=2.5;
+   WheelRearRight.fGripFactor:=0.9;
+   WheelRearRight.fAfterFlightSlipperyK:=0.02;
+   WheelRearRight.fBrakeSlipperyK:=0.5;
+   WheelRearRight.fHandBrakeSlipperyK:=0.01;
+   WheelRearRight.fDriftSlipperyK:=0.01;
+  finally 
+   fWheels.Add(WheelRearRight);
+  end;
+
+ end; 
+
+ // The axles
+ begin
+
+  fAxles.Clear;
+
+  AxleFront:=TKraftRayCastVehicle.TSettings.TAxle.Create(self);
+  try
+   AxleFront.fName:='front';
+   AxleFront.fWheels.Add(WheelFrontLeft);
+   AxleFront.fWheels.Add(WheelFrontRight);
+   AxleFront.fStabilizerBarAntiRollForce:=100.0;
+  finally
+   fAxles.Add(AxleFront);
+  end;
+
+  AxleRear:=TKraftRayCastVehicle.TSettings.TAxle.Create(self);
+  try
+   AxleRear.fName:='rear';
+   AxleRear.fWheels.Add(WheelRearLeft);
+   AxleRear.fWheels.Add(WheelRearRight);
+   AxleRear.fStabilizerBarAntiRollForce:=100.0;
+  finally
+   fAxles.Add(AxleRear);
+  end;
+
+ end;
+
+ // The ackermann groups
+ begin
+  
+  fAckermannGroups.Clear;
+
+  AckermannGroup:=TKraftRayCastVehicle.TSettings.TAckermannGroup.Create(self);
+  try
+   AckermannGroup.fName:='frontrear';
+   AckermannGroup.fAxles.Add(AxleFront);
+   AckermannGroup.fAxles.Add(AxleRear);
+  finally
+   fAckermannGroups.Add(AckermannGroup);
+  end;
+
+ end; 
+
+ // Option for using acceleration curve envelopes
+ fUseAccelerationCurveEnvelopes:=true;
+
+ // The acceleration curve envelope
+ fAccelerationCurveEnvelope.FillLinear(0.0,0.0,5.0,300.0);
+
+ // The reverse acceleration curve envelope
+ fReverseAccelerationCurveEnvelope.FillLinear(0.0,0.0,5.0,20.0);
+ fReverseEvaluationAccuracy:=25;
+
+ // The steering angle limit envelope
+ fSteerAngleLimitEnvelope.FillLinear(0.0,35.0,100.0,5.0);
+
+ // The steering reset speed envelope
+ fSteeringResetSpeedEnvelope.FillEaseInOut(0.0,30.0,100.0,10.0,64);
+
+ // The steering speed envelope
+ fSteeringSpeedEnvelope.FillLinear(0.0,2.0,100.0,0.5);
+
+ // The down force curve envelope and setttings
+ fDownForceCurveEnvelope.FillLinear(0.0,0.0,200.0,100.0);
+ fDownForce:=1.0;
+
+ // The flight stabilization settings
+ fFlightStabilizationForce:=1.0;
+ fFlightStabilizationDamping:=0.1;
+
+end;
+
+{$ifdef KraftPasJSON}
+procedure TKraftRayCastVehicle.TSettings.LoadFromJSON(const aJSONItem:TPasJSONItem);
+var JSONItem,OtherJSONItem:TPasJSONItem;
+    Index:TPasJSONSizeInt;
+    Wheel:TKraftRayCastVehicle.TSettings.TWheel;
+    Axle:TKraftRayCastVehicle.TSettings.TAxle;
+    AckermannGroup:TKraftRayCastVehicle.TSettings.TAckermannGroup;
+begin
+ if assigned(aJSONItem) and (aJSONItem is TPasJSONItemObject) then begin
+
+  fWidth:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['width'],fWidth);
+  fHeight:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['height'],fHeight);
+  fLength:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['length'],fLength);  
+
+  fAngularVelocityDamp:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['angularvelocitydamp'],fAngularVelocityDamp);
+  fLinearVelocityDamp:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['linearvelocitydamp'],fLinearVelocityDamp);
+
+  fRigidBodyRestitution:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['rigidbodyrestitution'],fRigidBodyRestitution);
+  fRigidBodyDensity:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['rigidbodydensity'],fRigidBodyDensity);
+  fRigidBodyFriction:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['rigidbodyfriction'],fRigidBodyFriction);
+
+  fCenterOfMass:=JSONToVector3(TPasJSONItemObject(aJSONItem).Properties['centerofmass'],fCenterOfMass);
+
+  fChassisMass:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['chassismass'],fChassisMass);
+ 
+  fAirResistance:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['airresistance'],fAirResistance);
+  
+  fHandBrakeSlipperyTime:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['handbrakeslipperytime'],fHandBrakeSlipperyTime);
+
+  fUseAccelerationCurveEnvelopes:=TPasJSON.GetBoolean(TPasJSONItemObject(aJSONItem).Properties['useaccelerationcurveenvelopes'],fUseAccelerationCurveEnvelopes);
+
+  fAccelerationCurveEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['accelerationcurveenvelope']);
+
+  fReverseAccelerationCurveEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['reverseaccelerationcurveenvelope']);
+  fReverseEvaluationAccuracy:=TPasJSON.GetInt64(TPasJSONItemObject(aJSONItem).Properties['reverseevaluationaccuracy'],fReverseEvaluationAccuracy);
+
+  fSteerAngleLimitEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['steeranglelimitenvelope']);
+
+  fSteeringResetSpeedEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['steeringresetspeedenvelope']);
+
+  fSteeringSpeedEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['steeringspeedenvelope']);
+
+  fDownForceCurveEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['downforcecurveenvelope']);
+  fDownForce:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['downforce'],fDownForce);
+
+  fFlightStabilizationDamping:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['flightstabilizationdamping'],fFlightStabilizationDamping);
+  fFlightStabilizationForce:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['flightstabilizationforce'],fFlightStabilizationForce);
+
+  fWheels.Clear;
+  JSONItem:=TPasJSONItemObject(aJSONItem).Properties['wheels'];
+  if assigned(JSONItem) and (JSONItem is TPasJSONItemObject) then begin
+   for Index:=0 to TPasJSONItemObject(JSONItem).Count-1 do begin
+    OtherJSONItem:=TPasJSONItemObject(JSONItem).Values[Index];
+    if assigned(OtherJSONItem) and (OtherJSONItem is TPasJSONItemObject) then begin
+     Wheel:=TKraftRayCastVehicle.TSettings.TWheel.Create(self);
+     try
+      Wheel.fName:=TPasJSONItemObject(JSONItem).Keys[Index];
+      Wheel.LoadFromJSON(OtherJSONItem);
+      fWheels.Add(Wheel);
+     except
+      FreeAndNil(Wheel);
+      raise;
+     end;
+    end;
+   end;
+  end;
+
+  fAxles.Clear;
+  JSONItem:=TPasJSONItemObject(aJSONItem).Properties['axles'];
+  if assigned(JSONItem) and (JSONItem is TPasJSONItemObject) then begin
+   for Index:=0 to TPasJSONItemObject(JSONItem).Count-1 do begin
+    OtherJSONItem:=TPasJSONItemObject(JSONItem).Values[Index];
+    if assigned(OtherJSONItem) and (OtherJSONItem is TPasJSONItemObject) then begin
+     Axle:=TKraftRayCastVehicle.TSettings.TAxle.Create(self);
+     try
+      Axle.fName:=TPasJSONItemObject(JSONItem).Keys[Index];
+      Axle.LoadFromJSON(OtherJSONItem);
+      fAxles.Add(Axle);
+     except
+      FreeAndNil(Axle);
+      raise;
+     end;
+    end;
+   end;
+  end;
+
+  fAckermannGroups.Clear;
+  JSONItem:=TPasJSONItemObject(aJSONItem).Properties['ackermanngroups'];
+  if assigned(JSONItem) and (JSONItem is TPasJSONItemObject) then begin
+   for Index:=0 to TPasJSONItemObject(JSONItem).Count-1 do begin
+    OtherJSONItem:=TPasJSONItemObject(JSONItem).Values[Index];
+    if assigned(OtherJSONItem) and (OtherJSONItem is TPasJSONItemObject) then begin
+     AckermannGroup:=TKraftRayCastVehicle.TSettings.TAckermannGroup.Create(self);
+     try
+      AckermannGroup.fName:=TPasJSONItemObject(JSONItem).Keys[Index];
+      AckermannGroup.LoadFromJSON(OtherJSONItem);
+      fAckermannGroups.Add(AckermannGroup);
+     except
+      FreeAndNil(AckermannGroup);
+      raise;
+     end;
+    end;
+   end;
+  end;
+
+ end;
+end;
+
+function TKraftRayCastVehicle.TSettings.SaveToJSON:TPasJSONItem;
+var Index:TPasJSONSizeInt;
+    Wheel:TKraftRayCastVehicle.TSettings.TWheel;
+    Axle:TKraftRayCastVehicle.TSettings.TAxle;
+    AckermannGroup:TKraftRayCastVehicle.TSettings.TAckermannGroup;
+    JSONItem,SubJSONItem:TPasJSONItem;
+begin
+ 
+ result:=TPasJSONItemObject.Create;
+
+ TPasJSONItemObject(result).Add('width',TPasJSONItemNumber.Create(fWidth));
+ 
+ TPasJSONItemObject(result).Add('height',TPasJSONItemNumber.Create(fHeight));
+ 
+ TPasJSONItemObject(result).Add('length',TPasJSONItemNumber.Create(fLength));
+ 
+ TPasJSONItemObject(result).Add('angularvelocitydamp',TPasJSONItemNumber.Create(fAngularVelocityDamp));
+ 
+ TPasJSONItemObject(result).Add('linearvelocitydamp',TPasJSONItemNumber.Create(fLinearVelocityDamp));
+ 
+ TPasJSONItemObject(result).Add('rigidbodyrestitution',TPasJSONItemNumber.Create(fRigidBodyRestitution));
+ 
+ TPasJSONItemObject(result).Add('rigidbodydensity',TPasJSONItemNumber.Create(fRigidBodyDensity));
+ 
+ TPasJSONItemObject(result).Add('rigidbodyfriction',TPasJSONItemNumber.Create(fRigidBodyFriction));
+ 
+ TPasJSONItemObject(result).Add('centerofmass',Vector3ToJSON(fCenterOfMass));
+
+ TPasJSONItemObject(result).Add('chassismass',TPasJSONItemNumber.Create(fChassisMass));
+
+ TPasJSONItemObject(result).Add('airresistance',TPasJSONItemNumber.Create(fAirResistance));
+
+ TPasJSONItemObject(result).Add('handbrakeslipperytime',TPasJSONItemNumber.Create(fHandBrakeSlipperyTime));
+ 
+ TPasJSONItemObject(result).Add('useaccelerationcurveenvelopes',TPasJSONItemBoolean.Create(fUseAccelerationCurveEnvelopes));
+
+ TPasJSONItemObject(result).Add('accelerationcurveenvelope',fAccelerationCurveEnvelope.SaveToJSON);
+
+ TPasJSONItemObject(result).Add('reverseaccelerationcurveenvelope',fReverseAccelerationCurveEnvelope.SaveToJSON);
+ TPasJSONItemObject(result).Add('reverseevaluationaccuracy',TPasJSONItemNumber.Create(fReverseEvaluationAccuracy));
+
+ TPasJSONItemObject(result).Add('steeranglelimitenvelope',fSteerAngleLimitEnvelope.SaveToJSON);
+
+ TPasJSONItemObject(result).Add('steeringresetspeedenvelope',fSteeringResetSpeedEnvelope.SaveToJSON);
+
+ TPasJSONItemObject(result).Add('steeringspeedenvelope',fSteeringSpeedEnvelope.SaveToJSON);
+
+ TPasJSONItemObject(result).Add('downforcecurveenvelope',fDownForceCurveEnvelope.SaveToJSON);
+ TPasJSONItemObject(result).Add('downforce',TPasJSONItemNumber.Create(fDownForce));
+
+ TPasJSONItemObject(result).Add('flightstabilizationdamping',TPasJSONItemNumber.Create(fFlightStabilizationDamping));
+ TPasJSONItemObject(result).Add('flightstabilizationforce',TPasJSONItemNumber.Create(fFlightStabilizationForce));
+   
+ JSONItem:=TPasJSONItemObject.Create;
+ try
+  for Index:=0 to fWheels.Count-1 do begin
+   Wheel:=fWheels[Index];
+   if assigned(Wheel) then begin
+    SubJSONItem:=Wheel.SaveToJSON;
+    if assigned(SubJSONItem) then begin
+     try
+      if SubJSONItem is TPasJSONItemObject then begin
+       TPasJSONItemObject(SubJSONItem).Delete('name'); // Don't have the name also in the child object, because it is already in the parent object as the key
+      end;
+      TPasJSONItemObject(JSONItem).Add(Wheel.fName,SubJSONItem);
+     except
+      FreeAndNil(SubJSONItem);
+      raise;
+     end;
+    end; 
+   end;
+  end; 
+ finally
+  TPasJSONItemObject(result).Add('wheels',JSONItem);
+ end;
+
+ JSONItem:=TPasJSONItemObject.Create;
+ try
+  for Index:=0 to fAxles.Count-1 do begin
+   Axle:=fAxles[Index];
+   if assigned(Axle) then begin
+    SubJSONItem:=Axle.SaveToJSON;
+    if assigned(SubJSONItem) then begin
+     try
+      if SubJSONItem is TPasJSONItemObject then begin
+       TPasJSONItemObject(SubJSONItem).Delete('name'); // Don't have the name also in the child object, because it is already in the parent object as the key
+      end;
+      TPasJSONItemObject(JSONItem).Add(Axle.fName,SubJSONItem);
+     except
+      FreeAndNil(SubJSONItem);
+      raise;
+     end;
+    end; 
+   end;
+  end; 
+ finally
+  TPasJSONItemObject(result).Add('axles',JSONItem);
+ end;
+
+ JSONItem:=TPasJSONItemObject.Create;
+ try
+  for Index:=0 to fAckermannGroups.Count-1 do begin
+   AckermannGroup:=fAckermannGroups[Index];
+   if assigned(AckermannGroup) then begin
+    SubJSONItem:=AckermannGroup.SaveToJSON;
+    if assigned(SubJSONItem) then begin
+     try
+      if SubJSONItem is TPasJSONItemObject then begin
+       TPasJSONItemObject(SubJSONItem).Delete('name'); // Don't have the name also in the child object, because it is already in the parent object as the key
+      end;
+      TPasJSONItemObject(JSONItem).Add(AckermannGroup.fName,SubJSONItem);
+     except
+      FreeAndNil(SubJSONItem);
+      raise;
+     end;
+    end; 
+   end;
+  end; 
+ finally
+  TPasJSONItemObject(result).Add('ackermanngroups',JSONItem);
+ end;
+
+end;
+
+{$endif}
+
 { TKraftRayCastVehicle.TWheel }
 
-constructor TKraftRayCastVehicle.TWheel.Create(const aVehicle:TKraftRayCastVehicle;const aWheelID:TKraftRayCastVehicle.TWheelID);
+constructor TKraftRayCastVehicle.TWheel.Create(const aVehicle:TKraftRayCastVehicle;const aSettings:TKraftRayCastVehicle.TSettings.TWheel);
 begin
  inherited Create;
  fVehicle:=aVehicle;
- fWheelID:=aWheelID;
+ fSettings:=aSettings;
  fAxle:=nil;
  fSpring.fCurrentLength:=0.0;
  fSpring.fCurrentVelocity:=0.0;
@@ -1062,26 +1867,8 @@ begin
 end;
 
 function TKraftRayCastVehicle.TWheel.GetSpringRelativePosition:TKraftVector3;
-var BoxSize:TKraftVector3;
 begin
- BoxSize:=Vector3(fVehicle.fSettings.fWidth,fVehicle.fSettings.fHeight,fVehicle.fSettings.fLength);
- case fWheelID of
-  TWheelID.FrontLeft:begin
-   result:=Vector3(BoxSize.x*(fVehicle.fSettings.fFrontWheelsPaddingX-0.5),fVehicle.fSettings.fWheelsHeight,BoxSize.z*(0.5-fVehicle.fSettings.fFrontWheelsPaddingZ));
-  end;
-  TWheelID.FrontRight:begin
-   result:=Vector3(BoxSize.x*(0.5-fVehicle.fSettings.fFrontWheelsPaddingX),fVehicle.fSettings.fWheelsHeight,BoxSize.z*(0.5-fVehicle.fSettings.fFrontWheelsPaddingZ));
-  end;
-  TWheelID.RearLeft:begin
-   result:=Vector3(BoxSize.x*(fVehicle.fSettings.fRearWheelsPaddingX-0.5),fVehicle.fSettings.fWheelsHeight,BoxSize.z*(fVehicle.fSettings.fRearWheelsPaddingZ-0.5));
-  end;
-  TWheelID.RearRight:begin
-   result:=Vector3(BoxSize.x*(0.5-fVehicle.fSettings.fRearWheelsPaddingX),fVehicle.fSettings.fWheelsHeight,BoxSize.z*(fVehicle.fSettings.fRearWheelsPaddingZ-0.5));
-  end;
-  else begin
-   result:=Vector3(0.0,0.0,0.0);
-  end;
- end;
+ result:=Vector3(fSettings.fOffset.x,fSettings.fHeight,fSettings.fOffset.y);
 end;
 
 function TKraftRayCastVehicle.TWheel.GetSpringPosition:TKraftVector3;
@@ -1096,7 +1883,7 @@ end;
 
 function TKraftRayCastVehicle.TWheel.GetWheelLongitudinalDirection:TKraftVector3;
 begin
- if fWheelID in [TWheelID.FrontLeft,TWheelID.FrontRight] then begin
+ if fSettings.fSteering then begin
   result:=Vector3TermQuaternionRotate(fVehicle.fWorldForward,QuaternionFromAxisAngle(Vector3(0.0,1.0,0.0),fYawRad));
  end else begin
   result:=fVehicle.fWorldForward;
@@ -1109,26 +1896,8 @@ begin
 end;
 
 function TKraftRayCastVehicle.TWheel.GetWheelTorqueRelativePosition:TKraftVector3;
-var BoxSize:TKraftVector3;
 begin
- BoxSize:=Vector3(fVehicle.fSettings.fWidth,fVehicle.fSettings.fHeight,fVehicle.fSettings.fLength);
- case fWheelID of
-  TWheelID.FrontLeft:begin
-   result:=Vector3(BoxSize.x*(fVehicle.fSettings.fFrontWheelsPaddingX-0.5),0.0,BoxSize.z*(0.5-fVehicle.fSettings.fFrontWheelsPaddingZ));
-  end;
-  TWheelID.FrontRight:begin
-   result:=Vector3(BoxSize.x*(0.5-fVehicle.fSettings.fFrontWheelsPaddingX),0.0,BoxSize.z*(0.5-fVehicle.fSettings.fFrontWheelsPaddingZ));
-  end;
-  TWheelID.RearLeft:begin
-   result:=Vector3(BoxSize.x*(fVehicle.fSettings.fRearWheelsPaddingX-0.5),0.0,BoxSize.z*(fVehicle.fSettings.fRearWheelsPaddingZ-0.5));
-  end;
-  TWheelID.RearRight:begin
-   result:=Vector3(BoxSize.x*(0.5-fVehicle.fSettings.fRearWheelsPaddingX),0.0,BoxSize.z*(fVehicle.fSettings.fRearWheelsPaddingZ-0.5));
-  end;
-  else begin
-   result:=Vector3(0.0,0.0,0.0);
-  end;
- end;
+ result:=Vector3(fSettings.fOffset.x,0,fSettings.fOffset.y);
 end;
 
 function TKraftRayCastVehicle.TWheel.GetWheelTorquePosition:TKraftVector3;
@@ -1138,11 +1907,7 @@ end;
 
 function TKraftRayCastVehicle.TWheel.GetWheelGripFactor:TKraftScalar;
 begin
- if assigned(fAxle) then begin
-  result:=fAxle.GetWheelGripFactor;
- end else begin
-  result:=0.0;
- end;
+ result:=fSettings.fGripFactor;
 end;
 
 function TKraftRayCastVehicle.TWheel.GetWheelTransform:TKraftMatrix4x4;
@@ -1150,7 +1915,7 @@ var {LocalWheelPosition,}WorldWheelPosition:TKraftVector3;
     LocalWheelRotation,WorldWheelRotation:TKraftQuaternion;
 begin
  LocalWheelRotation:=QuaternionFromAngles(fYawRad,0.0,fRotationRad);
- WorldWheelPosition:=Vector3Add(GetSpringPosition,Vector3ScalarMul(fVehicle.fWorldDown,fSpring.fCurrentLength-fVehicle.fSettings.fWheelsRadius));
+ WorldWheelPosition:=Vector3Add(GetSpringPosition,Vector3ScalarMul(fVehicle.fWorldDown,fSpring.fCurrentLength-fSettings.fRadius));
  WorldWheelRotation:=QuaternionMul(fVehicle.fRigidBody.Sweep.q,LocalWheelRotation);
  result:=QuaternionToMatrix4x4(WorldWheelRotation);
  PKraftVector3(@result[3,0])^.xyz:=WorldWheelPosition.xyz;
@@ -1158,7 +1923,7 @@ end;
 
 function TKraftRayCastVehicle.TWheel.IsGrounded:boolean;
 begin
- result:=fSpring.fCurrentLength<fVehicle.fSettings.fSpringRestLength;
+ result:=fSpring.fCurrentLength<fSettings.fSuspensionRestLength;
 end;
 
 procedure TKraftRayCastVehicle.TWheel.CastSpring;
@@ -1169,24 +1934,24 @@ begin
  RayOrigin:=GetSpringPosition;
  PreviousLength:=fSpring.fCurrentLength;
  RayDirection:=fVehicle.fWorldDown;
- if fVehicle.fSettings.fUseSphereCast then begin
-  RayLength:=fVehicle.fSettings.fSpringRestLength-fVehicle.fSettings.WheelsRadius;
-  if fVehicle.fPhysics.SphereCast(RayOrigin,fVehicle.fSettings.WheelsRadius,RayDirection,RayLength,HitShape,HitTime,HitPoint,HitNormal,fVehicle.fCastCollisionGroup,fVehicle.RayCastFilter) then begin
-   CurrentLength:=HitTime+fVehicle.fSettings.WheelsRadius;
+ if fSettings.fUseSphereCast then begin
+  RayLength:=fSettings.fSuspensionRestLength-fSettings.fRadius;
+  if fVehicle.fPhysics.SphereCast(RayOrigin,fSettings.fRadius,RayDirection,RayLength,HitShape,HitTime,HitPoint,HitNormal,fVehicle.fCastCollisionGroup,fVehicle.RayCastFilter) then begin
+   CurrentLength:=HitTime+fSettings.fRadius;
   end else begin
-   CurrentLength:=fVehicle.fSettings.fSpringRestLength;
+   CurrentLength:=fSettings.fSuspensionRestLength;
   end;
  end else begin
-  RayLength:=fVehicle.fSettings.fSpringRestLength;
+  RayLength:=fSettings.fSuspensionRestLength;
   if fVehicle.fPhysics.RayCast(RayOrigin,RayDirection,RayLength,HitShape,HitTime,HitPoint,HitNormal,fVehicle.fCastCollisionGroup,fVehicle.RayCastFilter) then begin
    CurrentLength:=HitTime;
   end else begin
-   CurrentLength:=fVehicle.fSettings.fSpringRestLength;
+   CurrentLength:=fSettings.fSuspensionRestLength;
   end;
  end;
  fSpring.fCurrentVelocity:=(CurrentLength-PreviousLength)*fVehicle.fInverseDeltaTime;
  fSpring.fCurrentLength:=CurrentLength;
- fSpring.fCompression:=1.0-Clamp01(CurrentLength/fVehicle.fSettings.fSpringRestLength);
+ fSpring.fCompression:=1.0-Clamp01(CurrentLength/fSettings.fSuspensionRestLength);
 end;
 
 procedure TKraftRayCastVehicle.TWheel.UpdateSuspension;
@@ -1197,9 +1962,9 @@ begin
  CurrentVelocity:=fSpring.fCurrentVelocity;
  Force:=TKraftRayCastVehicle.TSpringMath.CalculateForceDamped(CurrentLength,
                                                               CurrentVelocity,
-                                                              fVehicle.fSettings.fSpringRestLength,
-                                                              fVehicle.fSettings.fSpringStrength,
-                                                              fVehicle.fSettings.fSpringDamper);
+                                                              fSettings.fSuspensionRestLength,
+                                                              fSettings.fSuspensionStrength,
+                                                              fSettings.fSuspensionDamping);
  if abs(Force)>EPSILON then begin
   fVehicle.fRigidBody.AddForceAtPosition(Vector3ScalarMul(fVehicle.fWorldUp,Force),GetSpringPosition,kfmForce,false);
  end;
@@ -1222,26 +1987,17 @@ begin
 
    SlipperyK:=1.0;
 
-   if assigned(fAxle) and (fAxle.fAxleID=TAxleID.Front) then begin
-    AfterFlightSlipperyK:=fVehicle.fSettings.fFrontAfterFlightSlipperyK;
-    BrakeSlipperyK:=fVehicle.fSettings.fFrontBrakeSlipperyK;
-    HandBrakeSlipperyK:=fVehicle.fSettings.fFrontHandBrakeSlipperyK;
-    DriftSlipperyK:=fVehicle.fSettings.fFrontDriftSlipperyK;
-   end else begin
-    AfterFlightSlipperyK:=fVehicle.fSettings.fRearAfterFlightSlipperyK;
-    BrakeSlipperyK:=fVehicle.fSettings.fRearBrakeSlipperyK;
-    HandBrakeSlipperyK:=fVehicle.fSettings.fRearHandBrakeSlipperyK;
-    DriftSlipperyK:=fVehicle.fSettings.fRearDriftSlipperyK;
-   end;
-
+   AfterFlightSlipperyK:=fSettings.fAfterFlightSlipperyK;
    if (fVehicle.fAfterFlightSlipperyTiresTime>0.0) and not IsZero(AfterFlightSlipperyK) then begin
     SlipperyK:=Min(SlipperyK,Lerp(1.0,AfterFlightSlipperyK,Clamp01(fVehicle.fAfterFlightSlipperyTiresTime)));
    end;
 
+   BrakeSlipperyK:=fSettings.fBrakeSlipperyK;
    if (fVehicle.fBrakeSlipperyTiresTime>0.0) and not IsZero(BrakeSlipperyK) then begin
     SlipperyK:=Min(SlipperyK,Lerp(1.0,BrakeSlipperyK,Clamp01(fVehicle.fBrakeSlipperyTiresTime)));
    end;
 
+   HandBrakeSlipperyK:=fSettings.fHandBrakeSlipperyK;
    if not IsZero(HandBrakeSlipperyK) then begin
     HandBrakeK:=fVehicle.GetHandBrakeK;
     if HandBrakeK>0.0 then begin
@@ -1249,6 +2005,7 @@ begin
     end;
    end;
 
+   DriftSlipperyK:=fSettings.fDriftSlipperyK;
    if fVehicle.fIsDrift and not IsZero(DriftSlipperyK) then begin
     SlipperyK:=Min(SlipperyK,DriftSlipperyK);
    end;
@@ -1260,7 +2017,7 @@ begin
   LaterialVelocity:=Vector3Dot(LaterialDirection,fVehicle.fRigidBody.GetWorldLinearVelocityFromPoint(SpringPosition));
   DesiredVelocityChange:=-(LaterialVelocity*GetWheelGripFactor*SlipperyK);
   DesiredAcceleration:=DesiredVelocityChange*fVehicle.fInverseDeltaTime;
-  Force:=Vector3ScalarMul(LaterialDirection,DesiredAcceleration*fVehicle.fSettings.fTireMass);
+  Force:=Vector3ScalarMul(LaterialDirection,DesiredAcceleration*fSettings.fMass);
 {$ifdef DebugDraw}
   Vector3DirectAdd(fDebugLaterialForce,Force);
 {$endif}
@@ -1278,10 +2035,8 @@ begin
  fDebugAccelerationForce:=Vector3Origin;
 {$endif}
 
- // If the wheel at the current axle is not powered, then exit
- if assigned(fAxle) and 
-    (((fAxle.fAxleID=TAxleID.Front) and not fVehicle.fSettings.fFrontPowered) or
-     ((fAxle.fAxleID=TAxleID.Rear) and not fVehicle.fSettings.fRearPowered)) then begin
+ // If the wheel is not powered, then exit
+ if not fSettings.fPowered then begin
   exit;
  end;
     
@@ -1289,15 +2044,15 @@ begin
     ((not fVehicle.fSettings.fUseAccelerationCurveEnvelopes) and not IsZero(fVehicle.fAccelerationInput)) then begin
 
   if IsGrounded and
-     ((fVehicle.fMovingForward and (IsZero(fVehicle.fSettings.fMaximumSpeed) or (fVehicle.fAbsoluteSpeed<fVehicle.fSettings.fMaximumSpeed))) or
-      ((not fVehicle.fMovingForward) and (IsZero(fVehicle.fSettings.fMaximumReverseSpeed) or (fVehicle.fAbsoluteSpeed<fVehicle.fSettings.fMaximumReverseSpeed)))) then begin
+     ((fVehicle.fMovingForward and (IsZero(fSettings.fMaximumSpeed) or (fVehicle.fAbsoluteSpeed<fSettings.fMaximumSpeed))) or
+      ((not fVehicle.fMovingForward) and (IsZero(fSettings.fMaximumReverseSpeed) or (fVehicle.fAbsoluteSpeed<fSettings.fMaximumReverseSpeed)))) then begin
 
    WheelForward:=GetWheelLongitudinalDirection;
 
    if fVehicle.fSettings.fUseAccelerationCurveEnvelopes then begin
     Force:=Vector3ScalarMul(WheelForward,(fVehicle.fAccelerationForceMagnitude/fVehicle.fCountPoweredWheels)*fVehicle.fInverseDeltaTime);
    end else begin
-    Force:=Vector3ScalarMul(WheelForward,fVehicle.fAccelerationInput*(fVehicle.fSettings.fAccelerationForce/fVehicle.fCountPoweredWheels));
+    Force:=Vector3ScalarMul(WheelForward,fVehicle.fAccelerationInput*fSettings.fAccelerationForce);
    end;
 
 {$ifdef DebugDraw}
@@ -1378,12 +2133,12 @@ begin
   LongitudinalVelocity:=Vector3Dot(LongitudinalDirection,fVehicle.fRigidBody.GetWorldLinearVelocityFromPoint(SpringPosition));
   Force:=Vector3Origin;
   if not IsZero(BrakeRatio) then begin
-   DesiredVelocityChange:=-Clamp(BrakeRatio*(fVehicle.fSettings.fBrakeForce/TKraftRayCastVehicle.CountWheels),0.0,abs(LongitudinalVelocity))*Sign(LongitudinalVelocity);
+   DesiredVelocityChange:=-Clamp(BrakeRatio*fSettings.fBrakeForce,0.0,abs(LongitudinalVelocity))*Sign(LongitudinalVelocity);
    DesiredAcceleration:=DesiredVelocityChange*fVehicle.fInverseDeltaTime;
    Vector3DirectAdd(Force,Vector3ScalarMul(LongitudinalDirection,DesiredAcceleration));
   end;
   if not IsZero(RollingFrictionRatio) then begin
-   Vector3DirectAdd(Force,Vector3ScalarMul(LongitudinalDirection,-(LongitudinalVelocity*RollingFrictionRatio*(1.0-Clamp01(fVehicle.fSettings.fRollingFriction)))));
+   Vector3DirectAdd(Force,Vector3ScalarMul(LongitudinalDirection,-(LongitudinalVelocity*RollingFrictionRatio*(1.0-Clamp01(fSettings.fRollingFriction)))));
   end;
 {$ifdef DebugDraw}
   Vector3DirectAdd(fDebugLongitudinalForce,Force);
@@ -1397,8 +2152,7 @@ end;
 
 procedure TKraftRayCastVehicle.TWheel.UpdateWheelRotation;
 const TwoPI=2.0*PI;
-var WheelID:TWheelID;
-    WorldWheelPosition,WorldWheelForward,VelocityQueryPos,WheelVelocity:TKraftVector3;
+var WorldWheelPosition,WorldWheelForward,VelocityQueryPos,WheelVelocity:TKraftVector3;
     LocalWheelRotation,WorldWheelRotation:TKraftQuaternion;
     TireLongSpeed,WheelLengthMeters,RevolutionsPerSecond,DeltaRotation:TKraftScalar;
 begin
@@ -1417,7 +2171,7 @@ begin
  TireLongSpeed:=Vector3Dot(WheelVelocity,WorldWheelForward);
 
  // Circle length = 2 * PI * R
- WheelLengthMeters:=TwoPI*fVehicle.fSettings.fWheelsRadius;
+ WheelLengthMeters:=TwoPI*fSettings.fRadius;
 
  // Wheel "Revolutions per second";
  RevolutionsPerSecond:=TireLongSpeed/WheelLengthMeters;
@@ -1463,21 +2217,34 @@ end;
 
 { TKraftRayCastVehicle.TAxle }
 
-constructor TKraftRayCastVehicle.TAxle.Create(const aVehicle:TKraftRayCastVehicle;const aAxleID:TKraftRayCastVehicle.TAxleID;const aWheelLeft,aWheelRight:TKraftRayCastVehicle.TWheel);
+constructor TKraftRayCastVehicle.TAxle.Create(const aVehicle:TKraftRayCastVehicle;const aSettings:TKraftRayCastVehicle.TSettings.TAxle);
+var Index,OtherIndex:TPasJSONSizeInt;
+    SettingWheel:TKraftRayCastVehicle.TSettings.TWheel;
+    Wheel:TKraftRayCastVehicle.TWheel;
 begin
 
  inherited Create;
 
  fVehicle:=aVehicle;
 
- fAxleID:=aAxleID;
+ fSettings:=aSettings;
 
- fWheelLeft:=aWheelLeft;
- fWheelLeft.fAxle:=self;
+ fAckermannGroup:=nil;
 
- fWheelRight:=aWheelRight;
- fWheelRight.fAxle:=self;
- 
+ fWheels:=TKraftRayCastVehicle.TWheels.Create(false);
+
+ for Index:=0 to fSettings.fWheels.Count-1 do begin
+  SettingWheel:=fSettings.fWheels[Index];
+  for OtherIndex:=0 to fVehicle.fWheels.Count-1 do begin
+   Wheel:=fVehicle.fWheels[OtherIndex];
+   if Wheel.fSettings=SettingWheel then begin
+    Wheel.fAxle:=self;
+    fWheels.Add(Wheel);
+    break;
+   end;
+  end;
+ end;
+
 end;
 
 destructor TKraftRayCastVehicle.TAxle.Destroy;
@@ -1485,244 +2252,118 @@ begin
  inherited Destroy;
 end;
 
-function TKraftRayCastVehicle.TAxle.GetWheelGripFactor:TKraftScalar;
-begin
- case fAxleID of
-  TAxleID.Front:begin
-   result:=fVehicle.fSettings.fFrontWheelsGripFactor;
-  end;
-  TAxleID.Rear:begin
-   result:=fVehicle.fSettings.fRearWheelsGripFactor;
-  end;
-  else begin
-   result:=0.0;
-  end;
- end;
-end;
-
 procedure TKraftRayCastVehicle.TAxle.UpdateAntiRollBar;
 var TravelL,TravelR,AntiRollForce:TKraftScalar;
+    WheelLeft,WheelRight:TKraftRayCastVehicle.TWheel;
 begin
- if not IsZero(fVehicle.fSettings.fStabilizerBarAntiRollForce) then begin
-  TravelL:=1.0-Clamp01(fWheelLeft.fSpring.fCompression);
-  TravelR:=1.0-Clamp01(fWheelRight.fSpring.fCompression);
-  AntiRollForce:=(TravelL-TravelR)*fVehicle.fSettings.fStabilizerBarAntiRollForce;
-  if fWheelLeft.IsGrounded and (abs(AntiRollForce)>EPSILON) then begin
-   fVehicle.fRigidBody.AddForceAtPosition(Vector3ScalarMul(fVehicle.fWorldDown,AntiRollForce),fWheelLeft.GetSpringHitPosition,kfmForce,false);
+ if (fWheels.Count=2) and not IsZero(fSettings.fStabilizerBarAntiRollForce) then begin
+  WheelLeft:=fWheels[0];
+  WheelRight:=fWheels[1];
+  TravelL:=1.0-Clamp01(WheelLeft.fSpring.fCompression);
+  TravelR:=1.0-Clamp01(WheelRight.fSpring.fCompression);
+  AntiRollForce:=(TravelL-TravelR)*fSettings.fStabilizerBarAntiRollForce;
+  if WheelLeft.IsGrounded and (abs(AntiRollForce)>EPSILON) then begin
+   fVehicle.fRigidBody.AddForceAtPosition(Vector3ScalarMul(fVehicle.fWorldDown,AntiRollForce),WheelLeft.GetSpringHitPosition,kfmForce,false);
 {$ifdef DebugDraw}
-   fWheelLeft.fDebugAntiRollForce:=Vector3ScalarMul(fVehicle.fWorldDown,AntiRollForce);
+   WheelLeft.fDebugAntiRollForce:=Vector3ScalarMul(fVehicle.fWorldDown,AntiRollForce);
 {$endif}
   end else begin
 {$ifdef DebugDraw}
-   fWheelLeft.fDebugAntiRollForce:=Vector3Origin;
+   WheelLeft.fDebugAntiRollForce:=Vector3Origin;
 {$endif}
   end;
-  if fWheelRight.IsGrounded and (abs(AntiRollForce)>EPSILON) then begin
-   fVehicle.fRigidBody.AddForceAtPosition(Vector3ScalarMul(fVehicle.fWorldDown,-AntiRollForce),fWheelRight.GetSpringHitPosition,kfmForce,false);
+  if WheelRight.IsGrounded and (abs(AntiRollForce)>EPSILON) then begin
+   fVehicle.fRigidBody.AddForceAtPosition(Vector3ScalarMul(fVehicle.fWorldDown,-AntiRollForce),WheelRight.GetSpringHitPosition,kfmForce,false);
 {$ifdef DebugDraw}
-   fWheelRight.fDebugAntiRollForce:=Vector3ScalarMul(fVehicle.fWorldDown,-AntiRollForce);
+   WheelRight.fDebugAntiRollForce:=Vector3ScalarMul(fVehicle.fWorldDown,-AntiRollForce);
 {$endif}
   end else begin
 {$ifdef DebugDraw}
-   fWheelRight.fDebugAntiRollForce:=Vector3Origin;
+   WheelRight.fDebugAntiRollForce:=Vector3Origin;
 {$endif}
   end;
  end;
 end;
 
-{ TKraftRayCastVehicle.TVehicleSettings }
+{ TKraftRayCastVehicle.TAckermannGroup }
 
-constructor TKraftRayCastVehicle.TVehicleSettings.Create;
+constructor TKraftRayCastVehicle.TAckermannGroup.Create(const aVehicle:TKraftRayCastVehicle;const aSettings:TKraftRayCastVehicle.TSettings.TAckermannGroup);
+var Index,OtherIndex:TPasJSONSizeInt;
+    SettingAxle:TKraftRayCastVehicle.TSettings.TAxle;
+    Axle:TKraftRayCastVehicle.TAxle;
 begin
  inherited Create;
- fWidth:=1.9;
- fHeight:=0.75;
- fLength:=3.4;
- fAngularVelocityDamp:=0.0;//10.0;
- fLinearVelocityDamp:=0.0;//0.3275;
- fRigidBodyRestitution:=0.3;
- fRigidBodyDensity:=1.0;
- fRigidBodyFriction:=0.0;
- fCenterOfMass:=Vector3(0.0,-0.25,0.0);
- fWheelsRadius:=0.5;
- fWheelsHeight:=-0.25;
- fUseSphereCast:=true;
- fFrontPowered:=true;
- fRearPowered:=true;
- fFrontWheelsPaddingX:=0.06;
- fFrontWheelsPaddingZ:=0.12;
- fRearWheelsPaddingX:=0.06;
- fRearWheelsPaddingZ:=0.12;
- fChassisMass:=60;
- fTireMass:=1;
- fSpringRestLength:=0.8;
- fSpringStrength:=1200;
- fSpringDamper:=75.0;
- fStabilizerBarAntiRollForce:=100.0;
- fAccelerationForce:=1200.0;
- fBrakeForce:=4.0;
- fRollingFriction:=0.01;
- fMaximumSpeed:=10;
- fMaximumReverseSpeed:=2.5;
- fFrontWheelsGripFactor:=0.8;
- fRearWheelsGripFactor:=0.9;
- fFrontAfterFlightSlipperyK:=0.02;
- fFrontBrakeSlipperyK:=0.5;
- fFrontHandBrakeSlipperyK:=0.01;
- fFrontDriftSlipperyK:=0.01;
- fRearAfterFlightSlipperyK:=0.02;
- fRearBrakeSlipperyK:=0.5;
- fRearHandBrakeSlipperyK:=0.01;
- fRearDriftSlipperyK:=0.01;
- fAirResistance:=5.0;
- fHandBrakeSlipperyTime:=2.2;
- fUseAccelerationCurveEnvelopes:=true;
- fAccelerationCurveEnvelope:=TEnvelope.CreateLinear(0.0,0.0,5.0,300.0);
- fReverseAccelerationCurveEnvelope:=TEnvelope.CreateLinear(0.0,0.0,5.0,20.0);
- fReverseEvaluationAccuracy:=25;
- fSteerAngleLimitEnvelope:=TEnvelope.CreateLinear(0.0,35.0,100.0,5.0);
- fSteeringResetSpeedEnvelope:=TEnvelope.CreateEaseInOut(0.0,30.0,100.0,10.0,64);
- fSteeringSpeedEnvelope:=TEnvelope.CreateLinear(0.0,2.0,100.0,0.5);
- fDownForceCurveEnvelope:=TEnvelope.CreateLinear(0.0,0.0,200.0,100.0);
- fDownForce:=1.0;
- fFlightStabilizationForce:=1.0;
- fFlightStabilizationDamping:=0.1;
+ fVehicle:=aVehicle;
+ fSettings:=aSettings;
+ fAxles:=TKraftRayCastVehicle.TAxles.Create(false);
+ for Index:=0 to fSettings.fAxles.Count-1 do begin
+  SettingAxle:=fSettings.fAxles[Index];
+  for OtherIndex:=0 to fVehicle.fAxles.Count-1 do begin
+   Axle:=fVehicle.fAxles[OtherIndex];
+   if Axle.fSettings=SettingAxle then begin
+    Axle.fAckermannGroup:=self;
+    fAxles.Add(Axle);
+    break;
+   end;
+  end;
+ end;  
 end;
 
-destructor TKraftRayCastVehicle.TVehicleSettings.Destroy;
+destructor TKraftRayCastVehicle.TAckermannGroup.Destroy;
 begin
- FreeAndNil(fAccelerationCurveEnvelope);
- FreeAndNil(fReverseAccelerationCurveEnvelope);
- FreeAndNil(fSteerAngleLimitEnvelope);
- FreeAndNil(fSteeringResetSpeedEnvelope);
- FreeAndNil(fSteeringSpeedEnvelope);
- FreeAndNil(fDownForceCurveEnvelope);
+ FreeAndNil(fAxles);
  inherited Destroy;
 end;
 
-{$ifdef KraftPasJSON}
-procedure TKraftRayCastVehicle.TVehicleSettings.LoadFromJSON(const aJSONItem:TPasJSONItem);
+procedure TKraftRayCastVehicle.TAckermannGroup.UpdateAckermannSteering;
+var SteerAngleRad,AxleSeparation,WheelSeparation,TurningCircleRadius:TKraftScalar;
+    AxleDiff,WheelDiff:TKraftVector3;
+    WheelFrontLeft,WheelFrontRight,WheelRearLeft,WheelRearRight:TKraftRayCastVehicle.TWheel;
 begin
- if assigned(aJSONItem) and (aJSONItem is TPasJSONItemObject) then begin
-  fWidth:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['width'],fWidth);
-  fHeight:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['height'],fHeight);
-  fLength:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['length'],fLength);  
-  fAngularVelocityDamp:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['angularvelocitydamp'],fAngularVelocityDamp);
-  fLinearVelocityDamp:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['linearvelocitydamp'],fLinearVelocityDamp);
-  fRigidBodyRestitution:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['rigidbodyrestitution'],fRigidBodyRestitution);
-  fRigidBodyDensity:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['rigidbodydensity'],fRigidBodyDensity);
-  fRigidBodyFriction:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['rigidbodyfriction'],fRigidBodyFriction);
-  fCenterOfMass:=JSONToVector3(TPasJSONItemObject(aJSONItem).Properties['centerofmass']);
-  fWheelsRadius:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['wheelsradius'],fWheelsRadius);
-  fWheelsHeight:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['wheelsheight'],fWheelsHeight);
-  fUseSphereCast:=TPasJSON.GetBoolean(TPasJSONItemObject(aJSONItem).Properties['usespherecast'],fUseSphereCast);
-  fFrontPowered:=TPasJSON.GetBoolean(TPasJSONItemObject(aJSONItem).Properties['frontpowered'],fFrontPowered);
-  fRearPowered:=TPasJSON.GetBoolean(TPasJSONItemObject(aJSONItem).Properties['rearpowered'],fRearPowered);
-  fFrontWheelsPaddingX:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['frontwheelspaddingx'],fFrontWheelsPaddingX);
-  fFrontWheelsPaddingZ:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['frontwheelspaddingz'],fFrontWheelsPaddingZ);
-  fRearWheelsPaddingX:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['rearwheelspaddingx'],fRearWheelsPaddingX);
-  fRearWheelsPaddingZ:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['rearwheelspaddingz'],fRearWheelsPaddingZ);
-  fChassisMass:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['chassismass'],fChassisMass);
-  fTireMass:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['tiremass'],fTireMass);
-  fSpringRestLength:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['springrestlength'],fSpringRestLength);
-  fSpringStrength:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['springstrength'],fSpringStrength);
-  fSpringDamper:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['springdamper'],fSpringDamper);
-  fStabilizerBarAntiRollForce:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['stabilizerbarantirollforce'],fStabilizerBarAntiRollForce);
-  fAccelerationForce:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['accelerationforce'],fAccelerationForce);
-  fBrakeForce:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['brakeforce'],fBrakeForce);
-  fRollingFriction:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['rollingfriction'],fRollingFriction);
-  fMaximumSpeed:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['maximumspeed'],fMaximumSpeed);
-  fMaximumReverseSpeed:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['maximumreversespeed'],fMaximumReverseSpeed);
-  fFrontWheelsGripFactor:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['frontwheelsgripfactor'],fFrontWheelsGripFactor);
-  fRearWheelsGripFactor:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['rearwheelsgripfactor'],fRearWheelsGripFactor);
-  fFrontAfterFlightSlipperyK:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['frontafterflightslipperyk'],fFrontAfterFlightSlipperyK);
-  fFrontBrakeSlipperyK:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['frontbrakeslipperyk'],fFrontBrakeSlipperyK);
-  fFrontHandBrakeSlipperyK:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['fronthandbrakeslipperyk'],fFrontHandBrakeSlipperyK);
-  fFrontDriftSlipperyK:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['frontdriftslipperyk'],fFrontDriftSlipperyK);
-  fRearAfterFlightSlipperyK:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['rearafterflightslipperyk'],fRearAfterFlightSlipperyK);
-  fRearBrakeSlipperyK:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['rearbrakeslipperyk'],fRearBrakeSlipperyK);
-  fRearHandBrakeSlipperyK:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['rearhandbrakeslipperyk'],fRearHandBrakeSlipperyK);
-  fRearDriftSlipperyK:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['reardriftslipperyk'],fRearDriftSlipperyK);
-  fAirResistance:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['airresistance'],fAirResistance);
-  fHandBrakeSlipperyTime:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['handbrakeslipperytime'],fHandBrakeSlipperyTime);
-  fUseAccelerationCurveEnvelopes:=TPasJSON.GetBoolean(TPasJSONItemObject(aJSONItem).Properties['useaccelerationcurveenvelopes'],fUseAccelerationCurveEnvelopes);
-  fAccelerationCurveEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['accelerationcurveenvelope']);
-  fReverseAccelerationCurveEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['reverseaccelerationcurveenvelope']);
-  fReverseEvaluationAccuracy:=TPasJSON.GetInt64(TPasJSONItemObject(aJSONItem).Properties['reverseevaluationaccuracy'],fReverseEvaluationAccuracy);
-  fSteerAngleLimitEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['steeranglelimitenvelope']);
-  fSteeringResetSpeedEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['steeringresetspeedenvelope']);
-  fSteeringSpeedEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['steeringspeedenvelope']);
-  fDownForceCurveEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['downforcecurveenvelope']);
-  fDownForce:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['downforce'],fDownForce);
-  fFlightStabilizationDamping:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['flightstabilizationdamping'],fFlightStabilizationDamping);
-  fFlightStabilizationForce:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['flightstabilizationforce'],fFlightStabilizationForce);
- end; 
-end;
 
-function TKraftRayCastVehicle.TVehicleSettings.SaveToJSON:TPasJSONItem;
-begin
- result:=TPasJSONItemObject.Create;
- TPasJSONItemObject(result).Add('width',TPasJSONItemNumber.Create(fWidth));
- TPasJSONItemObject(result).Add('height',TPasJSONItemNumber.Create(fHeight));
- TPasJSONItemObject(result).Add('length',TPasJSONItemNumber.Create(fLength));
- TPasJSONItemObject(result).Add('angularvelocitydamp',TPasJSONItemNumber.Create(fAngularVelocityDamp));
- TPasJSONItemObject(result).Add('linearvelocitydamp',TPasJSONItemNumber.Create(fLinearVelocityDamp));
- TPasJSONItemObject(result).Add('rigidbodyrestitution',TPasJSONItemNumber.Create(fRigidBodyRestitution));
- TPasJSONItemObject(result).Add('rigidbodydensity',TPasJSONItemNumber.Create(fRigidBodyDensity));
- TPasJSONItemObject(result).Add('rigidbodyfriction',TPasJSONItemNumber.Create(fRigidBodyFriction));
- TPasJSONItemObject(result).Add('centerofmass',Vector3ToJSON(fCenterOfMass));
- TPasJSONItemObject(result).Add('wheelsradius',TPasJSONItemNumber.Create(fWheelsRadius));
- TPasJSONItemObject(result).Add('wheelsheight',TPasJSONItemNumber.Create(fWheelsHeight));
- TPasJSONItemObject(result).Add('usespherecast',TPasJSONItemBoolean.Create(fUseSphereCast));
- TPasJSONItemObject(result).Add('frontpowered',TPasJSONItemBoolean.Create(fFrontPowered));
- TPasJSONItemObject(result).Add('rearpowered',TPasJSONItemBoolean.Create(fRearPowered));
- TPasJSONItemObject(result).Add('frontwheelspaddingx',TPasJSONItemNumber.Create(fFrontWheelsPaddingX));
- TPasJSONItemObject(result).Add('frontwheelspaddingz',TPasJSONItemNumber.Create(fFrontWheelsPaddingZ));
- TPasJSONItemObject(result).Add('rearwheelspaddingx',TPasJSONItemNumber.Create(fRearWheelsPaddingX));
- TPasJSONItemObject(result).Add('rearwheelspaddingz',TPasJSONItemNumber.Create(fRearWheelsPaddingZ));
- TPasJSONItemObject(result).Add('chassismass',TPasJSONItemNumber.Create(fChassisMass));
- TPasJSONItemObject(result).Add('tiremass',TPasJSONItemNumber.Create(fTireMass));
- TPasJSONItemObject(result).Add('springrestlength',TPasJSONItemNumber.Create(fSpringRestLength));
- TPasJSONItemObject(result).Add('springstrength',TPasJSONItemNumber.Create(fSpringStrength));
- TPasJSONItemObject(result).Add('springdamper',TPasJSONItemNumber.Create(fSpringDamper));
- TPasJSONItemObject(result).Add('stabilizerbarantirollforce',TPasJSONItemNumber.Create(fStabilizerBarAntiRollForce));
- TPasJSONItemObject(result).Add('accelerationforce',TPasJSONItemNumber.Create(fAccelerationForce));
- TPasJSONItemObject(result).Add('brakeforce',TPasJSONItemNumber.Create(fBrakeForce));
- TPasJSONItemObject(result).Add('rollingfriction',TPasJSONItemNumber.Create(fRollingFriction));
- TPasJSONItemObject(result).Add('maximumspeed',TPasJSONItemNumber.Create(fMaximumSpeed));
- TPasJSONItemObject(result).Add('maximumreversespeed',TPasJSONItemNumber.Create(fMaximumReverseSpeed));
- TPasJSONItemObject(result).Add('frontwheelsgripfactor',TPasJSONItemNumber.Create(fFrontWheelsGripFactor));
- TPasJSONItemObject(result).Add('rearwheelsgripfactor',TPasJSONItemNumber.Create(fRearWheelsGripFactor));
- TPasJSONItemObject(result).Add('frontafterflightslipperyk',TPasJSONItemNumber.Create(fFrontAfterFlightSlipperyK));
- TPasJSONItemObject(result).Add('frontbrakeslipperyk',TPasJSONItemNumber.Create(fFrontBrakeSlipperyK));
- TPasJSONItemObject(result).Add('fronthandbrakeslipperyk',TPasJSONItemNumber.Create(fFrontHandBrakeSlipperyK));
- TPasJSONItemObject(result).Add('frontdriftslipperyk',TPasJSONItemNumber.Create(fFrontDriftSlipperyK));
- TPasJSONItemObject(result).Add('rearafterflightslipperyk',TPasJSONItemNumber.Create(fRearAfterFlightSlipperyK));
- TPasJSONItemObject(result).Add('rearbrakeslipperyk',TPasJSONItemNumber.Create(fRearBrakeSlipperyK));
- TPasJSONItemObject(result).Add('rearhandbrakeslipperyk',TPasJSONItemNumber.Create(fRearHandBrakeSlipperyK)); 
- TPasJSONItemObject(result).Add('reardriftslipperyk',TPasJSONItemNumber.Create(fRearDriftSlipperyK));
- TPasJSONItemObject(result).Add('airresistance',TPasJSONItemNumber.Create(fAirResistance));
- TPasJSONItemObject(result).Add('handbrakeslipperytime',TPasJSONItemNumber.Create(fHandBrakeSlipperyTime));
- TPasJSONItemObject(result).Add('useaccelerationcurveenvelopes',TPasJSONItemBoolean.Create(fUseAccelerationCurveEnvelopes));
- TPasJSONItemObject(result).Add('accelerationcurveenvelope',fAccelerationCurveEnvelope.SaveToJSON);
- TPasJSONItemObject(result).Add('reverseaccelerationcurveenvelope',fReverseAccelerationCurveEnvelope.SaveToJSON);
- TPasJSONItemObject(result).Add('reverseevaluationaccuracy',TPasJSONItemNumber.Create(fReverseEvaluationAccuracy));
- TPasJSONItemObject(result).Add('steeranglelimitenvelope',fSteerAngleLimitEnvelope.SaveToJSON);
- TPasJSONItemObject(result).Add('steeringresetspeedenvelope',fSteeringResetSpeedEnvelope.SaveToJSON);
- TPasJSONItemObject(result).Add('steeringspeedenvelope',fSteeringSpeedEnvelope.SaveToJSON);
- TPasJSONItemObject(result).Add('downforcecurveenvelope',fDownForceCurveEnvelope.SaveToJSON);
- TPasJSONItemObject(result).Add('downforce',TPasJSONItemNumber.Create(fDownForce));
- TPasJSONItemObject(result).Add('flightstabilizationdamping',TPasJSONItemNumber.Create(fFlightStabilizationDamping));
- TPasJSONItemObject(result).Add('flightstabilizationforce',TPasJSONItemNumber.Create(fFlightStabilizationForce));
+ if (fAxles.Count=2) and (fAxles[0].fWheels.Count=2) and (fAxles[1].fWheels.Count=2) then begin
+  
+  // Ackermann steering for 4 wheels in 2x2 configuration 
+
+  WheelFrontLeft:=fAxles[0].fWheels[0];
+  WheelFrontRight:=fAxles[0].fWheels[1];
+  WheelRearLeft:=fAxles[1].fWheels[0];
+  WheelRearRight:=fAxles[1].fWheels[1];
+
+  if (WheelFrontLeft.fSettings.fSteering and WheelFrontRight.fSettings.fSteering) and
+     ((not WheelRearLeft.fSettings.fSteering) and (not WheelRearRight.fSettings.fSteering)) then begin
+
+   // Front wheels are steering wheels and rear wheels are not steering wheels  
+
+   SteerAngleRad:=fVehicle.fSteeringAngle*DEG2RAD;
+
+   AxleDiff:=Vector3Sub(Vector3Avg(WheelFrontLeft.GetSpringPosition,WheelFrontRight.GetSpringPosition),
+                        Vector3Avg(WheelRearLeft.GetSpringPosition,WheelRearRight.GetSpringPosition));
+   AxleSeparation:=Vector3Length(AxleDiff);
+
+   WheelDiff:=Vector3Sub(WheelFrontLeft.GetSpringPosition,WheelFrontRight.GetSpringPosition);
+   WheelSeparation:=Vector3Length(WheelDiff);
+
+   TurningCircleRadius:=AxleSeparation/Tan(SteerAngleRad);
+   if IsNaN(TurningCircleRadius) then begin
+    TurningCircleRadius:=0.0;
+   end;
+
+   WheelFrontLeft.fYawRad:=ArcTan(AxleSeparation/(TurningCircleRadius+(WheelSeparation*0.5)));
+   WheelFrontRight.fYawRad:=ArcTan(AxleSeparation/(TurningCircleRadius-(WheelSeparation*0.5)));
+
+   WheelRearLeft.fYawRad:=0.0;
+   WheelRearRight.fYawRad:=0.0;
+   
+  end;
+ 
+ end;
+
 end;
-{$endif}
 
 { TKraftRayCastVehicle }
 
 constructor TKraftRayCastVehicle.Create(const aPhysics:TKraft);
-const AxleIDWheelID:array[TAxleID,0..1] of TWheelID=((TWheelID.FrontLeft,TWheelID.FrontRight),(TWheelID.RearLeft,TWheelID.RearRight));
-var WheelID:TWheelID;
-    AxleID:TAxleID;
 begin
  inherited Create;
  fPhysics:=aPhysics;
@@ -1733,26 +2374,18 @@ begin
  fForward:=Vector3(0.0,0.0,-1.0);
  fVelocity:=Vector3(0.0,0.0,0.0);
  fCastCollisionGroup:=[Low(TKraftRigidBodyCollisionGroup)..High(TKraftRigidBodyCollisionGroup)];
- fSettings:=TKraftRayCastVehicle.TVehicleSettings.Create;
- for WheelID:=Low(TWheelID) to High(TWheelID) do begin
-  fWheels[WheelID]:=TKraftRayCastVehicle.TWheel.Create(self,WheelID);
- end;
- for AxleID:=Low(TAxleID) to High(TAxleID) do begin
-  fAxles[AxleID]:=TKraftRayCastVehicle.TAxle.Create(self,AxleID,fWheels[AxleIDWheelID[AxleID,0]],fWheels[AxleIDWheelID[AxleID,1]]);
- end;
+ fSettings:=TKraftRayCastVehicle.TSettings.Create;
+ fWheels:=TKraftRayCastVehicle.TWheels.Create(true);
+ fAxles:=TKraftRayCastVehicle.TAxles.Create(true);
+ fAckermannGroups:=TKraftRayCastVehicle.TAckermannGroups.Create(true);
  Reset;
 end;
 
 destructor TKraftRayCastVehicle.Destroy;
-var WheelID:TWheelID;
-    AxleID:TAxleID;
 begin
- for WheelID:=Low(TWheelID) to High(TWheelID) do begin
-  FreeAndNil(fWheels[WheelID]);
- end;
- for AxleID:=Low(TAxleID) to High(TAxleID) do begin
-  FreeAndNil(fAxles[AxleID]);
- end;
+ FreeAndNil(fAckermannGroups);
+ FreeAndNil(fAxles);
+ FreeAndNil(fWheels);
  FreeAndNil(fSettings);
  inherited Destroy;
 end;
@@ -1778,9 +2411,50 @@ begin
 end;
 
 procedure TKraftRayCastVehicle.Finish;
+var Index:TKraftInt32;
+    SettingWheel:TKraftRayCastVehicle.TSettings.TWheel;
+    SettingAxle:TKraftRayCastVehicle.TSettings.TAxle;
+    SettingAckermannGroup:TKraftRayCastVehicle.TSettings.TAckermannGroup;
+    Wheel:TKraftRayCastVehicle.TWheel;
+    Axle:TKraftRayCastVehicle.TAxle;
+    AckermannGroup:TKraftRayCastVehicle.TAckermannGroup;
+    MassSum:TKraftScalar;
 begin
- 
+
+ fWheels.Clear;
+ fCountPoweredWheels:=0;
+ for Index:=0 to fSettings.fWheels.Count-1 do begin
+  SettingWheel:=fSettings.fWheels[Index];
+  Wheel:=TKraftRayCastVehicle.TWheel.Create(self,SettingWheel);
+  if Wheel.fSettings.fPowered then begin
+   inc(fCountPoweredWheels);
+  end;
+  fWheels.Add(Wheel);
+ end;
+
+ fAxles.Clear;
+ for Index:=0 to fSettings.fAxles.Count-1 do begin
+  SettingAxle:=fSettings.fAxles[Index];
+  Axle:=TKraftRayCastVehicle.TAxle.Create(self,SettingAxle);
+  fAxles.Add(Axle);
+ end;
+
+ fAckermannGroups.Clear;
+ for Index:=0 to fSettings.fAckermannGroups.Count-1 do begin
+  SettingAckermannGroup:=fSettings.fAckermannGroups[Index];
+  AckermannGroup:=TKraftRayCastVehicle.TAckermannGroup.Create(self,SettingAckermannGroup);
+  fAckermannGroups.Add(AckermannGroup);
+ end;
+
  if not (assigned(fRigidBody) and assigned(fShape)) then begin
+
+  MassSum:=fSettings.fChassisMass;
+  for Index:=0 to fWheels.Count-1 do begin
+   Wheel:=fWheels[Index];
+   if assigned(Wheel) then begin
+    MassSum:=MassSum+Wheel.fSettings.fMass;
+   end;
+  end;
   
   fRigidBody:=TKraftRigidBody.Create(fPhysics);
   fRigidBody.SetRigidBodyType(krbtDYNAMIC);
@@ -1792,7 +2466,7 @@ begin
   fShape:=TKraftShapeBox.Create(fPhysics,fRigidBody,Vector3(fSettings.fWidth*0.5,fSettings.fHeight*0.5,fSettings.fLength*0.5));
   fShape.Flags:=fShape.Flags+[ksfHasForcedCenterOfMass];
   fShape.ForcedCenterOfMass.Vector:=fSettings.fCenterOfMass;
-  fShape.ForcedMass:=fSettings.fChassisMass+(fSettings.fTireMass*TKraftRayCastVehicle.CountWheels);
+  fShape.ForcedMass:=MassSum;
   fShape.Restitution:=fSettings.fRigidBodyRestitution;
   fShape.Density:=fSettings.fRigidBodyDensity;
   fShape.Friction:=fSettings.fRigidBodyFriction;
@@ -1923,19 +2597,7 @@ begin
 end;
 
 procedure TKraftRayCastVehicle.UpdateGlobals;
-var WheelID:TWheelID;
-    Axle:TAxle;
 begin
-
- fCountPoweredWheels:=0;
- for WheelID:=Low(TWheelID) to High(TWheelID) do begin
-  Axle:=fWheels[WheelID].fAxle;
-  if assigned(Axle) and
-     (((Axle.fAxleID=TAxleID.Front) and fSettings.fFrontPowered) or
-      ((Axle.fAxleID=TAxleID.Rear) and fSettings.fRearPowered)) then begin
-   inc(fCountPoweredWheels);
-  end;
- end;
 
  fSpeed:=GetSpeed;
  fSpeedKMH:=abs(fSpeed)*3.6;
@@ -2017,74 +2679,65 @@ begin
 end;
 
 procedure TKraftRayCastVehicle.UpdateSuspension;
-var WheelID:TWheelID;
+var Index:TKraftInt32;
     Wheel:TWheel;
 begin
- for WheelID:=Low(TWheelID) to High(TWheelID) do begin
-  Wheel:=fWheels[WheelID];
+ for Index:=0 to fWheels.Count-1 do begin
+  Wheel:=fWheels[Index];
   Wheel.CastSpring;
   Wheel.UpdateSuspension;
  end;
 end;
 
-procedure TKraftRayCastVehicle.CalculateAckermannSteering;
-var SteerAngleRad,AxleSeparation,WheelSeparation,TurningCircleRadius:TKraftScalar;
-    AxleDiff,WheelDiff:TKraftVector3;
+procedure TKraftRayCastVehicle.UpdateAckermannSteering;
+var Index:TKraftInt32;
+    AckermannGroup:TAckermannGroup;
 begin
-
- SteerAngleRad:=fSteeringAngle*DEG2RAD;
-
- AxleDiff:=Vector3Sub(Vector3Avg(fWheels[TWheelID.FrontLeft].GetSpringPosition,fWheels[TWheelID.FrontRight].GetSpringPosition),
-                      Vector3Avg(fWheels[TWheelID.RearLeft].GetSpringPosition,fWheels[TWheelID.RearRight].GetSpringPosition));
- AxleSeparation:=Vector3Length(AxleDiff);
-
- WheelDiff:=Vector3Sub(fWheels[TWheelID.FrontLeft].GetSpringPosition,fWheels[TWheelID.FrontRight].GetSpringPosition);
- WheelSeparation:=Vector3Length(WheelDiff);
-
- TurningCircleRadius:=AxleSeparation/Tan(SteerAngleRad);
- if IsNaN(TurningCircleRadius) then begin
-  TurningCircleRadius:=0.0;
+ for Index:=0 to fAckermannGroups.Count-1 do begin
+  AckermannGroup:=fAckermannGroups[Index];
+  AckermannGroup.UpdateAckermannSteering;
  end;
-
- fWheels[TKraftRayCastVehicle.TWheelID.FrontLeft].fYawRad:=ArcTan(AxleSeparation/(TurningCircleRadius+(WheelSeparation*0.5)));
- fWheels[TKraftRayCastVehicle.TWheelID.FrontRight].fYawRad:=ArcTan(AxleSeparation/(TurningCircleRadius-(WheelSeparation*0.5)));
-
- fWheels[TKraftRayCastVehicle.TWheelID.RearLeft].fYawRad:=0.0;
- fWheels[TKraftRayCastVehicle.TWheelID.RearRight].fYawRad:=0.0;
-
 end;
 
 procedure TKraftRayCastVehicle.UpdateSteering;
-var WheelID:TWheelID;
+var Index:TKraftInt32;
+    Wheel:TWheel;
 begin
- for WheelID:=Low(TWheelID) to High(TWheelID) do begin
-  fWheels[WheelID].UpdateLaterialForce;
+ for Index:=0 to fWheels.Count-1 do begin
+  Wheel:=fWheels[Index];
+  Wheel.UpdateLaterialForce;
  end;
 end;
 
 procedure TKraftRayCastVehicle.UpdateAcceleration;
-var WheelID:TWheelID;
+var Index:TKraftInt32;
+    Wheel:TWheel;
 begin
- for WheelID:=Low(TWheelID) to High(TWheelID) do begin
-  fWheels[WheelID].UpdateAcceleration;
+ for Index:=0 to fWheels.Count-1 do begin
+  Wheel:=fWheels[Index];
+  Wheel.UpdateAcceleration;
  end;
 end; 
 
 procedure TKraftRayCastVehicle.UpdateBraking;
-var WheelID:TWheelID;
+var Index:TKraftInt32;
+    Wheel:TWheel;
 begin
- for WheelID:=Low(TWheelID) to High(TWheelID) do begin
-  fWheels[WheelID].UpdateLongitudinalForce;
+ for Index:=0 to fWheels.Count-1 do begin
+  Wheel:=fWheels[Index];
+  Wheel.UpdateLongitudinalForce;
  end;
 end;
 
 procedure TKraftRayCastVehicle.UpdateAntiRollBar;
-var AxleID:TAxleID;
+var Index:TKraftInt32;
+    Axle:TAxle;
 begin
- for AxleID:=Low(TAxleID) to High(TAxleID) do begin
-  fAxles[AxleID].UpdateAntiRollBar;
+ for Index:=0 to fAxles.Count-1 do begin
+  Axle:=fAxles[Index];
+  Axle.UpdateAntiRollBar;
  end;
-end; 
+end;
 
 procedure TKraftRayCastVehicle.UpdateAirResistance;
 var Velocity,Force:TKraftVector3;
@@ -2105,14 +2758,16 @@ begin
 end;
 
 procedure TKraftRayCastVehicle.UpdateDownForce;
-var WheelID:TWheelID;
+var Index:TKraftInt32;
+    Wheel:TWheel;
     DownForceAmount:TKraftScalar;
     Force:TKraftVector3;
     AllWheelsGrounded:boolean;
 begin
  AllWheelsGrounded:=true;
- for WheelID:=Low(TWheelID) to High(TWheelID) do begin
-  if not fWheels[WheelID].IsGrounded then begin
+ for Index:=0 to fWheels.Count-1 do begin
+  Wheel:=fWheels[Index];
+  if not Wheel.IsGrounded then begin
    AllWheelsGrounded:=false;
    break;
   end;
@@ -2134,7 +2789,8 @@ begin
 end;
 
 procedure TKraftRayCastVehicle.UpdateFlightStabilization;
-var WheelID:TWheelID;
+var Index:TKraftInt32;
+    Wheel:TWheel;
     VehicleUp,AntiGravityUp,Axis,Torque:TKraftVector3;
     AllWheelsGrounded:boolean;
 begin
@@ -2144,8 +2800,9 @@ begin
 {$endif}
 
  AllWheelsGrounded:=true;
- for WheelID:=Low(TWheelID) to High(TWheelID) do begin
-  if not fWheels[WheelID].IsGrounded then begin
+ for Index:=0 to fWheels.Count-1 do begin
+  Wheel:=fWheels[Index];
+  if not Wheel.IsGrounded then begin
    AllWheelsGrounded:=false;
    break;
   end;
@@ -2188,18 +2845,22 @@ begin
 end;
 
 procedure TKraftRayCastVehicle.UpdateWheelRotations;
-var WheelID:TWheelID;
+var Index:TKraftInt32;
+    Wheel:TWheel;
 begin
- for WheelID:=Low(TWheelID) to High(TWheelID) do begin
-  fWheels[WheelID].UpdateWheelRotation;
+ for Index:=0 to fWheels.Count-1 do begin
+  Wheel:=fWheels[Index];
+  Wheel.UpdateWheelRotation;
  end;
 end;
 
 procedure TKraftRayCastVehicle.UpdateVisuals;
-var WheelID:TWheelID;
+var Index:TKraftInt32;
+    Wheel:TWheel;
 begin
- for WheelID:=Low(TWheelID) to High(TWheelID) do begin
-  fWheels[WheelID].UpdateVisuals;
+ for Index:=0 to fWheels.Count-1 do begin
+  Wheel:=fWheels[Index];
+  Wheel.UpdateVisuals;
  end;
 end;
 
@@ -2217,7 +2878,7 @@ begin
 
 {if krbfAwake in fRigidBody.Flags then}begin
   UpdateSuspension;
-  CalculateAckermannSteering;
+  UpdateAckermannSteering;
   UpdateSteering;
   UpdateAcceleration;
   UpdateBraking;
@@ -2240,11 +2901,13 @@ begin
 end;
 
 procedure TKraftRayCastVehicle.StoreWorldTransforms;
-var WheelID:TWheelID;
+var Index:TKraftInt32;
+    Wheel:TWheel;
 begin
  UpdateWorldTransformVectors;
- for WheelID:=Low(TWheelID) to High(TWheelID) do begin
-  fWheels[WheelID].StoreWorldTransforms;
+ for Index:=0 to fWheels.Count-1 do begin
+  Wheel:=fWheels[Index];
+  Wheel.StoreWorldTransforms;
  end;
  fLastWorldTransform:=fWorldTransform;
  fLastWorldRight:=Vector3(PKraftRawVector3(pointer(@fLastWorldTransform[0,0]))^);
@@ -2262,11 +2925,13 @@ begin
 end;
 
 procedure TKraftRayCastVehicle.InterpolateWorldTransforms(const aAlpha:TKraftScalar);
-var WheelID:TWheelID;
+var Index:TKraftInt32;
+    Wheel:TWheel;
 begin
  UpdateWorldTransformVectors;
- for WheelID:=Low(TWheelID) to High(TWheelID) do begin
-  fWheels[WheelID].InterpolateWorldTransforms(aAlpha);
+ for Index:=0 to fWheels.Count-1 do begin
+  Wheel:=fWheels[Index];
+  Wheel.InterpolateWorldTransforms(aAlpha);
  end;
  fVisualWorldTransform:=Matrix4x4Slerp(fLastWorldTransform,fWorldTransform,aAlpha);
  fVisualWorldRight:=Vector3(PKraftRawVector3(pointer(@fVisualWorldTransform[0,0]))^);
@@ -2285,16 +2950,15 @@ end;
 
 {$ifdef DebugDraw}
 procedure TKraftRayCastVehicle.DebugDraw;
-var WheelID:TWheelID;
+var Index,OtherIndex:TKraftInt32;
     Wheel:TWheel;
-    Index:TKraftInt32;
     v0,v1,v2,v3,v:TKraftVector3;
     Color:TKraftVector4;
 begin
 {$ifndef NoOpenGL}
  glDisable(GL_DEPTH_TEST);
 {$endif}
- begin
+(*begin
   Color:=Vector4(0.0,0.0,1.0,1.0);
 { v0:=Vector3TermMatrixMul(Vector3Origin,fWheels[TWheelID.FrontLeft].fVisualWorldTransform);
   v1:=Vector3TermMatrixMul(Vector3Origin,fWheels[TWheelID.FrontRight].fVisualWorldTransform);
@@ -2399,10 +3063,10 @@ begin
   glEnd;
 {$endif}
 
- end;
- for WheelID:=Low(TWheelID) to High(TWheelID) do begin
+ end;*)
+ for Index:=0 to fWheels.Count-1 do begin
 
-  Wheel:=fWheels[WheelID];
+  Wheel:=fWheels[Index];
 
   if Wheel.IsGrounded then begin
    Color:=Vector4(0.0,0.0,1.0,1.0);
@@ -2487,11 +3151,11 @@ begin
 {$ifdef NoOpenGL}
   v:=Vector3TermMatrixMul(Vector3Origin,Wheel.fVisualWorldTransform);
   v0:=v;
-  for Index:=0 to 16 do begin
+  for OtherIndex:=0 to 16 do begin
    if assigned(fDebugDrawLine) then begin
     v1:=v0;
-    v0:=Vector3TermMatrixMul(Vector3Add(Vector3Add(Vector3Origin,Vector3ScalarMul(Vector3YAxis,Sin((Index/16)*PI*2)*fSettings.fWheelsRadius)),Vector3ScalarMul(Vector3ZAxis,Cos((Index/16)*PI*2)*fSettings.fWheelsRadius)),Wheel.fVisualWorldTransform);
-    if Index>0 then begin
+    v0:=Vector3TermMatrixMul(Vector3Add(Vector3Add(Vector3Origin,Vector3ScalarMul(Vector3YAxis,Sin((OtherIndex/16)*PI*2)*Wheel.fSettings.fRadius)),Vector3ScalarMul(Vector3ZAxis,Cos((OtherIndex/16)*PI*2)*Wheel.fSettings.Radius)),Wheel.fVisualWorldTransform);
+    if OtherIndex>0 then begin
      fDebugDrawLine(v,v0,Vector4(1.0,1.0,1.0,1.0));
      fDebugDrawLine(v0,v1,Vector4(1.0,1.0,1.0,1.0));
     end;
@@ -2503,8 +3167,8 @@ begin
   glBegin(GL_TRIANGLE_FAN);
   v0:=Vector3TermMatrixMul(Vector3Origin,Wheel.fVisualWorldTransform);
   glVertex3fv(@v0);
-  for Index:=0 to 16 do begin
-   v0:=Vector3TermMatrixMul(Vector3Add(Vector3Add(Vector3Origin,Vector3ScalarMul(Vector3YAxis,Sin((Index/16)*PI*2)*fSettings.fWheelsRadius)),Vector3ScalarMul(Vector3ZAxis,Cos((Index/16)*PI*2)*fSettings.fWheelsRadius)),Wheel.fVisualWorldTransform);
+  for OtherIndex:=0 to 16 do begin
+   v0:=Vector3TermMatrixMul(Vector3Add(Vector3Add(Vector3Origin,Vector3ScalarMul(Vector3YAxis,Sin((OtherIndex/16)*PI*2)*Wheel.fSettings.Radius)),Vector3ScalarMul(Vector3ZAxis,Cos((OtherIndex/16)*PI*2)*Wheel.fSettings.Radius)),Wheel.fVisualWorldTransform);
    glVertex3fv(@v0);
   end;
   glEnd;
