@@ -1459,9 +1459,9 @@ var WheelFrontLeft,WheelFrontRight,WheelRearLeft,WheelRearRight:TKraftRayCastVeh
 begin
 
  // The rigid body physical dimensions as a box 
- fWidth:=1.9;
- fHeight:=0.75;
- fLength:=3.4;
+ fWidth:=1.451598048210144;
+ fHeight:=1.223848819732666;
+ fLength:=2.0949294567108154;
 
  // The rigid body physical damping factors
  fAngularVelocityDamp:=10.0;
@@ -1473,7 +1473,7 @@ begin
  fRigidBodyFriction:=0.0;
 
  // The rigid body center of mass
- fCenterOfMass:=Vector3(0.0,-0.25,0.0);
+ fCenterOfMass:=Vector3(0.0,0.0,0.24);
 
  // The chassis mass
  fChassisMass:=60;
@@ -1483,6 +1483,33 @@ begin
 
  // Hand brake slippery time
  fHandBrakeSlipperyTime:=2.2;
+
+ // Option for using acceleration curve envelopes
+ fUseAccelerationCurveEnvelopes:=true;
+
+ // The acceleration curve envelope
+ fAccelerationCurveEnvelope.FillLinear(0.0,0.0,5.0,300.0);
+
+ // The reverse acceleration curve envelope
+ fReverseAccelerationCurveEnvelope.FillLinear(0.0,0.0,5.0,20.0);
+ fReverseEvaluationAccuracy:=25;
+
+ // The steering angle limit envelope
+ fSteerAngleLimitEnvelope.FillLinear(0.0,35.0,100.0,5.0);
+
+ // The steering reset speed envelope
+ fSteeringResetSpeedEnvelope.FillEaseInOut(0.0,30.0,100.0,10.0,64);
+
+ // The steering speed envelope
+ fSteeringSpeedEnvelope.FillLinear(0.0,2.0,100.0,0.5);
+
+ // The down force curve envelope and setttings
+ fDownForceCurveEnvelope.FillLinear(0.0,0.0,200.0,100.0);
+ fDownForce:=1.0;
+
+ // The flight stabilization settings
+ fFlightStabilizationForce:=1.0;
+ fFlightStabilizationDamping:=0.1;
 
  // The wheels
  begin
@@ -1645,33 +1672,6 @@ begin
   end;
 
  end; 
-
- // Option for using acceleration curve envelopes
- fUseAccelerationCurveEnvelopes:=true;
-
- // The acceleration curve envelope
- fAccelerationCurveEnvelope.FillLinear(0.0,0.0,5.0,300.0);
-
- // The reverse acceleration curve envelope
- fReverseAccelerationCurveEnvelope.FillLinear(0.0,0.0,5.0,20.0);
- fReverseEvaluationAccuracy:=25;
-
- // The steering angle limit envelope
- fSteerAngleLimitEnvelope.FillLinear(0.0,35.0,100.0,5.0);
-
- // The steering reset speed envelope
- fSteeringResetSpeedEnvelope.FillEaseInOut(0.0,30.0,100.0,10.0,64);
-
- // The steering speed envelope
- fSteeringSpeedEnvelope.FillLinear(0.0,2.0,100.0,0.5);
-
- // The down force curve envelope and setttings
- fDownForceCurveEnvelope.FillLinear(0.0,0.0,200.0,100.0);
- fDownForce:=1.0;
-
- // The flight stabilization settings
- fFlightStabilizationForce:=1.0;
- fFlightStabilizationDamping:=0.1;
 
 end;
 
@@ -3262,4 +3262,3 @@ end;
 {$endif}
 
 end.
-
