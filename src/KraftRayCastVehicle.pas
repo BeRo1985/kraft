@@ -1196,10 +1196,10 @@ begin
  CurrentLength:=fSpring.fCurrentLength;
  CurrentVelocity:=fSpring.fCurrentVelocity;
  Force:=TKraftRayCastVehicle.TSpringMath.CalculateForceDamped(CurrentLength,
-                                                             CurrentVelocity,
-                                                             fVehicle.fSettings.fSpringRestLength,
-                                                             fVehicle.fSettings.fSpringStrength,
-                                                             fVehicle.fSettings.fSpringDamper);
+                                                              CurrentVelocity,
+                                                              fVehicle.fSettings.fSpringRestLength,
+                                                              fVehicle.fSettings.fSpringStrength,
+                                                              fVehicle.fSettings.fSpringDamper);
  if abs(Force)>EPSILON then begin
   fVehicle.fRigidBody.AddForceAtPosition(Vector3ScalarMul(fVehicle.fWorldUp,Force),GetSpringPosition,kfmForce,false);
  end;
