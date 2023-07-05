@@ -369,6 +369,7 @@ type { TKraftRayCastVehicle }
               fCenterOfMass:TKraftVector3;
               fWheelsRadius:TKraftScalar;
               fWheelsHeight:TKraftScalar;
+              fUseSphereCast:Boolean;
               fFrontPowered:Boolean;
               fRearPowered:Boolean;
               fFrontWheelsPaddingX:TKraftScalar;
@@ -428,6 +429,7 @@ type { TKraftRayCastVehicle }
               property CenterOfMass:TKraftVector3 read fCenterOfMass write fCenterOfMass;
               property WheelsRadius:TKraftScalar read fWheelsRadius write fWheelsRadius;
               property WheelsHeight:TKraftScalar read fWheelsHeight write fWheelsHeight;
+              property UseSphereCast:Boolean read fUseSphereCast write fUseSphereCast;
               property FrontPowered:Boolean read fFrontPowered write fFrontPowered;
               property RearPowered:Boolean read fRearPowered write fRearPowered;
               property FrontWheelsPaddingX:TKraftScalar read fFrontWheelsPaddingX write fFrontWheelsPaddingX;
@@ -1167,11 +1169,20 @@ begin
  RayOrigin:=GetSpringPosition;
  PreviousLength:=fSpring.fCurrentLength;
  RayDirection:=fVehicle.fWorldDown;
- RayLength:=fVehicle.fSettings.fSpringRestLength;
- if fVehicle.fPhysics.RayCast(RayOrigin,RayDirection,RayLength,HitShape,HitTime,HitPoint,HitNormal,fVehicle.fCastCollisionGroup,fVehicle.RayCastFilter) then begin
-  CurrentLength:=HitTime;
+ if fVehicle.fSettings.fUseSphereCast then begin
+  RayLength:=fVehicle.fSettings.fSpringRestLength-fVehicle.fSettings.WheelsRadius;
+  if fVehicle.fPhysics.SphereCast(RayOrigin,fVehicle.fSettings.WheelsRadius,RayDirection,RayLength,HitShape,HitTime,HitPoint,HitNormal,fVehicle.fCastCollisionGroup,fVehicle.RayCastFilter) then begin
+   CurrentLength:=HitTime+fVehicle.fSettings.WheelsRadius;
+  end else begin
+   CurrentLength:=fVehicle.fSettings.fSpringRestLength;
+  end;
  end else begin
-  CurrentLength:=fVehicle.fSettings.fSpringRestLength;
+  RayLength:=fVehicle.fSettings.fSpringRestLength;
+  if fVehicle.fPhysics.RayCast(RayOrigin,RayDirection,RayLength,HitShape,HitTime,HitPoint,HitNormal,fVehicle.fCastCollisionGroup,fVehicle.RayCastFilter) then begin
+   CurrentLength:=HitTime;
+  end else begin
+   CurrentLength:=fVehicle.fSettings.fSpringRestLength;
+  end;
  end;
  fSpring.fCurrentVelocity:=(CurrentLength-PreviousLength)*fVehicle.fInverseDeltaTime;
  fSpring.fCurrentLength:=CurrentLength;
@@ -1535,6 +1546,7 @@ begin
  fCenterOfMass:=Vector3(0.0,-0.25,0.0);
  fWheelsRadius:=0.5;
  fWheelsHeight:=-0.25;
+ fUseSphereCast:=true;
  fFrontPowered:=true;
  fRearPowered:=true;
  fFrontWheelsPaddingX:=0.06;
@@ -1603,6 +1615,7 @@ begin
   fCenterOfMass:=JSONToVector3(TPasJSONItemObject(aJSONItem).Properties['centerofmass']);
   fWheelsRadius:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['wheelsradius'],fWheelsRadius);
   fWheelsHeight:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['wheelsheight'],fWheelsHeight);
+  fUseSphereCast:=TPasJSON.GetBoolean(TPasJSONItemObject(aJSONItem).Properties['usespherecast'],fUseSphereCast);
   fFrontPowered:=TPasJSON.GetBoolean(TPasJSONItemObject(aJSONItem).Properties['frontpowered'],fFrontPowered);
   fRearPowered:=TPasJSON.GetBoolean(TPasJSONItemObject(aJSONItem).Properties['rearpowered'],fRearPowered);
   fFrontWheelsPaddingX:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['frontwheelspaddingx'],fFrontWheelsPaddingX);
@@ -1660,6 +1673,7 @@ begin
  TPasJSONItemObject(result).Add('centerofmass',Vector3ToJSON(fCenterOfMass));
  TPasJSONItemObject(result).Add('wheelsradius',TPasJSONItemNumber.Create(fWheelsRadius));
  TPasJSONItemObject(result).Add('wheelsheight',TPasJSONItemNumber.Create(fWheelsHeight));
+ TPasJSONItemObject(result).Add('usespherecast',TPasJSONItemBoolean.Create(fUseSphereCast));
  TPasJSONItemObject(result).Add('frontpowered',TPasJSONItemBoolean.Create(fFrontPowered));
  TPasJSONItemObject(result).Add('rearpowered',TPasJSONItemBoolean.Create(fRearPowered));
  TPasJSONItemObject(result).Add('frontwheelspaddingx',TPasJSONItemNumber.Create(fFrontWheelsPaddingX));
