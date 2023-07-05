@@ -386,6 +386,7 @@ type { TKraftRayCastVehicle }
               fRigidBodyRestitution:TKraftScalar;
               fRigidBodyDensity:TKraftScalar;
               fRigidBodyFriction:TKraftScalar;
+              fVisualModelOffset:TKraftVector3;
               fCenterOfMass:TKraftVector3;
               fChassisMass:TKraftScalar;
               fAirResistance:TKraftScalar;
@@ -421,6 +422,7 @@ type { TKraftRayCastVehicle }
               property RigidBodyRestitution:TKraftScalar read fRigidBodyRestitution write fRigidBodyRestitution;
               property RigidBodyDensity:TKraftScalar read fRigidBodyDensity write fRigidBodyDensity;
               property RigidBodyFriction:TKraftScalar read fRigidBodyFriction write fRigidBodyFriction;
+              property VisualModelOffset:TKraftVector3 read fVisualModelOffset write fVisualModelOffset;
               property CenterOfMass:TKraftVector3 read fCenterOfMass write fCenterOfMass;
               property ChassisMass:TKraftScalar read fChassisMass write fChassisMass;
               property AirResistance:TKraftScalar read fAirResistance write fAirResistance;
@@ -1400,6 +1402,8 @@ begin
  fRigidBodyDensity:=1.0;
  fRigidBodyFriction:=0.0;
 
+ fVisualModelOffset:=Vector3(0.0,0.0,0.0);
+
  fCenterOfMass:=Vector3(0.0,0.0,0.24);
 
  fChassisMass:=60;
@@ -1471,6 +1475,9 @@ begin
  fRigidBodyRestitution:=0.3;
  fRigidBodyDensity:=1.0;
  fRigidBodyFriction:=0.0;
+
+ // The rigid body visual model offset 
+ fVisualModelOffset:=Vector3(0.0,0.0,0.0);
 
  // The rigid body center of mass
  fCenterOfMass:=Vector3(0.0,0.0,0.24);
@@ -1696,6 +1703,8 @@ begin
   fRigidBodyDensity:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['rigidbodydensity'],fRigidBodyDensity);
   fRigidBodyFriction:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['rigidbodyfriction'],fRigidBodyFriction);
 
+  fVisualModelOffset:=JSONToVector3(TPasJSONItemObject(aJSONItem).Properties['visualmodeloffset'],fVisualModelOffset);
+
   fCenterOfMass:=JSONToVector3(TPasJSONItemObject(aJSONItem).Properties['centerofmass'],fCenterOfMass);
 
   fChassisMass:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['chassismass'],fChassisMass);
@@ -1809,6 +1818,8 @@ begin
  
  TPasJSONItemObject(result).Add('rigidbodyfriction',TPasJSONItemNumber.Create(fRigidBodyFriction));
  
+ TPasJSONItemObject(result).Add('visualmodeloffset',Vector3ToJSON(fVisualModelOffset));
+
  TPasJSONItemObject(result).Add('centerofmass',Vector3ToJSON(fCenterOfMass));
 
  TPasJSONItemObject(result).Add('chassismass',TPasJSONItemNumber.Create(fChassisMass));
