@@ -1483,7 +1483,7 @@ begin
  fCenterOfMass:=Vector3(0.0,0.0,0.24);
 
  // The chassis mass
- fChassisMass:=60;
+ fChassisMass:=60.0;
 
  // Air resistance
  fAirResistance:=5.0;
@@ -1495,10 +1495,10 @@ begin
  fUseAccelerationCurveEnvelopes:=true;
 
  // The acceleration curve envelope
- fAccelerationCurveEnvelope.FillLinear(0.0,0.0,5.0,300.0);
+ fAccelerationCurveEnvelope.FillLinear(0.0,0.0,5.0,200.0);
 
  // The reverse acceleration curve envelope
- fReverseAccelerationCurveEnvelope.FillLinear(0.0,0.0,5.0,20.0);
+ fReverseAccelerationCurveEnvelope.FillLinear(0.0,0.0,5.0,50.0);
  fReverseEvaluationAccuracy:=25;
 
  // The steering angle limit envelope
@@ -1540,8 +1540,8 @@ begin
    WheelFrontLeft.fAccelerationForce:=1200.0;
    WheelFrontLeft.fBrakeForce:=10.0;
    WheelFrontLeft.fRollingFriction:=0.15;
-   WheelFrontLeft.fMaximumSpeed:=10.0;
-   WheelFrontLeft.fMaximumReverseSpeed:=2.5;
+   WheelFrontLeft.fMaximumSpeed:=22.0;
+   WheelFrontLeft.fMaximumReverseSpeed:=5.0;
    WheelFrontLeft.fGripFactor:=0.8;
    WheelFrontLeft.fAfterFlightSlipperyK:=0.02;
    WheelFrontLeft.fBrakeSlipperyK:=0.5;
@@ -1568,8 +1568,8 @@ begin
    WheelFrontRight.fAccelerationForce:=1200.0;
    WheelFrontRight.fBrakeForce:=10.0;
    WheelFrontRight.fRollingFriction:=0.15;
-   WheelFrontRight.fMaximumSpeed:=10.0;
-   WheelFrontRight.fMaximumReverseSpeed:=2.5;
+   WheelFrontRight.fMaximumSpeed:=22.0;
+   WheelFrontRight.fMaximumReverseSpeed:=5.0;
    WheelFrontRight.fGripFactor:=0.8;
    WheelFrontRight.fAfterFlightSlipperyK:=0.02;
    WheelFrontRight.fBrakeSlipperyK:=0.5;
@@ -1596,8 +1596,8 @@ begin
    WheelRearLeft.fAccelerationForce:=1200.0;
    WheelRearLeft.fBrakeForce:=10.0;
    WheelRearLeft.fRollingFriction:=0.15;
-   WheelRearLeft.fMaximumSpeed:=10.0;
-   WheelRearLeft.fMaximumReverseSpeed:=2.5;
+   WheelRearLeft.fMaximumSpeed:=22.0;
+   WheelRearLeft.fMaximumReverseSpeed:=5.0;
    WheelRearLeft.fGripFactor:=0.9;
    WheelRearLeft.fAfterFlightSlipperyK:=0.02;
    WheelRearLeft.fBrakeSlipperyK:=0.5;
@@ -1624,8 +1624,8 @@ begin
    WheelRearRight.fAccelerationForce:=1200.0;
    WheelRearRight.fBrakeForce:=10.0;
    WheelRearRight.fRollingFriction:=0.15;
-   WheelRearRight.fMaximumSpeed:=10.0;
-   WheelRearRight.fMaximumReverseSpeed:=2.5;
+   WheelRearRight.fMaximumSpeed:=22.0;
+   WheelRearRight.fMaximumReverseSpeed:=5.0;
    WheelRearRight.fGripFactor:=0.9;
    WheelRearRight.fAfterFlightSlipperyK:=0.02;
    WheelRearRight.fBrakeSlipperyK:=0.5;
