@@ -260,6 +260,27 @@ type { TKraftRayCastVehicle }
              public
               type { TWheel }
                    TWheel=class // A single wheel
+                    public
+                     type { TVisual }
+                          TVisual=class
+                           private
+                            fWheel:TKraftRaycastVehicle.TSettings.TWheel;
+                            fModelNode:UTF8String;
+                            fRotationFactors:TKraftVector3;
+                            fHeightOffset:TKraftScalar;
+                           public
+                            constructor Create(const aWheel:TKraftRaycastVehicle.TSettings.TWheel); reintroduce;
+                            destructor Destroy; override; 
+{$ifdef KraftPasJSON}
+                            procedure LoadFromJSON(const aJSONItem:TPasJSONItem);
+                            function SaveToJSON:TPasJSONItem;
+{$endif}
+                           public
+                            property Wheel:TKraftRaycastVehicle.TSettings.TWheel read fWheel;
+                            property ModelNode:UTF8String read fModelNode write fModelNode;
+                            property RotationFactors:TKraftVector3 read fRotationFactors write fRotationFactors;
+                            property HeightOffset:TKraftScalar read fHeightOffset write fHeightOffset;
+                          end;
                     private
                      fSettings:TSettings;
                      fName:UTF8String; // Name of the wheel
@@ -284,6 +305,7 @@ type { TKraftRayCastVehicle }
                      fBrakeSlipperyK:TKraftScalar; // Slippery K factor at brake at lateral forces
                      fHandBrakeSlipperyK:TKraftScalar; // Slippery K factor at hand brake at lateral forces
                      fDriftSlipperyK:TKraftScalar; // Slippery K factor at drift at lateral forces
+                     fVisual:TKraftRaycastVehicle.TSettings.TWheel.TVisual; // Visual data of the wheel
                     public
                      constructor Create(const aSettings:TSettings); reintroduce;
                      destructor Destroy; overload;
@@ -314,6 +336,7 @@ type { TKraftRayCastVehicle }
                      property BrakeSlipperyK:TKraftScalar read fBrakeSlipperyK write fBrakeSlipperyK;
                      property HandBrakeSlipperyK:TKraftScalar read fHandBrakeSlipperyK write fHandBrakeSlipperyK;
                      property DriftSlipperyK:TKraftScalar read fDriftSlipperyK write fDriftSlipperyK;
+                     property Visual:TKraftRaycastVehicle.TSettings.TWheel.TVisual read fVisual;
                    end;
                    TWheels=Generics.Collections.TObjectList<TWheel>;
                    { TAxle }
@@ -1109,6 +1132,41 @@ begin
  result:=((aRestLength-aCurrentLength)*aStrength)-(aLengthVelocity*aDamper);
 end;
 
+{ TKraftRayCastVehicle.TSettings.TWheel.TVisual }
+
+constructor TKraftRayCastVehicle.TSettings.TWheel.TVisual.Create(const aWheel:TKraftRaycastVehicle.TSettings.TWheel);
+begin
+ inherited Create;
+ fWheel:=aWheel;
+ fModelNode:='';
+ fRotationFactors:=Vector3(1.0,1.0,1.0);
+ fHeightOffset:=0.0;
+end;
+
+destructor TKraftRayCastVehicle.TSettings.TWheel.TVisual.Destroy;
+begin
+ inherited Destroy;
+end;
+
+{$ifdef KraftPasJSON}
+procedure TKraftRayCastVehicle.TSettings.TWheel.TVisual.LoadFromJSON(const aJSONItem:TPasJSONItem);
+begin
+ if assigned(aJSONItem) and (aJSONItem is TPasJSONItemObject) then begin
+  fModelNode:=TPasJSON.GetString(TPasJSONItemObject(aJSONItem).Properties['modelnode'],fModelNode);
+  fRotationFactors:=JSONToVector3(TPasJSONItemObject(aJSONItem).Properties['rotationfactors'],fRotationFactors);
+  fHeightOffset:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['heightoffset'],fHeightOffset);
+ end;
+end;
+
+function TKraftRayCastVehicle.TSettings.TWheel.TVisual.SaveToJSON:TPasJSONItem;
+begin
+ result:=TPasJSONItemObject.Create;
+ TPasJSONItemObject(result).Add('modelnode',TPasJSONItemString.Create(fModelNode));
+ TPasJSONItemObject(result).Add('rotationfactors',Vector3ToJSON(fRotationFactors));
+ TPasJSONItemObject(result).Add('heightoffset',TPasJSONItemNumber.Create(fHeightOffset));
+end;
+{$endif}
+
 { TKraftRayCastVehicle.TSettings.TWheel }
 
 constructor TKraftRayCastVehicle.TSettings.TWheel.Create(const aSettings:TSettings);
@@ -1116,10 +1174,12 @@ begin
  inherited Create;
  fSettings:=aSettings;
  fName:='';
+ fVisual:=TKraftRayCastVehicle.TSettings.TWheel.TVisual.Create(self);
 end;
 
 destructor TKraftRayCastVehicle.TSettings.TWheel.Destroy;
 begin
+ FreeAndNil(fVisual);
  inherited Destroy;
 end;
 
@@ -1148,7 +1208,8 @@ begin
   fAfterFlightSlipperyK:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['afterflightslipperyk'],fAfterFlightSlipperyK);
   fBrakeSlipperyK:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['brakeslipperyk'],fBrakeSlipperyK);
   fHandBrakeSlipperyK:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['handbrakeslipperyk'],fHandBrakeSlipperyK);
-  fDriftSlipperyK:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['driftslipperyk'],fDriftSlipperyK);  
+  fDriftSlipperyK:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['driftslipperyk'],fDriftSlipperyK);
+  fVisual.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['visual']);  
  end;
 end;
 
@@ -1181,6 +1242,7 @@ begin
  TPasJSONItemObject(result).Add('brakeslipperyk',TPasJSONItemNumber.Create(fBrakeSlipperyK));
  TPasJSONItemObject(result).Add('handbrakeslipperyk',TPasJSONItemNumber.Create(fHandBrakeSlipperyK));
  TPasJSONItemObject(result).Add('driftslipperyk',TPasJSONItemNumber.Create(fDriftSlipperyK));
+ TPasJSONItemObject(result).Add('visual',fVisual.SaveToJSON);
 end;
 {$endif}
 
