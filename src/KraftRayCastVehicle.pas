@@ -2691,12 +2691,22 @@ end;
 
 procedure TKraftRayCastVehicle.UpdateAckermannSteering;
 var Index:TKraftInt32;
+    Wheel:TWheel;
     AckermannGroup:TAckermannGroup;
 begin
+
+ // Update steering without Ackermann steering as fallback first
+ for Index:=0 to fWheels.Count-1 do begin
+  Wheel:=fWheels[Index];
+  Wheel.fYawRad:=fSteeringAngle*DEG2RAD;
+ end;
+ 
+ // Then do the Ackermann steering by overwriting the steering angles per wheel
  for Index:=0 to fAckermannGroups.Count-1 do begin
   AckermannGroup:=fAckermannGroups[Index];
   AckermannGroup.UpdateAckermannSteering;
  end;
+
 end;
 
 procedure TKraftRayCastVehicle.UpdateSteering;
