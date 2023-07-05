@@ -3189,6 +3189,51 @@ begin
 
   v:=Vector3TermMatrixMul(Vector3Origin,fVisualWorldTransform);
 
+  v0:=Vector3Add(v,Vector3ScalarMul(fVisualWorldDown,0.1));
+  v1:=Vector3Add(v,Vector3ScalarMul(fVisualWorldUp,0.1));
+  Color:=Vector4(0.0,1.0,1.0,1.0);
+{$ifdef NoOpenGL}
+  if assigned(fDebugDrawLine) then begin
+   fDebugDrawLine(v0,v1,Color);
+  end;
+{$else}
+  glColor4fv(@Color);
+  glBegin(GL_LINE_STRIP);
+  glVertex3fv(@v0);
+  glVertex3fv(@v1);
+  glEnd;
+{$endif}
+
+  v0:=Vector3Add(v,Vector3ScalarMul(fVisualWorldLeft,0.1));
+  v1:=Vector3Add(v,Vector3ScalarMul(fVisualWorldRight,0.1));
+  Color:=Vector4(0.0,1.0,1.0,1.0);
+{$ifdef NoOpenGL}
+  if assigned(fDebugDrawLine) then begin
+   fDebugDrawLine(v0,v1,Color);
+  end;
+{$else}
+  glColor4fv(@Color);
+  glBegin(GL_LINE_STRIP);
+  glVertex3fv(@v0);
+  glVertex3fv(@v1);
+  glEnd;
+{$endif}
+
+  v0:=Vector3Add(v,Vector3ScalarMul(fVisualWorldBackward,0.1));
+  v1:=Vector3Add(v,Vector3ScalarMul(fVisualWorldForward,0.1));
+  Color:=Vector4(0.0,1.0,1.0,1.0);
+{$ifdef NoOpenGL}
+  if assigned(fDebugDrawLine) then begin
+   fDebugDrawLine(v0,v1,Color);
+  end;
+{$else}
+  glColor4fv(@Color);
+  glBegin(GL_LINE_STRIP);
+  glVertex3fv(@v0);
+  glVertex3fv(@v1);
+  glEnd;
+{$endif}
+
   v0:=v;
   v1:=Vector3Add(v0,Vector3ScalarMul(fVisualDebugAirResistanceForce,1.0));
   Color:=Vector4(0.0,1.0,0.0,1.0);
