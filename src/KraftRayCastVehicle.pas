@@ -1499,6 +1499,7 @@ begin
    WheelFrontLeft.fHeight:=-0.25;
    WheelFrontLeft.fUseSphereCast:=true;
    WheelFrontLeft.fPowered:=true;
+   WheelFrontLeft.fSteering:=true;
    WheelFrontLeft.fMass:=1.0;
    WheelFrontLeft.fSuspensionRestLength:=0.8;
    WheelFrontLeft.fSuspensionStrength:=1200.0;
@@ -1526,6 +1527,7 @@ begin
    WheelFrontRight.fHeight:=-0.25;
    WheelFrontRight.fUseSphereCast:=true;
    WheelFrontRight.fPowered:=true;
+   WheelFrontRight.fSteering:=true;
    WheelFrontRight.fMass:=1.0;
    WheelFrontRight.fSuspensionRestLength:=0.8;
    WheelFrontRight.fSuspensionStrength:=1200.0;
@@ -1553,6 +1555,7 @@ begin
    WheelRearLeft.fHeight:=-0.25;
    WheelRearLeft.fUseSphereCast:=true;
    WheelRearLeft.fPowered:=true;
+   WheelRearLeft.fSteering:=false;
    WheelRearLeft.fMass:=1.0;
    WheelRearLeft.fSuspensionRestLength:=0.8;
    WheelRearLeft.fSuspensionStrength:=1200.0;
@@ -1580,6 +1583,7 @@ begin
    WheelRearRight.fHeight:=-0.25;
    WheelRearRight.fUseSphereCast:=true;
    WheelRearRight.fPowered:=true;
+   WheelRearRight.fSteering:=false;
    WheelRearRight.fMass:=1.0;
    WheelRearRight.fSuspensionRestLength:=0.8;
    WheelRearRight.fSuspensionStrength:=1200.0;
