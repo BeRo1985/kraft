@@ -3041,6 +3041,7 @@ end;
 {$ifdef DebugDraw}
 procedure TKraftRayCastVehicle.DebugDraw;
 var Index,OtherIndex:TKraftInt32;
+    Axle:TAxle;
     Wheel:TWheel;
     v0,v1,v2,v3,v:TKraftVector3;
     Color:TKraftVector4;
@@ -3153,7 +3154,88 @@ begin
   glEnd;
 {$endif}
 
- end;*)
+ end;      *)
+ 
+ for Index:=0 to fAxles.Count-1 do begin
+  Axle:=fAxles[Index];
+
+  Color:=Vector4(0.0,0.0,1.0,1.0);
+
+  v1:=Vector3Origin;
+  for OtherIndex:=0 to Axle.fWheels.Count-1 do begin
+   Wheel:=Axle.fWheels[OtherIndex];
+   if OtherIndex>0 then begin
+    v0:=v1;
+   end;
+   v1:=Vector3TermMatrixMul(Wheel.GetSpringRelativePosition,fVisualWorldTransform);
+   if OtherIndex>0 then begin
+{$ifdef NoOpenGL}
+    if assigned(fDebugDrawLine) then begin
+     fDebugDrawLine(v0,v1,Color);
+    end;
+{$else}
+    glColor4fv(@Color);
+    glBegin(GL_LINE_STRIP);
+    glVertex3fv(@v0);
+    glVertex3fv(@v1);
+    glEnd;
+{$endif}
+   end;
+  end;
+
+ end;
+
+ begin
+
+  v:=Vector3TermMatrixMul(Vector3Origin,fVisualWorldTransform);
+
+  v0:=v;
+  v1:=Vector3Add(v0,Vector3ScalarMul(fVisualDebugAirResistanceForce,1.0));
+  Color:=Vector4(0.0,1.0,0.0,1.0);
+{$ifdef NoOpenGL}
+  if assigned(fDebugDrawLine) then begin
+   fDebugDrawLine(v0,v1,Color);
+  end;
+{$else}
+  glColor4fv(@Color);
+  glBegin(GL_LINE_STRIP);
+  glVertex3fv(@v0);
+  glVertex3fv(@v1);
+  glEnd;
+{$endif}
+
+  v0:=v;
+  v1:=Vector3Add(v0,Vector3ScalarMul(fVisualDebugDownForce,1.0));
+  Color:=Vector4(0.5,0.25,0.75,1.0);
+{$ifdef NoOpenGL}
+  if assigned(fDebugDrawLine) then begin
+   fDebugDrawLine(v0,v1,Color);
+  end;
+{$else}
+  glColor4fv(@Color);
+  glBegin(GL_LINE_STRIP);
+  glVertex3fv(@v0);
+  glVertex3fv(@v1);
+  glEnd;
+{$endif}
+
+  v0:=v;
+  v1:=Vector3Add(v0,Vector3ScalarMul(fVisualDebugFlightStabilizationTorque,1.0));
+  Color:=Vector4(0.75,0.25,0.5,1.0);
+{$ifdef NoOpenGL}
+  if assigned(fDebugDrawLine) then begin
+   fDebugDrawLine(v0,v1,Color);
+  end;
+{$else}
+  glColor4fv(@Color);
+  glBegin(GL_LINE_STRIP);
+  glVertex3fv(@v0);
+  glVertex3fv(@v1);
+  glEnd;
+{$endif}
+
+ end;
+
  for Index:=0 to fWheels.Count-1 do begin
 
   Wheel:=fWheels[Index];
