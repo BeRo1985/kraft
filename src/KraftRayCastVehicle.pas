@@ -1389,10 +1389,9 @@ constructor TKraftRayCastVehicle.TSettings.Create;
 begin
  inherited Create;
 
- fWidth:=1.9;
- fHeight:=0.75;
-
- fLength:=3.4;
+ fWidth:=1.451598048210144;
+ fHeight:=1.223848819732666;
+ fLength:=2.0949294567108154;
 
  fAngularVelocityDamp:=10.0;
  fLinearVelocityDamp:=0.3275;
@@ -1401,7 +1400,7 @@ begin
  fRigidBodyDensity:=1.0;
  fRigidBodyFriction:=0.0;
 
- fCenterOfMass:=Vector3(0.0,-0.25,0.0);
+ fCenterOfMass:=Vector3(0.0,0.0,0.24);
 
  fChassisMass:=60;
 
