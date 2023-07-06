@@ -3037,13 +3037,13 @@ begin
   // Damp the angular velocity to avoid the vehicle spinning out of control, if wished 
   AngularVelocity:=fRigidBody.AngularVelocity;
   if not IsZero(fSettings.fFlightStabilizationAngularVelocityDamping.x) then begin
-   AngularVelocity.x:=AngularVelocity.x*(1.0/(1.0+(fSettings.fFlightStabilizationAngularVelocityDamping.x*fDeltaTime)));
+   AngularVelocity.x:=AngularVelocity.x*Clamp01(1.0-exp((-fDeltaTime)*fSettings.fFlightStabilizationAngularVelocityDamping.x));
   end;
   if not IsZero(fSettings.fFlightStabilizationAngularVelocityDamping.y) then begin
-   AngularVelocity.y:=AngularVelocity.y*(1.0/(1.0+(fSettings.fFlightStabilizationAngularVelocityDamping.y*fDeltaTime)));
+   AngularVelocity.y:=AngularVelocity.y*Clamp01(1.0-exp((-fDeltaTime)*fSettings.fFlightStabilizationAngularVelocityDamping.x));
   end;
   if not IsZero(fSettings.fFlightStabilizationAngularVelocityDamping.z) then begin
-   AngularVelocity.z:=AngularVelocity.z*(1.0/(1.0+(fSettings.fFlightStabilizationAngularVelocityDamping.z*fDeltaTime)));
+   AngularVelocity.z:=AngularVelocity.z*Clamp01(1.0-exp((-fDeltaTime)*fSettings.fFlightStabilizationAngularVelocityDamping.x));
   end;
   fRigidBody.AngularVelocity:=AngularVelocity;
 
