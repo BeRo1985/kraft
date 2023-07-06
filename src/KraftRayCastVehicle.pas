@@ -402,7 +402,7 @@ type { TKraftRayCastVehicle }
               fSteerAngleLimitEnvelope:TEnvelope;
               fSteeringResetSpeedEnvelope:TEnvelope;
               fSteeringSpeedEnvelope:TEnvelope;
-              fGripEnvelope:TEnvelope;
+              fGripFactorEnvelope:TEnvelope;
               fDownForceCurveEnvelope:TEnvelope;
               fDownForce:TKraftScalar;
               fFlightStabilizationDamping:TKraftScalar;
@@ -444,7 +444,7 @@ type { TKraftRayCastVehicle }
               property ReverseBrakeCurveEnvelope:TEnvelope read fReverseBrakeCurveEnvelope;
               property SteerAngleLimitEnvelope:TEnvelope read fSteerAngleLimitEnvelope;
               property SteeringResetSpeedEnvelope:TEnvelope read fSteeringResetSpeedEnvelope;
-              property GripEnvelope:TEnvelope read fGripEnvelope;
+              property GripFactorEnvelope:TEnvelope read fGripFactorEnvelope;
               property SteeringSpeedEnvelope:TEnvelope read fSteeringSpeedEnvelope;
               property DownForceCurveEnvelope:TEnvelope read fDownForceCurveEnvelope;
               property DownForce:TKraftScalar read fDownForce write fDownForce;
@@ -1458,7 +1458,7 @@ begin
 
  fSteeringSpeedEnvelope:=TEnvelope.CreateLinear(0.0,2.0,100.0,0.5);
 
- fGripEnvelope:=TEnvelope.CreateLinear(0.0,1.0,100.0,1.0);
+ fGripFactorEnvelope:=TEnvelope.CreateLinear(0.0,1.0,100.0,1.0);
 
  fDownForceCurveEnvelope:=TEnvelope.CreateLinear(0.0,0.0,200.0,100.0);
  fDownForce:=1.0;
@@ -1491,7 +1491,7 @@ begin
  FreeAndNil(fSteerAngleLimitEnvelope);
  FreeAndNil(fSteeringResetSpeedEnvelope);
  FreeAndNil(fSteeringSpeedEnvelope);
- FreeAndNil(fGripEnvelope);
+ FreeAndNil(fGripFactorEnvelope);
  FreeAndNil(fDownForceCurveEnvelope);
  inherited Destroy;
 end;
@@ -1564,7 +1564,7 @@ begin
  fSteeringSpeedEnvelope.FillLinear(0.0,2.0,100.0,0.5);
 
  // The grip envelope
- fGripEnvelope.FillLinear(0.0,1.0,100.0,1.0);
+ fGripFactorEnvelope.FillLinear(0.0,1.0,100.0,1.0);
 
  // The down force curve envelope and setttings
  fDownForceCurveEnvelope.FillLinear(0.0,0.0,200.0,100.0);
@@ -1795,7 +1795,7 @@ begin
 
   fSteeringSpeedEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['steeringspeedenvelope']);
 
-  fGripEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['gripenvelope']);
+  fGripFactorEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['gripfactorenvelope']);
 
   fDownForceCurveEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['downforcecurveenvelope']);
   fDownForce:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['downforce'],fDownForce);
@@ -1924,7 +1924,7 @@ begin
 
  TPasJSONItemObject(result).Add('steeringspeedenvelope',fSteeringSpeedEnvelope.SaveToJSON);
 
- TPasJSONItemObject(result).Add('gripenvelope',fGripEnvelope.SaveToJSON);
+ TPasJSONItemObject(result).Add('gripfactorenvelope',fGripFactorEnvelope.SaveToJSON);
 
  TPasJSONItemObject(result).Add('downforcecurveenvelope',fDownForceCurveEnvelope.SaveToJSON);
  TPasJSONItemObject(result).Add('downforce',TPasJSONItemNumber.Create(fDownForce));
@@ -2071,7 +2071,7 @@ end;
 
 function TKraftRayCastVehicle.TWheel.GetWheelGripFactor:TKraftScalar;
 begin
- result:=fSettings.fGripFactor*fVehicle.fSettings.fGripEnvelope.GetValueAtTime(fVehicle.fSpeedKMH);
+ result:=fSettings.fGripFactor*fVehicle.fSettings.fGripFactorEnvelope.GetValueAtTime(fVehicle.fSpeedKMH);
 end;
 
 function TKraftRayCastVehicle.TWheel.GetWheelTransform:TKraftMatrix4x4;
