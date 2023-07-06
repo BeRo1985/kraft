@@ -394,9 +394,9 @@ type { TKraftRayCastVehicle }
               fDriftSlipperyTime:TKraftScalar;
               fMaximumSpeed:TKraftScalar;
               fMaximumReverseSpeed:TKraftScalar;
+              fCurveEvaluationAccuracy:TKraftInt32;
               fAccelerationCurveEnvelope:TEnvelope;
               fReverseAccelerationCurveEnvelope:TEnvelope;
-              fReverseEvaluationAccuracy:TKraftInt32;
               fBrakeCurveEnvelope:TEnvelope;
               fReverseBrakeCurveEnvelope:TEnvelope;
               fSteerAngleLimitEnvelope:TEnvelope;
@@ -436,9 +436,9 @@ type { TKraftRayCastVehicle }
               property DriftSlipperyTime:TKraftScalar read fDriftSlipperyTime write fDriftSlipperyTime;
               property MaximumSpeed:TKraftScalar read fMaximumSpeed write fMaximumSpeed;
               property MaximumReverseSpeed:TKraftScalar read fMaximumReverseSpeed write fMaximumReverseSpeed;
+              property CurveEvaluationAccuracy:TKraftInt32 read fCurveEvaluationAccuracy write fCurveEvaluationAccuracy;
               property AccelerationCurveEnvelope:TEnvelope read fAccelerationCurveEnvelope;
               property ReverseAccelerationCurveEnvelope:TEnvelope read fReverseAccelerationCurveEnvelope;
-              property ReverseEvaluationAccuracy:TKraftInt32 read fReverseEvaluationAccuracy write fReverseEvaluationAccuracy;
               property BrakeCurveEnvelope:TEnvelope read fBrakeCurveEnvelope;
               property ReverseBrakeCurveEnvelope:TEnvelope read fReverseBrakeCurveEnvelope;
               property SteerAngleLimitEnvelope:TEnvelope read fSteerAngleLimitEnvelope;
@@ -643,7 +643,7 @@ type { TKraftRayCastVehicle }
        function GetSteeringHandBrakeDriftK:TKraftScalar;
        function GetSteerAngleLimitInDegrees(const aSpeedMetersPerSec:TKraftScalar):TKraftScalar;
        function GetSpeed:TKraftScalar;
-       function GetAccelerationForceMagnitude(const aEnvelope:TEnvelope;const aSpeedMetersPerSec,aDeltaTime:TKraftScalar):TKraftScalar;
+       function GetAccelerationOrBrakeForceMagnitude(const aEnvelope:TEnvelope;const aSpeedMetersPerSec,aDeltaTime:TKraftScalar;const aBraking:boolean):TKraftScalar;
        function CalcAccelerationForceMagnitude:TKraftScalar;
        function CalcBrakeForceMagnitude:TKraftScalar;
        procedure UpdateGlobals;
@@ -1438,15 +1438,15 @@ begin
 
  fDriftSlipperyTime:=2.2;
 
- fAccelerationCurveEnvelope:=TEnvelope.CreateLinear(0.0,0.0,5.0,300.0);
+ fAccelerationCurveEnvelope:=TEnvelope.CreateLinear(0.0,0.0,5.0,200.0);
 
  fReverseAccelerationCurveEnvelope:=TEnvelope.CreateLinear(0.0,0.0,5.0,20.0);
 
- fReverseEvaluationAccuracy:=25;
+ fCurveEvaluationAccuracy:=25;
 
- fBrakeCurveEnvelope:=TEnvelope.CreateLinear(0.0,10.0,50.0,10.0);
+ fBrakeCurveEnvelope:=TEnvelope.CreateLinear(0.0,0.0,5.0,200.0);
 
- fReverseBrakeCurveEnvelope:=TEnvelope.CreateLinear(0.0,10.0,50.0,10.0);
+ fReverseBrakeCurveEnvelope:=TEnvelope.CreateLinear(0.0,0.0,5.0,200.0);
 
  fSteerAngleLimitEnvelope:=TEnvelope.CreateLinear(0.0,35.0,100.0,5.0);
 
@@ -1532,20 +1532,20 @@ begin
  fMaximumSpeed:=80.0;
  fMaximumReverseSpeed:=18.0;
 
+ // The curve evaluation accuracy
+ fCurveEvaluationAccuracy:=25;
+
  // The acceleration curve envelope
  fAccelerationCurveEnvelope.FillLinear(0.0,0.0,5.0,200.0);
 
  // The reverse acceleration curve envelope
  fReverseAccelerationCurveEnvelope.FillLinear(0.0,0.0,5.0,50.0);
 
- // The reverse evaluation accuracy
- fReverseEvaluationAccuracy:=25;
-
  // The brake curve envelope
- fBrakeCurveEnvelope.FillLinear(0.0,10.0,50.0,10.0);
+ fBrakeCurveEnvelope.FillLinear(0.0,0.0,5.0,200.0);
 
  // The reverse brake curve envelope
- fReverseBrakeCurveEnvelope.FillLinear(0.0,101.0,50.0,10.0);
+ fReverseBrakeCurveEnvelope.FillLinear(0.0,0.0,5.0,200.0);
 
  // The steering angle limit envelope
  fSteerAngleLimitEnvelope.FillLinear(0.0,35.0,100.0,5.0);
@@ -1769,11 +1769,11 @@ begin
 
   fMaximumReverseSpeed:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['maximumreversespeed'],fMaximumReverseSpeed);
 
+  fCurveEvaluationAccuracy:=TPasJSON.GetInt64(TPasJSONItemObject(aJSONItem).Properties['curveevaluationaccuracy'],fCurveEvaluationAccuracy);
+
   fAccelerationCurveEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['accelerationcurveenvelope']);
 
   fReverseAccelerationCurveEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['reverseaccelerationcurveenvelope']);
-
-  fReverseEvaluationAccuracy:=TPasJSON.GetInt64(TPasJSONItemObject(aJSONItem).Properties['reverseevaluationaccuracy'],fReverseEvaluationAccuracy);
 
   fBrakeCurveEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['brakecurveenvelope']);
 
@@ -1896,11 +1896,11 @@ begin
 
  TPasJSONItemObject(result).Add('maximumreversespeed',TPasJSONItemNumber.Create(fMaximumReverseSpeed));
 
+ TPasJSONItemObject(result).Add('curveevaluationaccuracy',TPasJSONItemNumber.Create(fCurveEvaluationAccuracy));
+
  TPasJSONItemObject(result).Add('accelerationcurveenvelope',fAccelerationCurveEnvelope.SaveToJSON);
 
  TPasJSONItemObject(result).Add('reverseaccelerationcurveenvelope',fReverseAccelerationCurveEnvelope.SaveToJSON);
-
- TPasJSONItemObject(result).Add('reverseevaluationaccuracy',TPasJSONItemNumber.Create(fReverseEvaluationAccuracy));
 
  TPasJSONItemObject(result).Add('brakecurveenvelope',fBrakeCurveEnvelope.SaveToJSON);
 
@@ -2262,6 +2262,7 @@ begin
   LongitudinalVelocity:=Vector3Dot(LongitudinalDirection,fVehicle.fRigidBody.GetWorldLinearVelocityFromPoint(SpringPosition));
   Force:=Vector3Origin;
   if not IsZero(BrakeRatio) then begin
+// DesiredVelocityChange:=-Max(0.0,BrakeRatio*Clamp01(fSettings.fBrakeForceFactor)*fVehicle.fBrakeForceMagnitude)*Sign(LongitudinalVelocity);
    DesiredVelocityChange:=-Clamp(BrakeRatio*Clamp01(fSettings.fBrakeForceFactor)*fVehicle.fBrakeForceMagnitude,0.0,abs(LongitudinalVelocity))*Sign(LongitudinalVelocity);
    DesiredAcceleration:=DesiredVelocityChange*fVehicle.fInverseDeltaTime;
    Vector3DirectAdd(Force,Vector3ScalarMul(LongitudinalDirection,DesiredAcceleration));
@@ -2656,7 +2657,7 @@ begin
  result:=Vector3Length(ProjectedVector)*Sign(Factor);
 end;
 
-function TKraftRayCastVehicle.GetAccelerationForceMagnitude(const aEnvelope:TEnvelope;const aSpeedMetersPerSec,aDeltaTime:TKraftScalar):TKraftScalar;
+function TKraftRayCastVehicle.GetAccelerationOrBrakeForceMagnitude(const aEnvelope:TEnvelope;const aSpeedMetersPerSec,aDeltaTime:TKraftScalar;const aBraking:boolean):TKraftScalar;
 const Inv3d6=1.0/3.6;
 var Index,Count:TKraftInt32;
     SpeedKMH,Mass,MinTime,MaxTime,TimeNow,CurrentSpeed,CurrentSpeedDifference,
@@ -2671,13 +2672,20 @@ begin
 
  case Count of
   0:begin
+   // No points, so no acceleration or braking
    result:=0.0;
   end;
   1:begin
-   result:=Max(0.0,((aEnvelope.fPoints[0].fValue-SpeedKMH)*Inv3d6)*Mass);
+   // In the case of only one point, use it
+   if aBraking then begin
+    result:=Max(0.0,((SpeedKMH-aEnvelope.fPoints[0].fValue)*Inv3d6)*Mass);
+   end else begin
+    result:=Max(0.0,((aEnvelope.fPoints[0].fValue-SpeedKMH)*Inv3d6)*Mass);
+   end;
   end;
   else begin
 
+   // Use binary search to find the closest point
    MinTime:=aEnvelope.fPoints[0].fTime;
    MaxTime:=aEnvelope.fPoints[Count-1].fTime;
 
@@ -2685,9 +2693,13 @@ begin
 
    TimeNow:=MinTime;
 
-   if SpeedKMH<aEnvelope.fPoints[Count-1].fValue then begin
+   // But first check if the speed is below the maximum speed at acceleraton or above the minimum speed at braking
+   if ((not aBraking) and (SpeedKMH<aEnvelope.fPoints[Count-1].fValue)) or
+      (aBraking and (SpeedKMH>aEnvelope.fPoints[0].fValue)) then begin
 
-    for Index:=0 to fSettings.fReverseEvaluationAccuracy-1 do begin
+    // Do the actual binary search
+
+    for Index:=0 to fSettings.fCurveEvaluationAccuracy-1 do begin
 
      CurrentSpeed:=aEnvelope.GetValueAtTime(TimeNow);
      CurrentSpeedDifference:=abs(SpeedKMH-CurrentSpeed);
@@ -2705,15 +2717,35 @@ begin
 
     end;
 
-    result:=aEnvelope.GetValueAtTime(TimeNow+aDeltaTime);
+    // We have found the closest point, so use it
+    if aBraking then begin
+     result:=aEnvelope.GetValueAtTime(TimeNow-aDeltaTime);
+    end else begin
+     result:=aEnvelope.GetValueAtTime(TimeNow+aDeltaTime);
+    end;
 
    end else begin
 
-    result:=aEnvelope.fPoints[Count-1].fValue;
+    if aBraking then begin
+
+     // Minimum speed reached, so use the last point
+     result:=aEnvelope.fPoints[0].fValue;
+
+    end else begin
+
+     // Maximum speed reached, so use the last point
+     result:=aEnvelope.fPoints[Count-1].fValue;
+
+    end;
 
    end;
 
-   result:=Max(0.0,(result-SpeedKMH)*Inv3d6*Mass);
+   // Convert it to force magnitude
+   if aBraking then begin
+    result:=Max(0.0,(SpeedKMH-result)*Inv3d6*Mass);
+   end else begin
+    result:=Max(0.0,(result-SpeedKMH)*Inv3d6*Mass);
+   end;
 
   end;
 
@@ -2725,9 +2757,9 @@ function TKraftRayCastVehicle.CalcAccelerationForceMagnitude:TKraftScalar;
 begin
  if fIsAcceleration or fIsReverseAcceleration then begin
   if fIsAcceleration then begin
-   result:=GetAccelerationForceMagnitude(fSettings.fAccelerationCurveEnvelope,fSpeed,fDeltaTime);
+   result:=GetAccelerationOrBrakeForceMagnitude(fSettings.fAccelerationCurveEnvelope,fSpeed,fDeltaTime,false);
   end else begin
-   result:=-GetAccelerationForceMagnitude(fSettings.fReverseAccelerationCurveEnvelope,-fSpeed,fDeltaTime);
+   result:=-GetAccelerationOrBrakeForceMagnitude(fSettings.fReverseAccelerationCurveEnvelope,-fSpeed,fDeltaTime,false);
   end;
  end else begin
   result:=0.0;
@@ -2737,9 +2769,9 @@ end;
 function TKraftRayCastVehicle.CalcBrakeForceMagnitude:TKraftScalar;
 begin
  if fMovingForward then begin
-  result:=fSettings.fBrakeCurveEnvelope.GetValueAtTime(fSpeedKMH);
+  result:=GetAccelerationOrBrakeForceMagnitude(fSettings.fBrakeCurveEnvelope,fSpeed,fDeltaTime,true);
  end else begin
-  result:=fSettings.fReverseBrakeCurveEnvelope.GetValueAtTime(fSpeedKMH);
+  result:=-GetAccelerationOrBrakeForceMagnitude(fSettings.fReverseAccelerationCurveEnvelope,-fSpeed,fDeltaTime,true);
  end;
 end;
 
