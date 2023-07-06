@@ -392,6 +392,8 @@ type { TKraftRayCastVehicle }
               fAirResistance:TKraftScalar;
               fHandBrakeSlipperyTime:TKraftScalar;
               fDriftSlipperyTime:TKraftScalar;
+              fMaximumSpeed:TKraftScalar;
+              fMaximumReverseSpeed:TKraftScalar;
               fUseAccelerationCurveEnvelopes:Boolean;
               fAccelerationCurveEnvelope:TEnvelope;
               fReverseAccelerationCurveEnvelope:TEnvelope;
@@ -431,6 +433,8 @@ type { TKraftRayCastVehicle }
               property AirResistance:TKraftScalar read fAirResistance write fAirResistance;
               property HandBrakeSlipperyTime:TKraftScalar read fHandBrakeSlipperyTime write fHandBrakeSlipperyTime;
               property DriftSlipperyTime:TKraftScalar read fDriftSlipperyTime write fDriftSlipperyTime;
+              property MaximumSpeed:TKraftScalar read fMaximumSpeed write fMaximumSpeed;
+              property MaximumReverseSpeed:TKraftScalar read fMaximumReverseSpeed write fMaximumReverseSpeed;
               property UseAccelerationCurveEnvelopes:Boolean read fUseAccelerationCurveEnvelopes write fUseAccelerationCurveEnvelopes;
               property AccelerationCurveEnvelope:TEnvelope read fAccelerationCurveEnvelope;
               property ReverseAccelerationCurveEnvelope:TEnvelope read fReverseAccelerationCurveEnvelope;
@@ -1515,6 +1519,10 @@ begin
  // Drift slippery time
  fDriftSlipperyTime:=2.2;
 
+ // The maximum speed in km/h
+ fMaximumSpeed:=80.0;
+ fMaximumReverseSpeed:=18.0;
+
  // Option for using acceleration curve envelopes
  fUseAccelerationCurveEnvelopes:=true;
 
@@ -1568,8 +1576,8 @@ begin
    WheelFrontLeft.fAccelerationForce:=1200.0;
    WheelFrontLeft.fBrakeForce:=10.0;
    WheelFrontLeft.fRollingFriction:=0.15;
-   WheelFrontLeft.fMaximumSpeed:=80.0;
-   WheelFrontLeft.fMaximumReverseSpeed:=18.0;
+   WheelFrontLeft.fMaximumSpeed:=0.0;
+   WheelFrontLeft.fMaximumReverseSpeed:=0.0;
    WheelFrontLeft.fGripFactor:=0.8;
    WheelFrontLeft.fAfterFlightSlipperyK:=0.02;
    WheelFrontLeft.fBrakeSlipperyK:=0.5;
@@ -1596,8 +1604,8 @@ begin
    WheelFrontRight.fAccelerationForce:=1200.0;
    WheelFrontRight.fBrakeForce:=10.0;
    WheelFrontRight.fRollingFriction:=0.15;
-   WheelFrontRight.fMaximumSpeed:=80.0;
-   WheelFrontRight.fMaximumReverseSpeed:=18.0;
+   WheelFrontRight.fMaximumSpeed:=0.0;
+   WheelFrontRight.fMaximumReverseSpeed:=0.0;
    WheelFrontRight.fGripFactor:=0.8;
    WheelFrontRight.fAfterFlightSlipperyK:=0.02;
    WheelFrontRight.fBrakeSlipperyK:=0.5;
@@ -1624,8 +1632,8 @@ begin
    WheelRearLeft.fAccelerationForce:=1200.0;
    WheelRearLeft.fBrakeForce:=10.0;
    WheelRearLeft.fRollingFriction:=0.15;
-   WheelRearLeft.fMaximumSpeed:=80.0;
-   WheelRearLeft.fMaximumReverseSpeed:=18.0;
+   WheelRearLeft.fMaximumSpeed:=0.0;
+   WheelRearLeft.fMaximumReverseSpeed:=0.0;
    WheelRearLeft.fGripFactor:=0.9;
    WheelRearLeft.fAfterFlightSlipperyK:=0.02;
    WheelRearLeft.fBrakeSlipperyK:=0.5;
@@ -1652,8 +1660,8 @@ begin
    WheelRearRight.fAccelerationForce:=1200.0;
    WheelRearRight.fBrakeForce:=10.0;
    WheelRearRight.fRollingFriction:=0.15;
-   WheelRearRight.fMaximumSpeed:=80.0;
-   WheelRearRight.fMaximumReverseSpeed:=18.0;
+   WheelRearRight.fMaximumSpeed:=0.0;
+   WheelRearRight.fMaximumReverseSpeed:=0.0;
    WheelRearRight.fGripFactor:=0.9;
    WheelRearRight.fAfterFlightSlipperyK:=0.02;
    WheelRearRight.fBrakeSlipperyK:=0.5;
@@ -1742,6 +1750,10 @@ begin
   fHandBrakeSlipperyTime:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['handbrakeslipperytime'],fHandBrakeSlipperyTime);
 
   fDriftSlipperyTime:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['driftslipperytime'],fDriftSlipperyTime);
+
+  fMaximumSpeed:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['maximumspeed'],fMaximumSpeed);
+
+  fMaximumReverseSpeed:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['maximumreversespeed'],fMaximumReverseSpeed);
 
   fUseAccelerationCurveEnvelopes:=TPasJSON.GetBoolean(TPasJSONItemObject(aJSONItem).Properties['useaccelerationcurveenvelopes'],fUseAccelerationCurveEnvelopes);
 
@@ -1862,6 +1874,10 @@ begin
  TPasJSONItemObject(result).Add('handbrakeslipperytime',TPasJSONItemNumber.Create(fHandBrakeSlipperyTime));
 
  TPasJSONItemObject(result).Add('driftslipperytime',TPasJSONItemNumber.Create(fDriftSlipperyTime));
+
+ TPasJSONItemObject(result).Add('maximumspeed',TPasJSONItemNumber.Create(fMaximumSpeed));
+
+ TPasJSONItemObject(result).Add('maximumreversespeed',TPasJSONItemNumber.Create(fMaximumReverseSpeed));
 
  TPasJSONItemObject(result).Add('useaccelerationcurveenvelopes',TPasJSONItemBoolean.Create(fUseAccelerationCurveEnvelopes));
 
@@ -2146,6 +2162,7 @@ end;
 
 procedure TKraftRayCastVehicle.TWheel.UpdateAcceleration;
 var WheelForward,Force:TKraftVector3;
+    MaximumSpeed,MaximumReverseSpeed:TKraftScalar;
 begin
 
 {$ifdef DebugDraw}
@@ -2160,9 +2177,19 @@ begin
  if (fVehicle.fSettings.fUseAccelerationCurveEnvelopes and not IsZero(fVehicle.fAccelerationForceMagnitude)) or
     ((not fVehicle.fSettings.fUseAccelerationCurveEnvelopes) and not IsZero(fVehicle.fAccelerationInput)) then begin
 
+  MaximumSpeed:=fSettings.fMaximumSpeed;
+  if IsZero(MaximumSpeed) then begin
+   MaximumSpeed:=fVehicle.fSettings.fMaximumSpeed;
+  end;
+
+  MaximumReverseSpeed:=fSettings.fMaximumReverseSpeed;
+  if IsZero(MaximumReverseSpeed) then begin
+   MaximumReverseSpeed:=fVehicle.fSettings.fMaximumReverseSpeed;
+  end; 
+
   if IsGrounded and
-     ((fVehicle.fMovingForward and (IsZero(fSettings.fMaximumSpeed) or (fVehicle.fAbsoluteSpeedKMH<fSettings.fMaximumSpeed))) or
-      ((not fVehicle.fMovingForward) and (IsZero(fSettings.fMaximumReverseSpeed) or (fVehicle.fAbsoluteSpeedKMH<fSettings.fMaximumReverseSpeed)))) then begin
+     ((fVehicle.fMovingForward and (IsZero(MaximumSpeed) or (fVehicle.fAbsoluteSpeedKMH<MaximumSpeed))) or
+      ((not fVehicle.fMovingForward) and (IsZero(MaximumReverseSpeed) or (fVehicle.fAbsoluteSpeedKMH<MaximumReverseSpeed)))) then begin
 
    WheelForward:=GetWheelLongitudinalDirection;
 
