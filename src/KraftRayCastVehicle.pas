@@ -2771,7 +2771,7 @@ begin
  if fMovingForward then begin
   result:=GetAccelerationOrBrakeForceMagnitude(fSettings.fBrakeCurveEnvelope,fSpeed,fDeltaTime,true);
  end else begin
-  result:=-GetAccelerationOrBrakeForceMagnitude(fSettings.fReverseAccelerationCurveEnvelope,-fSpeed,fDeltaTime,true);
+  result:=GetAccelerationOrBrakeForceMagnitude(fSettings.fReverseBrakeCurveEnvelope,-fSpeed,fDeltaTime,true);
  end;
 end;
 
