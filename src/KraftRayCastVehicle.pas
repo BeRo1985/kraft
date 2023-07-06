@@ -241,20 +241,20 @@ type { TKraftRayCastVehicle }
              published
               property Count:TKraftInt32 read fCount;
             end;
-            { TSpringMath }
-            TSpringMath=class
+            { TSuspensionSpringMath }
+            TSuspensionSpringMath=class
              public
               class function CalculateForce(const aCurrentLength,aRestLength,aStrength:TKraftScalar):TKraftScalar; static;
               class function CalculateForceDamped(const aCurrentLength,aLengthVelocity,aRestLength,aStrength,aDamper:TKraftScalar):TKraftScalar; static;
             end; 
-            { TSpring }
-            TSpring=record
+            { TSuspension }
+            TSuspension=record
              private
               fCurrentLength:TKraftScalar;
               fCurrentVelocity:TKraftScalar;
               fCompression:TKraftScalar;
             end; 
-            PSpring=^TSpring;
+            PSuspension=^TSuspension;
             { TSettings }
             TSettings=class // Vehicle settings
              public
@@ -463,7 +463,7 @@ type { TKraftRayCastVehicle }
               fVehicle:TKraftRayCastVehicle;
               fSettings:TKraftRayCastVehicle.TSettings.TWheel;
               fAxle:TKraftRayCastVehicle.TAxle;
-              fSpring:TSpring;
+              fSuspension:TSuspension;
               fYawRad:TKraftScalar;
               fLastYawRad:TKraftScalar;
               fVisualYawRad:TKraftScalar;
@@ -491,9 +491,9 @@ type { TKraftRayCastVehicle }
               fVisualDebugLaterialForce:TKraftVector3;
 {$endif}
              public
-              function GetSpringHitPosition:TKraftVector3;
-              function GetSpringPosition:TKraftVector3;
-              function GetSpringRelativePosition:TKraftVector3;
+              function GetSuspensionHitPosition:TKraftVector3;
+              function GetSuspensionPosition:TKraftVector3;
+              function GetSuspensionRelativePosition:TKraftVector3;
               function GetWheelGripFactor:TKraftScalar;
               function GetWheelLongitudinalDirection:TKraftVector3;
               function GetWheelLaterialDirection:TKraftVector3;
@@ -502,7 +502,7 @@ type { TKraftRayCastVehicle }
               function GetWheelTransform:TKraftMatrix4x4;
              private
               function IsGrounded:boolean;
-              procedure CastSpring;
+              procedure SuspensionCast;
               procedure UpdateSuspension;
               procedure UpdateLaterialForce;
               procedure UpdateAcceleration;
@@ -1144,16 +1144,16 @@ begin
  end;
 end;
 
-{ TKraftRayCastVehicle.TSpringMath }
+{ TKraftRayCastVehicle.TSuspensionSpringMath }
 
-// Calculates the force which wants to restore the spring to its rest length.
-class function TKraftRayCastVehicle.TSpringMath.CalculateForce(const aCurrentLength,aRestLength,aStrength:TKraftScalar):TKraftScalar;
+// Calculates the force which wants to restore the suspension spring to its rest length.
+class function TKraftRayCastVehicle.TSuspensionSpringMath.CalculateForce(const aCurrentLength,aRestLength,aStrength:TKraftScalar):TKraftScalar;
 begin
  result:=(aRestLength-aCurrentLength)*aStrength;
 end;
 
-// Combines the force which wants to restore the spring to its rest length with the force which wants to damp the spring's motion.
-class function TKraftRayCastVehicle.TSpringMath.CalculateForceDamped(const aCurrentLength,aLengthVelocity,aRestLength,aStrength,aDamper:TKraftScalar):TKraftScalar;
+// Combines the force which wants to restore the suspension spring to its rest length with the force which wants to damp the suspension spring's motion.
+class function TKraftRayCastVehicle.TSuspensionSpringMath.CalculateForceDamped(const aCurrentLength,aLengthVelocity,aRestLength,aStrength,aDamper:TKraftScalar):TKraftScalar;
 begin
  result:=((aRestLength-aCurrentLength)*aStrength)-(aLengthVelocity*aDamper);
 end;
@@ -1299,6 +1299,7 @@ begin
  if assigned(aJSONItem) and (aJSONItem is TPasJSONItemObject) then begin
   fWheels.Clear;
   fName:=TPasJSON.GetString(TPasJSONItemObject(aJSONItem).Properties['name'],fName);
+  fStabilizerBarAntiRollForce:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['stabilizerbarantirollforce'],fStabilizerBarAntiRollForce);
   JSONItem:=TPasJSONItemObject(aJSONItem).Properties['wheels'];
   if assigned(JSONItem) and (JSONItem is TPasJSONItemArray) then begin
    JSONItemArray:=TPasJSONItemArray(JSONItem);
@@ -1326,6 +1327,7 @@ var Index:TPasJSONSizeInt;
 begin
  result:=TPasJSONItemObject.Create;
  TPasJSONItemObject(result).Add('name',TPasJSONItemString.Create(fName));
+ TPasJSONItemObject(result).Add('stabilizerbarantirollforce',TPasJSONItemNumber.Create(fStabilizerBarAntiRollForce));
  JSONItemArray:=TPasJSONItemArray.Create;
  try
   for Index:=0 to fWheels.Count-1 do begin
@@ -2002,8 +2004,8 @@ begin
  fVehicle:=aVehicle;
  fSettings:=aSettings;
  fAxle:=nil;
- fSpring.fCurrentLength:=0.0;
- fSpring.fCurrentVelocity:=0.0;
+ fSuspension.fCurrentLength:=0.0;
+ fSuspension.fCurrentVelocity:=0.0;
  fYawRad:=0.0;
  fRotationRad:=0.0;
  fWorldTransform:=Matrix4x4Identity;
@@ -2016,19 +2018,19 @@ begin
  inherited Destroy;
 end;
 
-function TKraftRayCastVehicle.TWheel.GetSpringRelativePosition:TKraftVector3;
+function TKraftRayCastVehicle.TWheel.GetSuspensionRelativePosition:TKraftVector3;
 begin
  result:=Vector3(fSettings.fOffset.x,fSettings.fHeight,fSettings.fOffset.y);
 end;
 
-function TKraftRayCastVehicle.TWheel.GetSpringPosition:TKraftVector3;
+function TKraftRayCastVehicle.TWheel.GetSuspensionPosition:TKraftVector3;
 begin
- result:=Vector3TermMatrixMul(GetSpringRelativePosition,fVehicle.fWorldTransform);
+ result:=Vector3TermMatrixMul(GetSuspensionRelativePosition,fVehicle.fWorldTransform);
 end;
 
-function TKraftRayCastVehicle.TWheel.GetSpringHitPosition:TKraftVector3;
+function TKraftRayCastVehicle.TWheel.GetSuspensionHitPosition:TKraftVector3;
 begin
- result:=Vector3Add(GetSpringPosition,Vector3ScalarMul(fVehicle.fWorldDown,fSpring.fCurrentLength));
+ result:=Vector3Add(GetSuspensionPosition,Vector3ScalarMul(fVehicle.fWorldDown,fSuspension.fCurrentLength));
 end;
 
 function TKraftRayCastVehicle.TWheel.GetWheelLongitudinalDirection:TKraftVector3;
@@ -2065,7 +2067,7 @@ var {LocalWheelPosition,}WorldWheelPosition:TKraftVector3;
     LocalWheelRotation,WorldWheelRotation:TKraftQuaternion;
 begin
  LocalWheelRotation:=QuaternionFromAngles(fYawRad,0.0,fRotationRad);
- WorldWheelPosition:=Vector3Add(GetSpringPosition,Vector3ScalarMul(fVehicle.fWorldDown,fSpring.fCurrentLength-fSettings.fRadius));
+ WorldWheelPosition:=Vector3Add(GetSuspensionPosition,Vector3ScalarMul(fVehicle.fWorldDown,fSuspension.fCurrentLength-fSettings.fRadius));
  WorldWheelRotation:=QuaternionMul(fVehicle.fRigidBody.Sweep.q,LocalWheelRotation);
  result:=QuaternionToMatrix4x4(WorldWheelRotation);
  PKraftVector3(@result[3,0])^.xyz:=WorldWheelPosition.xyz;
@@ -2073,16 +2075,16 @@ end;
 
 function TKraftRayCastVehicle.TWheel.IsGrounded:boolean;
 begin
- result:=fSpring.fCurrentLength<fSettings.fSuspensionRestLength;
+ result:=fSuspension.fCurrentLength<fSettings.fSuspensionRestLength;
 end;
 
-procedure TKraftRayCastVehicle.TWheel.CastSpring;
+procedure TKraftRayCastVehicle.TWheel.SuspensionCast;
 var RayOrigin,RayDirection,HitPoint,HitNormal:TKraftVector3;
     RayLength,PreviousLength,CurrentLength,HitTime:TKraftScalar;
     HitShape:TKraftShape;
 begin
- RayOrigin:=GetSpringPosition;
- PreviousLength:=fSpring.fCurrentLength;
+ RayOrigin:=GetSuspensionPosition;
+ PreviousLength:=fSuspension.fCurrentLength;
  RayDirection:=fVehicle.fWorldDown;
  if fSettings.fUseSphereCast then begin
   RayLength:=fSettings.fSuspensionRestLength-fSettings.fRadius;
@@ -2099,29 +2101,29 @@ begin
    CurrentLength:=fSettings.fSuspensionRestLength;
   end;
  end;
- fSpring.fCurrentVelocity:=(CurrentLength-PreviousLength)*fVehicle.fInverseDeltaTime;
- fSpring.fCurrentLength:=CurrentLength;
- fSpring.fCompression:=1.0-Clamp01(CurrentLength/fSettings.fSuspensionRestLength);
+ fSuspension.fCurrentVelocity:=(CurrentLength-PreviousLength)*fVehicle.fInverseDeltaTime;
+ fSuspension.fCurrentLength:=CurrentLength;
+ fSuspension.fCompression:=1.0-Clamp01(CurrentLength/fSettings.fSuspensionRestLength);
 end;
 
 procedure TKraftRayCastVehicle.TWheel.UpdateSuspension;
 var CurrentLength,CurrentVelocity,Force:TKraftScalar;
 begin
- fSuspensionLength:=fSpring.fCurrentLength;
- CurrentLength:=fSpring.fCurrentLength;
- CurrentVelocity:=fSpring.fCurrentVelocity;
- Force:=TKraftRayCastVehicle.TSpringMath.CalculateForceDamped(CurrentLength,
+ fSuspensionLength:=fSuspension.fCurrentLength;
+ CurrentLength:=fSuspension.fCurrentLength;
+ CurrentVelocity:=fSuspension.fCurrentVelocity;
+ Force:=TKraftRayCastVehicle.TSuspensionSpringMath.CalculateForceDamped(CurrentLength,
                                                               CurrentVelocity,
                                                               fSettings.fSuspensionRestLength,
                                                               fSettings.fSuspensionStrength,
                                                               fSettings.fSuspensionDamping);
  if abs(Force)>EPSILON then begin
-  fVehicle.fRigidBody.AddForceAtPosition(Vector3ScalarMul(fVehicle.fWorldUp,Force),GetSpringPosition,kfmForce,false);
+  fVehicle.fRigidBody.AddForceAtPosition(Vector3ScalarMul(fVehicle.fWorldUp,Force),GetSuspensionPosition,kfmForce,false);
  end;
 end;
 
 procedure TKraftRayCastVehicle.TWheel.UpdateLaterialForce;
-var SpringPosition,LaterialDirection,Force:TKraftVector3;
+var SuspensionPosition,LaterialDirection,Force:TKraftVector3;
     SlipperyK,HandBrakeK,DriftK,LaterialVelocity,DesiredVelocityChange,DesiredAcceleration,
     AfterFlightSlipperyK,BrakeSlipperyK,HandBrakeSlipperyK,DriftSlipperyK:TKraftScalar;
 begin
@@ -2165,9 +2167,9 @@ begin
 
   end;
 
-  SpringPosition:=GetSpringPosition;
+  SuspensionPosition:=GetSuspensionPosition;
   LaterialDirection:=GetWheelLaterialDirection;
-  LaterialVelocity:=Vector3Dot(LaterialDirection,fVehicle.fRigidBody.GetWorldLinearVelocityFromPoint(SpringPosition));
+  LaterialVelocity:=Vector3Dot(LaterialDirection,fVehicle.fRigidBody.GetWorldLinearVelocityFromPoint(SuspensionPosition));
   DesiredVelocityChange:=-(LaterialVelocity*GetWheelGripFactor*SlipperyK);
   DesiredAcceleration:=DesiredVelocityChange*fVehicle.fInverseDeltaTime;
   Force:=Vector3ScalarMul(LaterialDirection,DesiredAcceleration*fSettings.fMass);
@@ -2229,7 +2231,7 @@ end;
 
 procedure TKraftRayCastVehicle.TWheel.UpdateLongitudinalForce;
 var BrakeRatio,RollingFrictionRatio,LongitudinalVelocity,DesiredVelocityChange,DesiredAcceleration:TKraftScalar;
-    SpringPosition,LongitudinalDirection,Force:TKraftVector3;
+    SuspensionPosition,LongitudinalDirection,Force:TKraftVector3;
 begin
 
 {$ifdef DebugDraw}
@@ -2257,9 +2259,9 @@ begin
  end;}
 
  if IsGrounded then begin
-  SpringPosition:=GetSpringPosition;
+  SuspensionPosition:=GetSuspensionPosition;
   LongitudinalDirection:=GetWheelLongitudinalDirection;
-  LongitudinalVelocity:=Vector3Dot(LongitudinalDirection,fVehicle.fRigidBody.GetWorldLinearVelocityFromPoint(SpringPosition));
+  LongitudinalVelocity:=Vector3Dot(LongitudinalDirection,fVehicle.fRigidBody.GetWorldLinearVelocityFromPoint(SuspensionPosition));
   Force:=Vector3Origin;
   if not IsZero(BrakeRatio) then begin
 // DesiredVelocityChange:=-Max(0.0,BrakeRatio*Clamp01(fSettings.fBrakeForceFactor)*fVehicle.fBrakeForceMagnitude)*Sign(LongitudinalVelocity);
@@ -2289,7 +2291,7 @@ begin
 
  LocalWheelRotation:=QuaternionFromAngles(fYawRad,0.0,0);
 
- WorldWheelPosition:=Vector3Add(GetSpringPosition,Vector3ScalarMul(fVehicle.WorldDown,fSpring.fCurrentLength));
+ WorldWheelPosition:=Vector3Add(GetSuspensionPosition,Vector3ScalarMul(fVehicle.WorldDown,fSuspension.fCurrentLength));
  WorldWheelRotation:=QuaternionMul(fVehicle.fRigidBody.Sweep.q,LocalWheelRotation);
 
  WorldWheelForward:=Vector3TermQuaternionRotate(Vector3(0.0,0.0,1.0),WorldWheelRotation);
@@ -2389,11 +2391,11 @@ begin
  if (fWheels.Count=2) and not IsZero(fSettings.fStabilizerBarAntiRollForce) then begin
   WheelLeft:=fWheels[0];
   WheelRight:=fWheels[1];
-  TravelL:=1.0-Clamp01(WheelLeft.fSpring.fCompression);
-  TravelR:=1.0-Clamp01(WheelRight.fSpring.fCompression);
+  TravelL:=1.0-Clamp01(WheelLeft.fSuspension.fCompression);
+  TravelR:=1.0-Clamp01(WheelRight.fSuspension.fCompression);
   AntiRollForce:=(TravelL-TravelR)*fSettings.fStabilizerBarAntiRollForce;
   if WheelLeft.IsGrounded and (abs(AntiRollForce)>EPSILON) then begin
-   fVehicle.fRigidBody.AddForceAtPosition(Vector3ScalarMul(fVehicle.fWorldDown,AntiRollForce),WheelLeft.GetSpringHitPosition,kfmForce,false);
+   fVehicle.fRigidBody.AddForceAtPosition(Vector3ScalarMul(fVehicle.fWorldDown,AntiRollForce),WheelLeft.GetSuspensionHitPosition,kfmForce,false);
 {$ifdef DebugDraw}
    WheelLeft.fDebugAntiRollForce:=Vector3ScalarMul(fVehicle.fWorldDown,AntiRollForce);
 {$endif}
@@ -2403,7 +2405,7 @@ begin
 {$endif}
   end;
   if WheelRight.IsGrounded and (abs(AntiRollForce)>EPSILON) then begin
-   fVehicle.fRigidBody.AddForceAtPosition(Vector3ScalarMul(fVehicle.fWorldDown,-AntiRollForce),WheelRight.GetSpringHitPosition,kfmForce,false);
+   fVehicle.fRigidBody.AddForceAtPosition(Vector3ScalarMul(fVehicle.fWorldDown,-AntiRollForce),WheelRight.GetSuspensionHitPosition,kfmForce,false);
 {$ifdef DebugDraw}
    WheelRight.fDebugAntiRollForce:=Vector3ScalarMul(fVehicle.fWorldDown,-AntiRollForce);
 {$endif}
@@ -2467,11 +2469,11 @@ begin
 
    SteerAngleRad:=fVehicle.fSteeringAngle*DEG2RAD;
 
-   AxleDiff:=Vector3Sub(Vector3Avg(WheelFrontLeft.GetSpringPosition,WheelFrontRight.GetSpringPosition),
-                        Vector3Avg(WheelRearLeft.GetSpringPosition,WheelRearRight.GetSpringPosition));
+   AxleDiff:=Vector3Sub(Vector3Avg(WheelFrontLeft.GetSuspensionPosition,WheelFrontRight.GetSuspensionPosition),
+                        Vector3Avg(WheelRearLeft.GetSuspensionPosition,WheelRearRight.GetSuspensionPosition));
    AxleSeparation:=Vector3Length(AxleDiff);
 
-   WheelDiff:=Vector3Sub(WheelFrontLeft.GetSpringPosition,WheelFrontRight.GetSpringPosition);
+   WheelDiff:=Vector3Sub(WheelFrontLeft.GetSuspensionPosition,WheelFrontRight.GetSuspensionPosition);
    WheelSeparation:=Vector3Length(WheelDiff);
 
    TurningCircleRadius:=AxleSeparation/Tan(SteerAngleRad);
@@ -2872,7 +2874,7 @@ var Index:TKraftInt32;
 begin
  for Index:=0 to fWheels.Count-1 do begin
   Wheel:=fWheels[Index];
-  Wheel.CastSpring;
+  Wheel.SuspensionCast;
   Wheel.UpdateSuspension;
  end;
 end;
@@ -3216,7 +3218,7 @@ begin
      v0:=v1;
      v1:=Vector3Origin;
      for OtherOtherIndex:=0 to Axle.fWheels.Count-1 do begin
-      Vector3DirectAdd(v1,Axle.fWheels[OtherOtherIndex].GetSpringRelativePosition);
+      Vector3DirectAdd(v1,Axle.fWheels[OtherOtherIndex].GetSuspensionRelativePosition);
      end;
      v1:=Vector3TermMatrixMul(Vector3ScalarMul(v1,1.0/Axle.fWheels.Count),fVisualWorldTransform);
 
@@ -3256,7 +3258,7 @@ begin
    if OtherIndex>0 then begin
     v0:=v1;
    end;
-   v1:=Vector3TermMatrixMul(Wheel.GetSpringRelativePosition,fVisualWorldTransform);
+   v1:=Vector3TermMatrixMul(Wheel.GetSuspensionRelativePosition,fVisualWorldTransform);
    if OtherIndex>0 then begin
 {$ifdef NoOpenGL}
     if assigned(fDebugDrawLine) then begin
@@ -3395,8 +3397,8 @@ begin
    Color:=Vector4(1.0,0.0,1.0,1.0);
   end;
 
-  v0:=Vector3TermMatrixMul(Wheel.GetSpringRelativePosition,fVisualWorldTransform);
-  v1:=Vector3Add(v0,Vector3ScalarMul(fVisualWorldDown,Wheel.fSpring.fCurrentLength));
+  v0:=Vector3TermMatrixMul(Wheel.GetSuspensionRelativePosition,fVisualWorldTransform);
+  v1:=Vector3Add(v0,Vector3ScalarMul(fVisualWorldDown,Wheel.fSuspension.fCurrentLength));
 {$ifdef NoOpenGL}
   if assigned(fDebugDrawLine) then begin
    fDebugDrawLine(v0,v1,Color);
@@ -3410,7 +3412,7 @@ begin
 {$endif}
 
   Color:=Vector4(1.0,0.0,1.0,1.0);
-  v0:=Vector3TermMatrixMul(Wheel.GetSpringRelativePosition,fVisualWorldTransform);
+  v0:=Vector3TermMatrixMul(Wheel.GetSuspensionRelativePosition,fVisualWorldTransform);
   v1:=Vector3Add(v0,Wheel.fVisualDebugAntiRollForce);
 {$ifdef NoOpenGL}
   if assigned(fDebugDrawLine) then begin
@@ -3425,7 +3427,7 @@ begin
 {$endif}
 
   Color:=Vector4(1.0,0.0,0.0,1.0);
-  v0:=Vector3TermMatrixMul(Wheel.GetSpringRelativePosition,fVisualWorldTransform);
+  v0:=Vector3TermMatrixMul(Wheel.GetSuspensionRelativePosition,fVisualWorldTransform);
   v1:=Vector3Add(v0,Wheel.fVisualDebugAccelerationForce);
 {$ifdef NoOpenGL}
   if assigned(fDebugDrawLine) then begin
@@ -3440,7 +3442,7 @@ begin
 {$endif}
 
   Color:=Vector4(1.0,0.5,0.5,1.0);
-  v0:=Vector3TermMatrixMul(Wheel.GetSpringRelativePosition,fVisualWorldTransform);
+  v0:=Vector3TermMatrixMul(Wheel.GetSuspensionRelativePosition,fVisualWorldTransform);
   v1:=Vector3Add(v0,Wheel.fVisualDebugLongitudinalForce);
 {$ifdef NoOpenGL}
   if assigned(fDebugDrawLine) then begin
@@ -3455,7 +3457,7 @@ begin
 {$endif}
 
   Color:=Vector4(1.0,0.75,0.25,1.0);
-  v0:=Vector3TermMatrixMul(Wheel.GetSpringRelativePosition,fVisualWorldTransform);
+  v0:=Vector3TermMatrixMul(Wheel.GetSuspensionRelativePosition,fVisualWorldTransform);
   v1:=Vector3Add(v0,Wheel.fVisualDebugLaterialForce);
 {$ifdef NoOpenGL}
   if assigned(fDebugDrawLine) then begin
