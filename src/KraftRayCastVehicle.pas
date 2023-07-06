@@ -3405,6 +3405,11 @@ begin
   glEnd;
 {$endif}
 
+  if Wheel.IsGrounded then begin
+   Color:=Vector4(0.0625,1.0,0.0625,1.0);
+  end else begin
+   Color:=Vector4(1.0,0.0625,0.0625,1.0);
+  end;
 {$ifdef NoOpenGL}
   v:=Vector3TermMatrixMul(Vector3Origin,Wheel.fVisualWorldTransform);
   v0:=v;
@@ -3413,13 +3418,13 @@ begin
     v1:=v0;
     v0:=Vector3TermMatrixMul(Vector3Add(Vector3Add(Vector3Origin,Vector3ScalarMul(Vector3YAxis,Sin((OtherIndex/16)*PI*2)*Wheel.fSettings.fRadius)),Vector3ScalarMul(Vector3ZAxis,Cos((OtherIndex/16)*PI*2)*Wheel.fSettings.Radius)),Wheel.fVisualWorldTransform);
     if OtherIndex>0 then begin
-     fDebugDrawLine(v,v0,Vector4(1.0,1.0,1.0,1.0));
-     fDebugDrawLine(v0,v1,Vector4(1.0,1.0,1.0,1.0));
+     fDebugDrawLine(v,v0,Color);
+     fDebugDrawLine(v0,v1,Color);
     end;
    end;
   end;
 {$else}
-  glColor4f(1.0,1.0,1.0,1.0);
+  glColor4fv(@Color);
   glDisable(GL_CULL_FACE);
   glBegin(GL_TRIANGLE_FAN);
   v0:=Vector3TermMatrixMul(Vector3Origin,Wheel.fVisualWorldTransform);
