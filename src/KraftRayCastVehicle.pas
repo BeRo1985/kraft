@@ -608,11 +608,10 @@ type { TKraftRayCastVehicle }
        fDriftSlipperyTiresTime:TKraftScalar;
        fSteeringAngle:TKraftScalar;
        fAccelerationForceMagnitude:TKraftScalar;
-       fRelativeSpeed:TKraftScalar;
-       fMovingForward:boolean;
-       fAbsoluteSpeed:TKraftScalar;
        fSpeed:TKraftScalar;
        fSpeedKMH:TKraftScalar;
+       fAbsoluteSpeedKMH:TKraftScalar;
+       fMovingForward:boolean;
        fCastCollisionGroup:TKraftRigidBodyCollisionGroups;
 {$ifdef DebugDraw}
        fDebugAirResistanceForce:TKraftVector3;
@@ -710,6 +709,7 @@ type { TKraftRayCastVehicle }
        property InputDrift:Boolean read fInputDrift write fInputDrift;
        property Speed:TKraftScalar read fSpeed write fSpeed;
        property SpeedKMH:TKraftScalar read fSpeedKMH write fSpeedKMH;
+       property AbsoluteSpeedKMH:TKraftScalar read fAbsoluteSpeedKMH write fAbsoluteSpeedKMH;
        property DebugDrawLine:TDebugDrawLine read fDebugDrawLine write fDebugDrawLine;
      end;
 
@@ -1564,8 +1564,8 @@ begin
    WheelFrontLeft.fAccelerationForce:=1200.0;
    WheelFrontLeft.fBrakeForce:=10.0;
    WheelFrontLeft.fRollingFriction:=0.15;
-   WheelFrontLeft.fMaximumSpeed:=22.0;
-   WheelFrontLeft.fMaximumReverseSpeed:=5.0;
+   WheelFrontLeft.fMaximumSpeed:=80.0;
+   WheelFrontLeft.fMaximumReverseSpeed:=18.0;
    WheelFrontLeft.fGripFactor:=0.8;
    WheelFrontLeft.fAfterFlightSlipperyK:=0.02;
    WheelFrontLeft.fBrakeSlipperyK:=0.5;
@@ -1592,8 +1592,8 @@ begin
    WheelFrontRight.fAccelerationForce:=1200.0;
    WheelFrontRight.fBrakeForce:=10.0;
    WheelFrontRight.fRollingFriction:=0.15;
-   WheelFrontRight.fMaximumSpeed:=22.0;
-   WheelFrontRight.fMaximumReverseSpeed:=5.0;
+   WheelFrontRight.fMaximumSpeed:=80.0;
+   WheelFrontRight.fMaximumReverseSpeed:=18.0;
    WheelFrontRight.fGripFactor:=0.8;
    WheelFrontRight.fAfterFlightSlipperyK:=0.02;
    WheelFrontRight.fBrakeSlipperyK:=0.5;
@@ -1620,8 +1620,8 @@ begin
    WheelRearLeft.fAccelerationForce:=1200.0;
    WheelRearLeft.fBrakeForce:=10.0;
    WheelRearLeft.fRollingFriction:=0.15;
-   WheelRearLeft.fMaximumSpeed:=22.0;
-   WheelRearLeft.fMaximumReverseSpeed:=5.0;
+   WheelRearLeft.fMaximumSpeed:=80.0;
+   WheelRearLeft.fMaximumReverseSpeed:=18.0;
    WheelRearLeft.fGripFactor:=0.9;
    WheelRearLeft.fAfterFlightSlipperyK:=0.02;
    WheelRearLeft.fBrakeSlipperyK:=0.5;
@@ -1648,8 +1648,8 @@ begin
    WheelRearRight.fAccelerationForce:=1200.0;
    WheelRearRight.fBrakeForce:=10.0;
    WheelRearRight.fRollingFriction:=0.15;
-   WheelRearRight.fMaximumSpeed:=22.0;
-   WheelRearRight.fMaximumReverseSpeed:=5.0;
+   WheelRearRight.fMaximumSpeed:=80.0;
+   WheelRearRight.fMaximumReverseSpeed:=18.0;
    WheelRearRight.fGripFactor:=0.9;
    WheelRearRight.fAfterFlightSlipperyK:=0.02;
    WheelRearRight.fBrakeSlipperyK:=0.5;
@@ -2157,8 +2157,8 @@ begin
     ((not fVehicle.fSettings.fUseAccelerationCurveEnvelopes) and not IsZero(fVehicle.fAccelerationInput)) then begin
 
   if IsGrounded and
-     ((fVehicle.fMovingForward and (IsZero(fSettings.fMaximumSpeed) or (fVehicle.fAbsoluteSpeed<fSettings.fMaximumSpeed))) or
-      ((not fVehicle.fMovingForward) and (IsZero(fSettings.fMaximumReverseSpeed) or (fVehicle.fAbsoluteSpeed<fSettings.fMaximumReverseSpeed)))) then begin
+     ((fVehicle.fMovingForward and (IsZero(fSettings.fMaximumSpeed) or (fVehicle.fAbsoluteSpeedKMH<fSettings.fMaximumSpeed))) or
+      ((not fVehicle.fMovingForward) and (IsZero(fSettings.fMaximumReverseSpeed) or (fVehicle.fAbsoluteSpeedKMH<fSettings.fMaximumReverseSpeed)))) then begin
 
    WheelForward:=GetWheelLongitudinalDirection;
 
@@ -2182,7 +2182,7 @@ begin
 end;
 
 procedure TKraftRayCastVehicle.TWheel.UpdateLongitudinalForce;
-const AlmostStoppedSpeed=0.1;
+const AlmostStoppedSpeed=0.5;
 var BrakeRatio,RollingFrictionRatio,LongitudinalVelocity,DesiredVelocityChange,DesiredAcceleration:TKraftScalar;
     AlmostStopping,AccelerationContrary:boolean;
     SpringPosition,LongitudinalDirection,Force:TKraftVector3;
@@ -2210,7 +2210,7 @@ begin
 
  end else begin
 
-  AlmostStopping:=fVehicle.fAbsoluteSpeed<AlmostStoppedSpeed;
+  AlmostStopping:=fVehicle.fAbsoluteSpeedKMH<AlmostStoppedSpeed;
   if AlmostStopping or fVehicle.fIsBrake or fVehicle.fIsHandBrake then begin
    if fVehicle.fIsHandBrake and not fVehicle.fIsBrake then begin
     BrakeRatio:=0.8;
@@ -2720,11 +2720,10 @@ procedure TKraftRayCastVehicle.UpdateGlobals;
 begin
 
  fSpeed:=GetSpeed;
- fSpeedKMH:=abs(fSpeed)*3.6;
+ fSpeedKMH:=fSpeed*3.6;
+ fAbsoluteSpeedKMH:=abs(fSpeed)*3.6;
 
- fRelativeSpeed:=Vector3Dot(fWorldForward,fRigidBody.LinearVelocity);
- fMovingForward:=fRelativeSpeed>0.0;
- fAbsoluteSpeed:=abs(fRelativeSpeed);
+ fMovingForward:=fSpeed>0.0;
 
 end;
 
@@ -2787,10 +2786,10 @@ begin
  fIsDrift:=fInputDrift;
 
  if abs(Horizontal)>0.001 then begin
-  NewSteerAngle:=fSteeringAngle+(Horizontal*fSettings.fSteeringSpeedEnvelope.GetValueAtTime(fSpeedKMH*GetSteeringHandBrakeDriftK));
+  NewSteerAngle:=fSteeringAngle+(Horizontal*fSettings.fSteeringSpeedEnvelope.GetValueAtTime(fAbsoluteSpeedKMH*GetSteeringHandBrakeDriftK));
   fSteeringAngle:=Min(abs(NewSteerAngle),GetSteerAngleLimitInDegrees(Speed))*Sign(NewSteerAngle);
  end else begin
-  AngleReturnSpeedDegressPerSecond:=fSettings.fSteeringResetSpeedEnvelope.GetValueAtTime(fSpeedKMH)*Clamp01(fSpeedKMH*0.5);
+  AngleReturnSpeedDegressPerSecond:=fSettings.fSteeringResetSpeedEnvelope.GetValueAtTime(fAbsoluteSpeedKMH)*Clamp01(fAbsoluteSpeedKMH*0.5);
   fSteeringAngle:=Max(abs(fSteeringAngle)-(AngleReturnSpeedDegressPerSecond*fDeltaTime),0.0)*Sign(fSteeringAngle);
  end;
 
@@ -2911,7 +2910,7 @@ begin
   end;
  end;
  if AllWheelsGrounded and not IsZero(fSettings.fDownForce) then begin
-  DownForceAmount:=fSettings.fDownForceCurveEnvelope.GetValueAtTime(fSpeedKMH)*0.01;
+  DownForceAmount:=fSettings.fDownForceCurveEnvelope.GetValueAtTime(fAbsoluteSpeedKMH)*0.01;
   Force:=Vector3ScalarMul(fWorldDown,fRigidBody.Mass*DownForceAmount*fSettings.fDownForce);
 {$ifdef DebugDraw}
   fDebugDownForce:=Force;
