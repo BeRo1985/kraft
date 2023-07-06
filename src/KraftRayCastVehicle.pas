@@ -403,6 +403,8 @@ type { TKraftRayCastVehicle }
               fDownForce:TKraftScalar;
               fFlightStabilizationDamping:TKraftScalar;
               fFlightStabilizationForce:TKraftScalar;
+              fKeepUprightThreshold:TKraftScalar;
+              fKeepUprightForce:TKraftScalar;
               fWheels:TWheels;
               fAxles:TAxles;
               fAckermannGroups:TAckermannGroups;
@@ -440,6 +442,8 @@ type { TKraftRayCastVehicle }
               property DownForce:TKraftScalar read fDownForce write fDownForce;
               property FlightStabilizationDamping:TKraftScalar read fFlightStabilizationDamping write fFlightStabilizationDamping;
               property FlightStabilizationForce:TKraftScalar read fFlightStabilizationForce write fFlightStabilizationForce;
+              property KeepUprightThreshold:TKraftScalar read fKeepUprightThreshold write fKeepUprightThreshold;
+              property KeepUprightForce:TKraftScalar read fKeepUprightForce write fKeepUprightForce;
               property Wheels:TWheels read fWheels;
               property Axles:TAxles read fAxles;
               property AckermannGroups:TAckermannGroups read fAckermannGroups;
@@ -620,6 +624,9 @@ type { TKraftRayCastVehicle }
        fDebugFlightStabilizationTorque:TKraftVector3;
        fLastDebugFlightStabilizationTorque:TKraftVector3;
        fVisualDebugFlightStabilizationTorque:TKraftVector3;
+       fDebugKeepUprightTorque:TKraftVector3;
+       fLastDebugKeepUprightTorque:TKraftVector3;
+       fVisualDebugKeepUprightTorque:TKraftVector3;
 {$endif}
        function ShapeCanCollideWith(const WithShape:TKraftShape):boolean;
        function RayCastFilter(const aPoint,aNormal:TKraftVector3;const aTime:TKraftScalar;const aShape:TKraftShape):boolean;
@@ -642,6 +649,7 @@ type { TKraftRayCastVehicle }
        procedure UpdateAirResistance;
        procedure UpdateDownForce;
        procedure UpdateFlightStabilization;
+       procedure UpdateKeepUpright;
        procedure UpdateWheelRotations;
        procedure UpdateVisuals;
       public
@@ -1437,6 +1445,9 @@ begin
  fFlightStabilizationForce:=1.0;
  fFlightStabilizationDamping:=0.1;
 
+ fKeepUprightThreshold:=0.9;
+ fKeepUprightForce:=10.0;
+
  fWheels:=TWheels.Create(true);
 
  fAxles:=TAxles.Create(true);
@@ -1526,6 +1537,10 @@ begin
  // The flight stabilization settings
  fFlightStabilizationForce:=1.0;
  fFlightStabilizationDamping:=0.1;
+
+ // The keep upright force
+ fKeepUprightThreshold:=0.9;
+ fKeepUprightForce:=10.0;
 
  // The wheels
  begin
@@ -1743,6 +1758,9 @@ begin
   fFlightStabilizationDamping:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['flightstabilizationdamping'],fFlightStabilizationDamping);
   fFlightStabilizationForce:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['flightstabilizationforce'],fFlightStabilizationForce);
 
+  fKeepUprightThreshold:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['keepuprightthreshold'],KeepUprightThreshold);
+  fKeepUprightForce:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['keepuprightforce'],KeepUprightForce);
+
   fWheels.Clear;
   JSONItem:=TPasJSONItemObject(aJSONItem).Properties['wheels'];
   if assigned(JSONItem) and (JSONItem is TPasJSONItemObject) then begin
@@ -1859,7 +1877,10 @@ begin
 
  TPasJSONItemObject(result).Add('flightstabilizationdamping',TPasJSONItemNumber.Create(fFlightStabilizationDamping));
  TPasJSONItemObject(result).Add('flightstabilizationforce',TPasJSONItemNumber.Create(fFlightStabilizationForce));
-   
+
+ TPasJSONItemObject(result).Add('keepuprightthreshold',TPasJSONItemNumber.Create(fKeepUprightThreshold));
+ TPasJSONItemObject(result).Add('keepuprightforce',TPasJSONItemNumber.Create(fKeepUprightForce));
+
  JSONItem:=TPasJSONItemObject.Create;
  try
   for Index:=0 to fWheels.Count-1 do begin
@@ -2961,6 +2982,38 @@ begin
 
 end;
 
+procedure TKraftRayCastVehicle.UpdateKeepUpright;
+var KeepUpNormal,NewUp,Axis,Torque:TKraftVector3;
+begin
+
+{$ifdef DebugDraw}
+ fDebugKeepUprightTorque:=Vector3Origin;
+{$endif}
+
+if not (IsZero(fSettings.fKeepUprightForce) or IsZero(fSettings.fKeepUprightThreshold)) then begin
+
+  KeepUpNormal:=Vector3Neg(fPhysics.Gravity.Vector);
+
+  NewUp:=Vector3Norm(KeepUpNormal);
+
+  if Vector3Dot(fWorldUp,NewUp)<fSettings.fKeepUprightThreshold then begin
+
+   Axis:=Vector3Norm(Vector3Cross(fWorldUp,NewUp));
+
+   Torque:=Vector3ScalarMul(Axis,fSettings.fKeepUprightForce);
+   if Vector3Length(Torque)>1e-6 then begin
+{$ifdef DebugDraw}
+    Vector3DirectAdd(fDebugKeepUprightTorque,Torque);
+{$endif}
+    fRigidBody.AddWorldTorque(Torque,kfmForce,false);
+   end;
+
+  end;
+
+ end;
+
+end;
+
 procedure TKraftRayCastVehicle.UpdateWheelRotations;
 var Index:TKraftInt32;
     Wheel:TWheel;
@@ -3003,6 +3056,7 @@ begin
   UpdateAirResistance;
   UpdateDownForce;
   UpdateFlightStabilization;
+  UpdateKeepUpright;
  end;
 
  UpdateWheelRotations;
@@ -3040,6 +3094,7 @@ begin
  fLastDebugAirResistanceForce:=fDebugAirResistanceForce;
  fLastDebugDownForce:=fDebugDownForce;
  fLastDebugFlightStabilizationTorque:=fDebugFlightStabilizationTorque;
+ fLastDebugKeepUprightTorque:=fDebugKeepUprightTorque;
 {$endif}
 end;
 
@@ -3064,6 +3119,7 @@ begin
  fVisualDebugAirResistanceForce:=Vector3Lerp(fLastDebugAirResistanceForce,fDebugAirResistanceForce,aAlpha);
  fVisualDebugDownForce:=Vector3Lerp(fLastDebugDownForce,fDebugDownForce,aAlpha);
  fVisualDebugFlightStabilizationTorque:=Vector3Lerp(fLastDebugFlightStabilizationTorque,fDebugFlightStabilizationTorque,aAlpha);
+ fVisualDebugKeepUprightTorque:=Vector3Lerp(fLastDebugKeepUprightTorque,fDebugKeepUprightTorque,aAlpha);
 {$endif}
 end;
 
@@ -3236,6 +3292,21 @@ begin
   v0:=v;
   v1:=Vector3Add(v0,Vector3ScalarMul(fVisualDebugFlightStabilizationTorque,1.0));
   Color:=Vector4(0.75,0.25,0.5,1.0);
+{$ifdef NoOpenGL}
+  if assigned(fDebugDrawLine) then begin
+   fDebugDrawLine(v0,v1,Color);
+  end;
+{$else}
+  glColor4fv(@Color);
+  glBegin(GL_LINE_STRIP);
+  glVertex3fv(@v0);
+  glVertex3fv(@v1);
+  glEnd;
+{$endif}
+
+  v0:=v;
+  v1:=Vector3Add(v0,Vector3ScalarMul(fVisualDebugKeepUprightTorque,1.0));
+  Color:=Vector4(0.25,0.75,0.5,1.0);
 {$ifdef NoOpenGL}
   if assigned(fDebugDrawLine) then begin
    fDebugDrawLine(v0,v1,Color);
