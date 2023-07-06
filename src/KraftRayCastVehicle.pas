@@ -296,7 +296,7 @@ type { TKraftRayCastVehicle }
                      fSuspensionStrength:TKraftScalar; // Strength of the suspension
                      fSuspensionDamping:TKraftScalar; // Damping of the suspension
                      fAccelerationForceFactor:TKraftScalar; // Acceleration force factor
-                     fBrakeForce:TKraftScalar; // Brake force
+                     fBrakeForceFactor:TKraftScalar; // Brake force factor
                      fRollingFriction:TKraftScalar; // Rolling friction
                      fMaximumSpeed:TKraftScalar; // Maximum speed in forward direction
                      fMaximumReverseSpeed:TKraftScalar; // Maximum speed in reverse direction
@@ -327,7 +327,7 @@ type { TKraftRayCastVehicle }
                      property SuspensionStrength:TKraftScalar read fSuspensionStrength write fSuspensionStrength;
                      property SuspensionDamping:TKraftScalar read fSuspensionDamping write fSuspensionDamping;
                      property AccelerationForceFactor:TKraftScalar read fAccelerationForceFactor write fAccelerationForceFactor;
-                     property BrakeForce:TKraftScalar read fBrakeForce write fBrakeForce;
+                     property BrakeForceFactor:TKraftScalar read fBrakeForceFactor write fBrakeForceFactor;
                      property RollingFriction:TKraftScalar read fRollingFriction write fRollingFriction;
                      property MaximumSpeed:TKraftScalar read fMaximumSpeed write fMaximumSpeed;
                      property MaximumReverseSpeed:TKraftScalar read fMaximumReverseSpeed write fMaximumReverseSpeed;
@@ -397,6 +397,8 @@ type { TKraftRayCastVehicle }
               fAccelerationCurveEnvelope:TEnvelope;
               fReverseAccelerationCurveEnvelope:TEnvelope;
               fReverseEvaluationAccuracy:TKraftInt32;
+              fBrakeCurveEnvelope:TEnvelope;
+              fReverseBrakeCurveEnvelope:TEnvelope;
               fSteerAngleLimitEnvelope:TEnvelope;
               fSteeringResetSpeedEnvelope:TEnvelope;
               fSteeringSpeedEnvelope:TEnvelope;
@@ -437,6 +439,8 @@ type { TKraftRayCastVehicle }
               property AccelerationCurveEnvelope:TEnvelope read fAccelerationCurveEnvelope;
               property ReverseAccelerationCurveEnvelope:TEnvelope read fReverseAccelerationCurveEnvelope;
               property ReverseEvaluationAccuracy:TKraftInt32 read fReverseEvaluationAccuracy write fReverseEvaluationAccuracy;
+              property BrakeCurveEnvelope:TEnvelope read fBrakeCurveEnvelope;
+              property ReverseBrakeCurveEnvelope:TEnvelope read fReverseBrakeCurveEnvelope;
               property SteerAngleLimitEnvelope:TEnvelope read fSteerAngleLimitEnvelope;
               property SteeringResetSpeedEnvelope:TEnvelope read fSteeringResetSpeedEnvelope;
               property SteeringSpeedEnvelope:TEnvelope read fSteeringSpeedEnvelope;
@@ -610,6 +614,7 @@ type { TKraftRayCastVehicle }
        fDriftSlipperyTiresTime:TKraftScalar;
        fSteeringAngle:TKraftScalar;
        fAccelerationForceMagnitude:TKraftScalar;
+       fBrakeForceMagnitude:TKraftScalar;
        fSpeed:TKraftScalar;
        fSpeedKMH:TKraftScalar;
        fAbsoluteSpeedKMH:TKraftScalar;
@@ -640,6 +645,7 @@ type { TKraftRayCastVehicle }
        function GetSpeed:TKraftScalar;
        function GetAccelerationForceMagnitude(const aEnvelope:TEnvelope;const aSpeedMetersPerSec,aDeltaTime:TKraftScalar):TKraftScalar;
        function CalcAccelerationForceMagnitude:TKraftScalar;
+       function CalcBrakeForceMagnitude:TKraftScalar;
        procedure UpdateGlobals;
        procedure UpdateInput;
        procedure UpdateWorldTransformVectors;
@@ -1220,7 +1226,7 @@ begin
   fSuspensionStrength:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['suspensionstrength'],fSuspensionStrength);
   fSuspensionDamping:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['suspensiondamping'],fSuspensionDamping);
   fAccelerationForceFactor:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['accelerationforcefactor'],fAccelerationForceFactor);
-  fBrakeForce:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['brakeforce'],fBrakeForce);
+  fBrakeForceFactor:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['brakeforcefactor'],fBrakeForceFactor);
   fRollingFriction:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['rollingfriction'],fRollingFriction);
   fMaximumSpeed:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['maximumspeed'],fMaximumSpeed);
   fMaximumReverseSpeed:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['maximumreversespeed'],fMaximumReverseSpeed);
@@ -1253,7 +1259,7 @@ begin
  TPasJSONItemObject(result).Add('suspensionstrength',TPasJSONItemNumber.Create(fSuspensionStrength));
  TPasJSONItemObject(result).Add('suspensiondamping',TPasJSONItemNumber.Create(fSuspensionDamping));
  TPasJSONItemObject(result).Add('accelerationforcefactor',TPasJSONItemNumber.Create(fAccelerationForceFactor));
- TPasJSONItemObject(result).Add('brakeforce',TPasJSONItemNumber.Create(fBrakeForce));
+ TPasJSONItemObject(result).Add('brakeforcefactor',TPasJSONItemNumber.Create(fBrakeForceFactor));
  TPasJSONItemObject(result).Add('rollingfriction',TPasJSONItemNumber.Create(fRollingFriction));
  TPasJSONItemObject(result).Add('maximumspeed',TPasJSONItemNumber.Create(fMaximumSpeed));
  TPasJSONItemObject(result).Add('maximumreversespeed',TPasJSONItemNumber.Create(fMaximumReverseSpeed));
@@ -1435,7 +1441,12 @@ begin
  fAccelerationCurveEnvelope:=TEnvelope.CreateLinear(0.0,0.0,5.0,300.0);
 
  fReverseAccelerationCurveEnvelope:=TEnvelope.CreateLinear(0.0,0.0,5.0,20.0);
+
  fReverseEvaluationAccuracy:=25;
+
+ fBrakeCurveEnvelope:=TEnvelope.CreateLinear(0.0,10.0,50.0,10.0);
+
+ fReverseBrakeCurveEnvelope:=TEnvelope.CreateLinear(0.0,10.0,50.0,10.0);
 
  fSteerAngleLimitEnvelope:=TEnvelope.CreateLinear(0.0,35.0,100.0,5.0);
 
@@ -1469,6 +1480,8 @@ begin
  FreeAndNil(fAckermannGroups);
  FreeAndNil(fAccelerationCurveEnvelope);
  FreeAndNil(fReverseAccelerationCurveEnvelope);
+ FreeAndNil(fBrakeCurveEnvelope);
+ FreeAndNil(fReverseBrakeCurveEnvelope);
  FreeAndNil(fSteerAngleLimitEnvelope);
  FreeAndNil(fSteeringResetSpeedEnvelope);
  FreeAndNil(fSteeringSpeedEnvelope);
@@ -1524,7 +1537,15 @@ begin
 
  // The reverse acceleration curve envelope
  fReverseAccelerationCurveEnvelope.FillLinear(0.0,0.0,5.0,50.0);
+
+ // The reverse evaluation accuracy
  fReverseEvaluationAccuracy:=25;
+
+ // The brake curve envelope
+ fBrakeCurveEnvelope.FillLinear(0.0,10.0,50.0,10.0);
+
+ // The reverse brake curve envelope
+ fReverseBrakeCurveEnvelope.FillLinear(0.0,101.0,50.0,10.0);
 
  // The steering angle limit envelope
  fSteerAngleLimitEnvelope.FillLinear(0.0,35.0,100.0,5.0);
@@ -1567,7 +1588,7 @@ begin
    WheelFrontLeft.fSuspensionStrength:=1200.0;
    WheelFrontLeft.fSuspensionDamping:=75.0;
    WheelFrontLeft.fAccelerationForceFactor:=1.0;
-   WheelFrontLeft.fBrakeForce:=10.0;
+   WheelFrontLeft.fBrakeForceFactor:=0.25;
    WheelFrontLeft.fRollingFriction:=0.15;
    WheelFrontLeft.fMaximumSpeed:=0.0;
    WheelFrontLeft.fMaximumReverseSpeed:=0.0;
@@ -1595,7 +1616,7 @@ begin
    WheelFrontRight.fSuspensionStrength:=1200.0;
    WheelFrontRight.fSuspensionDamping:=75.0;
    WheelFrontRight.fAccelerationForceFactor:=1.0;
-   WheelFrontRight.fBrakeForce:=10.0;
+   WheelFrontRight.fBrakeForceFactor:=0.25;
    WheelFrontRight.fRollingFriction:=0.15;
    WheelFrontRight.fMaximumSpeed:=0.0;
    WheelFrontRight.fMaximumReverseSpeed:=0.0;
@@ -1623,7 +1644,7 @@ begin
    WheelRearLeft.fSuspensionStrength:=1200.0;
    WheelRearLeft.fSuspensionDamping:=75.0;
    WheelRearLeft.fAccelerationForceFactor:=1.0;
-   WheelRearLeft.fBrakeForce:=10.0;
+   WheelRearLeft.fBrakeForceFactor:=0.25;
    WheelRearLeft.fRollingFriction:=0.15;
    WheelRearLeft.fMaximumSpeed:=0.0;
    WheelRearLeft.fMaximumReverseSpeed:=0.0;
@@ -1651,7 +1672,7 @@ begin
    WheelRearRight.fSuspensionStrength:=1200.0;
    WheelRearRight.fSuspensionDamping:=75.0;
    WheelRearRight.fAccelerationForceFactor:=1.0;
-   WheelRearRight.fBrakeForce:=10.0;
+   WheelRearRight.fBrakeForceFactor:=0.25;
    WheelRearRight.fRollingFriction:=0.15;
    WheelRearRight.fMaximumSpeed:=0.0;
    WheelRearRight.fMaximumReverseSpeed:=0.0;
@@ -1751,7 +1772,12 @@ begin
   fAccelerationCurveEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['accelerationcurveenvelope']);
 
   fReverseAccelerationCurveEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['reverseaccelerationcurveenvelope']);
+
   fReverseEvaluationAccuracy:=TPasJSON.GetInt64(TPasJSONItemObject(aJSONItem).Properties['reverseevaluationaccuracy'],fReverseEvaluationAccuracy);
+
+  fBrakeCurveEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['brakecurveenvelope']);
+
+  fReverseBrakeCurveEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['reversebrakecurveenvelope']);
 
   fSteerAngleLimitEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['steeranglelimitenvelope']);
 
@@ -1873,7 +1899,12 @@ begin
  TPasJSONItemObject(result).Add('accelerationcurveenvelope',fAccelerationCurveEnvelope.SaveToJSON);
 
  TPasJSONItemObject(result).Add('reverseaccelerationcurveenvelope',fReverseAccelerationCurveEnvelope.SaveToJSON);
+
  TPasJSONItemObject(result).Add('reverseevaluationaccuracy',TPasJSONItemNumber.Create(fReverseEvaluationAccuracy));
+
+ TPasJSONItemObject(result).Add('brakecurveenvelope',fBrakeCurveEnvelope.SaveToJSON);
+
+ TPasJSONItemObject(result).Add('reversebrakecurveenvelope',fReverseBrakeCurveEnvelope.SaveToJSON);
 
  TPasJSONItemObject(result).Add('steeranglelimitenvelope',fSteerAngleLimitEnvelope.SaveToJSON);
 
@@ -2231,7 +2262,7 @@ begin
   LongitudinalVelocity:=Vector3Dot(LongitudinalDirection,fVehicle.fRigidBody.GetWorldLinearVelocityFromPoint(SpringPosition));
   Force:=Vector3Origin;
   if not IsZero(BrakeRatio) then begin
-   DesiredVelocityChange:=-Clamp(BrakeRatio*fSettings.fBrakeForce,0.0,abs(LongitudinalVelocity))*Sign(LongitudinalVelocity);
+   DesiredVelocityChange:=-Clamp(BrakeRatio*Clamp01(fSettings.fBrakeForceFactor)*fVehicle.fBrakeForceMagnitude,0.0,abs(LongitudinalVelocity))*Sign(LongitudinalVelocity);
    DesiredAcceleration:=DesiredVelocityChange*fVehicle.fInverseDeltaTime;
    Vector3DirectAdd(Force,Vector3ScalarMul(LongitudinalDirection,DesiredAcceleration));
   end;
@@ -2703,6 +2734,15 @@ begin
  end;
 end;
 
+function TKraftRayCastVehicle.CalcBrakeForceMagnitude:TKraftScalar;
+begin
+ if fMovingForward then begin
+  result:=fSettings.fBrakeCurveEnvelope.GetValueAtTime(fSpeedKMH);
+ end else begin
+  result:=fSettings.fReverseBrakeCurveEnvelope.GetValueAtTime(fSpeedKMH);
+ end;
+end;
+
 procedure TKraftRayCastVehicle.UpdateGlobals;
 begin
 
@@ -2781,6 +2821,12 @@ begin
  end;
 
  fAccelerationForceMagnitude:=CalcAccelerationForceMagnitude*Clamp01(0.8+((1.0-GetHandBrakeK)*0.2));
+
+ if IsBrakeNow or IsHandBrakeNow then begin
+  fBrakeForceMagnitude:=CalcBrakeForceMagnitude;
+ end else begin
+  fBrakeForceMagnitude:=0.0;
+ end;
 
  if fIsAcceleration or fIsReverseAcceleration then begin
   fRigidBody.SetToAwake;
