@@ -3073,17 +3073,17 @@ begin
 
      if OtherIndex>0 then begin
 
- {$ifdef NoOpenGL}
+{$ifdef NoOpenGL}
       if assigned(fDebugDrawLine) then begin
        fDebugDrawLine(v0,v1,Color);
       end;
- {$else}
+{$else}
       glColor4fv(@Color);
       glBegin(GL_LINE_STRIP);
       glVertex3fv(@v0);
       glVertex3fv(@v1);
       glEnd;
- {$endif}
+{$endif}
 
      end;
 
