@@ -641,9 +641,9 @@ type { TKraftRayCastVehicle }
        function GetHandBrakeK:TKraftScalar;
        function GetDriftK:TKraftScalar;
        function GetSteeringHandBrakeDriftK:TKraftScalar;
-       function GetSteerAngleLimitInDegrees(const aSpeedMetersPerSec:TKraftScalar):TKraftScalar;
+       function GetSteerAngleLimitInDegrees(const aSpeedKMH:TKraftScalar):TKraftScalar;
        function GetSpeed:TKraftScalar;
-       function GetAccelerationOrBrakeForceMagnitude(const aEnvelope:TEnvelope;const aSpeedMetersPerSec,aDeltaTime:TKraftScalar;const aBraking:boolean):TKraftScalar;
+       function GetAccelerationOrBrakeForceMagnitude(const aEnvelope:TEnvelope;const aSpeedKMH,aDeltaTime:TKraftScalar;const aBraking:boolean):TKraftScalar;
        function CalcAccelerationForceMagnitude:TKraftScalar;
        function CalcBrakeForceMagnitude:TKraftScalar;
        procedure UpdateGlobals;
@@ -2641,9 +2641,9 @@ begin
  result:=0.4+(Min(1.0-GetHandBrakeK,1.0-GetDriftK)*0.6);
 end;
 
-function TKraftRayCastVehicle.GetSteerAngleLimitInDegrees(const aSpeedMetersPerSec:TKraftScalar):TKraftScalar;
+function TKraftRayCastVehicle.GetSteerAngleLimitInDegrees(const aSpeedKMH:TKraftScalar):TKraftScalar;
 begin
- result:=fSettings.fSteerAngleLimitEnvelope.GetValueAtTime(aSpeedMetersPerSec*3.6*GetSteeringHandBrakeDriftK);
+ result:=fSettings.fSteerAngleLimitEnvelope.GetValueAtTime(aSpeedKMH*GetSteeringHandBrakeDriftK);
 end;
 
 function TKraftRayCastVehicle.GetSpeed:TKraftScalar;
@@ -2657,14 +2657,14 @@ begin
  result:=Vector3Length(ProjectedVector)*Sign(Factor);
 end;
 
-function TKraftRayCastVehicle.GetAccelerationOrBrakeForceMagnitude(const aEnvelope:TEnvelope;const aSpeedMetersPerSec,aDeltaTime:TKraftScalar;const aBraking:boolean):TKraftScalar;
+function TKraftRayCastVehicle.GetAccelerationOrBrakeForceMagnitude(const aEnvelope:TEnvelope;const aSpeedKMH,aDeltaTime:TKraftScalar;const aBraking:boolean):TKraftScalar;
 const Inv3d6=1.0/3.6;
 var Index,Count:TKraftInt32;
     SpeedKMH,Mass,MinTime,MaxTime,TimeNow,CurrentSpeed,CurrentSpeedDifference,
     Step,StepTime,StepSpeed,StepSpeedDifference:TKraftScalar;
 begin
 
- SpeedKMH:=aSpeedMetersPerSec*3.6;
+ SpeedKMH:=aSpeedKMH;
 
  Mass:=fRigidBody.Mass;
 
@@ -2757,9 +2757,9 @@ function TKraftRayCastVehicle.CalcAccelerationForceMagnitude:TKraftScalar;
 begin
  if fIsAcceleration or fIsReverseAcceleration then begin
   if fIsAcceleration then begin
-   result:=GetAccelerationOrBrakeForceMagnitude(fSettings.fAccelerationCurveEnvelope,fSpeed,fDeltaTime,false);
+   result:=GetAccelerationOrBrakeForceMagnitude(fSettings.fAccelerationCurveEnvelope,fSpeedKMH,fDeltaTime,false);
   end else begin
-   result:=-GetAccelerationOrBrakeForceMagnitude(fSettings.fReverseAccelerationCurveEnvelope,-fSpeed,fDeltaTime,false);
+   result:=-GetAccelerationOrBrakeForceMagnitude(fSettings.fReverseAccelerationCurveEnvelope,-fSpeedKMH,fDeltaTime,false);
   end;
  end else begin
   result:=0.0;
@@ -2769,9 +2769,9 @@ end;
 function TKraftRayCastVehicle.CalcBrakeForceMagnitude:TKraftScalar;
 begin
  if fMovingForward then begin
-  result:=GetAccelerationOrBrakeForceMagnitude(fSettings.fBrakeCurveEnvelope,fSpeed,fDeltaTime,true);
+  result:=GetAccelerationOrBrakeForceMagnitude(fSettings.fBrakeCurveEnvelope,fSpeedKMH,fDeltaTime,true);
  end else begin
-  result:=GetAccelerationOrBrakeForceMagnitude(fSettings.fReverseBrakeCurveEnvelope,-fSpeed,fDeltaTime,true);
+  result:=GetAccelerationOrBrakeForceMagnitude(fSettings.fReverseBrakeCurveEnvelope,-fSpeedKMH,fDeltaTime,true);
  end;
 end;
 
@@ -2846,7 +2846,7 @@ begin
 
  if abs(Horizontal)>0.001 then begin
   NewSteerAngle:=fSteeringAngle+(Horizontal*fSettings.fSteeringSpeedEnvelope.GetValueAtTime(fAbsoluteSpeedKMH*GetSteeringHandBrakeDriftK));
-  fSteeringAngle:=Min(abs(NewSteerAngle),GetSteerAngleLimitInDegrees(Speed))*Sign(NewSteerAngle);
+  fSteeringAngle:=Min(abs(NewSteerAngle),GetSteerAngleLimitInDegrees(fSpeedKMH))*Sign(NewSteerAngle);
  end else begin
   AngleReturnSpeedDegressPerSecond:=fSettings.fSteeringResetSpeedEnvelope.GetValueAtTime(fAbsoluteSpeedKMH)*Clamp01(fAbsoluteSpeedKMH*0.5);
   fSteeringAngle:=Max(abs(fSteeringAngle)-(AngleReturnSpeedDegressPerSecond*fDeltaTime),0.0)*Sign(fSteeringAngle);
