@@ -1446,7 +1446,7 @@ begin
  fFlightStabilizationDamping:=0.1;
 
  fKeepUprightThreshold:=0.9;
- fKeepUprightForce:=10.0;
+ fKeepUprightForce:=0.0;
 
  fWheels:=TWheels.Create(true);
 
@@ -1540,7 +1540,7 @@ begin
 
  // The keep upright force
  fKeepUprightThreshold:=0.9;
- fKeepUprightForce:=10.0;
+ fKeepUprightForce:=0.0;
 
  // The wheels
  begin
