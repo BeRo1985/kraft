@@ -1587,7 +1587,7 @@ begin
    WheelFrontLeft.fSuspensionRestLength:=0.8;
    WheelFrontLeft.fSuspensionStrength:=1200.0;
    WheelFrontLeft.fSuspensionDamping:=75.0;
-   WheelFrontLeft.fAccelerationForceFactor:=1.0;
+   WheelFrontLeft.fAccelerationForceFactor:=0.25;
    WheelFrontLeft.fBrakeForceFactor:=0.25;
    WheelFrontLeft.fRollingFriction:=0.15;
    WheelFrontLeft.fMaximumSpeed:=0.0;
@@ -1615,7 +1615,7 @@ begin
    WheelFrontRight.fSuspensionRestLength:=0.8;
    WheelFrontRight.fSuspensionStrength:=1200.0;
    WheelFrontRight.fSuspensionDamping:=75.0;
-   WheelFrontRight.fAccelerationForceFactor:=1.0;
+   WheelFrontRight.fAccelerationForceFactor:=0.25;
    WheelFrontRight.fBrakeForceFactor:=0.25;
    WheelFrontRight.fRollingFriction:=0.15;
    WheelFrontRight.fMaximumSpeed:=0.0;
@@ -1643,7 +1643,7 @@ begin
    WheelRearLeft.fSuspensionRestLength:=0.8;
    WheelRearLeft.fSuspensionStrength:=1200.0;
    WheelRearLeft.fSuspensionDamping:=75.0;
-   WheelRearLeft.fAccelerationForceFactor:=1.0;
+   WheelRearLeft.fAccelerationForceFactor:=0.25;
    WheelRearLeft.fBrakeForceFactor:=0.25;
    WheelRearLeft.fRollingFriction:=0.15;
    WheelRearLeft.fMaximumSpeed:=0.0;
@@ -1671,7 +1671,7 @@ begin
    WheelRearRight.fSuspensionRestLength:=0.8;
    WheelRearRight.fSuspensionStrength:=1200.0;
    WheelRearRight.fSuspensionDamping:=75.0;
-   WheelRearRight.fAccelerationForceFactor:=1.0;
+   WheelRearRight.fAccelerationForceFactor:=0.25;
    WheelRearRight.fBrakeForceFactor:=0.25;
    WheelRearRight.fRollingFriction:=0.15;
    WheelRearRight.fMaximumSpeed:=0.0;
@@ -2212,7 +2212,7 @@ begin
 
    WheelForward:=GetWheelLongitudinalDirection;
 
-   Force:=Vector3ScalarMul(WheelForward,(fVehicle.fAccelerationForceMagnitude/fVehicle.fCountPoweredWheels)*Clamp01(fSettings.fAccelerationForceFactor)*fVehicle.fInverseDeltaTime);
+   Force:=Vector3ScalarMul(WheelForward,fVehicle.fAccelerationForceMagnitude*Clamp01(fSettings.fAccelerationForceFactor)*fVehicle.fInverseDeltaTime);
 
 {$ifdef DebugDraw}
    Vector3DirectAdd(fDebugAccelerationForce,Force);
