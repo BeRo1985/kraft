@@ -1442,7 +1442,7 @@ begin
  fDownForceCurveEnvelope:=TEnvelope.CreateLinear(0.0,0.0,200.0,100.0);
  fDownForce:=1.0;
 
- fFlightStabilizationForce:=1.0;
+ fFlightStabilizationForce:=100.0;
  fFlightStabilizationDamping:=0.1;
 
  fKeepUprightThreshold:=0.9;
@@ -1535,7 +1535,7 @@ begin
  fDownForce:=1.0;
 
  // The flight stabilization settings
- fFlightStabilizationForce:=1.0;
+ fFlightStabilizationForce:=100.0;
  fFlightStabilizationDamping:=0.1;
 
  // The keep upright force
@@ -2969,7 +2969,7 @@ begin
 
   // Give a nicely balanced feeling for rebalancing the vehicle
   if not IsZero(fSettings.fFlightStabilizationForce) then begin
-   Torque:=Vector3ScalarMul(Axis,fSettings.fFlightStabilizationForce*fRigidBody.Mass);
+   Torque:=Vector3ScalarMul(Axis,fSettings.fFlightStabilizationForce);
    if Vector3Length(Torque)>EPSILON then begin
 {$ifdef DebugDraw}
     fDebugFlightStabilizationTorque:=Torque;
