@@ -612,7 +612,9 @@ type { TKraftRayCastVehicle }
        fSpeedKMH:TKraftScalar;
        fAbsoluteSpeedKMH:TKraftScalar;
        fMovingForward:boolean;
-       fCastCollisionGroup:TKraftRigidBodyCollisionGroups;
+       fCollisionGroups:TKraftRigidBodyCollisionGroups;
+       fCollideWithCollisionGroups:TKraftRigidBodyCollisionGroups;
+       fCastCollisionGroups:TKraftRigidBodyCollisionGroups;
 {$ifdef DebugDraw}
        fDebugAirResistanceForce:TKraftVector3;
        fLastDebugAirResistanceForce:TKraftVector3;
@@ -664,7 +666,9 @@ type { TKraftRayCastVehicle }
 {$endif}
       public
        property Settings:TSettings read fSettings write fSettings;
-       property CastCollisionGroup:TKraftRigidBodyCollisionGroups read fCastCollisionGroup write fCastCollisionGroup;
+       property CollisionGroups:TKraftRigidBodyCollisionGroups read fCollisionGroups write fCollisionGroups;
+       property CollideWithCollisionGroups:TKraftRigidBodyCollisionGroups read fCollideWithCollisionGroups write fCollideWithCollisionGroups;
+       property CastCollisionGroups:TKraftRigidBodyCollisionGroups read fCastCollisionGroups write fCastCollisionGroups;
        property Wheels:TWheels read fWheels;
        property Axles:TAxles read fAxles;
       published
@@ -2046,14 +2050,14 @@ begin
  RayDirection:=fVehicle.fWorldDown;
  if fSettings.fUseSphereCast then begin
   RayLength:=fSettings.fSuspensionRestLength-fSettings.fRadius;
-  if fVehicle.fPhysics.SphereCast(RayOrigin,fSettings.fRadius,RayDirection,RayLength,HitShape,HitTime,HitPoint,HitNormal,fVehicle.fCastCollisionGroup,fVehicle.RayCastFilter) then begin
+  if fVehicle.fPhysics.SphereCast(RayOrigin,fSettings.fRadius,RayDirection,RayLength,HitShape,HitTime,HitPoint,HitNormal,fVehicle.fCastCollisionGroups,fVehicle.RayCastFilter) then begin
    CurrentLength:=HitTime+fSettings.fRadius;
   end else begin
    CurrentLength:=fSettings.fSuspensionRestLength;
   end;
  end else begin
   RayLength:=fSettings.fSuspensionRestLength;
-  if fVehicle.fPhysics.RayCast(RayOrigin,RayDirection,RayLength,HitShape,HitTime,HitPoint,HitNormal,fVehicle.fCastCollisionGroup,fVehicle.RayCastFilter) then begin
+  if fVehicle.fPhysics.RayCast(RayOrigin,RayDirection,RayLength,HitShape,HitTime,HitPoint,HitNormal,fVehicle.fCastCollisionGroups,fVehicle.RayCastFilter) then begin
    CurrentLength:=HitTime;
   end else begin
    CurrentLength:=fSettings.fSuspensionRestLength;
@@ -2486,7 +2490,9 @@ begin
  fControllable:=true;
  fForward:=Vector3(0.0,0.0,-1.0);
  fVelocity:=Vector3(0.0,0.0,0.0);
- fCastCollisionGroup:=[Low(TKraftRigidBodyCollisionGroup)..High(TKraftRigidBodyCollisionGroup)];
+ fCollisionGroups:=[1];
+ fCollideWithCollisionGroups:=[Low(TKraftRigidBodyCollisionGroup)..High(TKraftRigidBodyCollisionGroup)];
+ fCastCollisionGroups:=[Low(TKraftRigidBodyCollisionGroup)..High(TKraftRigidBodyCollisionGroup)];
  fSettings:=TKraftRayCastVehicle.TSettings.Create;
  fWheels:=TKraftRayCastVehicle.TWheels.Create(true);
  fAxles:=TKraftRayCastVehicle.TAxles.Create(true);
@@ -2572,8 +2578,8 @@ begin
   
   fRigidBody:=TKraftRigidBody.Create(fPhysics);
   fRigidBody.SetRigidBodyType(krbtDYNAMIC);
-  fRigidBody.CollisionGroups:=[1];
-  fRigidBody.CollideWithCollisionGroups:=[0,1];
+  fRigidBody.CollisionGroups:=fCollisionGroups;
+  fRigidBody.CollideWithCollisionGroups:=fCollideWithCollisionGroups;
   fRigidBody.AngularVelocityDamp:=fSettings.fAngularVelocityDamp;
   fRigidBody.LinearVelocityDamp:=fSettings.fLinearVelocityDamp;
 
