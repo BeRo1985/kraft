@@ -391,6 +391,7 @@ type { TKraftRayCastVehicle }
               fChassisMass:TKraftScalar;
               fAirResistance:TKraftScalar;
               fHandBrakeSlipperyTime:TKraftScalar;
+              fDriftSlipperyTime:TKraftScalar;
               fUseAccelerationCurveEnvelopes:Boolean;
               fAccelerationCurveEnvelope:TEnvelope;
               fReverseAccelerationCurveEnvelope:TEnvelope;
@@ -427,6 +428,7 @@ type { TKraftRayCastVehicle }
               property ChassisMass:TKraftScalar read fChassisMass write fChassisMass;
               property AirResistance:TKraftScalar read fAirResistance write fAirResistance;
               property HandBrakeSlipperyTime:TKraftScalar read fHandBrakeSlipperyTime write fHandBrakeSlipperyTime;
+              property DriftSlipperyTime:TKraftScalar read fDriftSlipperyTime write fDriftSlipperyTime;
               property UseAccelerationCurveEnvelopes:Boolean read fUseAccelerationCurveEnvelopes write fUseAccelerationCurveEnvelopes;
               property AccelerationCurveEnvelope:TEnvelope read fAccelerationCurveEnvelope;
               property ReverseAccelerationCurveEnvelope:TEnvelope read fReverseAccelerationCurveEnvelope;
@@ -599,6 +601,7 @@ type { TKraftRayCastVehicle }
        fAfterFlightSlipperyTiresTime:TKraftScalar;
        fBrakeSlipperyTiresTime:TKraftScalar;
        fHandBrakeSlipperyTiresTime:TKraftScalar;
+       fDriftSlipperyTiresTime:TKraftScalar;
        fSteeringAngle:TKraftScalar;
        fAccelerationForceMagnitude:TKraftScalar;
        fRelativeSpeed:TKraftScalar;
@@ -621,8 +624,9 @@ type { TKraftRayCastVehicle }
        function ShapeCanCollideWith(const WithShape:TKraftShape):boolean;
        function RayCastFilter(const aPoint,aNormal:TKraftVector3;const aTime:TKraftScalar;const aShape:TKraftShape):boolean;
        function GetHandBrakeK:TKraftScalar;
-       function GetSteeringHandBrakeK:TKraftScalar;
-       function GetSteerAngleLimitInDeg(const aSpeedMetersPerSec:TKraftScalar):TKraftScalar;
+       function GetDriftK:TKraftScalar;
+       function GetSteeringHandBrakeDriftK:TKraftScalar;
+       function GetSteerAngleLimitInDegrees(const aSpeedMetersPerSec:TKraftScalar):TKraftScalar;
        function GetSpeed:TKraftScalar;
        function GetAccelerationForceMagnitude(const aEnvelope:TEnvelope;const aSpeedMetersPerSec,aDeltaTime:TKraftScalar):TKraftScalar;
        function CalcAccelerationForceMagnitude:TKraftScalar;
@@ -1412,6 +1416,8 @@ begin
 
  fHandBrakeSlipperyTime:=2.2;
 
+ fDriftSlipperyTime:=2.2;
+
  fUseAccelerationCurveEnvelopes:=true;
 
  fAccelerationCurveEnvelope:=TEnvelope.CreateLinear(0.0,0.0,5.0,300.0);
@@ -1490,6 +1496,9 @@ begin
 
  // Hand brake slippery time
  fHandBrakeSlipperyTime:=2.2;
+
+ // Drift slippery time
+ fDriftSlipperyTime:=2.2;
 
  // Option for using acceleration curve envelopes
  fUseAccelerationCurveEnvelopes:=true;
@@ -1713,6 +1722,8 @@ begin
   
   fHandBrakeSlipperyTime:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['handbrakeslipperytime'],fHandBrakeSlipperyTime);
 
+  fDriftSlipperyTime:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['driftslipperytime'],fDriftSlipperyTime);
+
   fUseAccelerationCurveEnvelopes:=TPasJSON.GetBoolean(TPasJSONItemObject(aJSONItem).Properties['useaccelerationcurveenvelopes'],fUseAccelerationCurveEnvelopes);
 
   fAccelerationCurveEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['accelerationcurveenvelope']);
@@ -1827,7 +1838,9 @@ begin
  TPasJSONItemObject(result).Add('airresistance',TPasJSONItemNumber.Create(fAirResistance));
 
  TPasJSONItemObject(result).Add('handbrakeslipperytime',TPasJSONItemNumber.Create(fHandBrakeSlipperyTime));
- 
+
+ TPasJSONItemObject(result).Add('driftslipperytime',TPasJSONItemNumber.Create(fDriftSlipperyTime));
+
  TPasJSONItemObject(result).Add('useaccelerationcurveenvelopes',TPasJSONItemBoolean.Create(fUseAccelerationCurveEnvelopes));
 
  TPasJSONItemObject(result).Add('accelerationcurveenvelope',fAccelerationCurveEnvelope.SaveToJSON);
@@ -2048,7 +2061,7 @@ end;
 
 procedure TKraftRayCastVehicle.TWheel.UpdateLaterialForce;
 var SpringPosition,LaterialDirection,Force:TKraftVector3;
-    SlipperyK,HandBrakeK,LaterialVelocity,DesiredVelocityChange,DesiredAcceleration,
+    SlipperyK,HandBrakeK,DriftK,LaterialVelocity,DesiredVelocityChange,DesiredAcceleration,
     AfterFlightSlipperyK,BrakeSlipperyK,HandBrakeSlipperyK,DriftSlipperyK:TKraftScalar;
 begin
 
@@ -2082,8 +2095,11 @@ begin
    end;
 
    DriftSlipperyK:=fSettings.fDriftSlipperyK;
-   if fVehicle.fIsDrift and not IsZero(DriftSlipperyK) then begin
-    SlipperyK:=Min(SlipperyK,DriftSlipperyK);
+   if not IsZero(DriftSlipperyK) then begin
+    DriftK:=fVehicle.GetDriftK;
+    if DriftK>0.0 then begin
+     SlipperyK:=Min(SlipperyK,Lerp(1.0,DriftSlipperyK,DriftK));
+    end;
    end;
 
   end;
@@ -2483,6 +2499,7 @@ begin
  fAfterFlightSlipperyTiresTime:=0.0;
  fBrakeSlipperyTiresTime:=0.0;
  fHandBrakeSlipperyTiresTime:=0.0;
+ fDriftSlipperyTiresTime:=0.0;
  fSteeringAngle:=0.0;
 end;
 
@@ -2573,14 +2590,20 @@ begin
  result:=result*result*result*(result*((result*6.0)-15.0)+10.0);
 end;
 
-function TKraftRayCastVehicle.GetSteeringHandBrakeK:TKraftScalar;
+function TKraftRayCastVehicle.GetDriftK:TKraftScalar;
 begin
- result:=0.4+(1.0-GetHandBrakeK)*0.6;
+ result:=fDriftSlipperyTiresTime/Max(0.1,fSettings.fDriftSlipperyTime);
+ result:=result*result*result*(result*((result*6.0)-15.0)+10.0);
 end;
 
-function TKraftRayCastVehicle.GetSteerAngleLimitInDeg(const aSpeedMetersPerSec:TKraftScalar):TKraftScalar;
+function TKraftRayCastVehicle.GetSteeringHandBrakeDriftK:TKraftScalar;
 begin
- result:=fSettings.fSteerAngleLimitEnvelope.GetValueAtTime(aSpeedMetersPerSec*3.6*GetSteeringHandBrakeK);
+ result:=0.4+(Min(1.0-GetHandBrakeK,1.0-GetDriftK)*0.6);
+end;
+
+function TKraftRayCastVehicle.GetSteerAngleLimitInDegrees(const aSpeedMetersPerSec:TKraftScalar):TKraftScalar;
+begin
+ result:=fSettings.fSteerAngleLimitEnvelope.GetValueAtTime(aSpeedMetersPerSec*3.6*GetSteeringHandBrakeDriftK);
 end;
 
 function TKraftRayCastVehicle.GetSpeed:TKraftScalar;
@@ -2732,6 +2755,10 @@ begin
   fHandBrakeSlipperyTiresTime:=Max(0.1,fSettings.fHandBrakeSlipperyTime);
  end;
 
+ if fIsDrift then begin
+  fDriftSlipperyTiresTime:=Max(0.1,fSettings.fDriftSlipperyTime);
+ end;
+
  fIsBrake:=IsBrakeNow;
 
  fIsHandBrake:=IsHandBrakeNow and not (fIsAcceleration or fIsReverseAcceleration);
@@ -2739,8 +2766,8 @@ begin
  fIsDrift:=fInputDrift;
 
  if abs(Horizontal)>0.001 then begin
-  NewSteerAngle:=fSteeringAngle+(Horizontal*fSettings.fSteeringSpeedEnvelope.GetValueAtTime(fSpeedKMH*GetSteeringHandBrakeK));
-  fSteeringAngle:=Min(abs(NewSteerAngle),GetSteerAngleLimitInDeg(Speed))*Sign(NewSteerAngle);
+  NewSteerAngle:=fSteeringAngle+(Horizontal*fSettings.fSteeringSpeedEnvelope.GetValueAtTime(fSpeedKMH*GetSteeringHandBrakeDriftK));
+  fSteeringAngle:=Min(abs(NewSteerAngle),GetSteerAngleLimitInDegrees(Speed))*Sign(NewSteerAngle);
  end else begin
   AngleReturnSpeedDegressPerSecond:=fSettings.fSteeringResetSpeedEnvelope.GetValueAtTime(fSpeedKMH)*Clamp01(fSpeedKMH*0.5);
   fSteeringAngle:=Max(abs(fSteeringAngle)-(AngleReturnSpeedDegressPerSecond*fDeltaTime),0.0)*Sign(fSteeringAngle);
@@ -2987,6 +3014,8 @@ begin
  fBrakeSlipperyTiresTime:=Max(0.0,fBrakeSlipperyTiresTime-fDeltaTime);
 
  fHandBrakeSlipperyTiresTime:=Max(0.0,fHandBrakeSlipperyTiresTime-fDeltaTime);
+
+ fDriftSlipperyTiresTime:=Max(0.0,fDriftSlipperyTiresTime-fDeltaTime);
 
 end;
 
