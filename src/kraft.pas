@@ -20904,6 +20904,9 @@ begin
    AStream.ReadBuffer(fTriangles[Index].Vertices[0],3*SizeOf(TKraftInt32));
    AStream.ReadBuffer(fTriangles[Index].Normals[0],3*SizeOf(TKraftInt32));
    AStream.ReadBuffer(fTriangles[Index].Center,3*SizeOf(TKraftScalar));
+   if SIMD then begin
+    AStream.ReadBuffer(Dummy,SizeOf(TKraftScalar));
+   end;
    AStream.ReadBuffer(fTriangles[Index].Plane.Normal,3*SizeOf(TKraftScalar));
    if SIMD then begin
     AStream.ReadBuffer(Dummy,SizeOf(TKraftScalar));
@@ -20923,7 +20926,7 @@ begin
   AStream.ReadBuffer(fCountTreeNodes,SizeOf(TKraftInt32));
   SetLength(fTreeNodes,fCountTreeNodes);
   for Index:=0 to fCountTreeNodes-1 do begin
-   AStream.ReadBuffer(fTreeNodes[Index].FirstLeftChild,2*SizeOf(TKraftInt32));
+   AStream.ReadBuffer(fTreeNodes[Index].FirstLeftChild,SizeOf(TKraftInt32));
    AStream.ReadBuffer(fTreeNodes[Index].FirstTriangleIndex,SizeOf(TKraftInt32));
    AStream.ReadBuffer(fTreeNodes[Index].CountTriangles,SizeOf(TKraftInt32));
    AStream.ReadBuffer(fTreeNodes[Index].AABB.Min,3*SizeOf(TKraftScalar));
