@@ -296,6 +296,9 @@ type { TKraftRayCastVehicle }
                            private
                             fWheel:TKraftRaycastVehicle.TSettings.TWheel;
                             fModelNode:UTF8String;
+                            fRotationAxisMappingX:TKraftInt32;
+                            fRotationAxisMappingY:TKraftInt32;
+                            fRotationAxisMappingZ:TKraftInt32;
                             fRotationFactors:TKraftVector3;
                             fHeightOffset:TKraftScalar;
                            public
@@ -308,6 +311,9 @@ type { TKraftRayCastVehicle }
                            public
                             property Wheel:TKraftRaycastVehicle.TSettings.TWheel read fWheel;
                             property ModelNode:UTF8String read fModelNode write fModelNode;
+                            property RotationAxisMappingX:TKraftInt32 read fRotationAxisMappingX write fRotationAxisMappingX;
+                            property RotationAxisMappingY:TKraftInt32 read fRotationAxisMappingY write fRotationAxisMappingY;
+                            property RotationAxisMappingZ:TKraftInt32 read fRotationAxisMappingZ write fRotationAxisMappingZ;
                             property RotationFactors:TKraftVector3 read fRotationFactors write fRotationFactors;
                             property HeightOffset:TKraftScalar read fHeightOffset write fHeightOffset;
                           end;
@@ -1282,6 +1288,9 @@ begin
  inherited Create;
  fWheel:=aWheel;
  fModelNode:='';
+ fRotationAxisMappingX:=0;
+ fRotationAxisMappingY:=1;
+ fRotationAxisMappingZ:=2;
  fRotationFactors:=Vector3(1.0,1.0,1.0);
  fHeightOffset:=0.0;
 end;
@@ -1293,9 +1302,14 @@ end;
 
 {$ifdef KraftPasJSON}
 procedure TKraftRayCastVehicle.TSettings.TWheel.TVisual.LoadFromJSON(const aJSONItem:TPasJSONItem);
+var RotationAxisMapping:TKraftVector3;
 begin
  if assigned(aJSONItem) and (aJSONItem is TPasJSONItemObject) then begin
   fModelNode:=TPasJSON.GetString(TPasJSONItemObject(aJSONItem).Properties['modelnode'],fModelNode);
+  RotationAxisMapping:=JSONToVector3(TPasJSONItemObject(aJSONItem).Properties['rotationaxismapping'],Vector3(fRotationAxisMappingX,fRotationAxisMappingY,fRotationAxisMappingZ));
+  fRotationAxisMappingX:=round(RotationAxisMapping.x);
+  fRotationAxisMappingY:=round(RotationAxisMapping.y);
+  fRotationAxisMappingZ:=round(RotationAxisMapping.z);
   fRotationFactors:=JSONToVector3(TPasJSONItemObject(aJSONItem).Properties['rotationfactors'],fRotationFactors);
   fHeightOffset:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['heightoffset'],fHeightOffset);
  end;
@@ -1305,6 +1319,7 @@ function TKraftRayCastVehicle.TSettings.TWheel.TVisual.SaveToJSON:TPasJSONItem;
 begin
  result:=TPasJSONItemObject.Create;
  TPasJSONItemObject(result).Add('modelnode',TPasJSONItemString.Create(fModelNode));
+ TPasJSONItemObject(result).Add('rotationaxismapping',Vector3ToJSON(Vector3(fRotationAxisMappingX,fRotationAxisMappingY,fRotationAxisMappingZ)));
  TPasJSONItemObject(result).Add('rotationfactors',Vector3ToJSON(fRotationFactors));
  TPasJSONItemObject(result).Add('heightoffset',TPasJSONItemNumber.Create(fHeightOffset));
 end;
