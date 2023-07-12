@@ -424,6 +424,8 @@ type { TKraftRayCastVehicle }
               fDriftSlipperyTime:TKraftScalar;
               fMaximumSpeed:TKraftScalar;
               fMaximumReverseSpeed:TKraftScalar;
+              fAccelerationMinimumForce:TKraftScalar;
+              fReverseAccelerationMinimumForce:TKraftScalar;
               fCurveEvaluationAccuracy:TKraftInt32;
               fAccelerationRescueForce:TRescueForce;
               fReverseAccelerationRescueForce:TRescueForce;
@@ -470,6 +472,8 @@ type { TKraftRayCastVehicle }
               property DriftSlipperyTime:TKraftScalar read fDriftSlipperyTime write fDriftSlipperyTime;
               property MaximumSpeed:TKraftScalar read fMaximumSpeed write fMaximumSpeed;
               property MaximumReverseSpeed:TKraftScalar read fMaximumReverseSpeed write fMaximumReverseSpeed;
+              property AccelerationMinimumForce:TKraftScalar read fAccelerationMinimumForce write fAccelerationMinimumForce;
+              property ReverseAccelerationMinimumForce:TKraftScalar read fReverseAccelerationMinimumForce write fReverseAccelerationMinimumForce;
               property CurveEvaluationAccuracy:TKraftInt32 read fCurveEvaluationAccuracy write fCurveEvaluationAccuracy;
               property AccelerationRescueForce:TRescueForce read fAccelerationRescueForce;
               property ReverseAccelerationRescueForce:TRescueForce read fReverseAccelerationRescueForce;
@@ -1655,6 +1659,12 @@ begin
  fMaximumSpeed:=80.0;
  fMaximumReverseSpeed:=18.0;
 
+ // The acceleration minimum force
+ fAccelerationMinimumForce:=0.0;
+
+ // The reverse acceleration minimum force
+ fReverseAccelerationMinimumForce:=0.0; 
+
  // The curve evaluation accuracy
  fCurveEvaluationAccuracy:=25;
 
@@ -1901,6 +1911,10 @@ begin
   fMaximumSpeed:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['maximumspeed'],fMaximumSpeed);
 
   fMaximumReverseSpeed:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['maximumreversespeed'],fMaximumReverseSpeed);
+ 
+  fAccelerationMinimumForce:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['accelerationminimumforce'],fAccelerationMinimumForce);
+
+  fReverseAccelerationMinimumForce:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['reverseaccelerationminimumforce'],fReverseAccelerationMinimumForce); 
 
   fCurveEvaluationAccuracy:=TPasJSON.GetInt64(TPasJSONItemObject(aJSONItem).Properties['curveevaluationaccuracy'],fCurveEvaluationAccuracy);
 
@@ -2035,6 +2049,10 @@ begin
  TPasJSONItemObject(result).Add('maximumspeed',TPasJSONItemNumber.Create(fMaximumSpeed));
 
  TPasJSONItemObject(result).Add('maximumreversespeed',TPasJSONItemNumber.Create(fMaximumReverseSpeed));
+
+ TPasJSONItemObject(result).Add('accelerationminimumforce',TPasJSONItemNumber.Create(fAccelerationMinimumForce));
+
+ TPasJSONItemObject(result).Add('reverseaccelerationminimumforce',TPasJSONItemNumber.Create(fReverseAccelerationMinimumForce));
 
  TPasJSONItemObject(result).Add('curveevaluationaccuracy',TPasJSONItemNumber.Create(fCurveEvaluationAccuracy));
 
@@ -2911,11 +2929,11 @@ begin
   if fIsAcceleration then begin
    fReverseAccelerationRescueForceState.Reset;
    result:=GetAccelerationOrBrakeForceMagnitude(fSettings.fAccelerationCurveEnvelope,fSpeedKMH,fDeltaTime,false);
-   result:=fAccelerationRescueForceState.GetOverrideForce(fSettings.fAccelerationRescueForce,fAbsoluteSpeedKMH,result,fDeltaTime);
+   result:=Max(fAccelerationRescueForceState.GetOverrideForce(fSettings.fAccelerationRescueForce,fAbsoluteSpeedKMH,result,fDeltaTime),fSettings.fAccelerationMinimumForce);
   end else begin
    fAccelerationRescueForceState.Reset;
    result:=GetAccelerationOrBrakeForceMagnitude(fSettings.fReverseAccelerationCurveEnvelope,-fSpeedKMH,fDeltaTime,false);
-   result:=-fReverseAccelerationRescueForceState.GetOverrideForce(fSettings.fReverseAccelerationRescueForce,fAbsoluteSpeedKMH,result,fDeltaTime);
+   result:=-Max(fReverseAccelerationRescueForceState.GetOverrideForce(fSettings.fReverseAccelerationRescueForce,fAbsoluteSpeedKMH,result,fDeltaTime),fSettings.fReverseAccelerationMinimumForce);
   end;
  end else begin
   fReverseAccelerationRescueForceState.Reset;
