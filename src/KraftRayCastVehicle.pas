@@ -2202,7 +2202,7 @@ end;
 
 procedure TKraftRayCastVehicle.TWheel.UpdateAcceleration;
 var WheelForward,Force:TKraftVector3;
-    MaximumSpeed,MaximumReverseSpeed:TKraftScalar;
+    MaximumSpeed,MaximumReverseSpeed,ForceMagnitude:TKraftScalar;
 begin
 
 {$ifdef DebugDraw}
@@ -2232,7 +2232,10 @@ begin
 
    WheelForward:=GetWheelLongitudinalDirection;
 
-   Force:=Vector3ScalarMul(WheelForward,fVehicle.fAccelerationForceMagnitude*Clamp01(fSettings.fAccelerationForceFactor)*fVehicle.fInverseDeltaTime);
+   ForceMagnitude:=fVehicle.fAccelerationForceMagnitude;
+
+   Force:=Vector3ScalarMul(WheelForward,ForceMagnitude*Clamp01(fSettings.fAccelerationForceFactor)*fVehicle.fInverseDeltaTime);
+//   Force:=Vector3ScalarMul(WheelForward,fVehicle.fAccelerationForceMagnitude*Clamp01(fSettings.fAccelerationForceFactor)*fVehicle.fInverseDeltaTime);
 
 {$ifdef DebugDraw}
    Vector3DirectAdd(fDebugAccelerationForce,Force);
