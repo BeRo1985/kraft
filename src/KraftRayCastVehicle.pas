@@ -241,6 +241,36 @@ type { TKraftRayCastVehicle }
              published
               property Count:TKraftInt32 read fCount;
             end;
+            { TRescueForce } // For cases where the vehicle is stuck otherwise
+            TRescueForce=class
+             public
+              fEnabled:boolean; // Enabled?
+              fBelowSpeedThreshold:TKraftScalar; // Below speed threshold in km/h
+              fBelowSpeedTimeDuration:TKraftScalar; // The time duration to check if we are below speed and thus stuck
+              fForce:TKraftScalar; // Force to apply
+              fUntilSpeed:TKraftScalar; // Until speed in km/h
+             public 
+              constructor Create; reintroduce;
+              destructor Destroy; override;
+              procedure Clear;
+{$ifdef KraftPasJSON}
+              procedure LoadFromJSON(const aJSONItem:TPasJSONItem);
+              function SaveToJSON:TPasJSONItem;  
+{$endif}
+             published
+              property Enabled:boolean read fEnabled write fEnabled;
+              property BelowSpeedThreshold:TKraftScalar read fBelowSpeedThreshold write fBelowSpeedThreshold;
+              property BelowSpeedTimeDuration:TKraftScalar read fBelowSpeedTimeDuration write fBelowSpeedTimeDuration;
+              property Force:TKraftScalar read fForce write fForce;
+              property UntilSpeed:TKraftScalar read fUntilSpeed write fUntilSpeed; 
+            end;
+            { TRescueForceState }
+            TRescueForceState=record
+             private
+              fTimeUnderBelowSpeedThreshold:TKraftDouble;
+              procedure Reset;
+              function GetOverrideForce(const aRescueForce:TRescueForce;const aAbsoluteSpeedKMH,aOriginalForce:TKraftScalar;const aDeltaTime:TKraftDouble):TKraftScalar;
+            end;
             { TSuspensionSpringMath }
             TSuspensionSpringMath=class
              public
@@ -395,6 +425,8 @@ type { TKraftRayCastVehicle }
               fMaximumSpeed:TKraftScalar;
               fMaximumReverseSpeed:TKraftScalar;
               fCurveEvaluationAccuracy:TKraftInt32;
+              fAccelerationRescueForce:TRescueForce;
+              fReverseAccelerationRescueForce:TRescueForce;
               fAccelerationCurveEnvelope:TEnvelope;
               fReverseAccelerationCurveEnvelope:TEnvelope;
               fBrakeCurveEnvelope:TEnvelope;
@@ -439,6 +471,8 @@ type { TKraftRayCastVehicle }
               property MaximumSpeed:TKraftScalar read fMaximumSpeed write fMaximumSpeed;
               property MaximumReverseSpeed:TKraftScalar read fMaximumReverseSpeed write fMaximumReverseSpeed;
               property CurveEvaluationAccuracy:TKraftInt32 read fCurveEvaluationAccuracy write fCurveEvaluationAccuracy;
+              property AccelerationRescueForce:TRescueForce read fAccelerationRescueForce;
+              property ReverseAccelerationRescueForce:TRescueForce read fReverseAccelerationRescueForce;
               property AccelerationCurveEnvelope:TEnvelope read fAccelerationCurveEnvelope;
               property ReverseAccelerationCurveEnvelope:TEnvelope read fReverseAccelerationCurveEnvelope;
               property BrakeCurveEnvelope:TEnvelope read fBrakeCurveEnvelope;
@@ -617,6 +651,8 @@ type { TKraftRayCastVehicle }
        fHandBrakeSlipperyTiresTime:TKraftScalar;
        fDriftSlipperyTiresTime:TKraftScalar;
        fSteeringAngle:TKraftScalar;
+       fAccelerationRescueForceState:TRescueForceState;
+       fReverseAccelerationRescueForceState:TRescueForceState;
        fAccelerationForceMagnitude:TKraftScalar;
        fBrakeForceMagnitude:TKraftScalar;
        fSpeed:TKraftScalar;
@@ -1148,6 +1184,79 @@ begin
  end;
 end;
 
+{ TKraftRayCastVehicle.TRescueForce }
+
+constructor TKraftRayCastVehicle.TRescueForce.Create;
+begin
+ inherited Create;
+ Clear;
+end;
+
+destructor TKraftRayCastVehicle.TRescueForce.Destroy;
+begin
+ inherited Destroy;
+end;
+
+procedure TKraftRayCastVehicle.TRescueForce.Clear;
+begin
+ fEnabled:=false;
+ fBelowSpeedThreshold:=1.0;
+ fBelowSpeedTimeDuration:=1.0;
+ fForce:=100.0;
+ fUntilSpeed:=5.0;
+end;
+
+{$ifdef KraftPasJSON}
+procedure TKraftRayCastVehicle.TRescueForce.LoadFromJSON(const aJSONItem:TPasJSONItem);
+var RootJSONItemObject:TPasJSONItemObject;
+begin
+ if assigned(aJSONItem) and (aJSONItem is TPasJSONItemObject) then begin
+  RootJSONItemObject:=TPasJSONItemObject(aJSONItem);
+  fEnabled:=TPasJSON.GetBoolean(RootJSONItemObject.Properties['enabled'],fEnabled);
+  fBelowSpeedThreshold:=TPasJSON.GetNumber(RootJSONItemObject.Properties['belowspeedthreshold'],fBelowSpeedThreshold);
+  fBelowSpeedTimeDuration:=TPasJSON.GetNumber(RootJSONItemObject.Properties['belowspeedtimeduration'],fBelowSpeedTimeDuration);
+  fForce:=TPasJSON.GetNumber(RootJSONItemObject.Properties['force'],fForce);
+  fUntilSpeed:=TPasJSON.GetNumber(RootJSONItemObject.Properties['untilspeed'],fUntilSpeed);
+ end;
+end;
+
+function TKraftRayCastVehicle.TRescueForce.SaveToJSON:TPasJSONItem;
+begin
+ result:=TPasJSONItemObject.Create;
+ TPasJSONItemObject(result).Add('enabled',TPasJSONItemBoolean.Create(fEnabled));
+ TPasJSONItemObject(result).Add('belowspeedthreshold',TPasJSONItemNumber.Create(fBelowSpeedThreshold));
+ TPasJSONItemObject(result).Add('belowspeedtimeduration',TPasJSONItemNumber.Create(fBelowSpeedTimeDuration));
+ TPasJSONItemObject(result).Add('force',TPasJSONItemNumber.Create(fForce));
+ TPasJSONItemObject(result).Add('untilspeed',TPasJSONItemNumber.Create(fUntilSpeed));
+end;
+{$endif}
+
+{ TKraftRayCastVehicle.TRescueForceState }
+
+procedure TKraftRayCastVehicle.TRescueForceState.Reset;
+begin
+ fTimeUnderBelowSpeedThreshold:=0.0;
+end;
+
+// Returns the override force if the vehicle is below the speed threshold for the specified time duration in case the vehicle is stuck or similar.
+function TKraftRayCastVehicle.TRescueForceState.GetOverrideForce(const aRescueForce:TKraftRayCastVehicle.TRescueForce;const aAbsoluteSpeedKMH,aOriginalForce:TKraftScalar;const aDeltaTime:TKraftDouble):TKraftScalar;
+var NextTimeUnderBelowSpeedThreshold:TKraftScalar;
+begin
+  if aRescueForce.fEnabled and (aAbsoluteSpeedKMH<aRescueForce.fBelowSpeedThreshold) then begin
+  NextTimeUnderBelowSpeedThreshold:=fTimeUnderBelowSpeedThreshold+aDeltaTime;
+  fTimeUnderBelowSpeedThreshold:=Min(NextTimeUnderBelowSpeedThreshold,aRescueForce.fBelowSpeedTimeDuration);
+  if (NextTimeUnderBelowSpeedThreshold>=aRescueForce.fBelowSpeedTimeDuration) and
+     (aAbsoluteSpeedKMH<=aRescueForce.fUntilSpeed) then begin
+   result:=aRescueForce.fForce;
+  end else begin
+   result:=aOriginalForce;
+  end;
+ end else begin
+  fTimeUnderBelowSpeedThreshold:=0.0;
+  result:=aOriginalForce;
+ end;
+end;
+
 { TKraftRayCastVehicle.TSuspensionSpringMath }
 
 // Calculates the force which wants to restore the suspension spring to its rest length.
@@ -1444,6 +1553,10 @@ begin
 
  fDriftSlipperyTime:=2.2;
 
+ fAccelerationRescueForce:=TRescueForce.Create;
+
+ fReverseAccelerationRescueForce:=TRescueForce.Create;
+
  fAccelerationCurveEnvelope:=TEnvelope.CreateLinear(0.0,0.0,5.0,200.0);
 
  fReverseAccelerationCurveEnvelope:=TEnvelope.CreateLinear(0.0,0.0,5.0,20.0);
@@ -1544,6 +1657,12 @@ begin
 
  // The curve evaluation accuracy
  fCurveEvaluationAccuracy:=25;
+
+ // The acceleration rescue force
+ fAccelerationRescueForce.Clear;
+
+ // The reverse acceleration rescue force
+ fReverseAccelerationRescueForce.Clear;
 
  // The acceleration curve envelope
  fAccelerationCurveEnvelope.FillLinear(0.0,0.0,5.0,200.0);
@@ -1785,6 +1904,10 @@ begin
 
   fCurveEvaluationAccuracy:=TPasJSON.GetInt64(TPasJSONItemObject(aJSONItem).Properties['curveevaluationaccuracy'],fCurveEvaluationAccuracy);
 
+  fAccelerationRescueForce.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['accelerationrescueforce']);
+
+  fReverseAccelerationRescueForce.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['reverseaccelerationrescueforce']);
+
   fAccelerationCurveEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['accelerationcurveenvelope']);
 
   fReverseAccelerationCurveEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['reverseaccelerationcurveenvelope']);
@@ -1914,6 +2037,10 @@ begin
  TPasJSONItemObject(result).Add('maximumreversespeed',TPasJSONItemNumber.Create(fMaximumReverseSpeed));
 
  TPasJSONItemObject(result).Add('curveevaluationaccuracy',TPasJSONItemNumber.Create(fCurveEvaluationAccuracy));
+
+ TPasJSONItemObject(result).Add('accelerationrescueforce',fAccelerationRescueForce.SaveToJSON);
+
+ TPasJSONItemObject(result).Add('reverseaccelerationrescueforce',fReverseAccelerationRescueForce.SaveToJSON);
 
  TPasJSONItemObject(result).Add('accelerationcurveenvelope',fAccelerationCurveEnvelope.SaveToJSON);
 
@@ -2564,6 +2691,8 @@ begin
  fHandBrakeSlipperyTiresTime:=0.0;
  fDriftSlipperyTiresTime:=0.0;
  fSteeringAngle:=0.0;
+ fAccelerationRescueForceState.Reset;
+ fReverseAccelerationRescueForceState.Reset;
 end;
 
 procedure TKraftRayCastVehicle.Finish;
@@ -2780,11 +2909,17 @@ function TKraftRayCastVehicle.CalcAccelerationForceMagnitude:TKraftScalar;
 begin
  if fIsAcceleration or fIsReverseAcceleration then begin
   if fIsAcceleration then begin
+   fReverseAccelerationRescueForceState.Reset;
    result:=GetAccelerationOrBrakeForceMagnitude(fSettings.fAccelerationCurveEnvelope,fSpeedKMH,fDeltaTime,false);
+   result:=fAccelerationRescueForceState.GetOverrideForce(fSettings.fAccelerationRescueForce,fAbsoluteSpeedKMH,result,fDeltaTime);
   end else begin
-   result:=-GetAccelerationOrBrakeForceMagnitude(fSettings.fReverseAccelerationCurveEnvelope,-fSpeedKMH,fDeltaTime,false);
+   fAccelerationRescueForceState.Reset;
+   result:=GetAccelerationOrBrakeForceMagnitude(fSettings.fReverseAccelerationCurveEnvelope,-fSpeedKMH,fDeltaTime,false);
+   result:=-fReverseAccelerationRescueForceState.GetOverrideForce(fSettings.fReverseAccelerationRescueForce,fAbsoluteSpeedKMH,result,fDeltaTime);
   end;
  end else begin
+  fReverseAccelerationRescueForceState.Reset;
+  fAccelerationRescueForceState.Reset;
   result:=0.0;
  end;
 end;
