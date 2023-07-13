@@ -669,6 +669,8 @@ type { TKraftRayCastVehicle }
        fSpeedKMH:TKraftScalar;
        fAbsoluteSpeedKMH:TKraftScalar;
        fMovingForward:boolean;
+       fHitAverageNormal:TKraftVector3;
+       fHitAverageNormalCount:TKraftInt32;
        fCollisionGroups:TKraftRigidBodyCollisionGroups;
        fCollideWithCollisionGroups:TKraftRigidBodyCollisionGroups;
        fCastCollisionGroups:TKraftRigidBodyCollisionGroups;
@@ -2268,6 +2270,8 @@ begin
   RayLength:=fSettings.fSuspensionRestLength-fSettings.fRadius;
   if fVehicle.fPhysics.SphereCast(RayOrigin,fSettings.fRadius,RayDirection,RayLength,HitShape,HitTime,HitPoint,HitNormal,fVehicle.fCastCollisionGroups,fVehicle.RayCastFilter) then begin
    CurrentLength:=HitTime+fSettings.fRadius;
+   Vector3DirectAdd(fVehicle.fHitAverageNormal,HitNormal);
+   inc(fVehicle.fHitAverageNormalCount);
   end else begin
    CurrentLength:=fSettings.fSuspensionRestLength;
   end;
@@ -2275,6 +2279,8 @@ begin
   RayLength:=fSettings.fSuspensionRestLength;
   if fVehicle.fPhysics.RayCast(RayOrigin,RayDirection,RayLength,HitShape,HitTime,HitPoint,HitNormal,fVehicle.fCastCollisionGroups,fVehicle.RayCastFilter) then begin
    CurrentLength:=HitTime;
+   Vector3DirectAdd(fVehicle.fHitAverageNormal,HitNormal);
+   inc(fVehicle.fHitAverageNormalCount);
   end else begin
    CurrentLength:=fSettings.fSuspensionRestLength;
   end;
@@ -3061,11 +3067,19 @@ procedure TKraftRayCastVehicle.UpdateSuspension;
 var Index:TKraftInt32;
     Wheel:TWheel;
 begin
+ fHitAverageNormal:=Vector3Origin;
+ fHitAverageNormalCount:=0;
  for Index:=0 to fWheels.Count-1 do begin
   Wheel:=fWheels[Index];
   Wheel.SuspensionCast;
   Wheel.UpdateSuspension;
  end;
+{if fHitAverageNormalCount>0 then begin
+  fRigidBody.Flags:=fRigidBody.Flags+[krbfHasOwnGravity];
+  fRigidBody.Gravity.Vector:=Vector3Neg(Vector3Norm(fHitAverageNormal));
+ end else begin
+  fRigidBody.Flags:=fRigidBody.Flags-[krbfHasOwnGravity];
+ end;}
 end;
 
 procedure TKraftRayCastVehicle.UpdateAckermannSteering;
