@@ -1675,7 +1675,7 @@ begin
  fDriftSlipperyTime:=2.2;
 
  // The maximum gravity slope angle
- fMaximumGravitySlopeAngle:=15.0; // 15 degrees should be enough for most cases
+ fMaximumGravitySlopeAngle:=5.0; // 5 degrees should be enough for most cases
 
  // The maximum speed in km/h
  fMaximumSpeed:=80.0;
