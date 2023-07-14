@@ -704,6 +704,7 @@ type { TKraftRayCastVehicle }
        procedure UpdateInput;
        procedure UpdateWorldTransformVectors;
        procedure UpdateSuspension;
+       procedure UpdateGravityAndNearlyFlatGroundDetection;
        procedure UpdateAckermannSteering;
        procedure UpdateSteering;
        procedure UpdateAcceleration;
@@ -3078,7 +3079,6 @@ end;
 procedure TKraftRayCastVehicle.UpdateSuspension;
 var Index:TKraftInt32;
     Wheel:TWheel;
-    Normal,GravityDirection:TKraftVector3;
 begin
  fHitAverageNormal:=Vector3Origin;
  fHitAverageNormalCount:=0;
@@ -3087,9 +3087,21 @@ begin
   Wheel.SuspensionCast;
   Wheel.UpdateSuspension;
  end;
-{if fHitAverageNormalCount>0 then begin
-  // Use the average normal of all hit points to determine if the vehicle is on the ground when the average normal is nearly equal to the gravity direction
-  // in the range of a defined maximum gravity slope angle, so that the vehicle can even put into sleep mode when it is on a nearly flat surface.
+end;
+
+procedure TKraftRayCastVehicle.UpdateGravityAndNearlyFlatGroundDetection;
+var Normal,GravityDirection:TKraftVector3;
+begin
+ if fHitAverageNormalCount>0 then begin
+  // If there are any hit points, we compute the average normal across all of them. This value is
+  // then used to ascertain whether the vehicle is on a surface that's nearly parallel to the
+  // direction of gravity (indicating flat or nearly flat ground).
+  // The calculated normal is compared to the gravity direction within the bounds of a predefined
+  // maximum slope angle. If the angle between the normal and gravity direction is less than or
+  // equal to this maximum slope angle, the vehicle is considered to be on a nearly flat surface.
+  // This can then enable putting the vehicle into a 'sleep mode' when it's on such a surface,
+  // avoiding unnecessary computations or actions. For instance, it can prevent unintended sliding
+  // when the vehicle is actually stationary on a nearly flat surface.
   Normal:=Vector3Neg(Vector3Norm(fHitAverageNormal));
   GravityDirection:=Vector3Norm(fPhysics.Gravity.Vector);
   if Vector3Dot(Normal,GravityDirection)>=cos(fSettings.fMaximumGravitySlopeAngle*DEG2RAD) then begin
@@ -3100,7 +3112,7 @@ begin
   end;
  end else begin
   fRigidBody.Flags:=fRigidBody.Flags-[krbfHasOwnGravity];
- end;//}
+ end;
 end;
 
 procedure TKraftRayCastVehicle.UpdateAckermannSteering;
@@ -3350,6 +3362,7 @@ begin
 
 {if krbfAwake in fRigidBody.Flags then}begin
   UpdateSuspension;
+  UpdateGravityAndNearlyFlatGroundDetection;
   UpdateAckermannSteering;
   UpdateSteering;
   UpdateAcceleration;
