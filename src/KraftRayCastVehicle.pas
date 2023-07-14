@@ -3084,7 +3084,7 @@ begin
   Wheel.SuspensionCast;
   Wheel.UpdateSuspension;
  end;
- if fHitAverageNormalCount>0 then begin
+{if fHitAverageNormalCount>0 then begin
   // Use the average normal of all hit points to determine if the vehicle is on the ground when the average normal is nearly equal to the gravity direction
   // in the range of a defined maximum gravity slope angle, so that the vehicle can even put into sleep mode when it is on a nearly flat surface.
   Normal:=Vector3Neg(Vector3Norm(fHitAverageNormal));
@@ -3097,7 +3097,7 @@ begin
   end;
  end else begin
   fRigidBody.Flags:=fRigidBody.Flags-[krbfHasOwnGravity];
- end;
+ end;//}
 end;
 
 procedure TKraftRayCastVehicle.UpdateAckermannSteering;
