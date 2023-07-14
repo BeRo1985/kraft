@@ -3424,12 +3424,17 @@ end;
 
 {$ifdef DebugDraw}
 procedure TKraftRayCastVehicle.DebugDraw;
-var Index,OtherIndex,OtherOtherIndex:TKraftInt32;
+const SphereSlices=8;
+      SphereStacks=8;
+var Index,OtherIndex,OtherOtherIndex,SliceIndex,StackIndex:TKraftInt32;
     AckermannGroup:TAckermannGroup;
     Axle:TAxle;
     Wheel:TWheel;
-    v0,v1,v:TKraftVector3;
+    v0,v1,v2,v3,v:TKraftVector3;
     Color:TKraftVector4;
+    DeltaTheta,DeltaPhi,Phi,PhiNext,Theta,ThetaNext,
+    SinusTheta,CosinusTheta,SinusThetaNext,CosinusThetaNext,
+    SinusPhi,CosinusPhi,SinusPhiNext,CosinusPhiNext:TKraftScalar;
 begin
 {$ifndef NoOpenGL}
  glDisable(GL_DEPTH_TEST);
@@ -3704,37 +3709,95 @@ begin
   glEnd;
 {$endif}
 
-  if Wheel.IsGrounded then begin
-   Color:=Vector4(0.0625,1.0,0.0625,1.0);
-  end else begin
-   Color:=Vector4(1.0,0.0625,0.0625,1.0);
-  end;
+  if Wheel.fSettings.fUseSphereCast then begin
+   if Wheel.IsGrounded then begin
+    Color:=Vector4(0.0625,0.25,0.0625,1.0);
+   end else begin
+    Color:=Vector4(0.25,0.0625,0.0625,1.0);
+   end;
+{$ifndef NoOpenGL}
+   glColor4fv(@Color);
+   glDisable(GL_CULL_FACE);
+   glBegin(GL_LINES);
+{$endif}
+   v:=Vector3TermMatrixMul(Vector3Origin,Wheel.fVisualWorldTransform);
+   DeltaTheta:=PI*2.0/SphereSlices;
+   DeltaPhi:=PI/SphereStacks;
+   for SliceIndex:=0 to SphereSlices-1 do begin
+    Theta:=SliceIndex*DeltaTheta;
+    ThetaNext:=(SliceIndex+1)*DeltaTheta;
+    SinusTheta:=sin(Theta);
+    CosinusTheta:=cos(Theta);
+    SinusThetaNext:=sin(ThetaNext);
+    CosinusThetaNext:=cos(ThetaNext);
+    for StackIndex:=0 to SphereStacks-1 do begin
+     Phi:=StackIndex*DeltaPhi;
+     PhiNext:=(StackIndex+1)*DeltaPhi;
+     SinusPhi:=sin(Phi);
+     CosinusPhi:=cos(Phi);
+     SinusPhiNext:=sin(PhiNext);
+     CosinusPhiNext:=cos(PhiNext);
+     v0:=Vector3TermMatrixMul(Vector3ScalarMul(Vector3(SinusPhi*CosinusTheta,SinusPhi*SinusTheta,CosinusPhi),Wheel.fSettings.Radius),Wheel.fVisualWorldTransform);
+     v1:=Vector3TermMatrixMul(Vector3ScalarMul(Vector3(SinusPhi*CosinusThetaNext,SinusPhi*SinusThetaNext,CosinusPhi),Wheel.fSettings.Radius),Wheel.fVisualWorldTransform);
+     v2:=Vector3TermMatrixMul(Vector3ScalarMul(Vector3(SinusPhiNext*CosinusThetaNext,SinusPhiNext*SinusThetaNext,CosinusPhiNext),Wheel.fSettings.Radius),Wheel.fVisualWorldTransform);
+     v3:=Vector3TermMatrixMul(Vector3ScalarMul(Vector3(SinusPhiNext*CosinusTheta,SinusPhiNext*SinusTheta,CosinusPhiNext),Wheel.fSettings.Radius),Wheel.fVisualWorldTransform);
 {$ifdef NoOpenGL}
-  v:=Vector3TermMatrixMul(Vector3Origin,Wheel.fVisualWorldTransform);
-  v0:=v;
-  for OtherIndex:=0 to 16 do begin
-   if assigned(fDebugDrawLine) then begin
-    v1:=v0;
-    v0:=Vector3TermMatrixMul(Vector3Add(Vector3Add(Vector3Origin,Vector3ScalarMul(Vector3YAxis,Sin((OtherIndex/16)*PI*2)*Wheel.fSettings.fRadius)),Vector3ScalarMul(Vector3ZAxis,Cos((OtherIndex/16)*PI*2)*Wheel.fSettings.Radius)),Wheel.fVisualWorldTransform);
-    if OtherIndex>0 then begin
-     fDebugDrawLine(v,v0,Color);
-     fDebugDrawLine(v0,v1,Color);
+     if assigned(fDebugDrawLine) then begin
+      fDebugDrawLine(v0,v1,Color);
+      fDebugDrawLine(v1,v2,Color);
+      fDebugDrawLine(v2,v3,Color);
+      fDebugDrawLine(v3,v0,Color);
+     end;
+{$else}
+     glVertex3fv(@v0);
+     glVertex3fv(@v1);
+     glVertex3fv(@v1);
+     glVertex3fv(@v2);
+     glVertex3fv(@v2);
+     glVertex3fv(@v3);
+     glVertex3fv(@v3);
+     glVertex3fv(@v0);
+{$endif}
     end;
    end;
-  end;
-{$else}
-  glColor4fv(@Color);
-  glDisable(GL_CULL_FACE);
-  glBegin(GL_TRIANGLE_FAN);
-  v0:=Vector3TermMatrixMul(Vector3Origin,Wheel.fVisualWorldTransform);
-  glVertex3fv(@v0);
-  for OtherIndex:=0 to 16 do begin
-   v0:=Vector3TermMatrixMul(Vector3Add(Vector3Add(Vector3Origin,Vector3ScalarMul(Vector3YAxis,Sin((OtherIndex/16)*PI*2)*Wheel.fSettings.Radius)),Vector3ScalarMul(Vector3ZAxis,Cos((OtherIndex/16)*PI*2)*Wheel.fSettings.Radius)),Wheel.fVisualWorldTransform);
-   glVertex3fv(@v0);
-  end;
-  glEnd;
-  glEnable(GL_CULL_FACE);
+{$ifndef NoOpenGL}
+   glEnd;
+   glEnable(GL_CULL_FACE);
 {$endif}
+  end;
+  begin
+   if Wheel.IsGrounded then begin
+    Color:=Vector4(0.0625,1.0,0.0625,1.0);
+   end else begin
+    Color:=Vector4(1.0,0.0625,0.0625,1.0);
+   end;
+{$ifdef NoOpenGL}
+   v:=Vector3TermMatrixMul(Vector3Origin,Wheel.fVisualWorldTransform);
+   v0:=v;  
+   for OtherIndex:=0 to 16 do begin
+    if assigned(fDebugDrawLine) then begin
+     v1:=v0;
+     v0:=Vector3TermMatrixMul(Vector3Add(Vector3Add(Vector3Origin,Vector3ScalarMul(Vector3YAxis,Sin((OtherIndex/16)*PI*2)*Wheel.fSettings.fRadius)),Vector3ScalarMul(Vector3ZAxis,Cos((OtherIndex/16)*PI*2)*Wheel.fSettings.Radius)),Wheel.fVisualWorldTransform);
+     if OtherIndex>0 then begin
+      fDebugDrawLine(v,v0,Color);
+      fDebugDrawLine(v0,v1,Color);
+     end;
+    end;
+   end;
+{$else}
+   glColor4fv(@Color);
+   glDisable(GL_CULL_FACE);
+   glBegin(GL_TRIANGLE_FAN);
+   v0:=Vector3TermMatrixMul(Vector3Origin,Wheel.fVisualWorldTransform);
+   glVertex3fv(@v0);
+   for OtherIndex:=0 to 16 do begin
+    v0:=Vector3TermMatrixMul(Vector3Add(Vector3Add(Vector3Origin,Vector3ScalarMul(Vector3YAxis,Sin((OtherIndex/16)*PI*2)*Wheel.fSettings.Radius)),Vector3ScalarMul(Vector3ZAxis,Cos((OtherIndex/16)*PI*2)*Wheel.fSettings.Radius)),Wheel.fVisualWorldTransform);
+    glVertex3fv(@v0);
+   end;
+   glEnd;
+   glEnable(GL_CULL_FACE);
+{$endif}
+  end;
 
  end;
 {$ifndef NoOpenGL}
