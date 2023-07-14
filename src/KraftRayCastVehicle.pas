@@ -428,6 +428,7 @@ type { TKraftRayCastVehicle }
               fAirResistance:TKraftScalar;
               fHandBrakeSlipperyTime:TKraftScalar;
               fDriftSlipperyTime:TKraftScalar;
+              fMaximumGravitySlopeAngle:TKraftScalar; 
               fMaximumSpeed:TKraftScalar;
               fMaximumReverseSpeed:TKraftScalar;
               fAccelerationMinimumForce:TKraftScalar;
@@ -476,6 +477,7 @@ type { TKraftRayCastVehicle }
               property AirResistance:TKraftScalar read fAirResistance write fAirResistance;
               property HandBrakeSlipperyTime:TKraftScalar read fHandBrakeSlipperyTime write fHandBrakeSlipperyTime;
               property DriftSlipperyTime:TKraftScalar read fDriftSlipperyTime write fDriftSlipperyTime;
+              property MaximumGravitySlopeAngle:TKraftScalar read fMaximumGravitySlopeAngle write fMaximumGravitySlopeAngle;
               property MaximumSpeed:TKraftScalar read fMaximumSpeed write fMaximumSpeed;
               property MaximumReverseSpeed:TKraftScalar read fMaximumReverseSpeed write fMaximumReverseSpeed;
               property AccelerationMinimumForce:TKraftScalar read fAccelerationMinimumForce write fAccelerationMinimumForce;
@@ -1672,6 +1674,9 @@ begin
  // Drift slippery time
  fDriftSlipperyTime:=2.2;
 
+ // The maximum gravity slope angle
+ fMaximumGravitySlopeAngle:=15.0; // 15 degrees should be enough for most cases
+
  // The maximum speed in km/h
  fMaximumSpeed:=80.0;
  fMaximumReverseSpeed:=18.0;
@@ -1925,6 +1930,8 @@ begin
 
   fDriftSlipperyTime:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['driftslipperytime'],fDriftSlipperyTime);
 
+  fMaximumGravitySlopeAngle:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['maximumgravityslopeangle'],fMaximumGravitySlopeAngle);
+
   fMaximumSpeed:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['maximumspeed'],fMaximumSpeed);
 
   fMaximumReverseSpeed:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['maximumreversespeed'],fMaximumReverseSpeed);
@@ -2063,6 +2070,8 @@ begin
 
  TPasJSONItemObject(result).Add('driftslipperytime',TPasJSONItemNumber.Create(fDriftSlipperyTime));
 
+ TPasJSONItemObject(result).Add('maximumgravityslopeangle',TPasJSONItemNumber.Create(fMaximumGravitySlopeAngle));
+ 
  TPasJSONItemObject(result).Add('maximumspeed',TPasJSONItemNumber.Create(fMaximumSpeed));
 
  TPasJSONItemObject(result).Add('maximumreversespeed',TPasJSONItemNumber.Create(fMaximumReverseSpeed));
@@ -3066,6 +3075,7 @@ end;
 procedure TKraftRayCastVehicle.UpdateSuspension;
 var Index:TKraftInt32;
     Wheel:TWheel;
+    Normal,GravityDirection:TKraftVector3;
 begin
  fHitAverageNormal:=Vector3Origin;
  fHitAverageNormalCount:=0;
@@ -3074,12 +3084,20 @@ begin
   Wheel.SuspensionCast;
   Wheel.UpdateSuspension;
  end;
-{if fHitAverageNormalCount>0 then begin
-  fRigidBody.Flags:=fRigidBody.Flags+[krbfHasOwnGravity];
-  fRigidBody.Gravity.Vector:=Vector3Neg(Vector3Norm(fHitAverageNormal));
+ if fHitAverageNormalCount>0 then begin
+  // Use the average normal of all hit points to determine if the vehicle is on the ground when the average normal is nearly equal to the gravity direction
+  // in the range of a defined maximum gravity slope angle, so that the vehicle can even put into sleep mode when it is on a nearly flat surface.
+  Normal:=Vector3Neg(Vector3Norm(fHitAverageNormal));
+  GravityDirection:=Vector3Norm(fPhysics.Gravity.Vector);
+  if Vector3Dot(Normal,GravityDirection)>=cos(fSettings.fMaximumGravitySlopeAngle*DEG2RAD) then begin
+   fRigidBody.Flags:=fRigidBody.Flags+[krbfHasOwnGravity];
+   fRigidBody.Gravity.Vector:=Vector3ScalarMul(Normal,Vector3Length(fPhysics.Gravity.Vector));
+  end else begin
+   fRigidBody.Flags:=fRigidBody.Flags-[krbfHasOwnGravity];
+  end;
  end else begin
   fRigidBody.Flags:=fRigidBody.Flags-[krbfHasOwnGravity];
- end;}
+ end;
 end;
 
 procedure TKraftRayCastVehicle.UpdateAckermannSteering;
