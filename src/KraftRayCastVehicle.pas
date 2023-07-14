@@ -3093,13 +3093,14 @@ procedure TKraftRayCastVehicle.UpdateGravityAndNearlyFlatGroundDetection;
 var Normal,GravityDirection:TKraftVector3;
 begin
  if fHitAverageNormalCount>0 then begin
-  // If there are any hit points, we compute the average normal across all of them. This value is
-  // then used to ascertain whether the vehicle is on a surface that's nearly parallel to the
-  // direction of gravity (indicating flat or nearly flat ground).
-  // The calculated normal is compared to the gravity direction within the bounds of a predefined
+  // If there are any hit points derived from the suspension's raycasting or spherecasting, we
+  // compute the average normal across all of them. This value is then used to ascertain whether
+  // the vehicle is on a surface that's nearly parallel to the direction of gravity, indicating a
+  // flat or nearly flat ground.
+  // The calculated normal is compared to the gravity direction within the limits of a predefined
   // maximum slope angle. If the angle between the normal and gravity direction is less than or
   // equal to this maximum slope angle, the vehicle is considered to be on a nearly flat surface.
-  // This can then enable putting the vehicle into a 'sleep mode' when it's on such a surface,
+  // This assessment can enable putting the vehicle into a 'sleep mode' when it's on such a surface,
   // avoiding unnecessary computations or actions. For instance, it can prevent unintended sliding
   // when the vehicle is actually stationary on a nearly flat surface.
   Normal:=Vector3Neg(Vector3Norm(fHitAverageNormal));
