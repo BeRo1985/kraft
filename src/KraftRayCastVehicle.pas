@@ -2728,6 +2728,9 @@ end;
 function TKraftRayCastVehicle.RayCastFilter(const aPoint,aNormal:TKraftVector3;const aTime:TKraftScalar;const aShape:TKraftShape):boolean;
 begin
  result:=aShape<>fShape;
+ if result then begin
+  result:=Vector3Dot(aNormal,fWorldUp)>0.0;
+ end;
 end;
 
 procedure TKraftRayCastVehicle.Reset;
