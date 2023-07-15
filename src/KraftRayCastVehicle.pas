@@ -2271,6 +2271,11 @@ begin
 
   if abs(Force)>EPSILON then begin
    fVehicle.fRigidBody.AddForceAtPosition(Vector3ScalarMul(fVehicle.fWorldUp,Force),GetSuspensionHitPosition,kfmForce,false);
+
+   if assigned(HitShape) and assigned(HitShape.RigidBody) and (HitShape.RigidBody.RigidBodyType=krbtDynamic) then begin
+    HitShape.RigidBody.AddForceAtPosition(Vector3ScalarMul(fVehicle.fWorldDown,Force),GetSuspensionHitPosition,kfmForce,false);
+   end;
+
   end;
 
  end else begin
@@ -2697,11 +2702,24 @@ begin
 end;
 
 function TKraftRayCastVehicle.RayCastFilter(const aPoint,aNormal:TKraftVector3;const aTime:TKraftScalar;const aShape:TKraftShape):boolean;
+var Shape:TKraftShape;
 begin
- result:=aShape<>fShape;
- if result then begin
-  result:=Vector3Dot(aNormal,fWorldUp)>0.0;
+ if assigned(fRigidBody) then begin
+  Shape:=fRigidBody.ShapeFirst;
+  while assigned(Shape) do begin
+   if Shape=aShape then begin
+    result:=false;
+    exit;
+   end else begin
+    if Shape=fRigidBody.ShapeLast then begin
+     break;
+    end else begin
+     Shape:=Shape.ShapeNext;
+    end;
+   end;
+  end;
  end;
+ result:=Vector3Dot(aNormal,fWorldUp)>0.0;
 end;
 
 procedure TKraftRayCastVehicle.Reset;
