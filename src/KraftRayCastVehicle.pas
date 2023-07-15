@@ -2270,7 +2270,7 @@ begin
            fSettings.SuspensionDamping));
 
   if abs(Force)>EPSILON then begin
-   fVehicle.fRigidBody.AddForceAtPosition(Vector3ScalarMul(fVehicle.fWorldUp,Force),HitPoint,kfmForce,false);
+   fVehicle.fRigidBody.AddForceAtPosition(Vector3ScalarMul(fVehicle.fWorldUp,Force),GetSuspensionHitPosition,kfmForce,false);
   end;
 
  end else begin
