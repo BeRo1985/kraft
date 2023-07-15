@@ -499,7 +499,7 @@ type { TKraftRayCastVehicle }
               fVehicle:TKraftRayCastVehicle;
               fSettings:TKraftRayCastVehicle.TSettings.TWheel;
               fAxle:TKraftRayCastVehicle.TAxle;
-              fGrounded:boolean;
+              fIsGrounded:boolean;
               fSuspensionPreviousCompressionDistance:TKraftScalar;
               fSuspensionCompressionDistance:TKraftScalar;
               fSuspensionCompressionRatio:TKraftScalar;
@@ -540,7 +540,6 @@ type { TKraftRayCastVehicle }
               function GetWheelTorqueRelativePosition:TKraftVector3;
               function GetWheelTransform:TKraftMatrix4x4;
              private
-              function IsGrounded:boolean;
               procedure UpdateSuspension;
               procedure UpdateLaterialForce;
               procedure UpdateAcceleration;
@@ -2169,7 +2168,7 @@ begin
  fVehicle:=aVehicle;
  fSettings:=aSettings;
  fAxle:=nil;
- fGrounded:=false;
+ fIsGrounded:=false;
  fSuspensionLength:=0.0;
  fYawRad:=0.0;
  fRotationRad:=0.0;
@@ -2238,11 +2237,6 @@ begin
  PKraftVector3(@result[3,0])^.xyz:=WorldWheelPosition.xyz;
 end;
 
-function TKraftRayCastVehicle.TWheel.IsGrounded:boolean;
-begin
- result:=fGrounded;
-end;
-
 procedure TKraftRayCastVehicle.TWheel.UpdateSuspension;
 var RayOrigin,RayDirection,HitPoint,HitNormal:TKraftVector3;
     RayLength,HitTime,Force:TKraftScalar;
@@ -2254,13 +2248,13 @@ begin
  RayLength:=fSettings.fSuspensionRestLength;
 
  if fSettings.fUseSphereCast then begin
-  fGrounded:=fVehicle.fPhysics.SphereCast(RayOrigin,fSettings.fRadius,RayDirection,RayLength-fSettings.fRadius,HitShape,HitTime,HitPoint,HitNormal,fVehicle.fCastCollisionGroups,fVehicle.RayCastFilter);
+  fIsGrounded:=fVehicle.fPhysics.SphereCast(RayOrigin,fSettings.fRadius,RayDirection,RayLength-fSettings.fRadius,HitShape,HitTime,HitPoint,HitNormal,fVehicle.fCastCollisionGroups,fVehicle.RayCastFilter);
   HitTime:=HitTime+fSettings.fRadius;
  end else begin
-  fGrounded:=fVehicle.fPhysics.RayCast(RayOrigin,RayDirection,RayLength,HitShape,HitTime,HitPoint,HitNormal,fVehicle.fCastCollisionGroups,fVehicle.RayCastFilter);
+  fIsGrounded:=fVehicle.fPhysics.RayCast(RayOrigin,RayDirection,RayLength,HitShape,HitTime,HitPoint,HitNormal,fVehicle.fCastCollisionGroups,fVehicle.RayCastFilter);
  end;
 
- if fGrounded then begin
+ if fIsGrounded then begin
 
   fSuspensionPreviousCompressionDistance:=fSuspensionCompressionDistance;
 
@@ -2303,7 +2297,7 @@ begin
 {$ifdef DebugDraw}
  fDebugLaterialForce:=Vector3Origin;
 {$endif}
- if IsGrounded then begin
+ if fIsGrounded then begin
 
   begin
 
@@ -2380,7 +2374,7 @@ begin
    MaximumReverseSpeed:=fVehicle.fSettings.fMaximumReverseSpeed;
   end; 
 
-  if IsGrounded and
+  if fIsGrounded and
      ((fVehicle.fMovingForward and (IsZero(MaximumSpeed) or (fVehicle.fAbsoluteSpeedKMH<MaximumSpeed))) or
       ((not fVehicle.fMovingForward) and (IsZero(MaximumReverseSpeed) or (fVehicle.fAbsoluteSpeedKMH<MaximumReverseSpeed)))) then begin
 
@@ -2433,7 +2427,7 @@ begin
   BrakeRatio:=0.0; // If the wheel at the current axle is not powered, then disable braking
  end;}
 
- if IsGrounded then begin
+ if fIsGrounded then begin
   SuspensionPosition:=GetSuspensionPosition;
   LongitudinalDirection:=GetWheelLongitudinalDirection;
   LongitudinalVelocity:=Vector3Dot(LongitudinalDirection,fVehicle.fRigidBody.GetWorldLinearVelocityFromPoint(SuspensionPosition));
@@ -2569,7 +2563,7 @@ begin
   TravelL:=1.0-Clamp01(WheelLeft.fSuspensionCompressionRatio);
   TravelR:=1.0-Clamp01(WheelRight.fSuspensionCompressionRatio);
   AntiRollForce:=(TravelL-TravelR)*fSettings.fStabilizerBarAntiRollForce;
-  if WheelLeft.IsGrounded and (abs(AntiRollForce)>EPSILON) then begin
+  if WheelLeft.fIsGrounded and (abs(AntiRollForce)>EPSILON) then begin
    fVehicle.fRigidBody.AddForceAtPosition(Vector3ScalarMul(fVehicle.fWorldDown,AntiRollForce),WheelLeft.GetSuspensionHitPosition,kfmForce,false);
 {$ifdef DebugDraw}
    WheelLeft.fDebugAntiRollForce:=Vector3ScalarMul(fVehicle.fWorldDown,AntiRollForce);
@@ -2579,7 +2573,7 @@ begin
    WheelLeft.fDebugAntiRollForce:=Vector3Origin;
 {$endif}
   end;
-  if WheelRight.IsGrounded and (abs(AntiRollForce)>EPSILON) then begin
+  if WheelRight.fIsGrounded and (abs(AntiRollForce)>EPSILON) then begin
    fVehicle.fRigidBody.AddForceAtPosition(Vector3ScalarMul(fVehicle.fWorldDown,-AntiRollForce),WheelRight.GetSuspensionHitPosition,kfmForce,false);
 {$ifdef DebugDraw}
    WheelRight.fDebugAntiRollForce:=Vector3ScalarMul(fVehicle.fWorldDown,-AntiRollForce);
@@ -3185,7 +3179,7 @@ begin
  AllWheelsGrounded:=true;
  for Index:=0 to fWheels.Count-1 do begin
   Wheel:=fWheels[Index];
-  if not Wheel.IsGrounded then begin
+  if not Wheel.fIsGrounded then begin
    AllWheelsGrounded:=false;
    break;
   end;
@@ -3220,7 +3214,7 @@ begin
  AllWheelsGrounded:=true;
  for Index:=0 to fWheels.Count-1 do begin
   Wheel:=fWheels[Index];
-  if not Wheel.IsGrounded then begin
+  if not Wheel.fIsGrounded then begin
    AllWheelsGrounded:=false;
    break;
   end;
@@ -3623,7 +3617,7 @@ begin
 
   Wheel:=fWheels[Index];
 
-  if Wheel.IsGrounded then begin
+  if Wheel.fIsGrounded then begin
    Color:=Vector4(0.0,0.0,1.0,1.0);
   end else begin
    Color:=Vector4(1.0,0.0,1.0,1.0);
@@ -3704,7 +3698,7 @@ begin
 {$endif}
 
   if Wheel.fSettings.fUseSphereCast then begin
-   if Wheel.IsGrounded then begin
+   if Wheel.fIsGrounded then begin
     Color:=Vector4(0.0625,0.25,0.0625,1.0);
    end else begin
     Color:=Vector4(0.25,0.0625,0.0625,1.0);
@@ -3760,7 +3754,7 @@ begin
 {$endif}
   end;
   begin
-   if Wheel.IsGrounded then begin
+   if Wheel.fIsGrounded then begin
     Color:=Vector4(0.0625,1.0,0.0625,1.0);
    end else begin
     Color:=Vector4(1.0,0.0625,0.0625,1.0);
