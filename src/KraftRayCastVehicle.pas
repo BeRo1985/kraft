@@ -2245,7 +2245,7 @@ begin
 
  RayOrigin:=GetSuspensionPosition;
  RayDirection:=fVehicle.fWorldDown;
-  RayLength := fSettings.fSuspensionRestLength + fSettings.fRadius;
+ RayLength:=fSettings.fSuspensionRestLength+fSettings.fRadius;
 
  if fSettings.fUseSphereCast then begin
   fIsGrounded:=fVehicle.fPhysics.SphereCast(RayOrigin,fSettings.fRadius,RayDirection,RayLength-fSettings.fRadius,HitShape,HitTime,HitPoint,HitNormal,fVehicle.fCastCollisionGroups,fVehicle.RayCastFilter);
