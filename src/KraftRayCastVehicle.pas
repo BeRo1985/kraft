@@ -320,10 +320,9 @@ type { TKraftRayCastVehicle }
                     private
                      fSettings:TSettings;
                      fName:UTF8String; // Name of the wheel
-                     fOffset:TKraftVector2; // x = left/right, y = front/back (no z, because it is a 2D offset, the radius and height properties are used for the 3D offset stuff)
+                     fPosition:TKraftVector3; // x = left/right, y = height, z = front/back
                      fRadius:TKraftScalar; // Radius of the wheel
                      fLength:TKraftScalar; // Length of the wheel for the usage with a future-implemented cylinder cast
-                     fHeight:TKraftScalar; // Height position of of the wheel
                      fUseSphereCast:Boolean; // Use sphere cast instead of ray cast
                      fPowered:Boolean; // Is the wheel powered?
                      fSteering:Boolean; // Can the wheel do steering?
@@ -351,10 +350,9 @@ type { TKraftRayCastVehicle }
 {$endif}
                     public
                      property Name:UTF8String read fName write fName;
-                     property Offset:TKraftVector2 read fOffset write fOffset;
+                     property Position:TKraftVector3 read fPosition write fPosition;
                      property Radius:TKraftScalar read fRadius write fRadius;
                      property Length:TKraftScalar read fLength write fLength;
-                     property Height:TKraftScalar read fHeight write fHeight;
                      property UseSphereCast:Boolean read fUseSphereCast write fUseSphereCast;
                      property Powered:Boolean read fPowered write fPowered;
                      property Steering:Boolean read fSteering write fSteering;
@@ -1351,10 +1349,9 @@ procedure TKraftRayCastVehicle.TSettings.TWheel.LoadFromJSON(const aJSONItem:TPa
 begin
  if assigned(aJSONItem) and (aJSONItem is TPasJSONItemObject) then begin
   fName:=TPasJSON.GetString(TPasJSONItemObject(aJSONItem).Properties['name'],fName);
-  fOffset:=JSONToVector2(TPasJSONItemObject(aJSONItem).Properties['offset'],fOffset);
+  fPosition:=JSONToVector3(TPasJSONItemObject(aJSONItem).Properties['position'],fPosition);
   fRadius:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['radius'],fRadius);
   fLength:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['length'],fLength);
-  fHeight:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['height'],fHeight);
   fUseSphereCast:=TPasJSON.GetString(TPasJSONItemObject(aJSONItem).Properties['castmode'],'raycast')='spherecast';
   fPowered:=TPasJSON.GetBoolean(TPasJSONItemObject(aJSONItem).Properties['powered'],fPowered);
   fSteering:=TPasJSON.GetBoolean(TPasJSONItemObject(aJSONItem).Properties['steering'],fSteering);
@@ -1380,10 +1377,9 @@ function TKraftRayCastVehicle.TSettings.TWheel.SaveToJSON:TPasJSONItem;
 begin
  result:=TPasJSONItemObject.Create;
  TPasJSONItemObject(result).Add('name',TPasJSONItemString.Create(fName));
- TPasJSONItemObject(result).Add('offset',Vector2ToJSON(fOffset));
+ TPasJSONItemObject(result).Add('position',Vector3ToJSON(fPosition));
  TPasJSONItemObject(result).Add('radius',TPasJSONItemNumber.Create(fRadius));
  TPasJSONItemObject(result).Add('length',TPasJSONItemNumber.Create(fLength));
- TPasJSONItemObject(result).Add('height',TPasJSONItemNumber.Create(fHeight));
  if fUseSphereCast then begin
   TPasJSONItemObject(result).Add('castmode',TPasJSONItemString.Create('spherecast'));
  end else begin
@@ -1742,10 +1738,9 @@ begin
   WheelFrontLeft:=TKraftRayCastVehicle.TSettings.TWheel.Create(self);
   try
    WheelFrontLeft.fName:='frontleft';
-   WheelFrontLeft.fOffset:=Vector2(-0.63870317,0.8170225);
+   WheelFrontLeft.fPosition:=Vector3(-0.63870317,-0.25,0.8170225);
    WheelFrontLeft.fRadius:=0.25;
    WheelFrontLeft.fLength:=0.25;
-   WheelFrontLeft.fHeight:=-0.25;
    WheelFrontLeft.fUseSphereCast:=true;
    WheelFrontLeft.fPowered:=true;
    WheelFrontLeft.fSteering:=true;
@@ -1770,10 +1765,9 @@ begin
   WheelFrontRight:=TKraftRayCastVehicle.TSettings.TWheel.Create(self);
   try
    WheelFrontRight.fName:='frontright';
-   WheelFrontRight.fOffset:=Vector2(0.63870317,0.8170225);
+   WheelFrontRight.fPosition:=Vector3(0.63870317,-0.25,0.8170225);
    WheelFrontRight.fRadius:=0.25;
    WheelFrontRight.fLength:=0.25;
-   WheelFrontRight.fHeight:=-0.25;
    WheelFrontRight.fUseSphereCast:=true;
    WheelFrontRight.fPowered:=true;
    WheelFrontRight.fSteering:=true;
@@ -1798,10 +1792,9 @@ begin
   WheelRearLeft:=TKraftRayCastVehicle.TSettings.TWheel.Create(self);
   try
    WheelRearLeft.fName:='rearleft';
-   WheelRearLeft.fOffset:=Vector2(-0.63870317,-0.42946056);
+   WheelRearLeft.fPosition:=Vector3(-0.63870317,-0.25,-0.42946056);
    WheelRearLeft.fRadius:=0.25;
    WheelRearLeft.fLength:=0.25;
-   WheelRearLeft.fHeight:=-0.25;
    WheelRearLeft.fUseSphereCast:=true;
    WheelRearLeft.fPowered:=true;
    WheelRearLeft.fSteering:=false;
@@ -1826,10 +1819,9 @@ begin
   WheelRearRight:=TKraftRayCastVehicle.TSettings.TWheel.Create(self);
   try
    WheelRearRight.fName:='rearright';
-   WheelRearRight.fOffset:=Vector2(0.63870317,-0.42946056);
+   WheelRearRight.fPosition:=Vector3(0.63870317,-0.25,-0.42946056);
    WheelRearRight.fRadius:=0.25;
    WheelRearRight.fLength:=0.25;
-   WheelRearRight.fHeight:=-0.25;
    WheelRearRight.fUseSphereCast:=true;
    WheelRearRight.fPowered:=true;
    WheelRearRight.fSteering:=false;
@@ -2210,7 +2202,7 @@ end;
 
 function TKraftRayCastVehicle.TWheel.GetSuspensionRelativePosition:TKraftVector3;
 begin
- result:=Vector3(fSettings.fOffset.x,fSettings.fHeight,fSettings.fOffset.y);
+ result:=fSettings.fPosition;
 end;
 
 function TKraftRayCastVehicle.TWheel.GetSuspensionPosition:TKraftVector3;
@@ -2239,7 +2231,7 @@ end;
 
 function TKraftRayCastVehicle.TWheel.GetWheelTorqueRelativePosition:TKraftVector3;
 begin
- result:=Vector3(fSettings.fOffset.x,0,fSettings.fOffset.y);
+ result:=Vector3(fSettings.fPosition.x,0,fSettings.fPosition.z);
 end;
 
 function TKraftRayCastVehicle.TWheel.GetWheelTorquePosition:TKraftVector3;
