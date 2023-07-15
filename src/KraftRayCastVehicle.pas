@@ -2231,7 +2231,7 @@ var {LocalWheelPosition,}WorldWheelPosition:TKraftVector3;
     LocalWheelRotation,WorldWheelRotation:TKraftQuaternion;
 begin
  LocalWheelRotation:=QuaternionFromAngles(fYawRad,0.0,fRotationRad);
- WorldWheelPosition:=Vector3Add(GetSuspensionPosition,Vector3ScalarMul(fVehicle.fWorldDown,fSuspensionLength-fSettings.fRadius));
+ WorldWheelPosition:=Vector3Add(GetSuspensionPosition,Vector3ScalarMul(fVehicle.fWorldDown,fSuspensionLength{-fSettings.fRadius}));
  WorldWheelRotation:=QuaternionMul(fVehicle.fRigidBody.Sweep.q,LocalWheelRotation);
  result:=QuaternionToMatrix4x4(WorldWheelRotation);
  PKraftVector3(@result[3,0])^.xyz:=WorldWheelPosition.xyz;
@@ -2245,7 +2245,7 @@ begin
 
  RayOrigin:=GetSuspensionPosition;
  RayDirection:=fVehicle.fWorldDown;
- RayLength:=fSettings.fSuspensionRestLength;
+  RayLength := fSettings.fSuspensionRestLength + fSettings.fRadius;
 
  if fSettings.fUseSphereCast then begin
   fIsGrounded:=fVehicle.fPhysics.SphereCast(RayOrigin,fSettings.fRadius,RayDirection,RayLength-fSettings.fRadius,HitShape,HitTime,HitPoint,HitNormal,fVehicle.fCastCollisionGroups,fVehicle.RayCastFilter);
@@ -2254,11 +2254,11 @@ begin
   fIsGrounded:=fVehicle.fPhysics.RayCast(RayOrigin,RayDirection,RayLength,HitShape,HitTime,HitPoint,HitNormal,fVehicle.fCastCollisionGroups,fVehicle.RayCastFilter);
  end;
 
+ fSuspensionPreviousCompressionDistance:=fSuspensionCompressionDistance;
+
  if fIsGrounded then begin
 
-  fSuspensionPreviousCompressionDistance:=fSuspensionCompressionDistance;
-
-  fSuspensionCompressionDistance:=Clamp(RayLength-HitTime,0,fSettings.fSuspensionRestLength);
+  fSuspensionCompressionDistance:=Clamp(fSettings.fSuspensionRestLength-(HitTime-fSettings.fRadius),0,fSettings.fSuspensionRestLength);
 
   fSuspensionCompressionRatio:=fSuspensionCompressionDistance/fSettings.fSuspensionRestLength;
 
@@ -2274,8 +2274,6 @@ begin
   end;
 
  end else begin
-
-  fSuspensionPreviousCompressionDistance:=fSuspensionCompressionDistance;
 
   fSuspensionCompressionDistance:=Clamp(fSuspensionCompressionDistance-(fVehicle.fDeltaTime*fSettings.fSuspensionRelaxRate),0,fSettings.fSuspensionRestLength);
 
