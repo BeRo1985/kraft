@@ -2744,8 +2744,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fLocalCenter:TKraftVector3;
        fLocalAnchor:TKraftVector3;
        fmC:TKraftVector3;
-       fFrequencyHz:TKraftScalar;
-       fDampingRatio:TKraftScalar;
+       fStiffness:TKraftScalar;
+       fDamping:TKraftScalar;
        fAccumulatedImpulse:TKraftVector3;
        fBeta:TKraftScalar;
        fGamma:TKraftScalar;
@@ -2755,6 +2755,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fMaximalForce:TKraftScalar;
       public
        constructor Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody;const AWorldPoint:TKraftVector3;const AFrequencyHz:TKraftScalar=5.0;const ADampingRatio:TKraftScalar=0.7;const AMaximalForce:TKraftScalar=MAX_SCALAR;const ACollideConnected:boolean=false); reintroduce;
+       constructor CreateStiffness(const APhysics:TKraft;const ARigidBody:TKraftRigidBody;const AWorldPoint:TKraftVector3;const aStiffness,aDamping:TKraftScalar;const AMaximalForce:TKraftScalar=MAX_SCALAR;const ACollideConnected:boolean=false);
        destructor Destroy; override;
        procedure InitializeConstraintsAndWarmStart(const Island:TKraftIsland;const TimeStep:TKraftTimeStep); override;
        procedure SolveVelocityConstraint(const Island:TKraftIsland;const TimeStep:TKraftTimeStep); override;
@@ -2784,8 +2785,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fWorldPoint:TKraftVector3;
        fWorldPlane:TKraftPlane;
        fWorldDistance:TKraftScalar;
-       fFrequencyHz:TKraftScalar;
-       fDampingRatio:TKraftScalar;
+       fStiffness:TKraftScalar;
+       fDamping:TKraftScalar;
        fInverseInertiaTensorRatio:TKraftScalar;
        fAccumulatedImpulse:TKraftScalar;
        fGamma:TKraftScalar;
@@ -2797,6 +2798,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fSkip:boolean;
       public
        constructor Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody;const ALocalAnchorPoint:TKraftVector3;const AWorldPlane:TKraftPlane;const ADoubleSidedWorldPlane:boolean=true;const AWorldDistance:single=1.0;const ALimitBehavior:TKraftConstraintLimitBehavior=kclbLimitDistance;const AFrequencyHz:TKraftScalar=0.0;const ADampingRatio:TKraftScalar=0.0;const AInverseInertiaTensorRatio:TKraftScalar=1.0;const ACollideConnected:boolean=false); reintroduce;
+       constructor CreateStiffness(const APhysics:TKraft;const ARigidBody:TKraftRigidBody;const ALocalAnchorPoint:TKraftVector3;const AWorldPlane:TKraftPlane;const ADoubleSidedWorldPlane:boolean;const AWorldDistance:single;const ALimitBehavior:TKraftConstraintLimitBehavior;const aStiffness,aDamping:TKraftScalar;const AInverseInertiaTensorRatio:TKraftScalar=1.0;const ACollideConnected:boolean=false);
        destructor Destroy; override;
        procedure InitializeConstraintsAndWarmStart(const Island:TKraftIsland;const TimeStep:TKraftTimeStep); override;
        procedure SolveVelocityConstraint(const Island:TKraftIsland;const TimeStep:TKraftTimeStep); override;
@@ -2825,14 +2827,15 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fLocalAnchors:array[0..1] of TKraftVector3;
        fmU:TKraftVector3;
        fAnchorDistanceLength:TKraftScalar;
-       fFrequencyHz:TKraftScalar;
-       fDampingRatio:TKraftScalar;
+       fStiffness:TKraftScalar;
+       fDamping:TKraftScalar;
        fAccumulatedImpulse:TKraftScalar;
        fGamma:TKraftScalar;
        fBias:TKraftScalar;
        fMass:TKraftScalar;
       public
        constructor Create(const APhysics:TKraft;const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const ALocalAnchorPointA,ALocalAnchorPointB:TKraftVector3;const AFrequencyHz:TKraftScalar=0.0;const ADampingRatio:TKraftScalar=0.0;const ACollideConnected:boolean=false); reintroduce;
+       constructor CreateStiffness(const APhysics:TKraft;const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const ALocalAnchorPointA,ALocalAnchorPointB:TKraftVector3;const aStiffness,aDamping:TKraftScalar;const ACollideConnected:boolean=false);
        destructor Destroy; override;
        procedure InitializeConstraintsAndWarmStart(const Island:TKraftIsland;const TimeStep:TKraftTimeStep); override;
        procedure SolveVelocityConstraint(const Island:TKraftIsland;const TimeStep:TKraftTimeStep); override;
@@ -4297,6 +4300,9 @@ function AngleLerp(a,b,x:TKraftScalar):TKraftScalar; {$ifdef caninline}inline;{$
 
 function InertiaTensorTransform({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Inertia,Transform:TKraftMatrix3x3):TKraftMatrix3x3; {$ifdef caninline}inline;{$endif}
 function InertiaTensorParallelAxisTheorem({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Center:TKraftVector3;const Mass:TKraftScalar):TKraftMatrix3x3; {$ifdef caninline}inline;{$endif}
+
+procedure LinearStiffness(out aStiffness,aDamping:TKraftScalar;const aFrequencyHz,aDampingRatio:TKraftScalar;const aRigidBodyA,aRigidBodyB:TKraftRigidBody);
+procedure AngularStiffness(out aStiffness,aDamping:TKraftScalar;const aFrequencyHz,aDampingRatio:TKraftScalar;const aRigidBodyA,aRigidBodyB:TKraftRigidBody);
 
 implementation
 
@@ -11828,6 +11834,70 @@ begin
  result[2,0]:=((Matrix3x3Identity[2,0]*CenterDotCenter)-(Center.x*Center.z))*Mass;
  result[2,1]:=((Matrix3x3Identity[2,1]*CenterDotCenter)-(Center.y*Center.z))*Mass;
  result[2,2]:=((Matrix3x3Identity[2,2]*CenterDotCenter)-(Center.z*Center.z))*Mass;
+end;
+
+procedure LinearStiffness(out aStiffness,aDamping:TKraftScalar;const aFrequencyHz,aDampingRatio:TKraftScalar;const aRigidBodyA,aRigidBodyB:TKraftRigidBody);
+var Mass,Omega:TKraftScalar;
+begin
+ if assigned(aRigidBodyA) and (aRigidBodyA.fMass>0) then begin
+  if assigned(aRigidBodyB) and (aRigidBodyB.fMass>0) then begin
+   Mass:=(aRigidBodyA.fMass*aRigidBodyB.fMass)/(aRigidBodyA.fMass+aRigidBodyB.fMass);
+  end else begin
+   Mass:=aRigidBodyA.fMass;
+  end;
+ end else begin
+  if assigned(aRigidBodyB) and (aRigidBodyB.fMass>0) then begin
+   Mass:=aRigidBodyB.fMass;
+  end else begin
+   Mass:=0.0;
+  end;
+ end;
+ Omega:=pi2*aFrequencyHz;
+ aStiffness:=Mass*sqr(Omega);
+ aDamping:=2.0*Mass*aDampingRatio*Omega;
+end;
+
+procedure AngularStiffness(out aStiffness,aDamping:TKraftScalar;const aFrequencyHz,aDampingRatio:TKraftScalar;const aRigidBodyA,aRigidBodyB:TKraftRigidBody);
+var InertiaA,InertiaB,Inertia,Omega:TKraftScalar;
+begin
+ if assigned(aRigidBodyA) then begin
+  InertiaA:=sqrt(sqr(aRigidBodyA.BodyInertiaTensor[0,0])+
+                 sqr(aRigidBodyA.BodyInertiaTensor[0,1])+
+                 sqr(aRigidBodyA.BodyInertiaTensor[0,2])+
+                 sqr(aRigidBodyA.BodyInertiaTensor[1,0])+
+                 sqr(aRigidBodyA.BodyInertiaTensor[1,1])+
+                 sqr(aRigidBodyA.BodyInertiaTensor[1,2])+
+                 sqr(aRigidBodyA.BodyInertiaTensor[2,0])+
+                 sqr(aRigidBodyA.BodyInertiaTensor[2,1])+
+                 sqr(aRigidBodyA.BodyInertiaTensor[2,2]));
+ end else begin
+  InertiaA:=0.0;
+ end;
+ if assigned(aRigidBodyB) then begin
+  InertiaB:=sqrt(sqr(aRigidBodyB.BodyInertiaTensor[0,0])+
+                 sqr(aRigidBodyB.BodyInertiaTensor[0,1])+
+                 sqr(aRigidBodyB.BodyInertiaTensor[0,2])+
+                 sqr(aRigidBodyB.BodyInertiaTensor[1,0])+
+                 sqr(aRigidBodyB.BodyInertiaTensor[1,1])+
+                 sqr(aRigidBodyB.BodyInertiaTensor[1,2])+
+                 sqr(aRigidBodyB.BodyInertiaTensor[2,0])+
+                 sqr(aRigidBodyB.BodyInertiaTensor[2,1])+
+                 sqr(aRigidBodyB.BodyInertiaTensor[2,2]));
+ end else begin
+  InertiaB:=0.0;
+ end;
+ if InertiaA>0.0 then begin
+  if InertiaB>0.0 then begin
+   Inertia:=(InertiaA*InertiaB)/(InertiaA+InertiaB);
+  end else begin
+   Inertia:=InertiaA;
+  end;
+ end else begin
+  Inertia:=InertiaB;
+ end;
+ Omega:=pi2*aFrequencyHz;
+ aStiffness:=Inertia*sqr(Omega);
+ aDamping:=2.0*Inertia*aDampingRatio*Omega;
 end;
 
 function IntersectRaySphere(const aRayOrigin,aRayDirection:TKraftVector3;const aMaxTime:TKraftScalar;const aSphereCenter:TKraftVector3;const aSphereRadius:TKraftScalar;out aTime:TKraftScalar):boolean;
@@ -31894,8 +31964,36 @@ begin
 
  fLocalAnchor:=Vector3TermMatrixMulInverted(AWorldPoint,ARigidBody.fWorldTransform);
 
- fFrequencyHz:=AFrequencyHz;
- fDampingRatio:=ADampingRatio;
+ LinearStiffness(fStiffness,fDamping,aFrequencyHz,aDampingRatio,aRigidBody,nil);
+
+ fAccumulatedImpulse:=Vector3Origin;
+ fBeta:=0.0;
+ fGamma:=0.0;
+
+ fMaximalForce:=AMaximalForce;
+
+ if ACollideConnected then begin
+  Include(fFlags,kcfCollideConnected);
+ end else begin
+  Exclude(fFlags,kcfCollideConnected);
+ end;
+
+ fRigidBodies[0]:=ARigidBody;
+ fRigidBodies[1]:=nil;
+
+ inherited Create(APhysics);
+
+end;
+
+constructor TKraftConstraintJointGrab.CreateStiffness(const APhysics:TKraft;const ARigidBody:TKraftRigidBody;const AWorldPoint:TKraftVector3;const aStiffness,aDamping:TKraftScalar;const AMaximalForce:TKraftScalar=MAX_SCALAR;const ACollideConnected:boolean=false);
+begin
+
+ fWorldPoint:=AWorldPoint;
+
+ fLocalAnchor:=Vector3TermMatrixMulInverted(AWorldPoint,ARigidBody.fWorldTransform);
+
+ fStiffness:=aStiffness;
+ fDamping:=aDamping;
  fAccumulatedImpulse:=Vector3Origin;
  fBeta:=0.0;
  fGamma:=0.0;
@@ -31924,7 +32022,7 @@ procedure TKraftConstraintJointGrab.InitializeConstraintsAndWarmStart(const Isla
 {$define TKraftConstraintJointGrabMassMatrixCodeVariantA}
 var cA,vA,wA:PKraftVector3;
     qA:PKraftQuaternion;
-    Omega,k,h,d:TKraftScalar;
+    k,h,d:TKraftScalar;
     {$if defined(TKraftConstraintJointGrabMassMatrixCodeVariantC)}SkewSymmetricMatrix,{$ifend}MassMatrix:TKraftMatrix3x3;
 begin
 
@@ -31954,14 +32052,11 @@ begin
   fMass:=0.0;
  end;
 
- // fFrequency
- Omega:=pi2*fFrequencyHz;
-
  // Damping coefficient
- d:=2.0*fMass*fDampingRatio*Omega;
+ d:=fDamping;
 
  // Spring stiffness
- k:=fMass*sqr(Omega);
+ k:=fStiffness;
 
  // Magic formulas
  h:=TimeStep.DeltaTime;
@@ -32153,7 +32248,7 @@ begin
  fMaximalForce:=AMaximalForce;
 end;
 
-constructor TKraftConstraintJointWorldPlaneDistance.Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody;const ALocalAnchorPoint:TKraftVector3;const AWorldPlane:TKraftPlane;const ADoubleSidedWorldPlane:boolean=true;const AWorldDistance:single=1.0;const ALimitBehavior:TKraftConstraintLimitBehavior=kclbLimitDistance;const AFrequencyHz:TKraftScalar=0.0;const ADampingRatio:TKraftScalar=0.0;const AInverseInertiaTensorRatio:TKraftScalar=1.0;const ACollideConnected:boolean=false);
+constructor TKraftConstraintJointWorldPlaneDistance.Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody;const ALocalAnchorPoint:TKraftVector3;const AWorldPlane:TKraftPlane;const ADoubleSidedWorldPlane:boolean;const AWorldDistance:single;const ALimitBehavior:TKraftConstraintLimitBehavior;const AFrequencyHz:TKraftScalar;const ADampingRatio:TKraftScalar;const AInverseInertiaTensorRatio:TKraftScalar;const ACollideConnected:boolean);
 begin
 
  fLocalAnchor:=ALocalAnchorPoint;
@@ -32170,8 +32265,45 @@ begin
 
  fLimitBehavior:=ALimitBehavior;
 
- fFrequencyHz:=AFrequencyHz;
- fDampingRatio:=ADampingRatio;
+ LinearStiffness(fStiffness,fDamping,aFrequencyHz,aDampingRatio,aRigidBody,nil);
+
+ fInverseInertiaTensorRatio:=AInverseInertiaTensorRatio;
+ fAccumulatedImpulse:=0.0;
+ fGamma:=0.0;
+ fBias:=0.0;
+
+ if ACollideConnected then begin
+  Include(fFlags,kcfCollideConnected);
+ end else begin
+  Exclude(fFlags,kcfCollideConnected);
+ end;
+
+ fRigidBodies[0]:=ARigidBody;
+ fRigidBodies[1]:=nil;
+
+ inherited Create(APhysics);
+
+end;
+
+constructor TKraftConstraintJointWorldPlaneDistance.CreateStiffness(const APhysics:TKraft;const ARigidBody:TKraftRigidBody;const ALocalAnchorPoint:TKraftVector3;const AWorldPlane:TKraftPlane;const ADoubleSidedWorldPlane:boolean;const AWorldDistance:single;const ALimitBehavior:TKraftConstraintLimitBehavior;const aStiffness,aDamping:TKraftScalar;const AInverseInertiaTensorRatio:TKraftScalar;const ACollideConnected:boolean);
+begin
+
+ fLocalAnchor:=ALocalAnchorPoint;
+
+ fWorldPlane:=AWorldPlane;
+
+ fWorldPoint:=Vector3ScalarMul(AWorldPlane.Normal,-AWorldPlane.Distance);
+
+ fDoubleSidedWorldPlane:=ADoubleSidedWorldPlane;
+
+ fWorldDistance:=AWorldDistance;
+
+//fAnchorDistanceLength:=AWorldDistance;//Vector3Dist(fWorldPoint,Vector3TermMatrixMul(ALocalAnchorPoint,ARigidBody.fWorldTransform));
+
+ fLimitBehavior:=ALimitBehavior;
+
+ fStiffness:=aStiffness;
+ fDamping:=aDamping;
  fInverseInertiaTensorRatio:=AInverseInertiaTensorRatio;
  fAccumulatedImpulse:=0.0;
  fGamma:=0.0;
@@ -32199,7 +32331,7 @@ procedure TKraftConstraintJointWorldPlaneDistance.InitializeConstraintsAndWarmSt
 var cA,vA,wA:PKraftVector3;
     qA:PKraftQuaternion;
     crAu,P,AbsolutePosition,u:TKraftVector3;
-    l,TotalInverseMass,C,Omega,k,h,d,BiasFactor:TKraftScalar;
+    l,TotalInverseMass,C,k,h,d,BiasFactor:TKraftScalar;
 begin
 
  fIslandIndex:=fRigidBodies[0].fIslandIndices[Island.fIslandIndex];
@@ -32250,7 +32382,7 @@ begin
 
  end;
 
- fSoftConstraint:=fFrequencyHz>EPSILON;
+ fSoftConstraint:=fStiffness>EPSILON;
 
  if fSoftConstraint then begin
 
@@ -32292,14 +32424,11 @@ begin
 
    C:=l-fWorldDistance;
 
-   // fFrequency
-   Omega:=pi2*fFrequencyHz;
-
    // Damping coefficient
-   d:=2.0*fMass*fDampingRatio*Omega;
+   d:=fDamping;
 
    // Spring stiffness
-   k:=fMass*sqr(Omega);
+   k:=fStiffness;
 
    // Magic formulas
    h:=TimeStep.DeltaTime;
@@ -32506,8 +32635,35 @@ begin
  fLocalAnchors[1]:=ALocalAnchorPointB;
 
  fAnchorDistanceLength:=Vector3Dist(Vector3TermMatrixMul(ALocalAnchorPointB,ARigidBodyB.fWorldTransform),Vector3TermMatrixMul(ALocalAnchorPointA,ARigidBodyA.fWorldTransform));
- fFrequencyHz:=AFrequencyHz;
- fDampingRatio:=ADampingRatio;
+
+ LinearStiffness(fStiffness,fDamping,aFrequencyHz,aDampingRatio,aRigidBodyA,aRigidBodyB);
+
+ fAccumulatedImpulse:=0.0;
+ fGamma:=0.0;
+ fBias:=0.0;
+
+ if ACollideConnected then begin
+  Include(fFlags,kcfCollideConnected);
+ end else begin
+  Exclude(fFlags,kcfCollideConnected);
+ end;
+
+ fRigidBodies[0]:=ARigidBodyA;
+ fRigidBodies[1]:=ARigidBodyB;
+
+ inherited Create(APhysics);
+
+end;
+
+constructor TKraftConstraintJointDistance.CreateStiffness(const APhysics:TKraft;const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const ALocalAnchorPointA,ALocalAnchorPointB:TKraftVector3;const aStiffness,aDamping:TKraftScalar;const ACollideConnected:boolean=false);
+begin
+
+ fLocalAnchors[0]:=ALocalAnchorPointA;
+ fLocalAnchors[1]:=ALocalAnchorPointB;
+
+ fAnchorDistanceLength:=Vector3Dist(Vector3TermMatrixMul(ALocalAnchorPointB,ARigidBodyB.fWorldTransform),Vector3TermMatrixMul(ALocalAnchorPointA,ARigidBodyA.fWorldTransform));
+ fStiffness:=AStiffness;
+ fDamping:=ADamping;
  fAccumulatedImpulse:=0.0;
  fGamma:=0.0;
  fBias:=0.0;
@@ -32534,7 +32690,7 @@ procedure TKraftConstraintJointDistance.InitializeConstraintsAndWarmStart(const 
 var cA,vA,wA,cB,vB,wB:PKraftVector3;
     qA,qB:PKraftQuaternion;
     crAu,crBu,P,u:TKraftVector3;
-    l,fInverseMass,C,Omega,k,h,d,BiasFactor:TKraftScalar;
+    l,fInverseMass,C,k,h,d,BiasFactor:TKraftScalar;
 begin
 
  fIslandIndices[0]:=fRigidBodies[0].fIslandIndices[Island.fIslandIndex];
@@ -32595,18 +32751,15 @@ begin
   fMass:=0.0;
  end;
 
- if fFrequencyHz>EPSILON then begin
+ if fStiffness>EPSILON then begin
 
   C:=l-fAnchorDistanceLength;
 
-  // fFrequency
-  Omega:=pi2*fFrequencyHz;
-
   // Damping coefficient
-  d:=2.0*fMass*fDampingRatio*Omega;
+  d:=fDamping;
 
   // Spring stiffness
-  k:=fMass*sqr(Omega);
+  k:=fStiffness;
 
   // Magic formulas
   h:=TimeStep.DeltaTime;
@@ -32698,7 +32851,7 @@ var cA,cB:PKraftVector3;
     l,C,Impulse:TKraftScalar;
 begin
 
- if (fPhysics.fConstraintPositionCorrectionMode<>kpcmNonLinearGaussSeidel) or (fFrequencyHz>EPSILON) then begin
+ if (fPhysics.fConstraintPositionCorrectionMode<>kpcmNonLinearGaussSeidel) or (fStiffness>EPSILON) then begin
 
   // There is no position correction for soft distance constraints
   result:=true;
