@@ -3106,7 +3106,7 @@ end;
 procedure TKraftRayCastVehicle.UpdateGravityAndNearlyFlatGroundDetection;
 var Normal,GravityDirection:TKraftVector3;
 begin
- if fHitAverageNormalCount>0 then begin
+ if (fHitAverageNormalCount>0) and (fSettings.fMaximumGravitySlopeAngle>EPSILON) then begin
   // If there are any hit points derived from the suspension's raycasting or spherecasting, we
   // compute the average normal across all of them. This value is then used to ascertain whether
   // the vehicle is on a surface that's nearly parallel to the direction of gravity, indicating a
