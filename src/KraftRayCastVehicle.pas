@@ -313,6 +313,7 @@ type { TKraftRayCastVehicle }
                      fPowered:Boolean; // Is the wheel powered?
                      fSteering:Boolean; // Can the wheel do steering?
                      fMass:TKraftScalar; // Mass of the wheel
+                     fSuspensionClamping:Boolean; // Clamping of the suspension length?
                      fSuspensionRestLength:TKraftScalar; // Rest length of the suspension
                      fSuspensionStrength:TKraftScalar; // Strength of the suspension
                      fSuspensionDamping:TKraftScalar; // Damping of the suspension
@@ -344,6 +345,7 @@ type { TKraftRayCastVehicle }
                      property Powered:Boolean read fPowered write fPowered;
                      property Steering:Boolean read fSteering write fSteering;
                      property Mass:TKraftScalar read fMass write fMass;
+                     property SuspensionClamping:Boolean read fSuspensionClamping write fSuspensionClamping;
                      property SuspensionRestLength:TKraftScalar read fSuspensionRestLength write fSuspensionRestLength;
                      property SuspensionStrength:TKraftScalar read fSuspensionStrength write fSuspensionStrength;
                      property SuspensionDamping:TKraftScalar read fSuspensionDamping write fSuspensionDamping;
@@ -1311,7 +1313,6 @@ begin
  fSettings:=aSettings;
  fName:='';
  fVisual:=TKraftRayCastVehicle.TSettings.TWheel.TVisual.Create(self);
- fSuspensionRelaxRate:=0.125;
 end;
 
 destructor TKraftRayCastVehicle.TSettings.TWheel.Destroy;
@@ -1332,6 +1333,7 @@ begin
   fPowered:=TPasJSON.GetBoolean(TPasJSONItemObject(aJSONItem).Properties['powered'],fPowered);
   fSteering:=TPasJSON.GetBoolean(TPasJSONItemObject(aJSONItem).Properties['steering'],fSteering);
   fMass:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['mass'],fMass);
+  fSuspensionClamping:=TPasJSON.GetBoolean(TPasJSONItemObject(aJSONItem).Properties['suspensionclamping'],fSuspensionClamping);
   fSuspensionRestLength:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['suspensionrestlength'],fSuspensionRestLength);
   fSuspensionStrength:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['suspensionstrength'],fSuspensionStrength);
   fSuspensionDamping:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['suspensiondamping'],fSuspensionDamping);
@@ -1365,6 +1367,7 @@ begin
  TPasJSONItemObject(result).Add('powered',TPasJSONItemBoolean.Create(fPowered));
  TPasJSONItemObject(result).Add('steering',TPasJSONItemBoolean.Create(fSteering));
  TPasJSONItemObject(result).Add('mass',TPasJSONItemNumber.Create(fMass));
+ TPasJSONItemObject(result).Add('suspensionclamping',TPasJSONItemBoolean.Create(fSuspensionClamping));
  TPasJSONItemObject(result).Add('suspensionrestlength',TPasJSONItemNumber.Create(fSuspensionRestLength));
  TPasJSONItemObject(result).Add('suspensionstrength',TPasJSONItemNumber.Create(fSuspensionStrength));
  TPasJSONItemObject(result).Add('suspensiondamping',TPasJSONItemNumber.Create(fSuspensionDamping));
@@ -1723,10 +1726,11 @@ begin
    WheelFrontLeft.fPowered:=true;
    WheelFrontLeft.fSteering:=true;
    WheelFrontLeft.fMass:=1.0;
+   WheelFrontLeft.fSuspensionClamping:=false;
    WheelFrontLeft.fSuspensionRestLength:=0.8;
    WheelFrontLeft.fSuspensionStrength:=1200.0;
    WheelFrontLeft.fSuspensionDamping:=75.0;
-   WheelFrontLeft.fSuspensionRelaxRate:=0.125;
+   WheelFrontLeft.fSuspensionRelaxRate:=0.4;
    WheelFrontLeft.fAccelerationForceFactor:=0.25;
    WheelFrontLeft.fBrakeForceFactor:=0.25;
    WheelFrontLeft.fRollingFriction:=0.15;
@@ -1751,10 +1755,11 @@ begin
    WheelFrontRight.fPowered:=true;
    WheelFrontRight.fSteering:=true;
    WheelFrontRight.fMass:=1.0;
+   WheelFrontRight.fSuspensionClamping:=false;
    WheelFrontRight.fSuspensionRestLength:=0.8;
    WheelFrontRight.fSuspensionStrength:=1200.0;
    WheelFrontRight.fSuspensionDamping:=75.0;
-   WheelFrontRight.fSuspensionRelaxRate:=0.125;
+   WheelFrontRight.fSuspensionRelaxRate:=0.4;
    WheelFrontRight.fAccelerationForceFactor:=0.25;
    WheelFrontRight.fBrakeForceFactor:=0.25;
    WheelFrontRight.fRollingFriction:=0.15;
@@ -1779,10 +1784,11 @@ begin
    WheelRearLeft.fPowered:=true;
    WheelRearLeft.fSteering:=false;
    WheelRearLeft.fMass:=1.0;
+   WheelRearLeft.fSuspensionClamping:=false;
    WheelRearLeft.fSuspensionRestLength:=0.8;
    WheelRearLeft.fSuspensionStrength:=1200.0;
    WheelRearLeft.fSuspensionDamping:=75.0;
-   WheelRearLeft.fSuspensionRelaxRate:=0.125;
+   WheelRearLeft.fSuspensionRelaxRate:=0.4;
    WheelRearLeft.fAccelerationForceFactor:=0.25;
    WheelRearLeft.fBrakeForceFactor:=0.25;
    WheelRearLeft.fRollingFriction:=0.15;
@@ -1807,10 +1813,11 @@ begin
    WheelRearRight.fPowered:=true;
    WheelRearRight.fSteering:=false;
    WheelRearRight.fMass:=1.0;
+   WheelRearRight.fSuspensionClamping:=false;
    WheelRearRight.fSuspensionRestLength:=0.8;
    WheelRearRight.fSuspensionStrength:=1200.0;
    WheelRearRight.fSuspensionDamping:=75.0;
-   WheelRearRight.fSuspensionRelaxRate:=0.125;
+   WheelRearRight.fSuspensionRelaxRate:=0.4;
    WheelRearRight.fAccelerationForceFactor:=0.25;
    WheelRearRight.fBrakeForceFactor:=0.25;
    WheelRearRight.fRollingFriction:=0.15;
@@ -2276,7 +2283,10 @@ begin
  if fIsGrounded then begin
 
   fSuspensionCompressionDistance:=fSettings.fSuspensionRestLength-(HitTime-fSettings.fRadius);
-  //FSuspensionCompressionDistance:=Clamp(fSettings.fSuspensionRestLength-(HitTime-fSettings.fRadius),0,fSettings.fSuspensionRestLength);
+
+  if fSettings.fSuspensionClamping then begin
+   fSuspensionCompressionDistance:=Clamp(fSuspensionCompressionDistance,0,fSettings.fSuspensionRestLength);
+  end;
 
   fSuspensionCompressionRatio:=fSuspensionCompressionDistance/fSettings.fSuspensionRestLength;
 
