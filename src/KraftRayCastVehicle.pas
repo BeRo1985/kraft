@@ -2238,38 +2238,55 @@ begin
 end;
 
 procedure TKraftRayCastVehicle.TWheel.UpdateSuspension;
-var RayOrigin,RayDirection,HitPoint,HitNormal:TKraftVector3;
-    RayLength,HitTime,Force:TKraftScalar;
+var RayOrigin,HitPoint,HitNormal:TKraftVector3;
+    HitTime,Force:TKraftScalar;
     HitShape:TKraftShape;
 begin
 
  RayOrigin:=GetSuspensionPosition;
- RayDirection:=fVehicle.fWorldDown;
- RayLength:=fSettings.fSuspensionRestLength+fSettings.fRadius;
 
  if fSettings.fUseSphereCast then begin
-  fIsGrounded:=fVehicle.fPhysics.SphereCast(RayOrigin,fSettings.fRadius,RayDirection,RayLength-fSettings.fRadius,HitShape,HitTime,HitPoint,HitNormal,fVehicle.fCastCollisionGroups,fVehicle.RayCastFilter);
-  HitTime:=HitTime+fSettings.fRadius;
+  fIsGrounded:=fVehicle.fPhysics.SphereCast(RayOrigin,
+                                            fSettings.fRadius,
+                                            fVehicle.fWorldDown,
+                                            fSettings.fSuspensionRestLength,
+                                            HitShape,
+                                            HitTime,
+                                            HitPoint,
+                                            HitNormal,
+                                            fVehicle.fCastCollisionGroups,
+                                            fVehicle.RayCastFilter);
+  if fIsGrounded then begin
+   HitTime:=HitTime+fSettings.fRadius;
+  end;
  end else begin
-  fIsGrounded:=fVehicle.fPhysics.RayCast(RayOrigin,RayDirection,RayLength,HitShape,HitTime,HitPoint,HitNormal,fVehicle.fCastCollisionGroups,fVehicle.RayCastFilter);
+  fIsGrounded:=fVehicle.fPhysics.RayCast(RayOrigin,
+                                         fVehicle.fWorldDown,
+                                         fSettings.fSuspensionRestLength+fSettings.fRadius,
+                                         HitShape,
+                                         HitTime,
+                                         HitPoint,
+                                         HitNormal,
+                                         fVehicle.fCastCollisionGroups,
+                                         fVehicle.RayCastFilter);
  end;
 
  fSuspensionPreviousCompressionDistance:=fSuspensionCompressionDistance;
 
  if fIsGrounded then begin
 
-  fSuspensionCompressionDistance:=Clamp(fSettings.fSuspensionRestLength-(HitTime-fSettings.fRadius),0,fSettings.fSuspensionRestLength);
+  fSuspensionCompressionDistance:=fSettings.fSuspensionRestLength-(HitTime-fSettings.fRadius);
+  //FSuspensionCompressionDistance:=Clamp(fSettings.fSuspensionRestLength-(HitTime-fSettings.fRadius),0,fSettings.fSuspensionRestLength);
 
   fSuspensionCompressionRatio:=fSuspensionCompressionDistance/fSettings.fSuspensionRestLength;
 
   fSuspensionLength:=fSettings.fSuspensionRestLength-fSuspensionCompressionDistance;
 
-  Force:=(fSuspensionCompressionRatio*fSettings.SuspensionStrength)-
-         ((((fSuspensionPreviousCompressionDistance-fSuspensionCompressionDistance)*
-            fVehicle.fInverseDeltaTime)*
-           fSettings.SuspensionDamping));
+  Force:=(fSuspensionCompressionRatio*fSettings.fSuspensionStrength)-
+         (((fSuspensionPreviousCompressionDistance-fSuspensionCompressionDistance)*fSettings.SuspensionDamping)*fVehicle.fInverseDeltaTime);
 
   if abs(Force)>EPSILON then begin
+
    fVehicle.fRigidBody.AddForceAtPosition(Vector3ScalarMul(fVehicle.fWorldUp,Force),GetSuspensionHitPosition,kfmForce,false);
 
    if assigned(HitShape) and assigned(HitShape.RigidBody) and (HitShape.RigidBody.RigidBodyType=krbtDynamic) then begin
