@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2023-06-25-20-38-0000                       *
+ *                        Version 2023-07-21-01-47-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -4730,13 +4730,13 @@ begin
 end;
 {$ifend}
 
-function Vector2(const x,y:TKraftScalar):TKraftVector2; {$ifdef caninline}inline;{$endif}
+function Vector2(const x,y:TKraftScalar):TKraftVector2;
 begin
  result.x:=x;
  result.y:=y;
 end;
 
-function Vector3(const x,y,z:TKraftScalar):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
+function Vector3(const x,y,z:TKraftScalar):TKraftVector3; overload;
 begin
  result.x:=x;
  result.y:=y;
@@ -4746,7 +4746,7 @@ begin
 {$endif}
 end;
 
-function Vector3({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftRawVector3):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
+function Vector3({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftRawVector3):TKraftVector3; overload;
 begin
  result.RawVector:=v;
 {$ifdef SIMD}
@@ -4754,7 +4754,7 @@ begin
 {$endif}
 end;
 
-function Vector3({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector4):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
+function Vector3({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector4):TKraftVector3; overload;
 begin
  result.x:=v.x;
  result.y:=v.y;
@@ -4764,7 +4764,7 @@ begin
 {$endif}
 end;
 
-function Vector4(const x,y,z,w:TKraftScalar):TKraftVector4; overload; {$ifdef caninline}inline;{$endif}
+function Vector4(const x,y,z,w:TKraftScalar):TKraftVector4; overload;
 begin
  result.x:=x;
  result.y:=y;
@@ -4772,7 +4772,7 @@ begin
  result.w:=w;
 end;
 
-function Matrix3x3({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix4x4):TKraftMatrix3x3; overload; {$ifdef caninline}inline;{$endif}
+function Matrix3x3({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix4x4):TKraftMatrix3x3; overload;
 begin
  result[0,0]:=m[0,0];
  result[0,1]:=m[0,1];
@@ -4794,13 +4794,13 @@ begin
 {$endif}
 end;
 
-function Plane({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif}Normal:TKraftVector3;const Distance:TKraftScalar):TKraftPlane; overload; {$ifdef caninline}inline;{$endif}
+function Plane({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif}Normal:TKraftVector3;const Distance:TKraftScalar):TKraftPlane; overload;
 begin
  result.Normal:=Normal;
  result.Distance:=Distance;
 end;
 
-function Quaternion(const w,x,y,z:TKraftScalar):TKraftQuaternion; {$ifdef caninline}inline;{$endif}
+function Quaternion(const w,x,y,z:TKraftScalar):TKraftQuaternion;
 begin
  result.w:=w;
  result.x:=x;
@@ -4808,85 +4808,85 @@ begin
  result.z:=z;
 end;
 
-function Vector2Compare({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector2):boolean; {$ifdef caninline}inline;{$endif}
+function Vector2Compare({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector2):boolean;
 begin
  result:=(abs(v1.x-v2.x)<EPSILON) and (abs(v1.y-v2.y)<EPSILON);
 end;
 
-function Vector2CompareEx({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector2;const Threshold:TKraftScalar=EPSILON):boolean; {$ifdef caninline}inline;{$endif}
+function Vector2CompareEx({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector2;const Threshold:TKraftScalar=EPSILON):boolean;
 begin
  result:=(abs(v1.x-v2.x)<Threshold) and (abs(v1.y-v2.y)<Threshold);
 end;
 
-function Vector2Add({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector2):TKraftVector2; {$ifdef caninline}inline;{$endif}
+function Vector2Add({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector2):TKraftVector2;
 begin
  result.x:=v1.x+v2.x;
  result.y:=v1.y+v2.y;
 end;
 
-function Vector2Sub({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector2):TKraftVector2; {$ifdef caninline}inline;{$endif}
+function Vector2Sub({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector2):TKraftVector2;
 begin
  result.x:=v1.x-v2.x;
  result.y:=v1.y-v2.y;
 end;
 
-function Vector2Avg({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector2):TKraftVector2; {$ifdef caninline}inline;{$endif}
+function Vector2Avg({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector2):TKraftVector2;
 begin
  result.x:=(v1.x+v2.x)*0.5;
  result.y:=(v1.y+v2.y)*0.5;
 end;
 
-function Vector2ScalarMul({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector2;const s:TKraftScalar):TKraftVector2; {$ifdef caninline}inline;{$endif}
+function Vector2ScalarMul({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector2;const s:TKraftScalar):TKraftVector2;
 begin
  result.x:=v.x*s;
  result.y:=v.y*s;
 end;
 
-function Vector2Dot({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector2):TKraftScalar; {$ifdef caninline}inline;{$endif}
+function Vector2Dot({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector2):TKraftScalar;
 begin
  result:=(v1.x*v2.x)+(v1.y*v2.y);
 end;
 
-function Vector2Neg({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector2):TKraftVector2; {$ifdef caninline}inline;{$endif}
+function Vector2Neg({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector2):TKraftVector2;
 begin
  result.x:=-v.x;
  result.y:=-v.y;
 end;
 
-procedure Vector2Scale(var v:TKraftVector2;const sx,sy:TKraftScalar); overload; {$ifdef caninline}inline;{$endif}
+procedure Vector2Scale(var v:TKraftVector2;const sx,sy:TKraftScalar); overload;
 begin
  v.x:=v.x*sx;
  v.y:=v.y*sy;
 end;
 
-procedure Vector2Scale(var v:TKraftVector2;const s:TKraftScalar); overload; {$ifdef caninline}inline;{$endif}
+procedure Vector2Scale(var v:TKraftVector2;const s:TKraftScalar); overload;
 begin
  v.x:=v.x*s;
  v.y:=v.y*s;
 end;
 
-function Vector2Mul({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector2):TKraftVector2; {$ifdef caninline}inline;{$endif}
+function Vector2Mul({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector2):TKraftVector2;
 begin
  result.x:=v1.x*v2.x;
  result.y:=v1.y*v2.y;
 end;
 
-function Vector2Length({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector2):TKraftScalar; {$ifdef caninline}inline;{$endif}
+function Vector2Length({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector2):TKraftScalar;
 begin
  result:=sqrt(sqr(v.x)+sqr(v.y));
 end;
 
-function Vector2Dist({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector2):TKraftScalar; {$ifdef caninline}inline;{$endif}
+function Vector2Dist({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector2):TKraftScalar;
 begin
  result:=Vector2Length(Vector2Sub(v2,v1));
 end;
 
-function Vector2LengthSquared({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector2):TKraftScalar; {$ifdef caninline}inline;{$endif}
+function Vector2LengthSquared({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector2):TKraftScalar;
 begin
  result:=sqr(v.x)+sqr(v.y);
 end;
 
-function Vector2Angle({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2,v3:TKraftVector2):TKraftScalar; {$ifdef caninline}inline;{$endif}
+function Vector2Angle({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2,v3:TKraftVector2):TKraftScalar;
 var A1,A2:TKraftVector2;
     L1,L2:TKraftScalar;
 begin
@@ -4901,7 +4901,7 @@ begin
  end;
 end;
 
-procedure Vector2Normalize(var v:TKraftVector2); {$ifdef caninline}inline;{$endif}
+procedure Vector2Normalize(var v:TKraftVector2);
 var L:TKraftScalar;
 begin
  L:=Vector2Length(v);
@@ -4912,7 +4912,7 @@ begin
  end;
 end;
 
-function Vector2Norm({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector2):TKraftVector2; {$ifdef caninline}inline;{$endif}
+function Vector2Norm({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector2):TKraftVector2;
 var L:TKraftScalar;
 begin
  L:=Vector2Length(v);
@@ -4923,7 +4923,7 @@ begin
  end;
 end;
 
-procedure Vector2Rotate(var v:TKraftVector2;const a:TKraftScalar); overload; {$ifdef caninline}inline;{$endif}
+procedure Vector2Rotate(var v:TKraftVector2;const a:TKraftScalar); overload;
 var r:TKraftVector2;
 begin
  r.x:=(v.x*cos(a))-(v.y*sin(a));
@@ -4931,7 +4931,7 @@ begin
  v:=r;
 end;
 
-procedure Vector2Rotate(var v:TKraftVector2;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Center:TKraftVector2;const a:TKraftScalar); overload; {$ifdef caninline}inline;{$endif}
+procedure Vector2Rotate(var v:TKraftVector2;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Center:TKraftVector2;const a:TKraftScalar); overload;
 var V0,r:TKraftVector2;
 begin
  V0:=Vector2Sub(v,Center);
@@ -4940,7 +4940,7 @@ begin
  v:=Vector2Add(r,Center);
 end;
 
-procedure Vector2MatrixMul(var v:TKraftVector2;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix2x2); {$ifdef caninline}inline;{$endif}
+procedure Vector2MatrixMul(var v:TKraftVector2;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix2x2);
 var t:TKraftVector2;
 begin
  t.x:=(m[0,0]*v.x)+(m[1,0]*v.y);
@@ -4948,13 +4948,13 @@ begin
  v:=t;
 end;
 
-function Vector2TermMatrixMul({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector2;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix2x2):TKraftVector2; {$ifdef caninline}inline;{$endif}
+function Vector2TermMatrixMul({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector2;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix2x2):TKraftVector2;
 begin
  result.x:=(m[0,0]*v.x)+(m[1,0]*v.y);
  result.y:=(m[0,1]*v.x)+(m[1,1]*v.y);
 end;
 
-function Vector2Lerp({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector2;const w:TKraftScalar):TKraftVector2; {$ifdef caninline}inline;{$endif}
+function Vector2Lerp({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector2;const w:TKraftScalar):TKraftVector2;
 var iw:TKraftScalar;
 begin
  if w<0.0 then begin
@@ -4968,7 +4968,7 @@ begin
  end;
 end;
 
-function Vector3Flip({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
+function Vector3Flip({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3):TKraftVector3;
 begin
  result.x:=v.x;
  result.y:=v.z;
@@ -5294,7 +5294,7 @@ begin
  end
 end;
 
-function Vector3Project({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Vector,OnNormal:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
+function Vector3Project({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Vector,OnNormal:TKraftVector3):TKraftVector3;
 var MagnitudeSquared:TKraftScalar;
 begin
  MagnitudeSquared:=Vector3Dot(OnNormal,OnNormal);
@@ -6186,11 +6186,17 @@ begin
 {$endif}
 end;
 
-function Vector3TermMatrixMulBasis({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix4x4):TKraftVector3; overload; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
+function Vector3TermMatrixMulBasis({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix4x4):TKraftVector3; overload; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64) and not defined(Windows)}nostackframe;{$ifend}
 const Mask:array[0..3] of TKraftUInt32=($ffffffff,$ffffffff,$ffffffff,$00000000);
+{$if defined(cpuamd64) and defined(Windows)}
+var StackSave0:array[0..3] of single;
+{$ifend}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
+{$ifend}
+{$if defined(cpuamd64) and defined(Windows)}
+ movups dqword ptr [StackSave0],xmm6
 {$ifend}
  movups xmm0,dqword ptr [v]     // d c b a
  movaps xmm1,xmm0               // d c b a
@@ -6215,6 +6221,9 @@ asm
  addps xmm0,xmm1
  addps xmm0,xmm2
  movups dqword ptr [result],xmm0
+{$if defined(cpuamd64) and defined(Windows)}
+ movups xmm6,dqword ptr [StackSave0]
+{$ifend}
 end;
 {$else}
 begin
@@ -6476,7 +6485,7 @@ end;
 
 function Vector4Length({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector4):TKraftScalar;
 begin
- result:=SQRT((v.x*v.x)+(v.y*v.y)+(v.z*v.z));
+ result:=sqrt(sqr(v.x)+sqr(v.y)+sqr(v.z)+sqr(v.w));
 end;
 
 function Vector4Dist({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector4):TKraftScalar;
@@ -6704,7 +6713,7 @@ begin
  end;
 end;
 
-function Matrix3x3RotateX(const Angle:TKraftScalar):TKraftMatrix3x3; {$ifdef caninline}inline;{$endif}
+function Matrix3x3RotateX(const Angle:TKraftScalar):TKraftMatrix3x3;
 begin
  result:=Matrix3x3Identity;
  result[1,1]:=cos(Angle);
@@ -6713,7 +6722,7 @@ begin
  result[2,1]:=-result[1,2];
 end;
 
-function Matrix3x3RotateY(const Angle:TKraftScalar):TKraftMatrix3x3; {$ifdef caninline}inline;{$endif}
+function Matrix3x3RotateY(const Angle:TKraftScalar):TKraftMatrix3x3;
 begin
  result:=Matrix3x3Identity;
  result[0,0]:=cos(Angle);
@@ -6722,7 +6731,7 @@ begin
  result[2,0]:=-result[0,2];
 end;
 
-function Matrix3x3RotateZ(const Angle:TKraftScalar):TKraftMatrix3x3; {$ifdef caninline}inline;{$endif}
+function Matrix3x3RotateZ(const Angle:TKraftScalar):TKraftMatrix3x3;
 begin
  result:=Matrix3x3Identity;
  result[0,0]:=cos(Angle);
@@ -6755,7 +6764,7 @@ begin
  result:=m;
 end;
 
-function Matrix3x3Scale(const sx,sy,sz:TKraftScalar):TKraftMatrix3x3; {$ifdef caninline}inline;{$endif}
+function Matrix3x3Scale(const sx,sy,sz:TKraftScalar):TKraftMatrix3x3;
 begin
  result:=Matrix3x3Identity;
  result[0,0]:=sx;
@@ -6763,7 +6772,7 @@ begin
  result[2,2]:=sz;
 end;
 
-procedure Matrix3x3Add(var m1:TKraftMatrix3x3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m2:TKraftMatrix3x3); {$ifdef caninline}inline;{$endif}
+procedure Matrix3x3Add(var m1:TKraftMatrix3x3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m2:TKraftMatrix3x3);
 begin
  m1[0,0]:=m1[0,0]+m2[0,0];
  m1[0,1]:=m1[0,1]+m2[0,1];
@@ -6785,7 +6794,7 @@ begin
 {$endif}
 end;
 
-procedure Matrix3x3Sub(var m1:TKraftMatrix3x3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m2:TKraftMatrix3x3); {$ifdef caninline}inline;{$endif}
+procedure Matrix3x3Sub(var m1:TKraftMatrix3x3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m2:TKraftMatrix3x3);
 begin
  m1[0,0]:=m1[0,0]-m2[0,0];
  m1[0,1]:=m1[0,1]-m2[0,1];
@@ -6831,7 +6840,7 @@ begin
  m1:=t;
 end;
 
-function Matrix3x3TermAdd({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m1,m2:TKraftMatrix3x3):TKraftMatrix3x3; {$ifdef caninline}inline;{$endif}
+function Matrix3x3TermAdd({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m1,m2:TKraftMatrix3x3):TKraftMatrix3x3;
 begin
  result[0,0]:=m1[0,0]+m2[0,0];
  result[0,1]:=m1[0,1]+m2[0,1];
@@ -6853,7 +6862,7 @@ begin
 {$endif}
 end;
 
-function Matrix3x3TermSub({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m1,m2:TKraftMatrix3x3):TKraftMatrix3x3; {$ifdef caninline}inline;{$endif}
+function Matrix3x3TermSub({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m1,m2:TKraftMatrix3x3):TKraftMatrix3x3;
 begin
  result[0,0]:=m1[0,0]-m2[0,0];
  result[0,1]:=m1[0,1]-m2[0,1];
@@ -6919,7 +6928,7 @@ begin
 {$endif}
 end;
 
-procedure Matrix3x3ScalarMul(var m:TKraftMatrix3x3;s:TKraftScalar); {$ifdef caninline}inline;{$endif}
+procedure Matrix3x3ScalarMul(var m:TKraftMatrix3x3;s:TKraftScalar);
 begin
  m[0,0]:=m[0,0]*s;
  m[0,1]:=m[0,1]*s;
@@ -6941,7 +6950,7 @@ begin
 {$endif}
 end;
 
-function Matrix3x3TermScalarMul({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix3x3;const s:TKraftScalar):TKraftMatrix3x3; {$ifdef caninline}inline;{$endif}
+function Matrix3x3TermScalarMul({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix3x3;const s:TKraftScalar):TKraftMatrix3x3;
 begin
  result[0,0]:=m[0,0]*s;
  result[0,1]:=m[0,1]*s;
@@ -6963,7 +6972,7 @@ begin
 {$endif}
 end;
 
-procedure Matrix3x3Transpose(var m:TKraftMatrix3x3); {$ifdef caninline}inline;{$endif}
+procedure Matrix3x3Transpose(var m:TKraftMatrix3x3);
 var mt:TKraftMatrix3x3;
 begin
  mt[0,0]:=m[0,0];
@@ -6983,7 +6992,7 @@ begin
  m:=mt;
 end;
 
-function Matrix3x3TermTranspose({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix3x3):TKraftMatrix3x3; {$ifdef caninline}inline;{$endif}
+function Matrix3x3TermTranspose({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix3x3):TKraftMatrix3x3;
 begin
  result[0,0]:=m[0,0];
  result[1,0]:=m[0,1];
@@ -7001,7 +7010,7 @@ begin
 {$endif}
 end;
 
-function Matrix3x3Determinant({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix3x3):TKraftScalar; {$ifdef caninline}inline;{$endif}
+function Matrix3x3Determinant({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix3x3):TKraftScalar;
 begin
  result:=(m[0,0]*((m[1,1]*m[2,2])-(m[2,1]*m[1,2])))-
          (m[0,1]*((m[1,0]*m[2,2])-(m[2,0]*m[1,2])))+
@@ -7034,14 +7043,14 @@ begin
  end;
 end;
 
-procedure Matrix3x3SetColumn(var m:TKraftMatrix3x3;const c:TKraftInt32;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3); {$ifdef caninline}inline;{$endif}
+procedure Matrix3x3SetColumn(var m:TKraftMatrix3x3;const c:TKraftInt32;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3);
 begin
  m[c,0]:=v.x;
  m[c,1]:=v.y;
  m[c,2]:=v.z;
 end;
 
-function Matrix3x3GetColumn({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix3x3;const c:TKraftInt32):TKraftVector3; {$ifdef caninline}inline;{$endif}
+function Matrix3x3GetColumn({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix3x3;const c:TKraftInt32):TKraftVector3;
 begin
  result.x:=m[c,0];
  result.y:=m[c,1];
@@ -7051,14 +7060,14 @@ begin
 {$endif}
 end;
 
-procedure Matrix3x3SetRow(var m:TKraftMatrix3x3;const r:TKraftInt32;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3); {$ifdef caninline}inline;{$endif}
+procedure Matrix3x3SetRow(var m:TKraftMatrix3x3;const r:TKraftInt32;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3);
 begin
  m[0,r]:=v.x;
  m[1,r]:=v.y;
  m[2,r]:=v.z;
 end;
 
-function Matrix3x3GetRow({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix3x3;const r:TKraftInt32):TKraftVector3; {$ifdef caninline}inline;{$endif}
+function Matrix3x3GetRow({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix3x3;const r:TKraftInt32):TKraftVector3;
 begin
  result.x:=m[0,r];
  result.y:=m[1,r];
@@ -7428,7 +7437,7 @@ begin
  result:=m;
 end;
 
-function Matrix4x4Translate(const x,y,z:TKraftScalar):TKraftMatrix4x4; overload; {$ifdef caninline}inline;{$endif}
+function Matrix4x4Translate(const x,y,z:TKraftScalar):TKraftMatrix4x4; overload;
 begin
  result:=Matrix4x4Identity;
  result[3,0]:=x;
@@ -7436,7 +7445,7 @@ begin
  result[3,2]:=z;
 end;
 
-function Matrix4x4Translate({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3):TKraftMatrix4x4; overload; {$ifdef caninline}inline;{$endif}
+function Matrix4x4Translate({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3):TKraftMatrix4x4; overload;
 begin
  result:=Matrix4x4Identity;
  result[3,0]:=v.x;
@@ -7444,7 +7453,7 @@ begin
  result[3,2]:=v.z;
 end;
 
-function Matrix4x4Translate({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector4):TKraftMatrix4x4; overload; {$ifdef caninline}inline;{$endif}
+function Matrix4x4Translate({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector4):TKraftMatrix4x4; overload;
 begin
  result:=Matrix4x4Identity;
  result[3,0]:=v.x;
@@ -7452,7 +7461,7 @@ begin
  result[3,2]:=v.z;
 end;
 
-procedure Matrix4x4Translate(var m:TKraftMatrix4x4;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3); overload; {$ifdef caninline}inline;{$endif}
+procedure Matrix4x4Translate(var m:TKraftMatrix4x4;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3); overload;
 begin
  m[3,0]:=(m[0,0]*v.x)+(m[1,0]*v.y)+(m[2,0]*v.z)+m[3,0];
  m[3,1]:=(m[0,1]*v.x)+(m[1,1]*v.y)+(m[2,1]*v.z)+m[3,1];
@@ -7460,7 +7469,7 @@ begin
  m[3,3]:=(m[0,3]*v.x)+(m[1,3]*v.y)+(m[2,3]*v.z)+m[3,3];
 end;
 
-procedure Matrix4x4Translate(var m:TKraftMatrix4x4;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector4); overload; {$ifdef caninline}inline;{$endif}
+procedure Matrix4x4Translate(var m:TKraftMatrix4x4;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector4); overload;
 begin
  m[3,0]:=(m[0,0]*v.x)+(m[1,0]*v.y)+(m[2,0]*v.z)+(m[3,0]*v.w);
  m[3,1]:=(m[0,1]*v.x)+(m[1,1]*v.y)+(m[2,1]*v.z)+(m[3,1]*v.w);
@@ -7468,7 +7477,7 @@ begin
  m[3,3]:=(m[0,3]*v.x)+(m[1,3]*v.y)+(m[2,3]*v.z)+(m[3,3]*v.w);
 end;
 
-function Matrix4x4Scale(const sx,sy,sz:TKraftScalar):TKraftMatrix4x4; overload; {$ifdef caninline}inline;{$endif}
+function Matrix4x4Scale(const sx,sy,sz:TKraftScalar):TKraftMatrix4x4; overload;
 begin
  result:=Matrix4x4Identity;
  result[0,0]:=sx;
@@ -7476,7 +7485,7 @@ begin
  result[2,2]:=sz;
 end;
 
-function Matrix4x4Scale({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} s:TKraftVector3):TKraftMatrix4x4; overload; {$ifdef caninline}inline;{$endif}
+function Matrix4x4Scale({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} s:TKraftVector3):TKraftMatrix4x4; overload;
 begin
  result:=Matrix4x4Identity;
  result[0,0]:=s.x;
@@ -7484,7 +7493,7 @@ begin
  result[2,2]:=s.z;
 end;
 
-procedure Matrix4x4Add(var m1:TKraftMatrix4x4;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m2:TKraftMatrix4x4); {$ifdef caninline}inline;{$endif}
+procedure Matrix4x4Add(var m1:TKraftMatrix4x4;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m2:TKraftMatrix4x4);
 begin
  m1[0,0]:=m1[0,0]+m2[0,0];
  m1[0,1]:=m1[0,1]+m2[0,1];
@@ -7504,7 +7513,7 @@ begin
  m1[3,3]:=m1[3,3]+m2[3,3];
 end;
 
-procedure Matrix4x4Sub(var m1:TKraftMatrix4x4;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m2:TKraftMatrix4x4); {$ifdef caninline}inline;{$endif}
+procedure Matrix4x4Sub(var m1:TKraftMatrix4x4;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m2:TKraftMatrix4x4);
 begin
  m1[0,0]:=m1[0,0]-m2[0,0];
  m1[0,1]:=m1[0,1]-m2[0,1];
@@ -7722,7 +7731,7 @@ begin
 end;
 {$ifend}
 
-function Matrix4x4TermAdd({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m1,m2:TKraftMatrix4x4):TKraftMatrix4x4; {$ifdef caninline}inline;{$endif}
+function Matrix4x4TermAdd({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m1,m2:TKraftMatrix4x4):TKraftMatrix4x4;
 begin
  result[0,0]:=m1[0,0]+m2[0,0];
  result[0,1]:=m1[0,1]+m2[0,1];
@@ -7742,7 +7751,7 @@ begin
  result[3,3]:=m1[3,3]+m2[3,3];
 end;
 
-function Matrix4x4TermSub({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m1,m2:TKraftMatrix4x4):TKraftMatrix4x4; {$ifdef caninline}inline;{$endif}
+function Matrix4x4TermSub({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m1,m2:TKraftMatrix4x4):TKraftMatrix4x4;
 begin
  result[0,0]:=m1[0,0]-m2[0,0];
  result[0,1]:=m1[0,1]-m2[0,1];
@@ -7860,12 +7869,12 @@ begin
 end;
 {$ifend}
 
-function Matrix4x4TermMulInverted({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m1,m2:TKraftMatrix4x4):TKraftMatrix4x4; {$ifdef caninline}inline;{$endif}
+function Matrix4x4TermMulInverted({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m1,m2:TKraftMatrix4x4):TKraftMatrix4x4;
 begin
  result:=Matrix4x4TermMul(m1,Matrix4x4TermInverse(m2));
 end;
 
-function Matrix4x4TermMulSimpleInverted({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m1,m2:TKraftMatrix4x4):TKraftMatrix4x4; {$ifdef caninline}inline;{$endif}
+function Matrix4x4TermMulSimpleInverted({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m1,m2:TKraftMatrix4x4):TKraftMatrix4x4;
 begin
  result:=Matrix4x4TermMul(m1,Matrix4x4TermSimpleInverse(m2));
 end;
@@ -7948,7 +7957,7 @@ begin
  end;
 end;
 
-procedure Matrix4x4ScalarMul(var m:TKraftMatrix4x4;const s:TKraftScalar); {$ifdef caninline}inline;{$endif}
+procedure Matrix4x4ScalarMul(var m:TKraftMatrix4x4;const s:TKraftScalar);
 begin
  m[0,0]:=m[0,0]*s;
  m[0,1]:=m[0,1]*s;
@@ -8142,7 +8151,7 @@ begin
 end;
 {$ifend}
 
-procedure Matrix4x4SetColumn(var m:TKraftMatrix4x4;const c:TKraftInt32;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector4); {$ifdef caninline}inline;{$endif}
+procedure Matrix4x4SetColumn(var m:TKraftMatrix4x4;const c:TKraftInt32;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector4);
 begin
  m[c,0]:=v.x;
  m[c,1]:=v.y;
@@ -8150,7 +8159,7 @@ begin
  m[c,3]:=v.w;
 end;
 
-function Matrix4x4GetColumn({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix4x4;const c:TKraftInt32):TKraftVector4; {$ifdef caninline}inline;{$endif}
+function Matrix4x4GetColumn({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix4x4;const c:TKraftInt32):TKraftVector4;
 begin
  result.x:=m[c,0];
  result.y:=m[c,1];
@@ -8158,7 +8167,7 @@ begin
  result.w:=m[c,3];
 end;
 
-procedure Matrix4x4SetRow(var m:TKraftMatrix4x4;const r:TKraftInt32;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector4); {$ifdef caninline}inline;{$endif}
+procedure Matrix4x4SetRow(var m:TKraftMatrix4x4;const r:TKraftInt32;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector4);
 begin
  m[0,r]:=v.x;
  m[1,r]:=v.y;
@@ -8166,7 +8175,7 @@ begin
  m[3,r]:=v.w;
 end;
 
-function Matrix4x4GetRow({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix4x4;const r:TKraftInt32):TKraftVector4; {$ifdef caninline}inline;{$endif}
+function Matrix4x4GetRow({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix4x4;const r:TKraftInt32):TKraftVector4;
 begin
  result.x:=m[0,r];
  result.y:=m[1,r];
@@ -8258,7 +8267,7 @@ begin
  result[3,3]:=1.0;
 end;
 
-function Matrix4x4SimpleInverse(var mr:TKraftMatrix4x4;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} ma:TKraftMatrix4x4):boolean; {$ifdef caninline}inline;{$endif}
+function Matrix4x4SimpleInverse(var mr:TKraftMatrix4x4;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} ma:TKraftMatrix4x4):boolean;
 begin
  mr[0,0]:=ma[0,0];
  mr[0,1]:=ma[1,0];
@@ -8279,7 +8288,7 @@ begin
  result:=true;
 end;
 
-function Matrix4x4TermSimpleInverse({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} ma:TKraftMatrix4x4):TKraftMatrix4x4; {$ifdef caninline}inline;{$endif}
+function Matrix4x4TermSimpleInverse({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} ma:TKraftMatrix4x4):TKraftMatrix4x4;
 begin
  result[0,0]:=ma[0,0];
  result[0,1]:=ma[1,0];
@@ -9342,13 +9351,13 @@ begin
  result.Distance:=-Vector3Dot(result.Normal,Vector3TermMatrixMul(Vector3ScalarMul(Plane.Normal,-Plane.Distance),Matrix));
 end;
 
-function PlaneFastTransform({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Plane:TKraftPlane;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Matrix:TKraftMatrix4x4):TKraftPlane; overload; {$ifdef caninline}inline;{$endif}
+function PlaneFastTransform({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Plane:TKraftPlane;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Matrix:TKraftMatrix4x4):TKraftPlane; overload;
 begin
  result.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(Plane.Normal,Matrix));
  result.Distance:=-Vector3Dot(result.Normal,Vector3TermMatrixMul(Vector3ScalarMul(Plane.Normal,-Plane.Distance),Matrix));
 end;
 
-procedure PlaneNormalize(var Plane:TKraftPlane); {$ifdef caninline}inline;{$endif}
+procedure PlaneNormalize(var Plane:TKraftPlane);
 var l:TKraftScalar;
 begin
  l:=sqr(Plane.Normal.x)+sqr(Plane.Normal.y)+sqr(Plane.Normal.z);
@@ -9372,17 +9381,17 @@ begin
  end;
 end;
 
-function PlaneVectorDistance({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Plane:TKraftPlane;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Point:TKraftVector3):TKraftScalar; overload; {$ifdef caninline}inline;{$endif}
+function PlaneVectorDistance({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Plane:TKraftPlane;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Point:TKraftVector3):TKraftScalar; overload;
 begin
  result:=(Plane.Normal.x*Point.x)+(Plane.Normal.y*Point.y)+(Plane.Normal.z*Point.z)+Plane.Distance;
 end;
 
-function PlaneVectorDistance({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Plane:TKraftPlane;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Point:TKraftVector4):TKraftScalar; overload; {$ifdef caninline}inline;{$endif}
+function PlaneVectorDistance({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Plane:TKraftPlane;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Point:TKraftVector4):TKraftScalar; overload;
 begin
  result:=(Plane.Normal.x*Point.x)+(Plane.Normal.y*Point.y)+(Plane.Normal.z*Point.z)+(Plane.Distance*Point.w);
 end;
 
-function PlaneFromPoints({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} p1,p2,p3:TKraftVector3):TKraftPlane; overload; {$ifdef caninline}inline;{$endif}
+function PlaneFromPoints({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} p1,p2,p3:TKraftVector3):TKraftPlane; overload;
 var n:TKraftVector3;
 begin
  n:=Vector3NormEx(Vector3Cross(Vector3Sub(p2,p1),Vector3Sub(p3,p1)));
@@ -9395,7 +9404,7 @@ begin
  result.Distance:=-((result.Normal.x*p1.x)+(result.Normal.y*p1.y)+(result.Normal.z*p1.z));
 end;
 
-function PlaneFromPoints({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} p1,p2,p3:TKraftVector4):TKraftPlane; overload; {$ifdef caninline}inline;{$endif}
+function PlaneFromPoints({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} p1,p2,p3:TKraftVector4):TKraftPlane; overload;
 var n:TKraftVector4;
 begin
  n:=Vector4Norm(Vector4Cross(Vector4Sub(p2,p1),Vector4Sub(p3,p1)));
@@ -9714,7 +9723,7 @@ begin
 end;
 {$ifend}
 
-function QuaternionRotateAroundAxis({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} q1,q2:TKraftQuaternion):TKraftQuaternion; {$ifdef caninline}inline;{$endif}
+function QuaternionRotateAroundAxis({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} q1,q2:TKraftQuaternion):TKraftQuaternion;
 begin
  result.x:=((q1.x*q2.w)+(q1.z*q2.y))-(q1.y*q2.z);
  result.y:=((q1.x*q2.z)+(q1.y*q2.w))-(q1.z*q2.x);
@@ -9722,7 +9731,7 @@ begin
  result.w:=((q1.x*q2.x)+(q1.y*q2.y))+(q1.z*q2.z);
 end;
 
-function QuaternionFromAxisAngle({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Axis:TKraftVector3;const Angle:TKraftScalar):TKraftQuaternion; overload; {$ifdef caninline}inline;{$endif}
+function QuaternionFromAxisAngle({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Axis:TKraftVector3;const Angle:TKraftScalar):TKraftQuaternion; overload;
 var sa2:TKraftScalar;
 begin
  result.w:=cos(Angle*0.5);
@@ -9733,7 +9742,7 @@ begin
  QuaternionNormalize(result);
 end;
 
-function QuaternionFromSpherical(const Latitude,Longitude:TKraftScalar):TKraftQuaternion; {$ifdef caninline}inline;{$endif}
+function QuaternionFromSpherical(const Latitude,Longitude:TKraftScalar):TKraftQuaternion;
 begin
  result.x:=cos(Latitude)*sin(Longitude);
  result.y:=sin(Latitude);
@@ -9758,7 +9767,7 @@ begin
  end;
 end;
 
-function QuaternionFromAngles(const Pitch,Yaw,Roll:TKraftScalar):TKraftQuaternion; overload; {$ifdef caninline}inline;{$endif}
+function QuaternionFromAngles(const Pitch,Yaw,Roll:TKraftScalar):TKraftQuaternion; overload;
 var sp,sy,sr,cp,cy,cr:TKraftScalar;
 begin
  sp:=sin(Pitch*0.5);
@@ -9774,7 +9783,7 @@ begin
  QuaternionNormalize(result);
 end;
 
-function QuaternionFromAngles({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Angles:TKraftAngles):TKraftQuaternion; overload; {$ifdef caninline}inline;{$endif}
+function QuaternionFromAngles({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Angles:TKraftAngles):TKraftQuaternion; overload;
 var sp,sy,sr,cp,cy,cr:TKraftScalar;
 begin
  sp:=sin(Angles.Pitch*0.5);
@@ -10174,7 +10183,7 @@ begin
  result[3,3]:=1.0;
 end;
 
-function QuaternionToEuler({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} AQuaternion:TKraftQuaternion):TKraftVector3; {$ifdef caninline}inline;{$endif}
+function QuaternionToEuler({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} AQuaternion:TKraftQuaternion):TKraftVector3;
 begin
  result.x:=ArcTan2(2.0*((AQuaternion.x*AQuaternion.y)+(AQuaternion.z*AQuaternion.w)),1.0-(2.0*(sqr(AQuaternion.y)+sqr(AQuaternion.z))));
  result.y:=ArcSin(2.0*((AQuaternion.x*AQuaternion.z)-(AQuaternion.y*AQuaternion.w)));
@@ -10184,7 +10193,7 @@ begin
 {$endif}
 end;
 
-procedure QuaternionToAxisAngle(AQuaternion:TKraftQuaternion;var Axis:TKraftVector3;var Angle:TKraftScalar); {$ifdef caninline}inline;{$endif}
+procedure QuaternionToAxisAngle(AQuaternion:TKraftQuaternion;var Axis:TKraftVector3;var Angle:TKraftScalar);
 var SinAngle:TKraftScalar;
 begin
  QuaternionNormalize(AQuaternion);
@@ -10201,7 +10210,7 @@ begin
 {$endif}
 end;
 
-function QuaternionGenerator(AQuaternion:TKraftQuaternion):TKraftVector3; {$ifdef caninline}inline;{$endif}
+function QuaternionGenerator(AQuaternion:TKraftQuaternion):TKraftVector3;
 var s:TKraftScalar;
 begin
  s:=sqrt(1.0-sqr(AQuaternion.w));
@@ -10217,7 +10226,7 @@ begin
  result:=Vector3ScalarMul(result,2.0*ArcTan2(s,AQuaternion.w));
 end;
 
-function QuaternionLerp({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} q1,q2:TKraftQuaternion;const t:TKraftScalar):TKraftQuaternion; {$ifdef caninline}inline;{$endif}
+function QuaternionLerp({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} q1,q2:TKraftQuaternion;const t:TKraftScalar):TKraftQuaternion;
 var it,sf:TKraftScalar;
 begin
  if ((q1.x*q2.x)+(q1.y*q2.y)+(q1.z*q2.z)+(q1.w*q2.w))<0.0 then begin
@@ -10232,7 +10241,7 @@ begin
  result.w:=(it*q1.w)+(t*(sf*q2.w));
 end;
 
-function QuaternionNlerp({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} q1,q2:TKraftQuaternion;const t:TKraftScalar):TKraftQuaternion; {$ifdef caninline}inline;{$endif}
+function QuaternionNlerp({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} q1,q2:TKraftQuaternion;const t:TKraftScalar):TKraftQuaternion;
 var it,sf:TKraftScalar;
 begin
  if ((q1.x*q2.x)+(q1.y*q2.y)+(q1.z*q2.z)+(q1.w*q2.w))<0.0 then begin
@@ -10248,7 +10257,7 @@ begin
  QuaternionNormalize(result);
 end;
 
-function QuaternionSlerp({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} q1,q2:TKraftQuaternion;const t:TKraftScalar):TKraftQuaternion; {$ifdef caninline}inline;{$endif}
+function QuaternionSlerp({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} q1,q2:TKraftQuaternion;const t:TKraftScalar):TKraftQuaternion;
 var Omega,co,so,s0,s1,s2:TKraftScalar;
 begin
  co:=(q1.x*q2.x)+(q1.y*q2.y)+(q1.z*q2.z)+(q1.w*q2.w);
@@ -10315,7 +10324,7 @@ begin
  q:=QuaternionTermNormalize(tq);
 end;
 
-function QuaternionFromToRotation({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} FromDirection,ToDirection:TKraftVector3):TKraftQuaternion; {$ifdef caninline}inline;{$endif}
+function QuaternionFromToRotation({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} FromDirection,ToDirection:TKraftVector3):TKraftQuaternion;
 var t:TKraftVector3;
 begin
  t:=Vector3Cross(Vector3Norm(FromDirection),Vector3Norm(ToDirection));
@@ -10376,20 +10385,20 @@ begin
  result:=a+(AngleDiff(a,b)*x);
 end;
 
-function AABBCost(const AABB:TKraftAABB):TKraftScalar; {$ifdef caninline}inline;{$endif}
+function AABBCost(const AABB:TKraftAABB):TKraftScalar;
 begin
 // result:=(AABB.Max.x-AABB.Min.x)+(AABB.Max.y-AABB.Min.y)+(AABB.Max.z-AABB.Min.z); // Manhattan distance
  result:=(AABB.Max.x-AABB.Min.x)*(AABB.Max.y-AABB.Min.y)*(AABB.Max.z-AABB.Min.z); // Volume
 end;
 
-function AABBArea(const AABB:TKraftAABB):TKraftScalar; {$ifdef caninline}inline;{$endif}
+function AABBArea(const AABB:TKraftAABB):TKraftScalar;
 begin
  result:=2.0*((abs(AABB.Max.x-AABB.Min.x)*abs(AABB.Max.y-AABB.Min.y))+
               (abs(AABB.Max.y-AABB.Min.y)*abs(AABB.Max.z-AABB.Min.z))+
               (abs(AABB.Max.x-AABB.Min.x)*abs(AABB.Max.z-AABB.Min.z)))
 end;
 
-function AABBAreaEx(const AABB:TKraftAABB):TKraftScalar; {$ifdef caninline}inline;{$endif}
+function AABBAreaEx(const AABB:TKraftAABB):TKraftScalar;
 var ex,ey,ez:TKraftScalar;
 begin
  ex:=abs(AABB.Max.x-AABB.Min.x);
@@ -10398,7 +10407,7 @@ begin
  result:=(ex*ey)+(ey*ez)+(ez*ex);
 end;
 
-function AABBCombine(const AABB,WithAABB:TKraftAABB):TKraftAABB; {$ifdef caninline}inline;{$endif}
+function AABBCombine(const AABB,WithAABB:TKraftAABB):TKraftAABB;
 begin
  result.Min.x:=Min(AABB.Min.x,WithAABB.Min.x);
  result.Min.y:=Min(AABB.Min.y,WithAABB.Min.y);
@@ -10414,7 +10423,7 @@ begin
 {$endif}
 end;
 
-function AABBCombineVector3(const AABB:TKraftAABB;v:TKraftVector3):TKraftAABB; {$ifdef caninline}inline;{$endif}
+function AABBCombineVector3(const AABB:TKraftAABB;v:TKraftVector3):TKraftAABB;
 begin
  result.Min.x:=Min(AABB.Min.x,v.x);
  result.Min.y:=Min(AABB.Min.y,v.y);
@@ -10430,14 +10439,14 @@ begin
 {$endif}
 end;
 
-function AABBIntersect(const AABB,WithAABB:TKraftAABB;const Threshold:TKraftScalar=EPSILON):boolean; {$ifdef caninline}inline;{$endif}
+function AABBIntersect(const AABB,WithAABB:TKraftAABB;const Threshold:TKraftScalar=EPSILON):boolean;
 begin
  result:=(((AABB.Max.x+Threshold)>=(WithAABB.Min.x-Threshold)) and ((AABB.Min.x-Threshold)<=(WithAABB.Max.x+Threshold))) and
          (((AABB.Max.y+Threshold)>=(WithAABB.Min.y-Threshold)) and ((AABB.Min.y-Threshold)<=(WithAABB.Max.y+Threshold))) and
          (((AABB.Max.z+Threshold)>=(WithAABB.Min.z-Threshold)) and ((AABB.Min.z-Threshold)<=(WithAABB.Max.z+Threshold)));
 end;
 
-function AABBContains(const InAABB,AABB:TKraftAABB):boolean; overload; {$ifdef caninline}inline;{$endif}
+function AABBContains(const InAABB,AABB:TKraftAABB):boolean; overload;
 begin
  result:=((InAABB.Min.x-EPSILON)<=(AABB.Min.x+EPSILON)) and ((InAABB.Min.y-EPSILON)<=(AABB.Min.y+EPSILON)) and ((InAABB.Min.z-EPSILON)<=(AABB.Min.z+EPSILON)) and
          ((InAABB.Max.x+EPSILON)>=(AABB.Min.x-EPSILON)) and ((InAABB.Max.y+EPSILON)>=(AABB.Min.y-EPSILON)) and ((InAABB.Max.z+EPSILON)>=(AABB.Min.z-EPSILON)) and
@@ -10445,14 +10454,14 @@ begin
          ((InAABB.Max.x+EPSILON)>=(AABB.Max.x-EPSILON)) and ((InAABB.Max.y+EPSILON)>=(AABB.Max.y-EPSILON)) and ((InAABB.Max.z+EPSILON)>=(AABB.Max.z-EPSILON));
 end;
 
-function AABBContains(const AABB:TKraftAABB;const Vector:TKraftVector3):boolean; overload; {$ifdef caninline}inline;{$endif}
+function AABBContains(const AABB:TKraftAABB;const Vector:TKraftVector3):boolean; overload;
 begin
  result:=((Vector.x>=(AABB.Min.x-EPSILON)) and (Vector.x<=(AABB.Max.x+EPSILON))) and
          ((Vector.y>=(AABB.Min.y-EPSILON)) and (Vector.y<=(AABB.Max.y+EPSILON))) and
          ((Vector.z>=(AABB.Min.z-EPSILON)) and (Vector.z<=(AABB.Max.z+EPSILON)));
 end;
 
-function AABBTransform(const DstAABB:TKraftAABB;const Transform:TKraftMatrix4x4):TKraftAABB; {$ifdef caninline}inline;{$endif}
+function AABBTransform(const DstAABB:TKraftAABB;const Transform:TKraftMatrix4x4):TKraftAABB;
 var i,j:TKraftInt32;
     a,b:TKraftScalar;
 begin
@@ -10473,7 +10482,7 @@ begin
  end;
 end;
 
-function AABBRayIntersection(const AABB:TKraftAABB;const Origin,Direction:TKraftVector3;var Time:TKraftScalar):boolean; overload; {$ifdef caninline}inline;{$endif}
+function AABBRayIntersection(const AABB:TKraftAABB;const Origin,Direction:TKraftVector3;var Time:TKraftScalar):boolean; overload;
 var InvDirection,a,b,AABBMin,AABBMax:TKraftVector3;
     TimeMin,TimeMax:TKraftScalar;
 begin
@@ -10638,7 +10647,7 @@ begin
 end;
 {$ifend}
 
-(*function AABBRayIntersect(const AABB:TKraftAABB;const Origin,Direction:TKraftVector3):boolean; {$ifdef caninline}inline;{$endif}
+(*function AABBRayIntersect(const AABB:TKraftAABB;const Origin,Direction:TKraftVector3):boolean;
 var Center,BoxExtents,Diff:TKraftVector3;
 begin
  Center:=Vector3ScalarMul(Vector3Add(AABB.Min,AABB.Max),0.5);
@@ -10652,7 +10661,7 @@ begin
                (abs((Direction.x*Diff.y)-(Direction.y*Diff.x))>((BoxExtents.x*abs(Direction.y))+(BoxExtents.y*abs(Direction.x))))));
 end;*)
 
-function ClosestPointToAABB(const AABB:TKraftAABB;const Point:TKraftVector3;const ClosestPointOnAABB:PKraftVector3=nil):TKraftScalar; {$ifdef caninline}inline;{$endif}
+function ClosestPointToAABB(const AABB:TKraftAABB;const Point:TKraftVector3;const ClosestPointOnAABB:PKraftVector3=nil):TKraftScalar;
 var ClosestPoint:TKraftVector3;
 begin
  ClosestPoint.x:=Min(Max(Point.x,AABB.Min.x),AABB.Max.x);
@@ -10667,7 +10676,7 @@ begin
  result:=Vector3Dist(ClosestPoint,Point);
 end;
 
-function SquaredDistanceFromPointToAABB(const AABB:TKraftAABB;const Point:TKraftVector3):TKraftScalar; {$ifdef caninline}inline;{$endif}
+function SquaredDistanceFromPointToAABB(const AABB:TKraftAABB;const Point:TKraftVector3):TKraftScalar;
 var ClosestPoint:TKraftVector3;
 begin
  ClosestPoint.x:=Min(Max(Point.x,AABB.Min.x),AABB.Max.x);
@@ -10679,7 +10688,7 @@ begin
  result:=Vector3DistSquared(ClosestPoint,Point);
 end;
 
-function SphereFromAABB(const AABB:TKraftAABB):TKraftSphere; {$ifdef caninline}inline;{$endif}
+function SphereFromAABB(const AABB:TKraftAABB):TKraftSphere;
 begin
  result.Center:=Vector3Avg(AABB.Min,AABB.Max);
  result.Radius:=Vector3Dist(AABB.Min,AABB.Max)*0.5;
@@ -10777,12 +10786,12 @@ begin
 
 end;
 
-function IsPointsSameSide(const p0,p1,Origin,Direction:TKraftVector3):boolean; overload; {$ifdef caninline}inline;{$endif}
+function IsPointsSameSide(const p0,p1,Origin,Direction:TKraftVector3):boolean; overload;
 begin
  result:=Vector3Dot(Vector3Cross(Direction,Vector3Sub(p0,Origin)),Vector3Cross(Direction,Vector3Sub(p1,Origin)))>=0.0;
 end;
 
-function PointInTriangle(const p0,p1,p2,Normal,p:TKraftVector3):boolean; overload; {$ifdef caninline}inline;{$endif}
+function PointInTriangle(const p0,p1,p2,Normal,p:TKraftVector3):boolean; overload;
 var r0,r1,r2:TKraftScalar;
 begin
  r0:=Vector3Dot(Vector3Cross(Vector3Sub(p1,p0),Normal),Vector3Sub(p,p0));
@@ -10791,14 +10800,14 @@ begin
  result:=((r0>0.0) and (r1>0.0) and (r2>0.0)) or ((r0<=0.0) and (r1<=0.0) and (r2<=0.0));
 end;
 
-function PointInTriangle(const p0,p1,p2,p:TKraftVector3):boolean; overload; {$ifdef caninline}inline;{$endif}
+function PointInTriangle(const p0,p1,p2,p:TKraftVector3):boolean; overload;
 begin
  result:=IsPointsSameSide(p,p0,p1,Vector3Sub(p2,p1)) and
          IsPointsSameSide(p,p1,p0,Vector3Sub(p2,p0)) and
          IsPointsSameSide(p,p2,p0,Vector3Sub(p1,p0));
 end;
 
-function PointInTriangleFast(const p0,p1,p2,p:TKraftVector3):boolean; {$ifdef caninline}inline;{$endif}
+function PointInTriangleFast(const p0,p1,p2,p:TKraftVector3):boolean;
 var e10,e20,vp:TKraftVector3;
     a,b,c,ac_bb,d,e,x,y,z:TKraftScalar;
 begin
@@ -11126,7 +11135,7 @@ begin
 
 end;
 
-function SegmentSqrDistance(const aFromVector,aToVector,aPoint:TKraftVector3;const aNearest:PKraftVector3=nil;const aTime:PKraftScalar=nil):TKraftScalar; overload; {$ifdef caninline}inline;{$endif}
+function SegmentSqrDistance(const aFromVector,aToVector,aPoint:TKraftVector3;const aNearest:PKraftVector3=nil;const aTime:PKraftScalar=nil):TKraftScalar; overload;
 var Time,DotUV:TKraftScalar;
     Difference,Direction:TKraftVector3;
 begin
@@ -11843,12 +11852,12 @@ begin
 
 end;
 
-function InertiaTensorTransform({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Inertia,Transform:TKraftMatrix3x3):TKraftMatrix3x3; {$ifdef caninline}inline;{$endif}
+function InertiaTensorTransform({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Inertia,Transform:TKraftMatrix3x3):TKraftMatrix3x3;
 begin
  result:=Matrix3x3TermMulTranspose(Matrix3x3TermMul(Transform,Inertia),Transform);
 end;
 
-function InertiaTensorParallelAxisTheorem({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Center:TKraftVector3;const Mass:TKraftScalar):TKraftMatrix3x3; {$ifdef caninline}inline;{$endif}
+function InertiaTensorParallelAxisTheorem({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Center:TKraftVector3;const Mass:TKraftScalar):TKraftMatrix3x3;
 var CenterDotCenter:TKraftScalar;
 begin
  CenterDotCenter:=sqr(Center.x)+sqr(Center.y)+sqr(Center.z);
@@ -12793,12 +12802,12 @@ begin
  end;
 end;
 
-function CalculateArea(const v0,v1,v2:TKraftVector3):TKraftScalar; overload; {$ifdef caninline}inline;{$endif}
+function CalculateArea(const v0,v1,v2:TKraftVector3):TKraftScalar; overload;
 begin
  result:=Vector3LengthSquared(Vector3Cross(Vector3Sub(v1,v0),Vector3Sub(v2,v0)));
 end;
 
-function CalculateVolume(const v0,v1,v2,v3:TKraftVector3):TKraftScalar; overload; {$ifdef caninline}inline;{$endif}
+function CalculateVolume(const v0,v1,v2,v3:TKraftVector3):TKraftScalar; overload;
 var a,b,c:TKraftVector3;
 begin
  a:=Vector3Sub(v0,v3);
@@ -13046,7 +13055,7 @@ begin
  result:=HashTwoLongWords(HashTwoLongWords(HashPointer(a),HashPointer(b)),c);
 end;
 
-function AABBStretch(const AABB:TKraftAABB;const Displacement,BoundsExpansion:TKraftVector3):TKraftAABB; {$ifdef caninline}inline;{$endif}
+function AABBStretch(const AABB:TKraftAABB;const Displacement,BoundsExpansion:TKraftVector3):TKraftAABB;
 var d:TKraftVector3;
 begin
  d:=Vector3Add(AABBExtensionVector,BoundsExpansion);
@@ -13085,13 +13094,13 @@ begin
  end;
 end;
 
-function SweepTransform(const Sweep:TKraftSweep;const Beta:TKraftScalar):TKraftMatrix4x4; {$ifdef caninline}inline;{$endif}
+function SweepTransform(const Sweep:TKraftSweep;const Beta:TKraftScalar):TKraftMatrix4x4;
 begin
  result:=QuaternionToMatrix4x4(QuaternionSlerp(Sweep.q0,Sweep.q,Beta));
  PKraftVector3(pointer(@result[3,0]))^.xyz:=Vector3Sub(Vector3Lerp(Sweep.c0,Sweep.c,Beta),Vector3TermMatrixMulBasis(Sweep.LocalCenter,result)).xyz;
 end;
 
-function SweepTermAdvance(const Sweep:TKraftSweep;const Alpha:TKraftScalar):TKraftSweep; {$ifdef caninline}inline;{$endif}
+function SweepTermAdvance(const Sweep:TKraftSweep;const Alpha:TKraftScalar):TKraftSweep;
 var Beta:TKraftScalar;
 begin
  Assert(Sweep.Alpha0<1.0);
@@ -13113,7 +13122,7 @@ begin
  Sweep.Alpha0:=Alpha;
 end;
 
-function SweepTermNormalize(const Sweep:TKraftSweep):TKraftSweep; {$ifdef caninline}inline;{$endif}
+function SweepTermNormalize(const Sweep:TKraftSweep):TKraftSweep;
 begin
  result.LocalCenter:=Sweep.LocalCenter;
  result.c0:=Sweep.c0;
@@ -13123,7 +13132,7 @@ begin
  result.Alpha0:=Sweep.Alpha0;
 end;
 
-procedure SweepNormalize(var Sweep:TKraftSweep); {$ifdef caninline}inline;{$endif}
+procedure SweepNormalize(var Sweep:TKraftSweep);
 begin
  QuaternionNormalize(Sweep.q0);
  QuaternionNormalize(Sweep.q);
@@ -13166,7 +13175,7 @@ begin
  end;
 end;
 
-function GetSkewSymmetricMatrixPlus(const v:TKraftVector3):TKraftMatrix3x3; overload; {$ifdef caninline}inline;{$endif}
+function GetSkewSymmetricMatrixPlus(const v:TKraftVector3):TKraftMatrix3x3; overload;
 begin
  result[0,0]:=0.0;
  result[0,1]:=-v.z;
@@ -13188,7 +13197,7 @@ begin
 {$endif}
 end;
 
-function GetSkewSymmetricMatrixMinus(const v:TKraftVector3):TKraftMatrix3x3; overload; {$ifdef caninline}inline;{$endif}
+function GetSkewSymmetricMatrixMinus(const v:TKraftVector3):TKraftMatrix3x3; overload;
 begin
  result[0,0]:=0.0;
  result[0,1]:=v.z;
@@ -13210,14 +13219,14 @@ begin
 {$endif}
 end;
 
-function EvaluateEulerEquation(const w1,w0,T:TKraftVector3;const dt:TKraftScalar;const I:TKraftMatrix3x3):TKraftVector3; {$ifdef caninline}inline;{$endif}
+function EvaluateEulerEquation(const w1,w0,T:TKraftVector3;const dt:TKraftScalar;const I:TKraftMatrix3x3):TKraftVector3;
 var w1xI:TKraftVector3;
 begin
  w1xI:=Vector3TermMatrixMul(w1,I);
  result:=Vector3Sub(Vector3Add(w1xI,Vector3ScalarMul(Vector3Cross(w1,w1xI),dt)),Vector3Add(Vector3ScalarMul(T,dt),Vector3TermMatrixMul(w0,I)));
 end;
 
-function EvaluateEulerEquationDerivation(const w1,w0:TKraftVector3;const dt:TKraftScalar;const I:TKraftMatrix3x3):TKraftMatrix3x3; {$ifdef caninline}inline;{$endif}
+function EvaluateEulerEquationDerivation(const w1,w0:TKraftVector3;const dt:TKraftScalar;const I:TKraftMatrix3x3):TKraftMatrix3x3;
 var w1x,Iw1x:TKraftMatrix3x3;
 begin
  w1x:=GetSkewSymmetricMatrixMinus(w1);
@@ -13272,7 +13281,7 @@ begin
  fVertices[i]:=v;
 end;
 
-procedure GetPlaneSpace(const n:TKraftVector3;out p,q:TKraftVector3); {$ifdef caninline}inline;{$endif}
+procedure GetPlaneSpace(const n:TKraftVector3;out p,q:TKraftVector3);
 var a,k:TKraftScalar;
 begin
  if abs(n.z)>0.70710678 then begin
@@ -13300,7 +13309,7 @@ begin
 {$endif}
 end;
 
-procedure ComputeBasis(var a:TKraftVector3;out b,c:TKraftVector3); overload; {$ifdef caninline}inline;{$endif}
+procedure ComputeBasis(var a:TKraftVector3;out b,c:TKraftVector3); overload;
 begin
  // Suppose vector a has all equal components and is a unit vector: a = (s, s, s)
  // Then 3*s*s = 1, s = sqrt(1/3) = 0.57735027. This means that at least one component of a
@@ -13322,7 +13331,7 @@ begin
  c:=Vector3NormEx(Vector3Cross(a,b));
 end;
 
-procedure ComputeBasis(const Normal:TKraftVector3;out Matrix:TKraftMatrix3x3;const IndexA:TKraftInt32=0;const IndexB:TKraftInt32=1;const IndexC:TKraftInt32=2); overload; {$ifdef caninline}inline;{$endif}
+procedure ComputeBasis(const Normal:TKraftVector3;out Matrix:TKraftMatrix3x3;const IndexA:TKraftInt32=0;const IndexB:TKraftInt32=1;const IndexC:TKraftInt32=2); overload;
 var a,b,c:TKraftVector3;
 begin
  a:=Normal;
@@ -13347,7 +13356,7 @@ begin
 {$endif}
 end;
 
-function RayCastSphere(const RayOrigin,RayDirection,SpherePosition:TKraftVector3;const Radius,MaxTime:TKraftScalar;var HitTime:TKraftScalar):boolean; overload; {$ifdef caninline}inline;{$endif}
+function RayCastSphere(const RayOrigin,RayDirection,SpherePosition:TKraftVector3;const Radius,MaxTime:TKraftScalar;var HitTime:TKraftScalar):boolean; overload;
 var Origin,Direction,m:TKraftVector3;
     b,c,d,t:TKraftScalar;
 begin
@@ -13369,7 +13378,7 @@ begin
  end;
 end;
 
-function RayCastSphere(const RayOrigin,RayDirection,SpherePosition:TKraftVector3;const Radius,MaxTime:TKraftScalar;var HitTime:TKraftScalar;var HitPosition,HitNormal:TKraftVector3):boolean; overload; {$ifdef caninline}inline;{$endif}
+function RayCastSphere(const RayOrigin,RayDirection,SpherePosition:TKraftVector3;const Radius,MaxTime:TKraftScalar;var HitTime:TKraftScalar;var HitPosition,HitNormal:TKraftVector3):boolean; overload;
 var Origin,Direction,m:TKraftVector3;
     b,c,d,t:TKraftScalar;
 begin
@@ -13393,12 +13402,12 @@ begin
  end;
 end;
 
-function CalculateAreaFromThreePoints(const p0,p1,p2:TKraftVector3):TKraftScalar; overload; {$ifdef caninline}inline;{$endif}
+function CalculateAreaFromThreePoints(const p0,p1,p2:TKraftVector3):TKraftScalar; overload;
 begin
  result:=Vector3LengthSquared(Vector3Cross(Vector3Sub(p1,p0),Vector3Sub(p2,p0)));
 end;
 
-function CalculateAreaFromFourPoints(const p0,p1,p2,p3:TKraftVector3):TKraftScalar; overload; {$ifdef caninline}inline;{$endif}
+function CalculateAreaFromFourPoints(const p0,p1,p2,p3:TKraftVector3):TKraftScalar; overload;
 begin
  result:=Max(Max(Vector3LengthSquared(Vector3Cross(Vector3Sub(p0,p1),Vector3Sub(p3,p3))),
                  Vector3LengthSquared(Vector3Cross(Vector3Sub(p0,p2),Vector3Sub(p1,p3)))),
@@ -15727,7 +15736,7 @@ begin
 
 end;
 
-procedure CalculateVelocity(const cA:TKraftVector3;const qA:TKraftQuaternion;const cB:TKraftVector3;const qB:TKraftQuaternion;const DeltaTime:TKraftScalar;out LinearVelocity,AngularVelocity:TKraftVector3); {$ifdef caninline}inline;{$endif}
+procedure CalculateVelocity(const cA:TKraftVector3;const qA:TKraftQuaternion;const cB:TKraftVector3;const qB:TKraftQuaternion;const DeltaTime:TKraftScalar;out LinearVelocity,AngularVelocity:TKraftVector3);
 var InverseDeltaTime,Angle:TKraftScalar;
     Axis:TKraftVector3;
     qD,qS,qB0:TKraftQuaternion;
@@ -16706,7 +16715,7 @@ begin
  end;
 end;
 
-procedure ConvexHullGetPlaneSpace(const n:TConvexHullVector;var p,q:TConvexHullVector); {$ifdef caninline}inline;{$endif}
+procedure ConvexHullGetPlaneSpace(const n:TConvexHullVector;var p,q:TConvexHullVector);
 var a,k:double;
 begin
  if abs(n.z)>0.70710678118 then begin
@@ -27153,16 +27162,16 @@ procedure TKraftContactPair.DetectCollisions(const ContactManager:TKraftContactM
 var OldManifoldCountContacts:TKraftInt32;
     OldContactManifoldType:TKraftContactManifoldType;
     ShapeTriangle:TKraftShapeTriangle;
- function CreateFeatureID(const ElementA,ElementB:TKraftUInt32):TKraftContactFeatureID; overload; {$ifdef caninline}inline;{$endif}
+ function CreateFeatureID(const ElementA,ElementB:TKraftUInt32):TKraftContactFeatureID; overload; {$if defined(caninline) and defined(fpc)}inline;{$ifend}
  begin
   result.ElementA:=ElementA;
   result.ElementB:=ElementB;
  end;
- function CreateFeatureID(const Key:TKraftInt64):TKraftContactFeatureID; overload; {$ifdef caninline}inline;{$endif}
+ function CreateFeatureID(const Key:TKraftInt64):TKraftContactFeatureID; overload; {$if defined(caninline) and defined(fpc)}inline;{$ifend}
  begin
   result.Key:=Key;
  end;
- procedure AddImplicitContact(const p0,p1:TKraftVector3;const r0,r1:TKraftScalar;const FeatureID:TKraftContactFeatureID;const IsLocal:boolean); {$ifdef caninline}inline;{$endif}
+ procedure AddImplicitContact(const p0,p1:TKraftVector3;const r0,r1:TKraftScalar;const FeatureID:TKraftContactFeatureID;const IsLocal:boolean);
  var Contact:PKraftContact;
  begin
   if Manifold.CountContacts<MAX_CONTACTS then begin
@@ -27181,7 +27190,7 @@ var OldManifoldCountContacts:TKraftInt32;
    Contact^.FeatureID:=FeatureID;
   end;
  end;
- procedure AddFaceAContact(const Normal,p0,p1:TKraftVector3;const r0,r1:TKraftScalar;const FeatureID:TKraftContactFeatureID;const IsLocal:boolean); {$ifdef caninline}inline;{$endif}
+ procedure AddFaceAContact(const Normal,p0,p1:TKraftVector3;const r0,r1:TKraftScalar;const FeatureID:TKraftContactFeatureID;const IsLocal:boolean);
  var Contact:PKraftContact;
  begin
   if Manifold.CountContacts<MAX_CONTACTS then begin
@@ -27201,7 +27210,7 @@ var OldManifoldCountContacts:TKraftInt32;
    Contact^.FeatureID:=FeatureID;
   end;
  end;
- procedure AddFaceBContact(const Normal,p0,p1:TKraftVector3;const r0,r1:TKraftScalar;const FeatureID:TKraftContactFeatureID;const IsLocal:boolean); {$ifdef caninline}inline;{$endif}
+ procedure AddFaceBContact(const Normal,p0,p1:TKraftVector3;const r0,r1:TKraftScalar;const FeatureID:TKraftContactFeatureID;const IsLocal:boolean);
  var Contact:PKraftContact;
  begin
   if Manifold.CountContacts<MAX_CONTACTS then begin
@@ -27221,7 +27230,7 @@ var OldManifoldCountContacts:TKraftInt32;
    Contact^.FeatureID:=FeatureID;
   end;
  end;
- procedure AddImplicitEdgeContact(const Normal,p0,p1:TKraftVector3;const r0,r1:TKraftScalar;const FeatureID:TKraftContactFeatureID;const IsLocal:boolean); {$ifdef caninline}inline;{$endif}
+ procedure AddImplicitEdgeContact(const Normal,p0,p1:TKraftVector3;const r0,r1:TKraftScalar;const FeatureID:TKraftContactFeatureID;const IsLocal:boolean);
  var Contact:PKraftContact;
  begin
   if Manifold.CountContacts<MAX_CONTACTS then begin
@@ -27241,7 +27250,7 @@ var OldManifoldCountContacts:TKraftInt32;
    Contact^.FeatureID:=FeatureID;
   end;
  end;
- procedure AddImplicitNormalContact(const Normal,p0,p1:TKraftVector3;const r0,r1:TKraftScalar;const FeatureID:TKraftContactFeatureID;const IsLocal:boolean); {$ifdef caninline}inline;{$endif}
+ procedure AddImplicitNormalContact(const Normal,p0,p1:TKraftVector3;const r0,r1:TKraftScalar;const FeatureID:TKraftContactFeatureID;const IsLocal:boolean);
  var Contact:PKraftContact;
  begin
   if Manifold.CountContacts<MAX_CONTACTS then begin
@@ -27261,7 +27270,7 @@ var OldManifoldCountContacts:TKraftInt32;
    Contact^.FeatureID:=FeatureID;
   end;
  end;
- procedure CollideSphereWithSphere(ShapeA,ShapeB:TKraftShapeSphere); {$ifdef caninline}inline;{$endif}
+ procedure CollideSphereWithSphere(ShapeA,ShapeB:TKraftShapeSphere);
  var Distance:TKraftScalar;
      CenterA,CenterB:TKraftVector3;
  begin
@@ -27272,7 +27281,7 @@ var OldManifoldCountContacts:TKraftInt32;
    AddImplicitContact(ShapeA.fLocalCentroid,ShapeB.fLocalCentroid,ShapeA.fRadius,ShapeB.fRadius,CreateFeatureID(0),true);
   end;
  end;
- procedure CollideSphereWithCapsule(ShapeA:TKraftShapeSphere;ShapeB:TKraftShapeCapsule); {$ifdef caninline}inline;{$endif}
+ procedure CollideSphereWithCapsule(ShapeA:TKraftShapeSphere;ShapeB:TKraftShapeCapsule);
  var Alpha,HalfLength,Distance:TKraftScalar;
      CenterA,CenterB,Position,GeometryDirection:TKraftVector3;
  begin
@@ -27292,7 +27301,7 @@ var OldManifoldCountContacts:TKraftInt32;
    AddImplicitContact(CenterA,Position,ShapeA.fRadius,ShapeB.fRadius,CreateFeatureID(0),false);
   end;
  end;
- procedure CollideSphereWithConvexHull(ShapeA:TKraftShapeSphere;ShapeB:TKraftShapeConvexHull); {$ifdef caninline}inline;{$endif}
+ procedure CollideSphereWithConvexHull(ShapeA:TKraftShapeSphere;ShapeB:TKraftShapeConvexHull);
  var FaceIndex,ClosestFaceIndex,VertexIndex,BestClosestFaceIndex:TKraftInt32;
      Distance,ClosestDistance,BestClosestPointDistance,d:TKraftScalar;
      Center,SphereCenter,Normal,ClosestPoint,BestClosestPointOnHull,BestClosestPointNormal,ab,ap,a,b,v,n:TKraftVector3;
@@ -27424,7 +27433,7 @@ var OldManifoldCountContacts:TKraftInt32;
    end;
   end;
  end;
- procedure CollideSphereWithBox(ShapeA:TKraftShapeSphere;ShapeB:TKraftShapeBox); {$ifdef caninline}inline;{$endif}
+ procedure CollideSphereWithBox(ShapeA:TKraftShapeSphere;ShapeB:TKraftShapeBox);
  //const ModuloThree:array[0..5] of TKraftInt32=(0,1,2,0,1,2);
  var IntersectionDist,ContactDist,DistSqr,FaceDist,MinDist:TKraftScalar;
      Center,SphereRelativePosition,ClosestPoint,Normal:TKraftVector3;
@@ -27508,7 +27517,7 @@ var OldManifoldCountContacts:TKraftInt32;
    AddFaceBContact(Normal,Center,Vector3TermMatrixMul(ClosestPoint,ShapeB.fWorldTransform),ShapeA.fRadius,0.0,CreateFeatureID(BestFaceIndex),false);
   end;
  end;
- procedure CollideSphereWithPlane(ShapeA:TKraftShapeSphere;ShapeB:TKraftShapePlane); {$ifdef caninline}inline;{$endif}
+ procedure CollideSphereWithPlane(ShapeA:TKraftShapeSphere;ShapeB:TKraftShapePlane);
  var Distance:TKraftScalar;
      Center,SphereCenter,Normal:TKraftVector3;
  begin
@@ -27520,7 +27529,7 @@ var OldManifoldCountContacts:TKraftInt32;
    AddFaceBContact(Normal,Center,Vector3TermMatrixMul(Vector3Sub(SphereCenter,Vector3ScalarMul(Normal,Distance)),ShapeB.fWorldTransform),ShapeA.fRadius,0.0,CreateFeatureID(0),false);
   end;
  end;
- procedure CollideSphereWithTriangle(ShapeA:TKraftShapeSphere;ShapeB:TKraftShapeTriangle); {$ifdef caninline}inline;{$endif}
+ procedure CollideSphereWithTriangle(ShapeA:TKraftShapeSphere;ShapeB:TKraftShapeTriangle);
  const ModuloThree:array[0..5] of TKraftInt32=(0,1,2,0,1,2);
  var i:TKraftInt32;
      Radius,RadiusWithThreshold,DistanceFromPlane,ContactRadiusSqr,DistanceSqr:TKraftScalar;
@@ -27578,7 +27587,7 @@ var OldManifoldCountContacts:TKraftInt32;
    end;
   end;
  end;
- procedure CollideCapsuleWithCapsule(ShapeA,ShapeB:TKraftShapeCapsule); {$ifdef caninline}inline;{$endif}
+ procedure CollideCapsuleWithCapsule(ShapeA,ShapeB:TKraftShapeCapsule);
  const Tolerance=0.005;
  var RadiusA,RadiusB,SquaredRadiiWithTolerance,HalfLengthA,HalfLengthB,TimeA,TimeB,SquaredDistance:TKraftScalar;
      CenterA,CenterB,GeometryDirectionA,GeometryDirectionB,HalfAxis,ClosestPointA,ClosestPointB:TKraftVector3;
@@ -27651,7 +27660,7 @@ var OldManifoldCountContacts:TKraftInt32;
 
 
  end;
- procedure CollideCapsuleWithConvexHull(ShapeA:TKraftShapeCapsule;ShapeB:TKraftShapeConvexHull); // {$ifdef caninline}inline;{$endif}
+ procedure CollideCapsuleWithConvexHull(ShapeA:TKraftShapeCapsule;ShapeB:TKraftShapeConvexHull);
  const Tolerance=0.005;
  var FaceIndex,VertexIndex,OtherVertexIndex,PointIndex,MaxFaceIndex,MaxEdgeIndex,EdgeIndex:TKraftInt32;
      CapsuleRadius,Distance,MaxFaceSeparation,MaxEdgeSeparation,Separation,L:TKraftScalar;
@@ -27885,7 +27894,7 @@ var OldManifoldCountContacts:TKraftInt32;
   end;
 
  end;
- procedure CollideCapsuleWithTriangle(ShapeA:TKraftShapeCapsule;ShapeB:TKraftShapeTriangle); {$ifdef caninline}inline;{$endif}
+ procedure CollideCapsuleWithTriangle(ShapeA:TKraftShapeCapsule;ShapeB:TKraftShapeTriangle);
  var Index,Count:TKraftInt32;
      Radius,HalfLength,SquaredDistance,SquaredRadius,d:TKraftScalar;
      Center,GeometryDirection,HalfAxis,pa,pb,Normal:TKraftVector3;
@@ -27977,7 +27986,7 @@ var OldManifoldCountContacts:TKraftInt32;
        RelativeFaceTolerance=0.98;
        TemporalCoherenceRelativeTransformTolerance=0.0001;
  var LinearSlop,SeparationTolerance,AbsoluteTolerance:single;
-  function IsMinkowskiFace(const A,B,B_x_A,C,D,D_x_C:TKraftVector3):boolean; {$ifdef caninline}inline;{$endif}
+  function IsMinkowskiFace(const A,B,B_x_A,C,D,D_x_C:TKraftVector3):boolean; {$if defined(caninline) and defined(fpc)}inline;{$ifend}
   var CBA,DBA,ADC,BDC:TKraftScalar;
   begin
    // Test if arcs AB and CD intersect on the unit sphere
@@ -27987,7 +27996,7 @@ var OldManifoldCountContacts:TKraftInt32;
    BDC:=Vector3Dot(B,D_x_C);
    result:=((CBA*DBA<0.0)) and ((ADC*BDC)<0.0) and ((CBA*BDC)>0.0);
   end;
-  function TestEarlyFaceDirection(const HullA,HullB:TKraftShapeConvexHull;var FaceQuery:TKraftContactFaceQuery):boolean; {$ifdef caninline}inline;{$endif}
+  function TestEarlyFaceDirection(const HullA,HullB:TKraftShapeConvexHull;var FaceQuery:TKraftContactFaceQuery):boolean;
   var Plane:TKraftPlane;
       Transform:TKraftMatrix4x4;
   begin
@@ -27996,7 +28005,7 @@ var OldManifoldCountContacts:TKraftInt32;
    FaceQuery.Separation:=PlaneVectorDistance(Plane,HullB.GetLocalFullSupport(Vector3Neg(Plane.Normal)));
    result:=FaceQuery.Separation>0.0;
   end;
-  function TestEarlyEdgeDirection(const HullA,HullB:TKraftShapeConvexHull;var EdgeQuery:TKraftContactEdgeQuery):boolean; {$ifdef caninline}inline;{$endif}
+  function TestEarlyEdgeDirection(const HullA,HullB:TKraftShapeConvexHull;var EdgeQuery:TKraftContactEdgeQuery):boolean;
   var EdgeA,EdgeB:PKraftConvexHullEdge;
       L:TKraftScalar;
       CenterA,Pa,Qa,Ea,Ua,Va,Pb,Qb,Eb,Ub,Vb,Ea_x_Eb,Normal:TKraftVector3;
@@ -28043,7 +28052,7 @@ var OldManifoldCountContacts:TKraftInt32;
 
    end;
   end;
-  procedure QueryFaceDirections(const HullA,HullB:TKraftShapeConvexHull;out OutFaceQuery:TKraftContactFaceQuery); {$ifdef caninline}inline;{$endif}
+  procedure QueryFaceDirections(const HullA,HullB:TKraftShapeConvexHull;out OutFaceQuery:TKraftContactFaceQuery);
   var MaxIndex,Index:TKraftInt32;
       MaxSeparation,Separation:TKraftScalar;
       Plane:TKraftPlane;
@@ -28066,7 +28075,7 @@ var OldManifoldCountContacts:TKraftInt32;
    OutFaceQuery.Index:=MaxIndex;
    OutFaceQuery.Separation:=MaxSeparation;
   end;
-  procedure QueryEdgeDirections(const HullA,HullB:TKraftShapeConvexHull;out OutEdgeQuery:TKraftContactEdgeQuery); {$ifdef caninline}inline;{$endif}
+  procedure QueryEdgeDirections(const HullA,HullB:TKraftShapeConvexHull;out OutEdgeQuery:TKraftContactEdgeQuery);
   var EdgeA,EdgeB:PKraftConvexHullEdge;
       IndexA,IndexB,MaxIndexA,MaxIndexB:TKraftInt32;
       MaxSeparation,Separation,L:TKraftScalar;
@@ -28132,7 +28141,7 @@ var OldManifoldCountContacts:TKraftInt32;
    OutEdgeQuery.Separation:=MaxSeparation;
    OutEdgeQuery.Normal:=MaxNormal;
   end;
-  function GetEdgeContact(var CA,CB:TKraftVector3;const PA,QA,PB,QB:TKraftVector3):boolean; {$ifdef caninline}inline;{$endif}
+  function GetEdgeContact(var CA,CB:TKraftVector3;const PA,QA,PB,QB:TKraftVector3):boolean;
   var DA,DB,r:TKraftVector3;
       a,e,f,c,b,d,TA,TB:TKraftScalar;
   begin
@@ -28155,7 +28164,7 @@ var OldManifoldCountContacts:TKraftInt32;
     result:=false;
    end;
   end;
-  function FindIncidentFaceIndex(const ReferenceHull:TKraftShapeConvexHull;const ReferenceFaceIndex:TKraftInt32;const IncidentHull:TKraftShapeConvexHull):TKraftInt32; {$ifdef caninline}inline;{$endif}
+  function FindIncidentFaceIndex(const ReferenceHull:TKraftShapeConvexHull;const ReferenceFaceIndex:TKraftInt32;const IncidentHull:TKraftShapeConvexHull):TKraftInt32;
   var i:TKraftInt32;
       MinDot,Dot:TKraftScalar;
       ReferenceNormal:TKraftVector3;
@@ -29292,7 +29301,7 @@ begin
  end;
 end;
 
-procedure TKraftMeshContactPair.AddToHashTable; {$ifdef caninline}inline;{$endif}
+procedure TKraftMeshContactPair.AddToHashTable;
 var HashTableBucket:PKraftMeshContactPairHashTableBucket;
 begin
  if fHashBucket<0 then begin
@@ -29310,7 +29319,7 @@ begin
  end;
 end;
 
-procedure TKraftMeshContactPair.RemoveFromHashTable; {$ifdef caninline}inline;{$endif}
+procedure TKraftMeshContactPair.RemoveFromHashTable;
 var HashTableBucket:PKraftMeshContactPairHashTableBucket;
 begin
  if fHashBucket>=0 then begin
@@ -30605,7 +30614,7 @@ begin
  end;
 end;
 
-procedure TKraftBroadPhase.AddPair(const ThreadIndex:TKraftInt32;ShapeA,ShapeB:TKraftShape); {$ifdef caninline}inline;{$endif}
+procedure TKraftBroadPhase.AddPair(const ThreadIndex:TKraftInt32;ShapeA,ShapeB:TKraftShape);
 var TempShape:TKraftShape;
     Index:TKraftInt32;
     ContactPair:PKraftBroadPhaseContactPair;
@@ -37301,7 +37310,7 @@ var Index:TKraftInt32;
     i,j:TKraftInt32;
     sinfo:SYSTEM_INFO;
     dwProcessAffinityMask,dwSystemAffinityMask:ptruint;
- function GetRealCountOfCPUCores:TKraftInt32; {$ifdef caninline}inline;{$endif}
+ function GetRealCountOfCPUCores:TKraftInt32;
  const RelationProcessorCore=0;
        RelationNumaNode=1;
        RelationCache=2;
@@ -38067,7 +38076,7 @@ var Iteration,TryIteration,RootIteration,SeparationFunctionMode:TKraftInt32;
     UniqueGJKVertices:array[0..1,0..2] of TKraftVector3;
     CountUniqueGJKVertices:array[0..1] of TKraftInt32;
     GJKCachedSimplex:TKraftGJKCachedSimplex;
- function Evaluate:TKraftScalar; //{$ifdef caninline}inline;{$endif}
+ function Evaluate:TKraftScalar;
  begin
   case SeparationFunctionMode of
    sfmVERTICES:begin
@@ -38087,7 +38096,7 @@ var Iteration,TryIteration,RootIteration,SeparationFunctionMode:TKraftInt32;
    end;
   end;
  end;
- function FindMinSeparation:TKraftScalar; //{$ifdef caninline}inline;{$endif}
+ function FindMinSeparation:TKraftScalar;
  begin
   case SeparationFunctionMode of
    sfmVERTICES:begin
@@ -39424,7 +39433,7 @@ var Node:PKraftDynamicAABBTreeNode;
 begin
  while NodeID>=0 do begin
   Node:=@Data.AABBTree.fNodes[NodeID];
-  if AABBRayIntersect(Node^.AABB,Data^.SphereCastData.Origin,Data^.SphereCastData.Direction) then begin
+  if SphereCastAABB(Data^.SphereCastData.Origin,Data^.SphereCastData.Radius,Data^.SphereCastData.Direction,Node^.AABB) then begin
    if Node^.Children[0]<0 then begin
     CurrentShape:=Node^.UserData;
     Data^.SphereCastData.MaxTime:=Data^.MaxTime;
