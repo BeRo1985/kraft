@@ -146,7 +146,7 @@ unit kraft;
 {$ifdef KraftUseDouble}
  {$define NonSIMD}
 {$endif}
-
+{-$define NonSIMD}
 {$if (not defined(fpc)) and defined(cpuamd64)}
  {$define NonSIMD} // Due to inline assembler bugs at the Delphi compiler
 {$ifend}
@@ -11968,7 +11968,7 @@ begin
 
  if fWLength<=1e-6 then begin
   d0:=Vector3DistSquared(aRayOrigin,aP0);
-  d1:=Vector3DistSquared(aRayOrigin,aP0);
+  d1:=Vector3DistSquared(aRayOrigin,aP1);
   ApproxLength:=(Max(d0,d1)+aRadius)*2.0;
   if IntersectRaySphere(aRayDirection,aRayDirection,ApproxLength,aP0,aRadius,aS_^[0]) then begin
    result:=1;
