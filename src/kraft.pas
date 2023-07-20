@@ -1327,6 +1327,13 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftMeshNodeQueue={$ifdef KraftPasMP}TPasMPUnboundedQueue<TKraftInt32>{$else}TKraftQueue<TKraftInt32>{$endif};
 
+     TKraftMeshBVHBuildMode=
+      (
+       kmbbmBruteforce,
+       kmbbmSteps,
+       kmbbmBinned
+      );
+
      TKraftMesh=class(TPersistent)
       private
        const MaximumTrianglesPerNode=8;
@@ -1360,7 +1367,12 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fNodeQueue:TKraftMeshNodeQueue;
        fCountActiveWorkers:TKraftInt32;
 
-       function FindBestSplitPlane(const aParentTreeNode:PKraftMeshTreeNode;out aAxis:TKraftInt32;out aSplitPosition:TKraftScalar):TKraftScalar;
+       fBVHBuildMode:TKraftMeshBVHBuildMode;
+
+       function EvaluateSAH(const aParentTreeNode:PKraftMeshTreeNode;const aAxis:TKraftInt32;const aSplitPosition:TKraftScalar):TKraftScalar;
+       function FindBestSplitPlaneBruteforce(const aParentTreeNode:PKraftMeshTreeNode;out aAxis:TKraftInt32;out aSplitPosition:TKraftScalar):TKraftScalar;
+       function FindBestSplitPlaneSteps(const aParentTreeNode:PKraftMeshTreeNode;out aAxis:TKraftInt32;out aSplitPosition:TKraftScalar):TKraftScalar;
+       function FindBestSplitPlaneBinned(const aParentTreeNode:PKraftMeshTreeNode;out aAxis:TKraftInt32;out aSplitPosition:TKraftScalar):TKraftScalar;
        function CalculateNodeCost(const aParentTreeNode:PKraftMeshTreeNode):TKraftScalar;
        procedure UpdateNodeBounds(const aParentTreeNode:PKraftMeshTreeNode);
        procedure ProcessNodeQueue;
@@ -1432,6 +1444,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
       published
 
        property DoubleSided:boolean read fDoubleSided write fDoubleSided;
+
+       property BVHBuildMode:TKraftMeshBVHBuildMode read fBVHBuildMode write fBVHBuildMode;
 
      end;
 
@@ -20815,6 +20829,8 @@ begin
  fNodeQueue:=nil;
  fCountActiveWorkers:=0;
 
+ fBVHBuildMode:=TKraftMeshBVHBuildMode.kmbbmBinned;
+
 end;
 
 destructor TKraftMesh.Destroy;
@@ -21663,7 +21679,109 @@ begin
  end;
 end;
 
-function TKraftMesh.FindBestSplitPlane(const aParentTreeNode:PKraftMeshTreeNode;out aAxis:TKraftInt32;out aSplitPosition:TKraftScalar):TKraftScalar;
+function TKraftMesh.EvaluateSAH(const aParentTreeNode:PKraftMeshTreeNode;const aAxis:TKraftInt32;const aSplitPosition:TKraftScalar):TKraftScalar;
+var LeftAABB,RightAABB:TKraftAABB;
+    LeftCount,RightCount,TriangleIndex:TKraftInt32;
+    Triangle:PKraftMeshTriangle;
+begin
+ LeftCount:=0;
+ RightCount:=0;
+ for TriangleIndex:=aParentTreeNode^.FirstTriangleIndex to aParentTreeNode^.FirstTriangleIndex+(aParentTreeNode^.CountTriangles-1) do begin
+  Triangle:=@fTriangles[TriangleIndex];
+  if Triangle^.Center.xyz[aAxis]<aSplitPosition then begin
+   if LeftCount=0 then begin
+    LeftAABB.Min.x:=Min(Min(Vertices[Triangle^.Vertices[0]].x,Vertices[Triangle^.Vertices[1]].x),Vertices[Triangle^.Vertices[2]].x);
+    LeftAABB.Min.y:=Min(Min(Vertices[Triangle^.Vertices[0]].y,Vertices[Triangle^.Vertices[1]].y),Vertices[Triangle^.Vertices[2]].y);
+    LeftAABB.Min.z:=Min(Min(Vertices[Triangle^.Vertices[0]].z,Vertices[Triangle^.Vertices[1]].z),Vertices[Triangle^.Vertices[2]].z);
+    LeftAABB.Max.x:=Max(Max(Vertices[Triangle^.Vertices[0]].x,Vertices[Triangle^.Vertices[1]].x),Vertices[Triangle^.Vertices[2]].x);
+    LeftAABB.Max.y:=Max(Max(Vertices[Triangle^.Vertices[0]].y,Vertices[Triangle^.Vertices[1]].y),Vertices[Triangle^.Vertices[2]].y);
+    LeftAABB.Max.z:=Max(Max(Vertices[Triangle^.Vertices[0]].z,Vertices[Triangle^.Vertices[1]].z),Vertices[Triangle^.Vertices[2]].z);
+   end else begin
+    LeftAABB.Min.x:=Min(LeftAABB.Min.x,Min(Min(Vertices[Triangle^.Vertices[0]].x,Vertices[Triangle^.Vertices[1]].x),Vertices[Triangle^.Vertices[2]].x));
+    LeftAABB.Min.y:=Min(LeftAABB.Min.y,Min(Min(Vertices[Triangle^.Vertices[0]].y,Vertices[Triangle^.Vertices[1]].y),Vertices[Triangle^.Vertices[2]].y));
+    LeftAABB.Min.z:=Min(LeftAABB.Min.z,Min(Min(Vertices[Triangle^.Vertices[0]].z,Vertices[Triangle^.Vertices[1]].z),Vertices[Triangle^.Vertices[2]].z));
+    LeftAABB.Max.x:=Max(LeftAABB.Max.x,Max(Max(Vertices[Triangle^.Vertices[0]].x,Vertices[Triangle^.Vertices[1]].x),Vertices[Triangle^.Vertices[2]].x));
+    LeftAABB.Max.y:=Max(LeftAABB.Max.y,Max(Max(Vertices[Triangle^.Vertices[0]].y,Vertices[Triangle^.Vertices[1]].y),Vertices[Triangle^.Vertices[2]].y));
+    LeftAABB.Max.z:=Max(LeftAABB.Max.z,Max(Max(Vertices[Triangle^.Vertices[0]].z,Vertices[Triangle^.Vertices[1]].z),Vertices[Triangle^.Vertices[2]].z));
+   end;
+   inc(LeftCount);
+  end else begin
+   if RightCount=0 then begin
+    RightAABB.Min.x:=Min(Min(Vertices[Triangle^.Vertices[0]].x,Vertices[Triangle^.Vertices[1]].x),Vertices[Triangle^.Vertices[2]].x);
+    RightAABB.Min.y:=Min(Min(Vertices[Triangle^.Vertices[0]].y,Vertices[Triangle^.Vertices[1]].y),Vertices[Triangle^.Vertices[2]].y);
+    RightAABB.Min.z:=Min(Min(Vertices[Triangle^.Vertices[0]].z,Vertices[Triangle^.Vertices[1]].z),Vertices[Triangle^.Vertices[2]].z);
+    RightAABB.Max.x:=Max(Max(Vertices[Triangle^.Vertices[0]].x,Vertices[Triangle^.Vertices[1]].x),Vertices[Triangle^.Vertices[2]].x);
+    RightAABB.Max.y:=Max(Max(Vertices[Triangle^.Vertices[0]].y,Vertices[Triangle^.Vertices[1]].y),Vertices[Triangle^.Vertices[2]].y);
+    RightAABB.Max.z:=Max(Max(Vertices[Triangle^.Vertices[0]].z,Vertices[Triangle^.Vertices[1]].z),Vertices[Triangle^.Vertices[2]].z);
+   end else begin
+    RightAABB.Min.x:=Min(RightAABB.Min.x,Min(Min(Vertices[Triangle^.Vertices[0]].x,Vertices[Triangle^.Vertices[1]].x),Vertices[Triangle^.Vertices[2]].x));
+    RightAABB.Min.y:=Min(RightAABB.Min.y,Min(Min(Vertices[Triangle^.Vertices[0]].y,Vertices[Triangle^.Vertices[1]].y),Vertices[Triangle^.Vertices[2]].y));
+    RightAABB.Min.z:=Min(RightAABB.Min.z,Min(Min(Vertices[Triangle^.Vertices[0]].z,Vertices[Triangle^.Vertices[1]].z),Vertices[Triangle^.Vertices[2]].z));
+    RightAABB.Max.x:=Max(RightAABB.Max.x,Max(Max(Vertices[Triangle^.Vertices[0]].x,Vertices[Triangle^.Vertices[1]].x),Vertices[Triangle^.Vertices[2]].x));
+    RightAABB.Max.y:=Max(RightAABB.Max.y,Max(Max(Vertices[Triangle^.Vertices[0]].y,Vertices[Triangle^.Vertices[1]].y),Vertices[Triangle^.Vertices[2]].y));
+    RightAABB.Max.z:=Max(RightAABB.Max.z,Max(Max(Vertices[Triangle^.Vertices[0]].z,Vertices[Triangle^.Vertices[1]].z),Vertices[Triangle^.Vertices[2]].z));
+   end;
+   inc(RightCount);
+  end;
+ end;
+ result:=0.0;
+ if LeftCount>0 then begin
+  result:=result+(LeftCount*AABBArea(LeftAABB));
+ end;
+ if RightCount>0 then begin
+  result:=result+(RightCount*AABBArea(RightAABB));
+ end;
+ if (result<=0.0) or IsZero(result) then begin
+  result:=Infinity;
+ end;
+end;
+
+function TKraftMesh.FindBestSplitPlaneBruteforce(const aParentTreeNode:PKraftMeshTreeNode;out aAxis:TKraftInt32;out aSplitPosition:TKraftScalar):TKraftScalar;
+var AxisIndex,TriangleIndex:TKraftInt32;
+    Triangle:PKraftMeshTriangle;
+    Cost,SplitPosition:TKraftScalar;
+begin
+ aAxis:=-1;
+ aSplitPosition:=0.0;
+ result:=Infinity;
+ for AxisIndex:=0 to 2 do begin
+  for TriangleIndex:=aParentTreeNode^.FirstTriangleIndex to aParentTreeNode^.FirstTriangleIndex+(aParentTreeNode^.CountTriangles-1) do begin
+   Triangle:=@fTriangles[TriangleIndex];
+   SplitPosition:=Triangle^.Center.xyz[AxisIndex];
+   Cost:=EvaluateSAH(aParentTreeNode,AxisIndex,SplitPosition);
+   if result>Cost then begin
+    result:=Cost;
+    aAxis:=AxisIndex;
+    aSplitPosition:=SplitPosition;
+   end;
+  end;
+ end;
+end;
+
+function TKraftMesh.FindBestSplitPlaneSteps(const aParentTreeNode:PKraftMeshTreeNode;out aAxis:TKraftInt32;out aSplitPosition:TKraftScalar):TKraftScalar;
+const CountSteps=8;
+var AxisIndex,StepIndex:TKraftInt32;
+    Cost,SplitPosition,Time:TKraftScalar;
+begin
+ aAxis:=-1;
+ aSplitPosition:=0.0;
+ result:=Infinity;
+ for AxisIndex:=0 to 2 do begin
+  for StepIndex:=0 to CountSteps-1 do begin
+   Time:=StepIndex/CountSteps;
+   SplitPosition:=(aParentTreeNode^.AABB.Min.xyz[StepIndex]*(1.0-Time))+
+                  (aParentTreeNode^.AABB.Max.xyz[StepIndex]*Time);
+   Cost:=EvaluateSAH(aParentTreeNode,AxisIndex,SplitPosition);
+   if result>Cost then begin
+    result:=Cost;
+    aAxis:=AxisIndex;
+    aSplitPosition:=SplitPosition;
+   end;
+  end;
+ end;
+end;
+
+function TKraftMesh.FindBestSplitPlaneBinned(const aParentTreeNode:PKraftMeshTreeNode;out aAxis:TKraftInt32;out aSplitPosition:TKraftScalar):TKraftScalar;
 const CountBINs=8;
 type TBIN=record
       Count:TKraftInt32;
@@ -21841,7 +21959,17 @@ begin
    ParentTreeNode:=@fTreeNodes[ParentTreeNodeIndex];
    if ParentTreeNode^.CountTriangles>0 then begin
 
-    SplitCost:=FindBestSplitPlane(ParentTreeNode,AxisIndex,SplitPosition);
+    case fBVHBuildMode of
+     TKraftMeshBVHBuildMode.kmbbmSteps:begin
+      SplitCost:=FindBestSplitPlaneSteps(ParentTreeNode,AxisIndex,SplitPosition);
+     end;
+     TKraftMeshBVHBuildMode.kmbbmBinned:begin
+      SplitCost:=FindBestSplitPlaneBinned(ParentTreeNode,AxisIndex,SplitPosition);
+     end;
+     else begin
+      SplitCost:=FindBestSplitPlaneBruteforce(ParentTreeNode,AxisIndex,SplitPosition);
+     end;
+    end;
     if SplitCost<CalculateNodeCost(ParentTreeNode) then begin
 
      LeftIndex:=ParentTreeNode^.FirstTriangleIndex;
