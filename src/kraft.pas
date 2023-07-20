@@ -12201,7 +12201,7 @@ function SphereCastTriangle(const RayOrigin:TKraftVector3;const Radius:TKraftSca
   end;
  end;
 {$endif}
-var Edge10,Edge20,Normal,R,Origin,pvec,tvec,qvec,IntersectPoint:TKraftVector3;
+var Edge10,Edge20,Normal,R,Origin,pvec,tvec,qvec{$ifndef AlternativeSphereCastTriangleImplementation},IntersectPoint{$endif}:TKraftVector3;
     V,W,t,Det,OneOverDet:TKraftScalar;
     {$ifdef AlternativeSphereCastTriangleImplementation}TestTwoEdges{$else}TestSphere{$endif}:boolean;
     e0,e1{$ifdef AlternativeSphereCastTriangleImplementation},e2{$endif}:TKraftInt32;
