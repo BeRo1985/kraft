@@ -1369,6 +1369,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fBVHBuildMode:TKraftMeshBVHBuildMode;
 
+       fBVHSubdivisionSteps:TKraftInt32;
+
        function EvaluateSAH(const aParentTreeNode:PKraftMeshTreeNode;const aAxis:TKraftInt32;const aSplitPosition:TKraftScalar):TKraftScalar;
        function FindBestSplitPlaneBruteforce(const aParentTreeNode:PKraftMeshTreeNode;out aAxis:TKraftInt32;out aSplitPosition:TKraftScalar):TKraftScalar;
        function FindBestSplitPlaneSteps(const aParentTreeNode:PKraftMeshTreeNode;out aAxis:TKraftInt32;out aSplitPosition:TKraftScalar):TKraftScalar;
@@ -1446,6 +1448,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property DoubleSided:boolean read fDoubleSided write fDoubleSided;
 
        property BVHBuildMode:TKraftMeshBVHBuildMode read fBVHBuildMode write fBVHBuildMode;
+
+       property BVHSubdivisionSteps:TKraftInt32 read fBVHSubdivisionSteps write fBVHSubdivisionSteps;
 
      end;
 
@@ -10383,6 +10387,15 @@ begin
  result:=2.0*((abs(AABB.Max.x-AABB.Min.x)*abs(AABB.Max.y-AABB.Min.y))+
               (abs(AABB.Max.y-AABB.Min.y)*abs(AABB.Max.z-AABB.Min.z))+
               (abs(AABB.Max.x-AABB.Min.x)*abs(AABB.Max.z-AABB.Min.z)))
+end;
+
+function AABBAreaEx(const AABB:TKraftAABB):TKraftScalar; {$ifdef caninline}inline;{$endif}
+var ex,ey,ez:TKraftScalar;
+begin
+ ex:=abs(AABB.Max.x-AABB.Min.x);
+ ey:=abs(AABB.Max.y-AABB.Min.y);
+ ez:=abs(AABB.Max.z-AABB.Min.z);
+ result:=(ex*ey)+(ey*ez)+(ez*ex);
 end;
 
 function AABBCombine(const AABB,WithAABB:TKraftAABB):TKraftAABB; {$ifdef caninline}inline;{$endif}
@@ -20829,7 +20842,9 @@ begin
  fNodeQueue:=nil;
  fCountActiveWorkers:=0;
 
- fBVHBuildMode:=TKraftMeshBVHBuildMode.kmbbmBinned;
+ fBVHBuildMode:=TKraftMeshBVHBuildMode.kmbbmSteps;
+
+ fBVHSubdivisionSteps:=8;
 
 end;
 
@@ -21726,10 +21741,10 @@ begin
  end;
  result:=0.0;
  if LeftCount>0 then begin
-  result:=result+(LeftCount*AABBArea(LeftAABB));
+  result:=result+(LeftCount*AABBAreaEx(LeftAABB));
  end;
  if RightCount>0 then begin
-  result:=result+(RightCount*AABBArea(RightAABB));
+  result:=result+(RightCount*AABBAreaEx(RightAABB));
  end;
  if (result<=0.0) or IsZero(result) then begin
   result:=Infinity;
@@ -21759,7 +21774,6 @@ begin
 end;
 
 function TKraftMesh.FindBestSplitPlaneSteps(const aParentTreeNode:PKraftMeshTreeNode;out aAxis:TKraftInt32;out aSplitPosition:TKraftScalar):TKraftScalar;
-const CountSteps=8;
 var AxisIndex,StepIndex:TKraftInt32;
     Cost,SplitPosition,Time:TKraftScalar;
 begin
@@ -21767,10 +21781,10 @@ begin
  aSplitPosition:=0.0;
  result:=Infinity;
  for AxisIndex:=0 to 2 do begin
-  for StepIndex:=0 to CountSteps-1 do begin
-   Time:=StepIndex/CountSteps;
-   SplitPosition:=(aParentTreeNode^.AABB.Min.xyz[StepIndex]*(1.0-Time))+
-                  (aParentTreeNode^.AABB.Max.xyz[StepIndex]*Time);
+  for StepIndex:=0 to fBVHSubdivisionSteps-1 do begin
+   Time:=(StepIndex+1)/(fBVHSubdivisionSteps+1);
+   SplitPosition:=(aParentTreeNode^.AABB.Min.xyz[AxisIndex]*(1.0-Time))+
+                  (aParentTreeNode^.AABB.Max.xyz[AxisIndex]*Time);
    Cost:=EvaluateSAH(aParentTreeNode,AxisIndex,SplitPosition);
    if result>Cost then begin
     result:=Cost;
@@ -21799,7 +21813,7 @@ var AxisIndex,TriangleIndex,BINIndex,LeftSum,RightSum:TKraftInt32;
     BIN:PBIN;
 begin
 
- result:=1e30;
+ result:=Infinity;
 
  aAxis:=-1;
 
@@ -21807,16 +21821,21 @@ begin
 
   for AxisIndex:=0 to 2 do begin
 
-   BoundsMin:=1e30;
-   BoundsMax:=-1e30;
+   BoundsMin:=Infinity;
+   BoundsMax:=-Infinity;
 
    for TriangleIndex:=aParentTreeNode^.FirstTriangleIndex to aParentTreeNode^.FirstTriangleIndex+(aParentTreeNode^.CountTriangles-1) do begin
     Triangle:=@fTriangles[TriangleIndex];
-    BoundsMin:=Min(BoundsMin,Triangle^.Center.xyz[AxisIndex]);
-    BoundsMax:=Max(BoundsMax,Triangle^.Center.xyz[AxisIndex]);
+    if TriangleIndex=0 then begin
+     BoundsMin:=Triangle^.Center.xyz[AxisIndex];
+     BoundsMax:=Triangle^.Center.xyz[AxisIndex];
+    end else begin
+     BoundsMin:=Min(BoundsMin,Triangle^.Center.xyz[AxisIndex]);
+     BoundsMax:=Max(BoundsMax,Triangle^.Center.xyz[AxisIndex]);
+    end;
    end;
 
-   if BoundsMin<>BoundsMax then begin
+   if not SameValue(BoundsMin,BoundsMax) then begin
 
     Scale:=CountBINs/(BoundsMax-BoundsMin);
 
@@ -21860,7 +21879,7 @@ begin
      end else begin
       LeftBounds:=AABBCombine(LeftBounds,BIN^.Bounds);
      end;
-     LeftArea[BINIndex]:=AABBArea(LeftBounds);
+     LeftArea[BINIndex]:=AABBAreaEx(LeftBounds);
 
      BIN:=@BINs[CountBINs-(BINIndex+1)];
      inc(RightSum,BIN^.Count);
@@ -21870,7 +21889,7 @@ begin
      end else begin
       RightBounds:=AABBCombine(RightBounds,BIN^.Bounds);
      end;
-     RightArea[CountBINs-(BINIndex+2)]:=AABBArea(RightBounds);
+     RightArea[CountBINs-(BINIndex+2)]:=AABBAreaEx(RightBounds);
 
     end;
 
@@ -21894,7 +21913,7 @@ end;
 
 function TKraftMesh.CalculateNodeCost(const aParentTreeNode:PKraftMeshTreeNode):TKraftScalar;
 begin
- result:=AABBArea(aParentTreeNode^.AABB)*aParentTreeNode^.CountTriangles;
+ result:=AABBAreaEx(aParentTreeNode^.AABB)*aParentTreeNode^.CountTriangles;
 end;
 
 procedure TKraftMesh.UpdateNodeBounds(const aParentTreeNode:PKraftMeshTreeNode);
