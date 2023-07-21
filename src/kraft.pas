@@ -13620,7 +13620,103 @@ begin
  end;
 end;
 
-function SphereCastTriangle(const RayOrigin:TKraftVector3;const Radius:TKraftScalar;const RayDirection,v0,v1,v2:TKraftVector3;out Time,u,v,w:TKraftScalar):boolean;
+function SafeSphereCastTriangle(const RayOrigin:TKraftVector3;const Radius:TKraftScalar;const RayDirection,v0,v1,v2:TKraftVector3;out Time,u,v,w:TKraftScalar):boolean;
+var Normal,Offset,p:TKraftVector3;
+    TemporaryTime,tu,tv,tw:TKraftScalar;
+    DoNeedToCalculateUVW:boolean;
+begin
+
+ result:=false;
+
+ DoNeedToCalculateUVW:=false;
+
+ Time:=0.0;
+
+ if SquaredDistanceFromPointToTriangle(RayOrigin,v0,v1,v2,u,v,w)<=sqr(Radius) then begin
+  if u<=0.0 then begin
+   u:=0.0;
+  end else if u>=1.0 then begin
+   u:=1.0;
+  end;
+  if v<=0.0 then begin
+   v:=0.0;
+  end else if v>=1.0 then begin
+   v:=1.0;
+  end;
+  w:=1.0-(u+v);
+  result:=true;
+  exit;
+ end;
+
+ Normal:=Vector3NormEx(Vector3Cross(Vector3Sub(v1,v0),Vector3Sub(v2,v0)));
+
+ Offset:=Vector3ScalarMul(Normal,-Radius);
+ if RayIntersectTriangle(RayOrigin,
+                         RayDirection,
+                         Vector3Add(v0,Offset),
+                         Vector3Add(v1,Offset),
+                         Vector3Add(v2,Offset),
+                         TemporaryTime,
+                         u,
+                         v,
+                         w) then begin
+  if (not result) or (Time>TemporaryTime) then begin
+   Time:=TemporaryTime;
+   result:=true;
+  end;
+ end;
+
+ Offset:=Vector3ScalarMul(Normal,Radius);
+ if RayIntersectTriangle(RayOrigin,
+                         RayDirection,
+                         Vector3Add(v0,Offset),
+                         Vector3Add(v1,Offset),
+                         Vector3Add(v2,Offset),
+                         TemporaryTime,
+                         tu,
+                         tv,
+                         tw) then begin
+  if (not result) or (Time>TemporaryTime) then begin
+   Time:=TemporaryTime;
+   u:=tu;
+   v:=tv;
+   w:=tw;
+   result:=true;
+  end;
+ end;
+
+ if IntersectRayCapsule(RayOrigin,RayDirection,v0,v1,Radius,TemporaryTime) and (TemporaryTime>=0.0) then begin
+  if (not result) or (Time>TemporaryTime) then begin
+   Time:=TemporaryTime;
+   DoNeedToCalculateUVW:=true;
+   result:=true;
+  end;
+ end;
+
+ if IntersectRayCapsule(RayOrigin,RayDirection,v1,v2,Radius,TemporaryTime) and (TemporaryTime>=0.0) then begin
+  if (not result) or (Time>TemporaryTime) then begin
+   Time:=TemporaryTime;
+   DoNeedToCalculateUVW:=true;
+   result:=true;
+  end;
+ end;
+
+ if IntersectRayCapsule(RayOrigin,RayDirection,v2,v0,Radius,TemporaryTime) and (TemporaryTime>=0.0) then begin
+  if (not result) or (Time>TemporaryTime) then begin
+   Time:=TemporaryTime;
+   DoNeedToCalculateUVW:=true;
+   result:=true;
+  end;
+ end;
+
+ if DoNeedToCalculateUVW then begin
+  SIMDTriangleClosestPointTo(v0,v1,v2,Vector3Add(RayOrigin,Vector3ScalarMul(RayDirection,Time)),p);
+  CartesianToBarycentric(v0,v1,v2,p,u,v,w);
+ end;
+
+end;
+
+function OptimizedSphereCastTriangle(const RayOrigin:TKraftVector3;const Radius:TKraftScalar;const RayDirection,v0,v1,v2:TKraftVector3;out Time,u,v,w:TKraftScalar):boolean;
 const EPSILON={$ifdef KraftUseDouble}1e-16{$else}1e-7{$endif};
 var v0v1,v0v2,p,t,q,n,r:TKraftVector3;
     Determinant,InverseDeterminant,l,Temporary:TKraftScalar;
@@ -25989,32 +26085,32 @@ begin
   Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,fWorldTransform));
   if Vector3LengthSquared(Direction)>EPSILON then begin
    Vertices:=@fConvexHull.fVertices[0];
-   if SphereCastTriangle(Origin,
-                         SphereCastData.Radius,
-                         Direction,
-                         Vertices^[0].Position,
-                         Vertices^[1].Position,
-                         Vertices^[2].Position,
-                         Time,
-                         u,
-                         v,
-                         w) then begin
+   if SafeSphereCastTriangle(Origin,
+                             SphereCastData.Radius,
+                             Direction,
+                             Vertices^[0].Position,
+                             Vertices^[1].Position,
+                             Vertices^[2].Position,
+                             Time,
+                             u,
+                             v,
+                             w) then begin
     if (Time>=0.0) and (Time<=SphereCastData.MaxTime) then begin
      SphereCastData.TimeOfImpact:=Time;
      SphereCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
      SphereCastData.Normal:=Vector3TermMatrixMulBasis(Vector3NormEx(Vector3Cross(Vector3Sub(Vertices^[1].Position,Vertices^[0].Position),Vector3Sub(Vertices^[2].Position,Vertices^[0].Position))),fWorldTransform);
      result:=true;
     end;
-   end else if SphereCastTriangle(Origin,
-                                  SphereCastData.Radius,
-                                  Direction,
-                                  Vertices^[2].Position,
-                                  Vertices^[1].Position,
-                                  Vertices^[0].Position,
-                                  Time,
-                                  u,
-                                  v,
-                                  w) then begin
+   end else if SafeSphereCastTriangle(Origin,
+                                      SphereCastData.Radius,
+                                      Direction,
+                                      Vertices^[2].Position,
+                                      Vertices^[1].Position,
+                                      Vertices^[0].Position,
+                                      Time,
+                                      u,
+                                      v,
+                                      w) then begin
     if (Time>=0.0) and (Time<=SphereCastData.MaxTime) then begin
      SphereCastData.TimeOfImpact:=Time;
      SphereCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
@@ -26268,16 +26364,16 @@ begin
       for TriangleIndex:=SkipListNode^.FirstTriangleIndex to SkipListNode^.FirstTriangleIndex+(SkipListNode^.CountTriangles-1) do begin
        Triangle:=@fMesh.fTriangles[TriangleIndex];
        for SidePass:=false to fMesh.fDoubleSided do begin
-        if SphereCastTriangle(Origin,
-                              Radius,
-                              Direction,
-                              fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],
-                              fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],
-                              fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],
-                              Time,
-                              u,
-                              v,
-                              w) then begin
+        if SafeSphereCastTriangle(Origin,
+                                  Radius,
+                                  Direction,
+                                  fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],
+                                  fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],
+                                  fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],
+                                  Time,
+                                  u,
+                                  v,
+                                  w) then begin
          p:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time));
          if ((Time>=0.0) and (Time<=SphereCastData.MaxTime)) and (First or (Time<Nearest)) then begin
           First:=false;
