@@ -12338,6 +12338,19 @@ begin
   result:=true;
  end else begin
   result:=false;
+  if RayIntersectTriangle(RayOrigin,
+                          RayDirection,
+                          v0,
+                          v1,
+                          v2,
+                          Time,
+                          aU,
+                          aV,
+                          aW) then begin
+   Time:=Time-Radius;
+   result:=true;
+   exit;
+  end;
  end;
 
 {$else}
