@@ -13945,6 +13945,15 @@ begin
 
 end;
 
+function SphereCastTriangle(const RayOrigin:TKraftVector3;const Radius:TKraftScalar;const RayDirection,v0,v1,v2:TKraftVector3;out Time,u,v,w:TKraftScalar):boolean; {$ifdef caninline}inline;{$endif}
+begin
+{$if true}
+ result:=OptimizedSphereCastTriangle(RayOrigin,Radius,RayDirection,v0,v1,v2,Time,u,v,w);
+{$else}
+ result:=SafeSphereCastTriangle(RayOrigin,Radius,RayDirection,v0,v1,v2,Time,u,v,w);
+{$ifend}
+end;
+
 function MPRIntersection(const ShapeA,ShapeB:TKraftShape;const TransformA,TransformB:TKraftMatrix4x4):boolean;
 var Phase1Iteration,Phase2Iterations:TKraftInt32;
     v0,v1,v2,v3,v4,t,n:TKraftVector3;
@@ -26085,32 +26094,32 @@ begin
   Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,fWorldTransform));
   if Vector3LengthSquared(Direction)>EPSILON then begin
    Vertices:=@fConvexHull.fVertices[0];
-   if SafeSphereCastTriangle(Origin,
-                             SphereCastData.Radius,
-                             Direction,
-                             Vertices^[0].Position,
-                             Vertices^[1].Position,
-                             Vertices^[2].Position,
-                             Time,
-                             u,
-                             v,
-                             w) then begin
+   if SphereCastTriangle(Origin,
+                         SphereCastData.Radius,
+                         Direction,
+                         Vertices^[0].Position,
+                         Vertices^[1].Position,
+                         Vertices^[2].Position,
+                         Time,
+                         u,
+                         v,
+                         w) then begin
     if (Time>=0.0) and (Time<=SphereCastData.MaxTime) then begin
      SphereCastData.TimeOfImpact:=Time;
      SphereCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
      SphereCastData.Normal:=Vector3TermMatrixMulBasis(Vector3NormEx(Vector3Cross(Vector3Sub(Vertices^[1].Position,Vertices^[0].Position),Vector3Sub(Vertices^[2].Position,Vertices^[0].Position))),fWorldTransform);
      result:=true;
     end;
-   end else if SafeSphereCastTriangle(Origin,
-                                      SphereCastData.Radius,
-                                      Direction,
-                                      Vertices^[2].Position,
-                                      Vertices^[1].Position,
-                                      Vertices^[0].Position,
-                                      Time,
-                                      u,
-                                      v,
-                                      w) then begin
+   end else if SphereCastTriangle(Origin,
+                                  SphereCastData.Radius,
+                                  Direction,
+                                  Vertices^[2].Position,
+                                  Vertices^[1].Position,
+                                  Vertices^[0].Position,
+                                  Time,
+                                  u,
+                                  v,
+                                  w) then begin
     if (Time>=0.0) and (Time<=SphereCastData.MaxTime) then begin
      SphereCastData.TimeOfImpact:=Time;
      SphereCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
@@ -26364,16 +26373,16 @@ begin
       for TriangleIndex:=SkipListNode^.FirstTriangleIndex to SkipListNode^.FirstTriangleIndex+(SkipListNode^.CountTriangles-1) do begin
        Triangle:=@fMesh.fTriangles[TriangleIndex];
        for SidePass:=false to fMesh.fDoubleSided do begin
-        if SafeSphereCastTriangle(Origin,
-                                  Radius,
-                                  Direction,
-                                  fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],
-                                  fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],
-                                  fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],
-                                  Time,
-                                  u,
-                                  v,
-                                  w) then begin
+        if SphereCastTriangle(Origin,
+                              Radius,
+                              Direction,
+                              fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],
+                              fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],
+                              fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],
+                              Time,
+                              u,
+                              v,
+                              w) then begin
          p:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time));
          if ((Time>=0.0) and (Time<=SphereCastData.MaxTime)) and (First or (Time<Nearest)) then begin
           First:=false;
