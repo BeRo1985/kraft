@@ -13431,8 +13431,9 @@ begin
 end;
 
 function IntersectRayCapsule(const aRayOrigin,aRayDirection,aPA,aPB:TKraftVector3;const aRadius:TKraftScalar;out aTime:TKraftScalar):boolean;
-var baba,bard,baoa,rdoa,oaoa,a,b,c,h,t,y:TKraftScalar;
-    ba,oa,oc:TKraftVector3;
+const RaySurfaceOffset=10.0;
+var baba,bard,baoa,rdoa,oaoa,a,b,c,h,t,y,l:TKraftScalar;
+    o,ba,oa,oc:TKraftVector3;
 begin
  // Loosely based on ideas from https://iquilezles.org/articles/intersectors where just only one of the
  // two spherical caps is checked for intersections, which is a nice optimization.
@@ -13442,19 +13443,34 @@ begin
  if t>0.0 then begin
   baba:=Vector3Dot(ba,ba);
   if t<baba then begin
-   t:=Vector3Length(Vector3Sub(oa,Vector3ScalarMul(ba,t/baba)))-aRadius;
+   l:=Vector3Length(Vector3Sub(oa,Vector3ScalarMul(ba,t/baba)))-aRadius;
   end else begin
-   t:=Vector3Length(Vector3Sub(oa,ba))-aRadius;
+   l:=Vector3Length(Vector3Sub(oa,ba))-aRadius;
   end;
  end else begin
-  t:=Vector3Length(oa)-aRadius;
+  l:=Vector3Length(oa)-aRadius;
  end;
- if t<=0.0 then begin
+ if l<=0.0 then begin
   // Inside
   aTime:=0.0;
   result:=true;
  end else begin
   // Not inside
+  begin
+   // If l is greater than RaySurfaceOffset, the ray origin is moved close towards the capsule
+   // to solve accuracy issues.
+   if l>RaySurfaceOffset then begin
+    l:=l-RaySurfaceOffset;
+    o:=Vector3Add(aRayOrigin,Vector3ScalarMul(aRayDirection,l));
+    oa:=Vector3Sub(o,aPA);
+   end else begin
+    // If l is smaller than RaySurfaceOffset, then the accurary should be already good enough, so
+    // the ray origin isn't offseted towards the capsule in this case.
+    l:=0.0;
+    o:=aRayOrigin;
+    // Reuse the already existent oa result, since the ray origin isn't touched here in this case
+   end;
+  end;
   baba:=Vector3Dot(ba,ba);
   bard:=Vector3Dot(ba,aRayDirection);
   baoa:=Vector3Dot(ba,oa);
@@ -13468,20 +13484,20 @@ begin
    t:=((-b)-sqrt(h))/a;
    y:=baoa+(bard*t);
    if (y>0.0) and (y<baba) then begin
-    aTime:=t; // Body
+    aTime:=t+l; // Body
     result:=true;
    end else begin
     // Caps
     if y<=0.0 then begin
      oc:=oa;
     end else begin
-     oc:=Vector3Sub(aRayOrigin,aPB);
+     oc:=Vector3Sub(o,aPB);
     end;
     b:=Vector3Dot(aRayDirection,oc);
     c:=Vector3Dot(oc,oc)-sqr(aRadius);
     h:=sqr(b)-c;
     if h>0.0 then begin
-     aTime:=(-b)-sqrt(h);
+     aTime:=((-b)-sqrt(h))+l;
      result:=true;
     end else begin
      result:=false;
