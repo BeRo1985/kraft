@@ -165,7 +165,7 @@ unit kraft;
  {$ifend}
  {$if defined(SIMDASM)}
   {$define SIMD}
-  {$undef SIMDASM}
+  //{$undef SIMDASM}
  {$ifend}
 {$endif}
 {$undef USE_CONSTREF_EX} // for later usage if needed, for to investigate further FPC codegen issues in the future
@@ -13817,35 +13817,6 @@ begin
  v0v2.w:=0.0;
 {$endif}
 
- n.x:=(v0v1.y*v0v2.z)-(v0v1.z*v0v2.y);
- n.y:=(v0v1.z*v0v2.x)-(v0v1.x*v0v2.z);
- n.z:=(v0v1.x*v0v2.y)-(v0v1.y*v0v2.x);
-{$ifdef SIMD}
- n.w:=0.0;
-{$endif}
- l:=sqr(n.x)+sqr(n.y)+sqr(n.z);
- if l>0.0 then begin
-  l:=1.0/sqrt(l);
-  n.x:=n.x*l;
-  n.y:=n.y*l;
-  n.z:=n.z*l;
- end;
-
- // The first point of the sphere that will hit the triangle plane is the closest point of the sphere to
- // the triangle plane. For this reason, hereafter RayOrigin - (Normal * Radius) will be applied here
- // later.
- r.x:=n.x*Radius;
- r.y:=n.y*Radius;
- r.z:=n.z*Radius;
-{$ifdef SIMD}
- r.w:=0.0;
-{$endif}
- if ((RayDirection.x*r.x)+(RayDirection.y*r.y)+(RayDirection.z*r.z))>=0.0 then begin
-  r.x:=-r.x;
-  r.y:=-r.y;
-  r.z:=-r.z;
- end;
-
  p.x:=(RayDirection.y*v0v2.z)-(RayDirection.z*v0v2.y);
  p.y:=(RayDirection.z*v0v2.x)-(RayDirection.x*v0v2.z);
  p.z:=(RayDirection.x*v0v2.y)-(RayDirection.y*v0v2.x);
@@ -13889,6 +13860,34 @@ begin
  end;
 
  InverseDeterminant:=1.0/Determinant;
+
+ n.x:=(v0v1.y*v0v2.z)-(v0v1.z*v0v2.y);
+ n.y:=(v0v1.z*v0v2.x)-(v0v1.x*v0v2.z);
+ n.z:=(v0v1.x*v0v2.y)-(v0v1.y*v0v2.x);
+{$ifdef SIMD}
+ n.w:=0.0;
+{$endif}
+ l:=sqr(n.x)+sqr(n.y)+sqr(n.z);
+ if l>0.0 then begin
+  l:=1.0/sqrt(l);
+  n.x:=n.x*l;
+  n.y:=n.y*l;
+  n.z:=n.z*l;
+ end;
+
+ // The first point of the sphere that will hit the triangle plane is the closest point of the sphere to
+ // the triangle plane. For this reason, hereafter RayOrigin - (Normal * Radius) will be applied here.
+ r.x:=n.x*Radius;
+ r.y:=n.y*Radius;
+ r.z:=n.z*Radius;
+{$ifdef SIMD}
+ r.w:=0.0;
+{$endif}
+ if ((RayDirection.x*r.x)+(RayDirection.y*r.y)+(RayDirection.z*r.z))>=0.0 then begin
+  r.x:=-r.x;
+  r.y:=-r.y;
+  r.z:=-r.z;
+ end;
 
  t.x:=RayOrigin.x-(r.x+v0.x);
  t.y:=RayOrigin.y-(r.y+v0.y);
