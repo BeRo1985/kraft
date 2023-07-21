@@ -2201,7 +2201,7 @@ end;
 
 function TKraftRayCastVehicle.TWheel.GetSuspensionHitPosition:TKraftVector3;
 begin
- result:=Vector3Add(GetSuspensionPosition,Vector3ScalarMul(fVehicle.fWorldDown,fSuspensionLength));
+ result:=Vector3Add(GetSuspensionPosition,Vector3ScalarMul(fVehicle.fWorldDown,fSuspensionLength+fSettings.Radius));
 end;
 
 function TKraftRayCastVehicle.TWheel.GetWheelLongitudinalDirection:TKraftVector3;
