@@ -13430,238 +13430,65 @@ begin
  end;
 end;
 
-function IntersectRayCapsuleInternal(const aRayOrigin,aRayDirection,aP0,aP1:TKraftVector3;const aRadius:TKraftScalar;const aS_:PKraftScalars):TKraftInt32;
-var kW,kU,kV,kD,kDiff,kP:TKraftVector3;
-    fWLength,d0,d1,ApproxLength,fInvLength,fDLength,fInvDLength,fRadiusSqr,
-    fAxisDir,fDiscr,fRoot,fA,fB,fC,fInv,fT,fTmp:TKraftScalar;
+function IntersectRayCapsule(const aRayOrigin,aRayDirection,aPA,aPB:TKraftVector3;const aRadius:TKraftScalar;out aTime:TKraftScalar):boolean;
+var baba,bard,baoa,rdoa,oaoa,a,b,c,h,t,y:TKraftScalar;
+    ba,oa,oc:TKraftVector3;
 begin
- kW:=Vector3Sub(aP1,aP0);
- fWLength:=Vector3Length(kW);
- if fWLength>0.0 then begin
-  kW:=Vector3Norm(kW);
- end;
-
- if fWLength<=1e-6 then begin
-  d0:=Vector3DistSquared(aRayOrigin,aP0);
-  d1:=Vector3DistSquared(aRayOrigin,aP1);
-  ApproxLength:=(Max(d0,d1)+aRadius)*2.0;
-  if IntersectRaySphere(aRayDirection,aRayDirection,ApproxLength,aP0,aRadius,aS_^[0]) then begin
-   result:=1;
+ // Loosely based on ideas from https://iquilezles.org/articles/intersectors where just only one of the
+ // two spherical caps is checked for intersections, which is a nice optimization.
+ ba:=Vector3Sub(aPB,aPA);
+ oa:=Vector3Sub(aRayOrigin,aPA);
+ t:=Vector3Dot(ba,oa);
+ if t>0.0 then begin
+  baba:=Vector3Dot(ba,ba);
+  if t<baba then begin
+   t:=Vector3Length(Vector3Sub(oa,Vector3ScalarMul(ba,t/baba)))-aRadius;
   end else begin
-   result:=0;
-  end;
-  exit;
- end;
-
- kU:=Vector3Origin;
-
- if fWLength>0.0 then begin
-  if abs(kW.x)>=abs(kW.y) then begin
-   fInvLength:=1.0/sqrt(sqr(kW.x)+sqr(kW.z));
-   kU.x:=-kW.z*fInvLength;
-   kU.y:=0.0;
-   kU.z:=kW.x*fInvLength;
-  end else begin
-   fInvLength:=1.0/sqrt(sqr(kW.y)+sqr(kW.z));
-   kU.x:=0.0;
-   kU.y:=kW.z*fInvLength;
-   kU.z:=-kW.y*fInvLength;
-  end;
-{$ifdef SIMD}
-  kU.w:=0.0;
-{$endif}
- end;
-
- kV:=Vector3Norm(Vector3Cross(kW,kU));
-
- kD.x:=Vector3Dot(kU,aRayDirection);
- kD.y:=Vector3Dot(kV,aRayDirection);
- kD.z:=Vector3Dot(kW,aRayDirection);
-{$ifdef SIMD}
- kD.w:=0.0;
-{$endif}
- fDLength:=Vector3Length(kD);
- if fDLength>0.0 then begin
-  fInvDLength:=1.0/fDLength;
- end else begin
-  fInvDLength:=0.0;
- end;
- Vector3Scale(kD,fInvDLength);
-
- kDiff:=Vector3Sub(aRayOrigin,aP0);
- kP.x:=Vector3Dot(kU,kDiff);
- kP.y:=Vector3Dot(kV,kDiff);
- kP.z:=Vector3Dot(kW,kDiff);
-{$ifdef SIMD}
- kP.w:=0.0;
-{$endif}
- fRadiusSqr:=sqr(aRadius);
-
- if (abs(kD.z)>=(1.0-EPSILON)) or (fDLength<EPSILON) then begin
-
-  fAxisDir:=Vector3Dot(aRayDirection,kW);
-
-  fDiscr:=fRadiusSqr-(sqr(kP.x)+sqr(kP.y));
-  if (fAxisDir<0.0) and (fDiscr>=0.0) then begin
-   fRoot:=sqrt(fDiscr);
-   aS_^[0]:=(kP.z+fRoot)*fInvDLength;
-   aS_^[1]:=-((fWLength-kP.z)+fRoot)*fInvDLength;
-   result:=2;
-   exit;
-  end else if (fAxisDir>0.0) and (fDiscr>=0.0) then begin
-   fRoot:=sqrt(fDiscr);
-   aS_^[0]:=-(kP.z+fRoot)*fInvDLength;
-   aS_^[1]:=((fWLength-kP.z)+fRoot)*fInvDLength;
-   result:=2;
-   exit;
-  end else begin
-   result:=0;
-   exit;
-  end;
- end;
-
- // infinite cylinder
- fA:=sqr(kD.x)+sqr(kD.y);
- fB:=(kP.x*kD.x)+(kP.y*kD.y);
- fC:=(sqr(kP.x)+sqr(kP.y))-fRadiusSqr;
- fDiscr:=sqr(fB)-(fA*fC);
- if fDiscr<0.0 then begin
-  result:=0;
-  exit;
- end;
-
- result:=0;
-
- if fDiscr>0.0 then begin
-  fRoot:=sqrt(fDiscr);
-  fInv:=1.0/fA;
-  fT:=((-fB)-fRoot)*fInv;
-  fTmp:=kP.z+(fT*kD.z);
-  if (fTmp>=-(1e-3)) and (fTmp<=(fWLength+(1e-3))) then begin
-   aS_^[result]:=fT*fInvDLength;
-   inc(result);
-  end;
-  fT:=((-fB)+fRoot)*fInv;
-  fTmp:=kP.z+(fT*kD.z);
-  if (fTmp>=-(1e-3)) and (fTmp<=(fWLength+(1e-3))) then begin
-   aS_^[result]:=fT*fInvDLength;
-   inc(result);
-  end;
-  if result=2 then begin
-   exit;
+   t:=Vector3Length(Vector3Sub(oa,ba))-aRadius;
   end;
  end else begin
-  // Tangent is parallel to infinite cylinder
-  fT:=-(fB/fA);
-  fTmp:=kP.z+(fT*kD.z);
-  if (0.0<=fTmp) and (fTmp<=fWLength) then begin
-   aS_^[0]:=fT*fInvDLength;
-   result:=1;
-   exit;
-  end;
+  t:=Vector3Length(oa)-aRadius;
  end;
-
- // Bottom hemisphere
- // fA:=1;
- fB:=fB+(kP.z*kD.z);
- fC:=fC+sqr(kP.z);
- fDiscr:=sqr(fB)-fC;
- if fDiscr>0.0 then begin
-  fRoot:=sqrt(fDiscr);
-  fT:=(-fB)-fRoot;
-  fTmp:=kP.z+(fT*kD.z);
-  if fTmp<=0.0 then begin
-   aS_^[result]:=fT*fInvDLength;
-   inc(result);
-   if result=2 then begin
-    exit;
-   end;
-  end;
-  fT:=(-fB)+fRoot;
-  fTmp:=kP.z+(fT*kD.z);
-  if fTmp<=0.0 then begin
-   aS_^[result]:=fT*fInvDLength;
-   inc(result);
-   if result=2 then begin
-    exit;
-   end;
-  end;
- end else if fDiscr=0.0 then begin
-  fT:=-fB;
-  fTmp:=kP.z+(fT*kD.z);
-  if fTmp<=0.0 then begin
-   aS_^[result]:=fT*fInvDLength;
-   inc(result);
-   if result=2 then begin
-    exit;
-   end;
-  end;
- end;
-
- // Top hemisphere
- // fA:=1;
- fB:=fB-(kD.z*fWLength);
- fC:=fC+(fWLength*(fWLength-(2.0*kP.z)));
- fDiscr:=sqr(fB)-fC;
- if fDiscr>0.0 then begin
-  fRoot:=sqrt(fDiscr);
-  fT:=(-fB)-fRoot;
-  fTmp:=kP.z+(fT*kD.z);
-  if fTmp>=fWLength then begin
-   aS_^[result]:=fT*fInvDLength;
-   inc(result);
-   if result=2 then begin
-    exit;
-   end;
-  end;
-  fT:=(-fB)+fRoot;
-  fTmp:=kP.z+(fT*kD.z);
-  if fTmp>=fWLength then begin
-   aS_^[result]:=fT*fInvDLength;
-   inc(result);
-   if result=2 then begin
-    exit;
-   end;
-  end;
- end else if fDiscr=0.0 then begin
-  fT:=-fB;
-  fTmp:=kP.z+(fT*kD.z);
-  if fTmp>=fWLength then begin
-   aS_^[result]:=fT*fInvDLength;
-   inc(result);
-   if result=2 then begin
-    exit;
-   end;
-  end;
- end;
-end;
-
-function IntersectRayCapsule(const aRayOrigin,aRayDirection,aP0,aP1:TKraftVector3;const aRadius:TKraftScalar;out aTime:TKraftScalar):boolean;
-var l:TKraftScalar;
-    s:array[0..1] of TKraftScalar;
-begin
- l:=sqrt(SegmentSqrDistance(aP0,aP1,aRayOrigin))-aRadius;
- if l<=0.0 then begin
+ if t<=0.0 then begin
+  // Inside
   aTime:=0.0;
   result:=true;
  end else begin
-  if l>10.0 then begin
-   l:=l-10.0;
+  // Not inside
+  baba:=Vector3Dot(ba,ba);
+  bard:=Vector3Dot(ba,aRayDirection);
+  baoa:=Vector3Dot(ba,oa);
+  rdoa:=Vector3Dot(aRayDirection,oa);
+  oaoa:=Vector3Dot(oa,oa);
+  a:=baba-sqr(bard);
+  b:=(baba*rdoa)-(baoa*bard);
+  c:=((baba*oaoa)-sqr(baoa))-(sqr(aRadius)*baba);
+  h:=sqr(b)-(a*c);
+  if h>=0.0 then begin
+   t:=((-b)-sqrt(h))/a;
+   y:=baoa+(bard*t);
+   if (y>0.0) and (y<baba) then begin
+    aTime:=t; // Body
+    result:=true;
+   end else begin
+    // Caps
+    if y<=0.0 then begin
+     oc:=oa;
+    end else begin
+     oc:=Vector3Sub(aRayOrigin,aPB);
+    end;
+    b:=Vector3Dot(aRayDirection,oc);
+    c:=Vector3Dot(oc,oc)-sqr(aRadius);
+    h:=sqr(b)-c;
+    if h>0.0 then begin
+     aTime:=(-b)-sqrt(h);
+     result:=true;
+    end else begin
+     result:=false;
+    end;
+   end;
   end else begin
-   l:=0.0;
-  end;
-  case IntersectRayCapsuleInternal(Vector3Add(aRayOrigin,Vector3ScalarMul(aRayDirection,l)),aRayDirection,aP0,aP1,aRadius,@s) of
-   1:begin
-    aTime:=s[0]+l;
-    result:=true;
-   end;
-   2:begin
-    aTime:=Min(s[0],s[1])+l;
-    result:=true;
-   end;
-   else {0:}begin
-    result:=false;
-   end;
+   result:=false;
   end;
  end;
 end;
@@ -14003,263 +13830,6 @@ begin
   end;
 
  end;
-
-end;
-
-{$define AlternativeSphereCastTriangleImplementation}
-function OldSphereCastTriangleButBuggyWithFPC(const RayOrigin:TKraftVector3;const Radius:TKraftScalar;const RayDirection,v0,v1,v2:TKraftVector3;out Time,aU,aV,aW:TKraftScalar):boolean; overload;
-{$ifndef AlternativeSphereCastTriangleImplementation}
- function EdgeOrVertexTest(const aPlaneIntersectPoint:TKraftVector3;const aVertices:PPKraftVector3s;const aVertIntersectCandidate,aVert0,aVert1:TKraftInt32;out aSecondEdgeVert:TKraftInt32):boolean;
- var Edge,Diff:TKraftVector3;
- begin
-  Edge:=Vector3Sub(aVertices^[aVertIntersectCandidate]^,aVertices^[aVert0]^);
-  Diff:=Vector3Sub(aPlaneIntersectPoint,aVertices^[aVert0]^);
-  if Vector3Dot(Edge,Diff)<Vector3LengthSquared(Edge) then b2egin
-   aSecondEdgeVert:=aVert0;
-   result:=false;
-  end else begin
-   Edge:=Vector3Sub(aVertices^[aVertIntersectCandidate]^,aVertices^[aVert1]^);
-   Diff:=Vector3Sub(aPlaneIntersectPoint,aVertices^[aVert1]^);
-   if Vector3Dot(Edge,Diff)<Vector3LengthSquared(Edge) then begin
-    aSecondEdgeVert:=aVert1;
-    result:=false;
-   end else begin
-    result:=true;
-   end;
-  end;
- end;
-{$endif}
-var Edge10,Edge20,Normal,R,Origin,pvec,tvec,qvec{$ifndef AlternativeSphereCastTriangleImplementation},IntersectPoint{$endif}:TKraftVector3;
-    V,W,t,Det,OneOverDet:TKraftScalar;
-    {$ifdef AlternativeSphereCastTriangleImplementation}TestTwoEdges{$else}TestSphere{$endif}:boolean;
-    e0,e1{$ifdef AlternativeSphereCastTriangleImplementation},e2{$endif}:TKraftInt32;
-    Vertices:array[0..2] of TKraftVector3;
-begin
-
- Vertices[0]:=v0;
- Vertices[1]:=v1;
- Vertices[2]:=v2;
-
- if SquaredDistanceFromPointToTriangle(RayOrigin,v0,v1,v2,aU,aV,t)<=sqr(Radius) then begin
-  Time:=0.0;
-  if aU<=0.0 then begin
-   aU:=0.0;
-  end else if aU>=1.0 then begin
-   aU:=1.0;
-  end;
-  if aV<=0.0 then begin
-   aV:=0.0;
-  end else if aV>=1.0 then begin
-   aV:=1.0;
-  end;
-  aW:=1.0-(aU+aV);
-  result:=true;
-  exit;
- end;
-
- Edge10:=Vector3Sub(v1,v0);
- Edge20:=Vector3Sub(v2,v0);
-
- Normal:=Vector3NormEx(Vector3Cross(Edge10,Edge20));
-
- R:=Vector3ScalarMul(Normal,Radius);
- if Vector3Dot(RayDirection,R)>=0.0 then begin
-  R:=Vector3Neg(R);
-{ result:=false;
-  exit;}
- end;
-
- begin
-  Origin:=Vector3Sub(RayOrigin,R);
-  pvec:=Vector3Cross(RayDirection,Edge20);
-  Det:=Vector3Dot(Edge10,pvec);
-  if abs(Det)<EPSILON then begin
-   result:=false;
-   exit;
-  end;
-  OneOverDet:=1.0/Det;
-  tvec:=Vector3Sub(Origin,v0);
-  V:=Vector3Dot(tvec,pvec)*OneOverDet;
-  qvec:=Vector3Cross(tvec,Edge10);
-  W:=Vector3Dot(RayDirection,qvec)*OneOverDet;
-  if not ((V<0) or (V>1.0) or (W<0) or ((V+W)>1.0)) then begin
-   t:=Vector3Dot(Edge20,qvec)*OneOverDet;
-   if t<0.0 then begin
-    result:=false;
-    exit;
-   end else begin
-    Time:=t;
-    aU:=(1.0-V)-W;
-    aV:=V;
-    result:=true;
-    exit;
-   end;
-  end;
- end;
-
-{$ifdef AlternativeSphereCastTriangleImplementation}
- if V<0.0 then begin
-  if W<0.0 then begin
-   TestTwoEdges:=true;
-   e0:=0;
-   e1:=1;
-   e2:=2;
-  end else if (V+W)>1.0 then begin
-   TestTwoEdges:=true;
-   e0:=2;
-   e1:=0;
-   e2:=1;
-  end else begin
-   TestTwoEdges:=false;
-   e0:=0;
-   e1:=2;
-   e2:=0;
-  end;
- end else begin
-  if W<0.0 then begin
-   if (V+W)>1.0 then begin
-    TestTwoEdges:=true;
-    e0:=1;
-    e1:=0;
-    e2:=2;
-   end else begin
-    TestTwoEdges:=false;
-    e0:=0;
-    e1:=1;
-    e2:=0;
-   end;
-  end else begin
-   TestTwoEdges:=false;
-   e0:=1;
-   e1:=2;
-   e2:=0;
-  end;
- end;
-
- result:=false;
-
- Time:=Infinity;
-
-{if IntersectRayCapsule(RayOrigin,RayDirection,v0,v1,Radius,t) and (t>=0.0) then begin
-  if (not result) or (t<Time) then begin
-   Time:=t;
-   result:=true;
-  end;
- end;
- if IntersectRayCapsule(RayOrigin,RayDirection,v1,v2,Radius,t) and (t>=0.0) then begin
-  if (not result) or (t<Time) then begin
-   Time:=t;
-   result:=true;
-  end;
- end;
- if IntersectRayCapsule(RayOrigin,RayDirection,v2,v0,Radius,t) and (t>=0.0) then begin
-  if (not result) or (t<Time) then begin
-   Time:=t;
-   result:=true;
-  end;
- end;{}
-
- if IntersectRayCapsule(RayOrigin,RayDirection,Vertices[e0],Vertices[e1],Radius,t) and (t>=0.0) then begin
-  Time:=t;
-  result:=true;
- end;
-
- if TestTwoEdges then begin
-  if IntersectRayCapsule(RayOrigin,RayDirection,Vertices[e0],Vertices[e2],Radius,t) and (t>=0.0) then begin
-   if (not result) or (t<Time) then begin
-    Time:=t;
-    result:=true;
-   end;
-  end;
- end;
-
-{$else}
- if V<0.0 then begin
-  if W<0.0 then begin
-   e0:=0;
-   IntersectPoint:=Vector3Add(Vector3Add(Vector3ScalarMul(v1,V),Vector3ScalarMul(v2,W)),Vector3ScalarMul(v0,1.0-(V+W)));
-   TestSphere:=EdgeOrVertexTest(IntersectPoint,@Vertices,0,1,2,e1);
-  end else if (V+W)>1.0 then begin
-   e0:=2;
-   IntersectPoint:=Vector3Add(Vector3Add(Vector3ScalarMul(v1,V),Vector3ScalarMul(v2,W)),Vector3ScalarMul(v0,1.0-(V+W)));
-   TestSphere:=EdgeOrVertexTest(IntersectPoint,@Vertices,2,0,1,e1);
-  end else begin
-   TestSphere:=false;
-   e0:=0;
-   e1:=2;
-  end;
- end else begin
-  if W<0.0 then begin
-   if (V+W)>1.0 then begin
-    e0:=1;
-    IntersectPoint:=Vector3Add(Vector3Add(Vector3ScalarMul(v1,V),Vector3ScalarMul(v2,W)),Vector3ScalarMul(v0,1.0-(V+W)));
-    TestSphere:=EdgeOrVertexTest(IntersectPoint,@Vertices,1,0,2,e1);
-   end else begin
-    TestSphere:=false;
-    e0:=0;
-    e1:=1;
-   end;
-  end else begin
-   TestSphere:=false;
-   e0:=1;
-   e1:=2;
-  end;
- end;
-
- if TestSphere then begin
-  if IntersectRaySphere(RayOrigin,RayDirection,-1,Vertices[e0]^,Radius,t) then begin
-   Time:=t;
-   result:=true;
-  end else begin
-   result:=false;
-   exit;
-  end;
- end else begin
-  if IntersectRayCapsule(RayOrigin,RayDirection,Vertices[e0]^,Vertices[e1]^,Radius,t) then begin
-   Time:=t;
-   result:=true;
-  end else begin
-   result:=false;
-   exit;
-  end;
- end;
-{$endif}
-
- if V<=0.0 then begin
-  V:=0.0;
- end else if V>=1.0 then begin
-  V:=1.0;
- end;
-
- if W<=0.0 then begin
-  W:=0.0;
- end else if W>=1.0 then begin
-  W:=1.0;
- end;
-
- // Convert A*(1.0-U-V) + B*U + C*V into A*U + B*V + C*W baricentric coordinates, since it more common and more compatible of the rest of the code
- // So V is actually U and W is actually V in this procedure respectivly the other way around, depending on the view point
- aU:=(1.0-V)-W;
- aV:=V;
- aW:=W;
-
-{if not result then begin
-  if RayIntersectTriangle(RayOrigin,
-                          RayDirection,
-                          v0,
-                          v1,
-                          v2,
-                          t,
-                          aU,
-                          V,
-                          W) then begin
-   Time:=t-Radius;
-   aU:=(1.0-V)-W;
-   aV:=V;
-   aW:=W;
-   result:=true;
-  end;
- end;//}
 
 end;
 
