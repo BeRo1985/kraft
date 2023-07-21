@@ -13779,14 +13779,16 @@ end;
 
 function SphereCastTriangle(const RayOrigin:TKraftVector3;const Radius:TKraftScalar;const RayDirection,v0,v1,v2:TKraftVector3;out Time,u,v,w:TKraftScalar):boolean;
 const EPSILON={$ifdef KraftUseDouble}1e-16{$else}1e-7{$endif};
-var v0v1,v0v2,p,t,q:TKraftVector3;
-    Determinant,InverseDeterminant,Temporary:TKraftScalar;
+var v0v1,v0v2,p,t,q,n,r:TKraftVector3;
+    Determinant,InverseDeterminant,l,Temporary:TKraftScalar;
+    Edges:TKraftInt32;
 begin
 
  result:=false;
 
+ Time:=0.0;
+
  if SquaredDistanceFromPointToTriangle(RayOrigin,v0,v1,v2,u,v,w)<=sqr(Radius) then begin
-  Time:=0.0;
   if u<=0.0 then begin
    u:=0.0;
   end else if u>=1.0 then begin
@@ -13815,6 +13817,35 @@ begin
  v0v2.w:=0.0;
 {$endif}
 
+ n.x:=(v0v1.y*v0v2.z)-(v0v1.z*v0v2.y);
+ n.y:=(v0v1.z*v0v2.x)-(v0v1.x*v0v2.z);
+ n.z:=(v0v1.x*v0v2.y)-(v0v1.y*v0v2.x);
+{$ifdef SIMD}
+ n.w:=0.0;
+{$endif}
+ l:=sqr(n.x)+sqr(n.y)+sqr(n.z);
+ if l>0.0 then begin
+  l:=1.0/sqrt(l);
+  n.x:=n.x*l;
+  n.y:=n.y*l;
+  n.z:=n.z*l;
+ end;
+
+ // The first point of the sphere that will hit the triangle plane is the closest point of the sphere to
+ // the triangle plane. For this reason, hereafter RayOrigin - (Normal * Radius) will be applied here
+ // later.
+ r.x:=n.x*Radius;
+ r.y:=n.y*Radius;
+ r.z:=n.z*Radius;
+{$ifdef SIMD}
+ r.w:=0.0;
+{$endif}
+ if ((RayDirection.x*r.x)+(RayDirection.y*r.y)+(RayDirection.z*r.z))>=0.0 then begin
+  r.x:=-r.x;
+  r.y:=-r.y;
+  r.z:=-r.z;
+ end;
+
  p.x:=(RayDirection.y*v0v2.z)-(RayDirection.z*v0v2.y);
  p.y:=(RayDirection.z*v0v2.x)-(RayDirection.x*v0v2.z);
  p.z:=(RayDirection.x*v0v2.y)-(RayDirection.y*v0v2.x);
@@ -13824,14 +13855,44 @@ begin
 
  Determinant:=(v0v1.x*p.x)+(v0v1.y*p.y)+(v0v1.z*p.z);
  if Determinant<EPSILON then begin
+
+  if IntersectRayCapsule(RayOrigin,RayDirection,v0,v1,Radius,Temporary) and (Temporary>=0.0) then begin
+   if (not result) or (Time>Temporary) then begin
+    Time:=Temporary;
+    result:=true;
+   end;
+  end;
+
+  if IntersectRayCapsule(RayOrigin,RayDirection,v1,v2,Radius,Temporary) and (Temporary>=0.0) then begin
+   if (not result) or (Time>Temporary) then begin
+    Time:=Temporary;
+    result:=true;
+   end;
+  end;
+
+  if IntersectRayCapsule(RayOrigin,RayDirection,v2,v0,Radius,Temporary) and (Temporary>=0.0) then begin
+   if (not result) or (Time>Temporary) then begin
+    Time:=Temporary;
+    result:=true;
+   end;
+  end;
+
+  if result then begin
+   q.x:=RayOrigin.x+(RayDirection.x*Time);
+   q.y:=RayOrigin.y+(RayDirection.y*Time);
+   q.z:=RayOrigin.z+(RayDirection.z*Time);
+   SIMDTriangleClosestPointTo(v0,v1,v2,q,p);
+   CartesianToBarycentric(v0,v1,v2,p,u,v,w);
+  end;
+
   exit;
  end;
 
  InverseDeterminant:=1.0/Determinant;
 
- t.x:=RayOrigin.x-((RayDirection.x*Radius)+v0.x);
- t.y:=RayOrigin.y-((RayDirection.y*Radius)+v0.y);
- t.z:=RayOrigin.z-((RayDirection.z*Radius)+v0.z);
+ t.x:=RayOrigin.x-(r.x+v0.x);
+ t.y:=RayOrigin.y-(r.y+v0.y);
+ t.z:=RayOrigin.z-(r.z+v0.z);
 {$ifdef SIMD}
  t.w:=0.0;
 {$endif}
@@ -13849,54 +13910,80 @@ begin
 
  if (v<0.0) or (v>1.0) or (w<0.0) or ((v+w)>1.0) then begin
 
-{begin
+  {
+    Imagine the triangle below is the one formed by vertices v0, v1, and v2. Barycentric coordinates u, v, w
+    are assigned as follows: u corresponds to v0, v to v1, and w to v2. The closer a point is to a particular
+    vertex, the larger its corresponding barycentric coordinate.
 
-   if IntersectRaySphere(RayOrigin,RayDirection,-1,v0,Radius,Temporary) and (Temporary>=0.0) then begin
-    if (not result) or (Time>Temporary) then begin
-     Time:=Temporary;
-     result:=true;
-    end;
+    u/v2---------------------v/v0
+    | \                     / |
+    |   \                 /   |
+    |     \ (v<0, w<0)  /     |
+    |       \         /       |
+    |  (u<0, w<0) O (u<0, v<0)|
+    |       /         \       |
+    |     /   (u,v,w)   \     |
+    |   /                 \   |
+    | /  (w<0, u<0)        \  |
+    |/_______________________\|
+    w/v1                       u/v2
+
+    The point O represents the location that satisfies (u + v + w) = 1, i.e., the point is inside the triangle.
+    The areas divided by dashed lines represent the edge check areas.
+
+    - When the point is in the region labeled "(v<0, w<0)", the Edges flag gets set to 0, 0-1 or 2-0.
+    - When the point is in the region labeled "(u<0, v<0)", the Edges flag gets set to 1, 0-1 or 1-2.
+    - When the point is in the region labeled "(u<0, w<0)", the Edges flag gets set to 2, 2-0 or 1-2.
+
+    These edge checks are performed when the point lies outside the triangle, and the intersections are checked
+    with the help of IntersectRayCapsule function.
+  }
+
+  if v<0.0 then begin
+   if w<0.0 then begin
+    Edges:=(1 shl 0) or (1 shl 2); // 0, 0-1 or 2-0
+   end else if (V+W)>1.0 then begin
+    Edges:=(1 shl 1) or (1 shl 2); // 2 or 2-0 or 1-2
+   end else begin
+    Edges:=1 shl 2; // 2-0
    end;
-
-   if IntersectRaySphere(RayOrigin,RayDirection,-1,v1,Radius,Temporary) and (Temporary>=0.0) then begin
-    if (not result) or (Time>Temporary) then begin
-     Time:=Temporary;
-     result:=true;
+  end else begin
+   if w<0.0 then begin
+    if (v+w)>1.0 then begin
+     Edges:=(1 shl 0) or (1 shl 1); // 1 or 0-1 or 1-2
+    end else begin
+     Edges:=1 shl 0; // 0-1
     end;
+   end else begin
+    Edges:=1 shl 1; // 1-2
    end;
+  end;
 
-   if IntersectRaySphere(RayOrigin,RayDirection,-1,v2,Radius,Temporary) and (Temporary>=0.0) then begin
-    if (not result) or (Time>Temporary) then begin
-     Time:=Temporary;
-     result:=true;
-    end;
+  if ((Edges and (1 shl 0))<>0) and
+     (IntersectRayCapsule(RayOrigin,RayDirection,v0,v1,Radius,Temporary) and
+      (Temporary>=0.0)) then begin
+   if (not result) or (Time>Temporary) then begin
+    Time:=Temporary;
+    result:=true;
    end;
+  end;
 
-  end;}
-
-  begin
-
-   if IntersectRayCapsule(RayOrigin,RayDirection,v0,v1,Radius,Temporary) and (Temporary>=0.0) then begin
-    if (not result) or (Time>Temporary) then begin
-     Time:=Temporary;
-     result:=true;
-    end;
+  if ((Edges and (1 shl 1))<>0) and
+     (IntersectRayCapsule(RayOrigin,RayDirection,v1,v2,Radius,Temporary) and
+      (Temporary>=0.0)) then begin
+   if (not result) or (Time>Temporary) then begin
+    Time:=Temporary;
+    result:=true;
    end;
+  end;
 
-   if IntersectRayCapsule(RayOrigin,RayDirection,v1,v2,Radius,Temporary) and (Temporary>=0.0) then begin
-    if (not result) or (Time>Temporary) then begin
-     Time:=Temporary;
-     result:=true;
-    end;
+  if ((Edges and (1 shl 2))<>0) and
+     (IntersectRayCapsule(RayOrigin,RayDirection,v2,v0,Radius,Temporary) and
+      (Temporary>=0.0)) then begin
+   if (not result) or (Time>Temporary) then begin
+    Time:=Temporary;
+    result:=true;
    end;
-
-   if IntersectRayCapsule(RayOrigin,RayDirection,v2,v0,Radius,Temporary) and (Temporary>=0.0) then begin
-    if (not result) or (Time>Temporary) then begin
-     Time:=Temporary;
-     result:=true;
-    end;
-   end;
-
   end;
 
   if result then begin
@@ -13905,25 +13992,23 @@ begin
    q.z:=RayOrigin.z+(RayDirection.z*Time);
    SIMDTriangleClosestPointTo(v0,v1,v2,q,p);
    CartesianToBarycentric(v0,v1,v2,p,u,v,w);
-// SquaredDistanceFromPointToTriangle(q,v0,v1,v2,u,v,w);
   end;
 
  end else begin
 
   u:=1.0-(v+w);
 
-  Time:=(((v0v2.x*q.x)+(v0v2.y*q.y)+(v0v2.z*q.z))*InverseDeterminant)-(Radius*2.0);
+  Time:=((v0v2.x*q.x)+(v0v2.y*q.y)+(v0v2.z*q.z))*InverseDeterminant;
   if Time>=0.0 then begin
    result:=true;
   end;
 
  end;
 
-
 end;
 
 {$define AlternativeSphereCastTriangleImplementation}
-function SphereCastTriangle2(const RayOrigin:TKraftVector3;const Radius:TKraftScalar;const RayDirection,v0,v1,v2:TKraftVector3;out Time,aU,aV,aW:TKraftScalar):boolean; overload;
+function OldSphereCastTriangleButBuggyWithFPC(const RayOrigin:TKraftVector3;const Radius:TKraftScalar;const RayDirection,v0,v1,v2:TKraftVector3;out Time,aU,aV,aW:TKraftScalar):boolean; overload;
 {$ifndef AlternativeSphereCastTriangleImplementation}
  function EdgeOrVertexTest(const aPlaneIntersectPoint:TKraftVector3;const aVertices:PPKraftVector3s;const aVertIntersectCandidate,aVert0,aVert1:TKraftInt32;out aSecondEdgeVert:TKraftInt32):boolean;
  var Edge,Diff:TKraftVector3;
@@ -14056,7 +14141,7 @@ begin
 
  Time:=Infinity;
 
- if IntersectRayCapsule(RayOrigin,RayDirection,v0,v1,Radius,t) and (t>=0.0) then begin
+{if IntersectRayCapsule(RayOrigin,RayDirection,v0,v1,Radius,t) and (t>=0.0) then begin
   if (not result) or (t<Time) then begin
    Time:=t;
    result:=true;
@@ -14073,9 +14158,9 @@ begin
    Time:=t;
    result:=true;
   end;
- end;
+ end;{}
 
-{if IntersectRayCapsule(RayOrigin,RayDirection,Vertices[e0],Vertices[e1],Radius,t) and (t>=0.0) then begin
+ if IntersectRayCapsule(RayOrigin,RayDirection,Vertices[e0],Vertices[e1],Radius,t) and (t>=0.0) then begin
   Time:=t;
   result:=true;
  end;
@@ -14087,7 +14172,7 @@ begin
     result:=true;
    end;
   end;
- end;         }
+ end;
 
 {$else}
  if V<0.0 then begin
