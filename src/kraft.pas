@@ -22028,6 +22028,7 @@ begin
       SplitCost:=FindBestSplitPlaneBruteforce(ParentTreeNode,AxisIndex,SplitPosition);
      end;
     end;
+
     if SplitCost<CalculateNodeCost(ParentTreeNode) then begin
 
      LeftIndex:=ParentTreeNode^.FirstTriangleIndex;
