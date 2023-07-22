@@ -13430,6 +13430,8 @@ begin
  end;
 end;
 
+{$define UseOptimizedIntersectRayCapsule}
+{$ifdef UseOptimizedIntersectRayCapsule}
 function IntersectRayCapsule(const aRayOrigin,aRayDirection,aPA,aPB:TKraftVector3;const aRadius:TKraftScalar;out aTime:TKraftScalar):boolean;
 const RaySurfaceOffset=10.0;
 var baba,bard,baoa,rdoa,oaoa,a,b,c,h,t,y,l:TKraftScalar;
@@ -13508,6 +13510,243 @@ begin
   end;
  end;
 end;
+{$else}
+function IntersectRayCapsuleInternal(const aRayOrigin,aRayDirection,aP0,aP1:TKraftVector3;const aRadius:TKraftScalar;const aS_:PKraftScalars):TKraftInt32;
+var kW,kU,kV,kD,kDiff,kP:TKraftVector3;
+    fWLength,d0,d1,ApproxLength,fInvLength,fDLength,fInvDLength,fRadiusSqr,
+    fAxisDir,fDiscr,fRoot,fA,fB,fC,fInv,fT,fTmp:TKraftScalar;
+begin
+ kW:=Vector3Sub(aP1,aP0);
+ fWLength:=Vector3Length(kW);
+ if fWLength>0.0 then begin
+  kW:=Vector3Norm(kW);
+ end;
+
+ if fWLength<=1e-6 then begin
+  d0:=Vector3DistSquared(aRayOrigin,aP0);
+  d1:=Vector3DistSquared(aRayOrigin,aP1);
+  ApproxLength:=(Max(d0,d1)+aRadius)*2.0;
+  if IntersectRaySphere(aRayDirection,aRayDirection,ApproxLength,aP0,aRadius,aS_^[0]) then begin
+   result:=1;
+  end else begin
+   result:=0;
+  end;
+  exit;
+ end;
+
+ kU:=Vector3Origin;
+
+ if fWLength>0.0 then begin
+  if abs(kW.x)>=abs(kW.y) then begin
+   fInvLength:=1.0/sqrt(sqr(kW.x)+sqr(kW.z));
+   kU.x:=-kW.z*fInvLength;
+   kU.y:=0.0;
+   kU.z:=kW.x*fInvLength;
+  end else begin
+   fInvLength:=1.0/sqrt(sqr(kW.y)+sqr(kW.z));
+   kU.x:=0.0;
+   kU.y:=kW.z*fInvLength;
+   kU.z:=-kW.y*fInvLength;
+  end;
+{$ifdef SIMD}
+  kU.w:=0.0;
+{$endif}
+ end;
+
+ kV:=Vector3Norm(Vector3Cross(kW,kU));
+
+ kD.x:=Vector3Dot(kU,aRayDirection);
+ kD.y:=Vector3Dot(kV,aRayDirection);
+ kD.z:=Vector3Dot(kW,aRayDirection);
+{$ifdef SIMD}
+ kD.w:=0.0;
+{$endif}
+ fDLength:=Vector3Length(kD);
+ if fDLength>0.0 then begin
+  fInvDLength:=1.0/fDLength;
+ end else begin
+  fInvDLength:=0.0;
+ end;
+ Vector3Scale(kD,fInvDLength);
+
+ kDiff:=Vector3Sub(aRayOrigin,aP0);
+ kP.x:=Vector3Dot(kU,kDiff);
+ kP.y:=Vector3Dot(kV,kDiff);
+ kP.z:=Vector3Dot(kW,kDiff);
+{$ifdef SIMD}
+ kP.w:=0.0;
+{$endif}
+ fRadiusSqr:=sqr(aRadius);
+
+ if (abs(kD.z)>=(1.0-EPSILON)) or (fDLength<EPSILON) then begin
+
+  fAxisDir:=Vector3Dot(aRayDirection,kW);
+
+  fDiscr:=fRadiusSqr-(sqr(kP.x)+sqr(kP.y));
+  if (fAxisDir<0.0) and (fDiscr>=0.0) then begin
+   fRoot:=sqrt(fDiscr);
+   aS_^[0]:=(kP.z+fRoot)*fInvDLength;
+   aS_^[1]:=-((fWLength-kP.z)+fRoot)*fInvDLength;
+   result:=2;
+   exit;
+  end else if (fAxisDir>0.0) and (fDiscr>=0.0) then begin
+   fRoot:=sqrt(fDiscr);
+   aS_^[0]:=-(kP.z+fRoot)*fInvDLength;
+   aS_^[1]:=((fWLength-kP.z)+fRoot)*fInvDLength;
+   result:=2;
+   exit;
+  end else begin
+   result:=0;
+   exit;
+  end;
+ end;
+
+ // infinite cylinder
+ fA:=sqr(kD.x)+sqr(kD.y);
+ fB:=(kP.x*kD.x)+(kP.y*kD.y);
+ fC:=(sqr(kP.x)+sqr(kP.y))-fRadiusSqr;
+ fDiscr:=sqr(fB)-(fA*fC);
+ if fDiscr<0.0 then begin
+  result:=0;
+  exit;
+ end;
+
+ result:=0;
+
+ if fDiscr>0.0 then begin
+  fRoot:=sqrt(fDiscr);
+  fInv:=1.0/fA;
+  fT:=((-fB)-fRoot)*fInv;
+  fTmp:=kP.z+(fT*kD.z);
+  if (fTmp>=-(1e-3)) and (fTmp<=(fWLength+(1e-3))) then begin
+   aS_^[result]:=fT*fInvDLength;
+   inc(result);
+  end;
+  fT:=((-fB)+fRoot)*fInv;
+  fTmp:=kP.z+(fT*kD.z);
+  if (fTmp>=-(1e-3)) and (fTmp<=(fWLength+(1e-3))) then begin
+   aS_^[result]:=fT*fInvDLength;
+   inc(result);
+  end;
+  if result=2 then begin
+   exit;
+  end;
+ end else begin
+  // Tangent is parallel to infinite cylinder
+  fT:=-(fB/fA);
+  fTmp:=kP.z+(fT*kD.z);
+  if (0.0<=fTmp) and (fTmp<=fWLength) then begin
+   aS_^[0]:=fT*fInvDLength;
+   result:=1;
+   exit;
+  end;
+ end;
+
+ // Bottom hemisphere
+ // fA:=1;
+ fB:=fB+(kP.z*kD.z);
+ fC:=fC+sqr(kP.z);
+ fDiscr:=sqr(fB)-fC;
+ if fDiscr>0.0 then begin
+  fRoot:=sqrt(fDiscr);
+  fT:=(-fB)-fRoot;
+  fTmp:=kP.z+(fT*kD.z);
+  if fTmp<=0.0 then begin
+   aS_^[result]:=fT*fInvDLength;
+   inc(result);
+   if result=2 then begin
+    exit;
+   end;
+  end;
+  fT:=(-fB)+fRoot;
+  fTmp:=kP.z+(fT*kD.z);
+  if fTmp<=0.0 then begin
+   aS_^[result]:=fT*fInvDLength;
+   inc(result);
+   if result=2 then begin
+    exit;
+   end;
+  end;
+ end else if fDiscr=0.0 then begin
+  fT:=-fB;
+  fTmp:=kP.z+(fT*kD.z);
+  if fTmp<=0.0 then begin
+   aS_^[result]:=fT*fInvDLength;
+   inc(result);
+   if result=2 then begin
+    exit;
+   end;
+  end;
+ end;
+
+ // Top hemisphere
+ // fA:=1;
+ fB:=fB-(kD.z*fWLength);
+ fC:=fC+(fWLength*(fWLength-(2.0*kP.z)));
+ fDiscr:=sqr(fB)-fC;
+ if fDiscr>0.0 then begin
+  fRoot:=sqrt(fDiscr);
+  fT:=(-fB)-fRoot;
+  fTmp:=kP.z+(fT*kD.z);
+  if fTmp>=fWLength then begin
+   aS_^[result]:=fT*fInvDLength;
+   inc(result);
+   if result=2 then begin
+    exit;
+   end;
+  end;
+  fT:=(-fB)+fRoot;
+  fTmp:=kP.z+(fT*kD.z);
+  if fTmp>=fWLength then begin
+   aS_^[result]:=fT*fInvDLength;
+   inc(result);
+   if result=2 then begin
+    exit;
+   end;
+  end;
+ end else if fDiscr=0.0 then begin
+  fT:=-fB;
+  fTmp:=kP.z+(fT*kD.z);
+  if fTmp>=fWLength then begin
+   aS_^[result]:=fT*fInvDLength;
+   inc(result);
+   if result=2 then begin
+    exit;
+   end;
+  end;
+ end;
+end;
+
+function IntersectRayCapsule(const aRayOrigin,aRayDirection,aP0,aP1:TKraftVector3;const aRadius:TKraftScalar;out aTime:TKraftScalar):boolean;
+var l:TKraftScalar;
+    s:array[0..1] of TKraftScalar;
+begin
+ l:=sqrt(SegmentSqrDistance(aP0,aP1,aRayOrigin))-aRadius;
+ if l<=0.0 then begin
+  aTime:=0.0;
+  result:=true;
+ end else begin
+  if l>10.0 then begin
+   l:=l-10.0;
+  end else begin
+   l:=0.0;
+  end;
+  case IntersectRayCapsuleInternal(Vector3Add(aRayOrigin,Vector3ScalarMul(aRayDirection,l)),aRayDirection,aP0,aP1,aRadius,@s) of
+   1:begin
+    aTime:=s[0]+l;
+    result:=true;
+   end;
+   2:begin
+    aTime:=Min(s[0],s[1])+l;
+    result:=true;
+   end;
+   else {0:}begin
+    result:=false;
+   end;
+  end;
+ end;
+end;
+{$endif}
 
 function SolveQuadraticRoots(const a,b,c:TKraftScalar;out t1,t2:TKraftScalar):boolean;
 var d,InverseDenominator:TKraftScalar;
@@ -13620,9 +13859,9 @@ begin
  end;
 end;
 
-function SafeSphereCastTriangle(const RayOrigin:TKraftVector3;const Radius:TKraftScalar;const RayDirection,v0,v1,v2:TKraftVector3;out Time,u,v,w:TKraftScalar):boolean;
-var Normal,Offset,p:TKraftVector3;
-    TemporaryTime,tu,tv,tw:TKraftScalar;
+function SafeSphereCastTriangle(const RayOrigin:TKraftVector3;const Radius:TKraftScalar;const RayDirection,v0,v1,v2,Normal:TKraftVector3;out Time,u,v,w:TKraftScalar):boolean;
+var p:TKraftVector3;
+    TemporaryTime:TKraftScalar;
     DoNeedToCalculateUVW:boolean;
 begin
 
@@ -13631,6 +13870,11 @@ begin
  DoNeedToCalculateUVW:=false;
 
  Time:=0.0;
+
+ if Vector3Dot(RayDirection,Normal)>=0.0 then begin
+  // Single-sided sphere cast => allow only one direction
+  exit;
+ end;
 
  if SquaredDistanceFromPointToTriangle(RayOrigin,v0,v1,v2,u,v,w)<=sqr(Radius) then begin
   if u<=0.0 then begin
@@ -13648,39 +13892,17 @@ begin
   exit;
  end;
 
- Normal:=Vector3NormEx(Vector3Cross(Vector3Sub(v1,v0),Vector3Sub(v2,v0)));
-
- Offset:=Vector3ScalarMul(Normal,-Radius);
- if RayIntersectTriangle(RayOrigin,
+ if RayIntersectTriangle(Vector3Sub(RayOrigin,Vector3ScalarMul(Normal,Radius)),
                          RayDirection,
-                         Vector3Add(v0,Offset),
-                         Vector3Add(v1,Offset),
-                         Vector3Add(v2,Offset),
+                         v0,
+                         v1,
+                         v2,
                          TemporaryTime,
                          u,
                          v,
                          w) then begin
   if (not result) or (Time>TemporaryTime) then begin
    Time:=TemporaryTime;
-   result:=true;
-  end;
- end;
-
- Offset:=Vector3ScalarMul(Normal,Radius);
- if RayIntersectTriangle(RayOrigin,
-                         RayDirection,
-                         Vector3Add(v0,Offset),
-                         Vector3Add(v1,Offset),
-                         Vector3Add(v2,Offset),
-                         TemporaryTime,
-                         tu,
-                         tv,
-                         tw) then begin
-  if (not result) or (Time>TemporaryTime) then begin
-   Time:=TemporaryTime;
-   u:=tu;
-   v:=tv;
-   w:=tw;
    result:=true;
   end;
  end;
@@ -13716,9 +13938,9 @@ begin
 
 end;
 
-function OptimizedSphereCastTriangle(const RayOrigin:TKraftVector3;const Radius:TKraftScalar;const RayDirection,v0,v1,v2:TKraftVector3;out Time,u,v,w:TKraftScalar):boolean;
+function OptimizedSphereCastTriangle(const RayOrigin:TKraftVector3;const Radius:TKraftScalar;const RayDirection,v0,v1,v2,Normal:TKraftVector3;out Time,u,v,w:TKraftScalar):boolean;
 const EPSILON={$ifdef KraftUseDouble}1e-16{$else}1e-7{$endif};
-var v0v1,v0v2,p,t,q,n,r:TKraftVector3;
+var v0v1,v0v2,p,t,q,r:TKraftVector3;
     Determinant,InverseDeterminant,l,Temporary:TKraftScalar;
     Edges:TKraftInt32;
 begin
@@ -13726,6 +13948,11 @@ begin
  result:=false;
 
  Time:=0.0;
+
+ if ((RayDirection.x*Normal.x)+(RayDirection.y*Normal.y)+(RayDirection.z*Normal.z))>=0.0 then begin
+  // Single-sided sphere cast => allow only one direction
+  exit;
+ end;
 
  if SquaredDistanceFromPointToTriangle(RayOrigin,v0,v1,v2,u,v,w)<=sqr(Radius) then begin
   if u<=0.0 then begin
@@ -13800,33 +14027,19 @@ begin
 
  InverseDeterminant:=1.0/Determinant;
 
- n.x:=(v0v1.y*v0v2.z)-(v0v1.z*v0v2.y);
- n.y:=(v0v1.z*v0v2.x)-(v0v1.x*v0v2.z);
- n.z:=(v0v1.x*v0v2.y)-(v0v1.y*v0v2.x);
-{$ifdef SIMD}
- n.w:=0.0;
-{$endif}
- l:=sqr(n.x)+sqr(n.y)+sqr(n.z);
- if l>0.0 then begin
-  l:=1.0/sqrt(l);
-  n.x:=n.x*l;
-  n.y:=n.y*l;
-  n.z:=n.z*l;
- end;
-
  // The first point of the sphere that will hit the triangle plane is the closest point of the sphere to
  // the triangle plane. For this reason, hereafter RayOrigin - (Normal * Radius) will be applied here.
- r.x:=n.x*Radius;
- r.y:=n.y*Radius;
- r.z:=n.z*Radius;
+ r.x:=Normal.x*Radius;
+ r.y:=Normal.y*Radius;
+ r.z:=Normal.z*Radius;
 {$ifdef SIMD}
  r.w:=0.0;
 {$endif}
- if ((RayDirection.x*r.x)+(RayDirection.y*r.y)+(RayDirection.z*r.z))>=0.0 then begin
+{if ((RayDirection.x*r.x)+(RayDirection.y*r.y)+(RayDirection.z*r.z))>=0.0 then begin
   r.x:=-r.x;
   r.y:=-r.y;
   r.z:=-r.z;
- end;
+ end;}
 
  t.x:=RayOrigin.x-(r.x+v0.x);
  t.y:=RayOrigin.y-(r.y+v0.y);
@@ -13945,15 +14158,239 @@ begin
 
 end;
 
-function SphereCastTriangle(const RayOrigin:TKraftVector3;const Radius:TKraftScalar;const RayDirection,v0,v1,v2:TKraftVector3;out Time,u,v,w:TKraftScalar):boolean; {$ifdef caninline}inline;{$endif}
+{$define AlternativeSphereCastTriangleImplementation}
+function OldSphereCastTriangle(const RayOrigin:TKraftVector3;const Radius:TKraftScalar;const RayDirection,v0,v1,v2,Normal:TKraftVector3;out Time,aU,aV,aW:TKraftScalar):boolean; overload;
+{$ifndef AlternativeSphereCastTriangleImplementation}
+ function EdgeOrVertexTest(const aPlaneIntersectPoint:TKraftVector3;const aVertices:PPKraftVector3s;const aVertIntersectCandidate,aVert0,aVert1:TKraftInt32;out aSecondEdgeVert:TKraftInt32):boolean;
+ var Edge,Diff:TKraftVector3;
+ begin
+  Edge:=Vector3Sub(aVertices^[aVertIntersectCandidate]^,aVertices^[aVert0]^);
+  Diff:=Vector3Sub(aPlaneIntersectPoint,aVertices^[aVert0]^);
+  if Vector3Dot(Edge,Diff)<Vector3LengthSquared(Edge) then begin
+   aSecondEdgeVert:=aVert0;
+   result:=false;
+  end else begin
+   Edge:=Vector3Sub(aVertices^[aVertIntersectCandidate]^,aVertices^[aVert1]^);
+   Diff:=Vector3Sub(aPlaneIntersectPoint,aVertices^[aVert1]^);
+   if Vector3Dot(Edge,Diff)<Vector3LengthSquared(Edge) then begin
+    aSecondEdgeVert:=aVert1;
+    result:=false;
+   end else begin
+    result:=true;
+   end;
+  end;
+ end;
+{$endif}
+var Edge10,Edge20,{Normal,}R,Origin,pvec,tvec,qvec{$ifndef AlternativeSphereCastTriangleImplementation},IntersectPoint{$endif}:TKraftVector3;
+    V,W,t,Det,OneOverDet:TKraftScalar;
+    {$ifdef AlternativeSphereCastTriangleImplementation}TestTwoEdges{$else}TestSphere{$endif}:boolean;
+    e0,e1{$ifdef AlternativeSphereCastTriangleImplementation},e2{$endif}:TKraftInt32;
+    Vertices:array[0..2] of PKraftVector3;
 begin
-{$if true}
-{result:=RayIntersectTriangle(RayOrigin,RayDirection,v0,v1,v2,Time,u,v,w);
- Time:=Time-Radius;}
- result:=OptimizedSphereCastTriangle(RayOrigin,Radius,RayDirection,v0,v1,v2,Time,u,v,w);
+
+ result:=false;
+
+ if Vector3Dot(RayDirection,Normal)>=0.0 then begin
+  // Single-sided sphere cast => allow only one direction
+  exit;
+ end;
+
+ Vertices[0]:=@v0;
+ Vertices[1]:=@v1;
+ Vertices[2]:=@v2;
+
+ if SquaredDistanceFromPointToTriangle(RayOrigin,v0,v1,v2,aU,aV,t)<=sqr(Radius) then begin
+  Time:=0.0;
+  if aU<=0.0 then begin
+   aU:=0.0;
+  end else if aU>=1.0 then begin
+   aU:=1.0;
+  end;
+  if aV<=0.0 then begin
+   aV:=0.0;
+  end else if aV>=1.0 then begin
+   aV:=1.0;
+  end;
+  aW:=1.0-(aU+aV);
+  result:=true;
+  exit;
+ end;
+
+ Edge10:=Vector3Sub(v1,v0);
+ Edge20:=Vector3Sub(v2,v0);
+
+ R:=Vector3ScalarMul(Normal,Radius);
+{if Vector3Dot(RayDirection,R)>=0.0 then begin
+  R:=Vector3Neg(R);
+ end;}
+
+ begin
+  Origin:=Vector3Sub(RayOrigin,R);
+  pvec:=Vector3Cross(RayDirection,Edge20);
+  Det:=Vector3Dot(Edge10,pvec);
+  if abs(Det)<EPSILON then begin
+   result:=false;
+   exit;
+  end;
+  OneOverDet:=1.0/Det;
+  tvec:=Vector3Sub(Origin,v0);
+  V:=Vector3Dot(tvec,pvec)*OneOverDet;
+  qvec:=Vector3Cross(tvec,Edge10);
+  W:=Vector3Dot(RayDirection,qvec)*OneOverDet;
+  if not ((V<0) or (V>1.0) or (W<0) or ((V+W)>1.0)) then begin
+   t:=Vector3Dot(Edge20,qvec)*OneOverDet;
+   if t<0.0 then begin
+    result:=false;
+    exit;
+   end else begin
+    Time:=t;
+    aU:=(1.0-V)-W;
+    aV:=V;
+    result:=true;
+    exit;
+   end;
+  end;
+ end;
+
+{$ifdef AlternativeSphereCastTriangleImplementation}
+ if V<0.0 then begin
+  if W<0.0 then begin
+   TestTwoEdges:=true;
+   e0:=0;
+   e1:=1;
+   e2:=2;
+  end else if (V+W)>1.0 then begin
+   TestTwoEdges:=true;
+   e0:=2;
+   e1:=0;
+   e2:=1;
+  end else begin
+   TestTwoEdges:=false;
+   e0:=0;
+   e1:=2;
+   e2:=0;
+  end;
+ end else begin
+  if W<0.0 then begin
+   if (V+W)>1.0 then begin
+    TestTwoEdges:=true;
+    e0:=1;
+    e1:=0;
+    e2:=2;
+   end else begin
+    TestTwoEdges:=false;
+    e0:=0;
+    e1:=1;
+    e2:=0;
+   end;
+  end else begin
+   TestTwoEdges:=false;
+   e0:=1;
+   e1:=2;
+   e2:=0;
+  end;
+ end;
+
+ if IntersectRayCapsule(RayOrigin,RayDirection,Vertices[e0]^,Vertices[e1]^,Radius,t) and (t>=0.0) then begin
+  Time:=t;
+  result:=true;
+ end else if TestTwoEdges and IntersectRayCapsule(RayOrigin,RayDirection,Vertices[e0]^,Vertices[e2]^,Radius,t) and (t>=0.0) then begin
+  Time:=t;
+  result:=true;
+ end else begin
+  result:=false;
+{ if RayIntersectTriangle(RayOrigin,
+                          RayDirection,
+                          v0,
+                          v1,
+                          v2,
+                          Time,
+                          aU,
+                          aV,
+                          aW) then begin
+   Time:=Time-Radius;
+   result:=true;
+   exit;
+  end;}
+ end;
+
 {$else}
- result:=SafeSphereCastTriangle(RayOrigin,Radius,RayDirection,v0,v1,v2,Time,u,v,w);
-{$ifend}
+ if V<0.0 then begin
+  if W<0.0 then begin
+   e0:=0;
+   IntersectPoint:=Vector3Add(Vector3Add(Vector3ScalarMul(v1,V),Vector3ScalarMul(v2,W)),Vector3ScalarMul(v0,1.0-(V+W)));
+   TestSphere:=EdgeOrVertexTest(IntersectPoint,@Vertices,0,1,2,e1);
+  end else if (V+W)>1.0 then begin
+   e0:=2;
+   IntersectPoint:=Vector3Add(Vector3Add(Vector3ScalarMul(v1,V),Vector3ScalarMul(v2,W)),Vector3ScalarMul(v0,1.0-(V+W)));
+   TestSphere:=EdgeOrVertexTest(IntersectPoint,@Vertices,2,0,1,e1);
+  end else begin
+   TestSphere:=false;
+   e0:=0;
+   e1:=2;
+  end;
+ end else begin
+  if W<0.0 then begin
+   if (V+W)>1.0 then begin
+    e0:=1;
+    IntersectPoint:=Vector3Add(Vector3Add(Vector3ScalarMul(v1,V),Vector3ScalarMul(v2,W)),Vector3ScalarMul(v0,1.0-(V+W)));
+    TestSphere:=EdgeOrVertexTest(IntersectPoint,@Vertices,1,0,2,e1);
+   end else begin
+    TestSphere:=false;
+    e0:=0;
+    e1:=1;
+   end;
+  end else begin
+   TestSphere:=false;
+   e0:=1;
+   e1:=2;
+  end;
+ end;
+
+ if TestSphere then begin
+  if IntersectRaySphere(RayOrigin,RayDirection,-1,Vertices[e0]^,Radius,t) then begin
+   Time:=t;
+   result:=true;
+  end else begin
+   result:=false;
+   exit;
+  end;
+ end else begin
+  if IntersectRayCapsule(RayOrigin,RayDirection,Vertices[e0]^,Vertices[e1]^,Radius,t) then begin
+   Time:=t;
+   result:=true;
+  end else begin
+   result:=false;
+   exit;
+  end;
+ end;
+{$endif}
+
+ if V<=0.0 then begin
+  V:=0.0;
+ end else if V>=1.0 then begin
+  V:=1.0;
+ end;
+
+ if W<=0.0 then begin
+  W:=0.0;
+ end else if W>=1.0 then begin
+  W:=1.0;
+ end;
+
+ // Convert A*(1.0-U-V) + B*U + C*V into A*U + B*V + C*W baricentric coordinates, since it more common and more compatible of the rest of the code
+ // So V is actually U and W is actually V in this procedure respectivly the other way around, depending on the view point
+ aU:=(1.0-V)-W;
+ aV:=V;
+ aW:=W;
+
+end;
+
+function SphereCastTriangle(const RayOrigin:TKraftVector3;const Radius:TKraftScalar;const RayDirection,v0,v1,v2,Normal:TKraftVector3;out Time,u,v,w:TKraftScalar):boolean; {$ifdef caninline}inline;{$endif}
+begin
+//result:=OptimizedSphereCastTriangle(RayOrigin,Radius,RayDirection,v0,v1,v2,Normal,Time,u,v,w);
+ result:=SafeSphereCastTriangle(RayOrigin,Radius,RayDirection,v0,v1,v2,Normal,Time,u,v,w);
+//result:=OldSphereCastTriangle(RayOrigin,Radius,RayDirection,v0,v1,v2,Normal,Time,u,v,w);
 end;
 
 function MPRIntersection(const ShapeA,ShapeB:TKraftShape;const TransformA,TransformB:TKraftMatrix4x4):boolean;
@@ -26103,6 +26540,7 @@ begin
                          Vertices^[0].Position,
                          Vertices^[1].Position,
                          Vertices^[2].Position,
+                         fShapeConvexHull.fFaces[0].Plane.Normal,
                          Time,
                          u,
                          v,
@@ -26119,6 +26557,7 @@ begin
                                   Vertices^[2].Position,
                                   Vertices^[1].Position,
                                   Vertices^[0].Position,
+                                  Vector3Neg(fShapeConvexHull.fFaces[0].Plane.Normal),
                                   Time,
                                   u,
                                   v,
@@ -26376,12 +26815,18 @@ begin
       for TriangleIndex:=SkipListNode^.FirstTriangleIndex to SkipListNode^.FirstTriangleIndex+(SkipListNode^.CountTriangles-1) do begin
        Triangle:=@fMesh.fTriangles[TriangleIndex];
        for SidePass:=false to fMesh.fDoubleSided do begin
+        if SidePass then begin
+         Normal:=Vector3Neg(Triangle^.Plane.Normal);
+        end else begin
+         Normal:=Triangle^.Plane.Normal;
+        end;
         if SphereCastTriangle(Origin,
                               Radius,
                               Direction,
                               fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],
                               fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],
                               fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],
+                              Normal,
                               Time,
                               u,
                               v,
