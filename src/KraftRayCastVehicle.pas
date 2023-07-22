@@ -271,6 +271,26 @@ type { TKraftRayCastVehicle }
               procedure Reset;
               function GetOverrideForce(const aRescueForce:TRescueForce;const aAbsoluteSpeedKMH,aOriginalForce:TKraftScalar;const aDeltaTime:TKraftDouble):TKraftScalar;
             end;
+            { TSuspensionSpringMath }
+            TSuspensionSpringMath=class
+             public
+              class function CalculateForce(const aCurrentLength,aRestLength,aStrength:TKraftScalar):TKraftScalar; static;
+              class function CalculateForceDamped(const aCurrentLength,aLengthVelocity,aRestLength,aStrength,aDamper:TKraftScalar):TKraftScalar; static;
+            end;
+            TSuspensionMode=
+             (
+              Arcade,
+              Realistic
+             );
+            PSuspensionMode=^TSuspensionMode;
+            { TSuspension }
+            TSuspension=record
+             private
+              fCurrentLength:TKraftScalar;
+              fCurrentVelocity:TKraftScalar;
+              fCompression:TKraftScalar;
+            end;
+            PSuspension=^TSuspension;
             { TSettings }
             TSettings=class // Vehicle settings
              public
@@ -402,6 +422,7 @@ type { TKraftRayCastVehicle }
                    end;
                    TAckermannGroups=Generics.Collections.TObjectList<TAckermannGroup>;
              private
+              fSuspensionMode:TKraftRayCastVehicle.TSuspensionMode;
               fWidth:TKraftScalar;
               fHeight:TKraftScalar;
               fLength:TKraftScalar;
@@ -451,6 +472,7 @@ type { TKraftRayCastVehicle }
               function SaveToJSON:TPasJSONItem;
 {$endif}
              public
+              property SuspensionMode:TKraftRayCastVehicle.TSuspensionMode read fSuspensionMode write fSuspensionMode;
               property Width:TKraftScalar read fWidth write fWidth;
               property Height:TKraftScalar read fHeight write fHeight;
               property Length:TKraftScalar read fLength write fLength;
@@ -505,6 +527,7 @@ type { TKraftRayCastVehicle }
               fSuspensionPreviousCompressionDistance:TKraftScalar;
               fSuspensionCompressionDistance:TKraftScalar;
               fSuspensionCompressionRatio:TKraftScalar;
+              fSuspension:TSuspension;
               fYawRad:TKraftScalar;
               fLastYawRad:TKraftScalar;
               fVisualYawRad:TKraftScalar;
@@ -542,6 +565,8 @@ type { TKraftRayCastVehicle }
               function GetWheelTorqueRelativePosition:TKraftVector3;
               function GetWheelTransform:TKraftMatrix4x4;
              private
+              procedure UpdateArcadeSuspension;
+              procedure UpdateRealisticSuspension;
               procedure UpdateSuspension;
               procedure UpdateLaterialForce;
               procedure UpdateAcceleration;
@@ -1261,6 +1286,20 @@ begin
  end;
 end;
 
+{ TKraftRayCastVehicle.TSuspensionSpringMath }
+
+// Calculates the force which wants to restore the suspension spring to its rest length.
+class function TKraftRayCastVehicle.TSuspensionSpringMath.CalculateForce(const aCurrentLength,aRestLength,aStrength:TKraftScalar):TKraftScalar;
+begin
+ result:=(aRestLength-aCurrentLength)*aStrength;
+end;
+
+// Combines the force which wants to restore the suspension spring to its rest length with the force which wants to damp the suspension spring's motion.
+class function TKraftRayCastVehicle.TSuspensionSpringMath.CalculateForceDamped(const aCurrentLength,aLengthVelocity,aRestLength,aStrength,aDamper:TKraftScalar):TKraftScalar;
+begin
+ result:=((aRestLength-aCurrentLength)*aStrength)-(aLengthVelocity*aDamper);
+end;
+
 { TKraftRayCastVehicle.TSettings.TWheel.TVisual }
 
 constructor TKraftRayCastVehicle.TSettings.TWheel.TVisual.Create(const aWheel:TKraftRaycastVehicle.TSettings.TWheel);
@@ -1531,6 +1570,8 @@ constructor TKraftRayCastVehicle.TSettings.Create;
 begin
  inherited Create;
 
+ fSuspensionMode:=TKraftRayCastVehicle.TSuspensionMode.Realistic;
+
  fWidth:=1.451598048210144;
  fHeight:=1.223848819732666;
  fLength:=2.0949294567108154;
@@ -1619,6 +1660,8 @@ var WheelFrontLeft,WheelFrontRight,WheelRearLeft,WheelRearRight:TKraftRayCastVeh
     AxleFront,AxleRear:TKraftRayCastVehicle.TSettings.TAxle;
     AckermannGroup:TKraftRayCastVehicle.TSettings.TAckermannGroup;
 begin
+
+ fSuspensionMode:=TKraftRayCastVehicle.TSuspensionMode.Realistic;
 
  // The rigid body physical dimensions as a box 
  fWidth:=1.451598048210144;
@@ -1889,6 +1932,12 @@ var JSONItem,OtherJSONItem:TPasJSONItem;
 begin
  if assigned(aJSONItem) and (aJSONItem is TPasJSONItemObject) then begin
 
+  if TPasJSON.GetString(TPasJSONItemObject(aJSONItem).Properties['suspensionmode'],'realistic')='arcade' then begin
+   fSuspensionMode:=TKraftRayCastVehicle.TSuspensionMode.Arcade;
+  end else begin
+   fSuspensionMode:=TKraftRayCastVehicle.TSuspensionMode.Realistic;
+  end;
+
   fWidth:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['width'],fWidth);
   fHeight:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['height'],fHeight);
   fLength:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['length'],fLength);  
@@ -2024,8 +2073,17 @@ begin
  
  result:=TPasJSONItemObject.Create;
 
+ case fSuspensionMode of
+  TKraftRayCastVehicle.TSuspensionMode.Arcade:begin
+   TPasJSONItemObject(result).Add('suspensionmode',TPasJSONItemString.Create('arcade'));
+  end;
+  else begin
+   TPasJSONItemObject(result).Add('suspensionmode',TPasJSONItemString.Create('realistic'));
+  end;
+ end;
+
  TPasJSONItemObject(result).Add('width',TPasJSONItemNumber.Create(fWidth));
- 
+
  TPasJSONItemObject(result).Add('height',TPasJSONItemNumber.Create(fHeight));
  
  TPasJSONItemObject(result).Add('length',TPasJSONItemNumber.Create(fLength));
@@ -2177,6 +2235,8 @@ begin
  fAxle:=nil;
  fIsGrounded:=false;
  fSuspensionLength:=0.0;
+ fSuspension.fCurrentLength:=0.0;
+ fSuspension.fCurrentVelocity:=0.0;
  fYawRad:=0.0;
  fRotationRad:=0.0;
  fWorldTransform:=Matrix4x4Identity;
@@ -2244,7 +2304,65 @@ begin
  PKraftVector3(@result[3,0])^.xyz:=WorldWheelPosition.xyz;
 end;
 
-procedure TKraftRayCastVehicle.TWheel.UpdateSuspension;
+procedure TKraftRayCastVehicle.TWheel.UpdateArcadeSuspension;
+var RayOrigin,RayDirection,HitPoint,HitNormal:TKraftVector3;
+    RayLength,PreviousLength,CurrentLength,HitTime,CurrentVelocity,Force:TKraftScalar;
+    HitShape:TKraftShape;
+begin
+
+ HitShape:=nil;
+
+ RayOrigin:=GetSuspensionPosition;
+ PreviousLength:=fSuspension.fCurrentLength;
+ RayDirection:=fVehicle.fWorldDown;
+ if fSettings.fUseSphereCast then begin
+  RayLength:=fSettings.fSuspensionRestLength-fSettings.fRadius;
+  if fVehicle.fPhysics.SphereCast(RayOrigin,fSettings.fRadius,RayDirection,RayLength,HitShape,HitTime,HitPoint,HitNormal,fVehicle.fCastCollisionGroups,fVehicle.RayCastFilter) then begin
+   CurrentLength:=HitTime+(fSettings.fRadius*2);
+   fIsGrounded:=true;
+  end else begin
+   CurrentLength:=fSettings.fSuspensionRestLength+fSettings.fRadius;
+   HitShape:=nil;
+   fIsGrounded:=false;
+  end;
+ end else begin
+  RayLength:=fSettings.fSuspensionRestLength+fSettings.fRadius;
+  if fVehicle.fPhysics.RayCast(RayOrigin,RayDirection,RayLength,HitShape,HitTime,HitPoint,HitNormal,fVehicle.fCastCollisionGroups,fVehicle.RayCastFilter) then begin
+   CurrentLength:=HitTime;
+   fIsGrounded:=true;
+  end else begin
+   CurrentLength:=fSettings.fSuspensionRestLength+fSettings.fRadius;
+   HitShape:=nil;
+   fIsGrounded:=false;
+  end;
+ end;
+
+ fSuspension.fCurrentVelocity:=(CurrentLength-PreviousLength)*fVehicle.fInverseDeltaTime;
+ fSuspension.fCurrentLength:=CurrentLength;
+ fSuspension.fCompression:=1.0-Clamp01(CurrentLength/(fSettings.fSuspensionRestLength+fSettings.fRadius));
+
+ fSuspensionLength:=fSuspension.fCurrentLength-fSettings.fRadius;
+ CurrentLength:=fSuspension.fCurrentLength;
+ CurrentVelocity:=fSuspension.fCurrentVelocity;
+ Force:=TKraftRayCastVehicle.TSuspensionSpringMath.CalculateForceDamped(CurrentLength,
+                                                                        CurrentVelocity,
+                                                                        fSettings.fSuspensionRestLength+fSettings.fRadius,
+                                                                        fSettings.fSuspensionStrength,
+                                                                        fSettings.fSuspensionDamping);
+
+ if abs(Force)>EPSILON then begin
+
+  fVehicle.fRigidBody.AddForceAtPosition(Vector3ScalarMul(fVehicle.fWorldUp,Force),GetSuspensionPosition,kfmForce,false);
+
+  if assigned(HitShape) and assigned(HitShape.RigidBody) and (HitShape.RigidBody.RigidBodyType=krbtDynamic) then begin
+   HitShape.RigidBody.AddForceAtPosition(Vector3ScalarMul(fVehicle.fWorldDown,Force),GetSuspensionPosition,kfmForce,false);
+  end;
+
+ end;
+
+end;
+
+procedure TKraftRayCastVehicle.TWheel.UpdateRealisticSuspension;
 var RayOrigin,HitPoint,HitNormal:TKraftVector3;
     HitTime,Force:TKraftScalar;
     HitShape:TKraftShape;
@@ -2315,7 +2433,18 @@ begin
 
  end;
 
+end;
 
+procedure TKraftRayCastVehicle.TWheel.UpdateSuspension;
+begin
+ case fVehicle.fSettings.fSuspensionMode of
+  TKraftRayCastVehicle.TSuspensionMode.Arcade:begin
+   UpdateArcadeSuspension;
+  end;
+  else begin
+   UpdateRealisticSuspension;
+  end;
+ end;
 end;
 
 procedure TKraftRayCastVehicle.TWheel.UpdateLaterialForce;
