@@ -14406,13 +14406,13 @@ begin
 
  if Backside then begin
   if DoubleSided then begin
-   // Single-sided sphere cast => allow only one direction
-   exit;
-  end else begin
    // Swap v0 and v2
    t:=v0;
    v0:=v2;
    v2:=t;
+  end else begin
+   // Single-sided sphere cast => allow only one direction
+   exit;
   end;
  end;
 
@@ -14857,8 +14857,8 @@ end;
 
 function SphereCastTriangle(const RayOrigin:TKraftVector3;const Radius:TKraftScalar;const RayDirection,v0,v1,v2,Normal:TKraftVector3;const DoubldSided:Boolean;out HitNormal:TKraftVector3;out Time:TKraftScalar):boolean; overload; {$ifdef caninline}inline;{$endif}
 begin
-//result:=OptimizedSphereCastTriangle(RayOrigin,Radius,RayDirection,v0,v1,v2,Normal,DoubldSided,HitNormal,Time);
- result:=SafeSphereCastTriangle(RayOrigin,Radius,RayDirection,v0,v1,v2,Normal,DoubldSided,HitNormal,Time);
+ result:=OptimizedSphereCastTriangle(RayOrigin,Radius,RayDirection,v0,v1,v2,Normal,DoubldSided,HitNormal,Time);
+//result:=SafeSphereCastTriangle(RayOrigin,Radius,RayDirection,v0,v1,v2,Normal,DoubldSided,HitNormal,Time);
 end;
 
 function MPRIntersection(const ShapeA,ShapeB:TKraftShape;const TransformA,TransformB:TKraftMatrix4x4):boolean;
