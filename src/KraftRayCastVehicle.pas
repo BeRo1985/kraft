@@ -2306,47 +2306,48 @@ end;
 
 procedure TKraftRayCastVehicle.TWheel.UpdateArcadeSuspension;
 var RayOrigin,RayDirection,HitPoint,HitNormal:TKraftVector3;
-    RayLength,PreviousLength,CurrentLength,HitTime,CurrentVelocity,Force:TKraftScalar;
+    SuspensionRestLengthWithRadius,RayLength,PreviousLength,CurrentLength,HitTime,
+    CurrentVelocity,Force:TKraftScalar;
     HitShape:TKraftShape;
 begin
 
  HitShape:=nil;
 
+ SuspensionRestLengthWithRadius:=fSettings.fSuspensionRestLength+fSettings.Radius;
+
  RayOrigin:=GetSuspensionPosition;
  PreviousLength:=fSuspension.fCurrentLength;
  RayDirection:=fVehicle.fWorldDown;
  if fSettings.fUseSphereCast then begin
-  RayLength:=fSettings.fSuspensionRestLength-fSettings.fRadius;
+  RayLength:=SuspensionRestLengthWithRadius-fSettings.Radius;
   if fVehicle.fPhysics.SphereCast(RayOrigin,fSettings.fRadius,RayDirection,RayLength,HitShape,HitTime,HitPoint,HitNormal,fVehicle.fCastCollisionGroups,fVehicle.RayCastFilter) then begin
-   CurrentLength:=HitTime+(fSettings.fRadius*2);
-   fIsGrounded:=true;
+   CurrentLength:=HitTime+fSettings.fRadius;
   end else begin
-   CurrentLength:=fSettings.fSuspensionRestLength+fSettings.fRadius;
+   CurrentLength:=SuspensionRestLengthWithRadius;
    HitShape:=nil;
-   fIsGrounded:=false;
   end;
  end else begin
-  RayLength:=fSettings.fSuspensionRestLength+fSettings.fRadius;
+  RayLength:=SuspensionRestLengthWithRadius;
   if fVehicle.fPhysics.RayCast(RayOrigin,RayDirection,RayLength,HitShape,HitTime,HitPoint,HitNormal,fVehicle.fCastCollisionGroups,fVehicle.RayCastFilter) then begin
    CurrentLength:=HitTime;
-   fIsGrounded:=true;
   end else begin
-   CurrentLength:=fSettings.fSuspensionRestLength+fSettings.fRadius;
+   CurrentLength:=SuspensionRestLengthWithRadius;
    HitShape:=nil;
-   fIsGrounded:=false;
   end;
  end;
 
  fSuspension.fCurrentVelocity:=(CurrentLength-PreviousLength)*fVehicle.fInverseDeltaTime;
  fSuspension.fCurrentLength:=CurrentLength;
- fSuspension.fCompression:=1.0-Clamp01(CurrentLength/(fSettings.fSuspensionRestLength+fSettings.fRadius));
+ fSuspension.fCompression:=1.0-Clamp01(CurrentLength/SuspensionRestLengthWithRadius);
+
+ fIsGrounded:=fSuspension.fCurrentLength<SuspensionRestLengthWithRadius;
 
  fSuspensionLength:=fSuspension.fCurrentLength-fSettings.fRadius;
  CurrentLength:=fSuspension.fCurrentLength;
  CurrentVelocity:=fSuspension.fCurrentVelocity;
  Force:=TKraftRayCastVehicle.TSuspensionSpringMath.CalculateForceDamped(CurrentLength,
                                                                         CurrentVelocity,
-                                                                        fSettings.fSuspensionRestLength+fSettings.fRadius,
+                                                                        SuspensionRestLengthWithRadius,
                                                                         fSettings.fSuspensionStrength,
                                                                         fSettings.fSuspensionDamping);
 

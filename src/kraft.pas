@@ -13948,6 +13948,8 @@ end;
 function SphereCastTriangle(const RayOrigin:TKraftVector3;const Radius:TKraftScalar;const RayDirection,v0,v1,v2:TKraftVector3;out Time,u,v,w:TKraftScalar):boolean; {$ifdef caninline}inline;{$endif}
 begin
 {$if true}
+{result:=RayIntersectTriangle(RayOrigin,RayDirection,v0,v1,v2,Time,u,v,w);
+ Time:=Time-Radius;}
  result:=OptimizedSphereCastTriangle(RayOrigin,Radius,RayDirection,v0,v1,v2,Time,u,v,w);
 {$else}
  result:=SafeSphereCastTriangle(RayOrigin,Radius,RayDirection,v0,v1,v2,Time,u,v,w);
