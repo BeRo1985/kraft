@@ -2340,6 +2340,10 @@ begin
  fSuspension.fCurrentLength:=CurrentLength;
  fSuspension.fCompression:=1.0-Clamp01(CurrentLength/SuspensionRestLengthWithRadius);
 
+ fSuspensionCompressionDistance:=Max(0.0,CurrentLength-fSettings.Radius);
+
+ fSuspensionCompressionRatio:=fSuspension.fCompression;
+
  fIsGrounded:=fSuspension.fCurrentLength<SuspensionRestLengthWithRadius;
 
  fSuspensionLength:=fSuspension.fCurrentLength-fSettings.fRadius;
