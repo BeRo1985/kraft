@@ -26998,9 +26998,9 @@ begin
 end;
 
 function TKraftShapeTriangle.SphereCast(var SphereCastData:TKraftSphereCastData):boolean;
-var Origin,Direction:TKraftVector3;
+var Origin,Direction,Normal:TKraftVector3;
     Vertices:PPKraftConvexHullVertices;
-    Time,u,v,w:TKraftScalar;
+    Time:TKraftScalar;
 begin
  result:=false;
  if ksfSphereCastable in fFlags then begin
@@ -27015,31 +27015,13 @@ begin
                          Vertices^[1].Position,
                          Vertices^[2].Position,
                          fShapeConvexHull.fFaces[0].Plane.Normal,
-                         Time,
-                         u,
-                         v,
-                         w) then begin
+                         true,
+                         Normal,
+                         Time) then begin
     if (Time>=0.0) and (Time<=SphereCastData.MaxTime) then begin
      SphereCastData.TimeOfImpact:=Time;
      SphereCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
-     SphereCastData.Normal:=Vector3TermMatrixMulBasis(Vector3NormEx(Vector3Cross(Vector3Sub(Vertices^[1].Position,Vertices^[0].Position),Vector3Sub(Vertices^[2].Position,Vertices^[0].Position))),fWorldTransform);
-     result:=true;
-    end;
-   end else if SphereCastTriangle(Origin,
-                                  SphereCastData.Radius,
-                                  Direction,
-                                  Vertices^[2].Position,
-                                  Vertices^[1].Position,
-                                  Vertices^[0].Position,
-                                  Vector3Neg(fShapeConvexHull.fFaces[0].Plane.Normal),
-                                  Time,
-                                  u,
-                                  v,
-                                  w) then begin
-    if (Time>=0.0) and (Time<=SphereCastData.MaxTime) then begin
-     SphereCastData.TimeOfImpact:=Time;
-     SphereCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
-     SphereCastData.Normal:=Vector3TermMatrixMulBasis(Vector3NormEx(Vector3Cross(Vector3Sub(Vertices^[1].Position,Vertices^[2].Position),Vector3Sub(Vertices^[0].Position,Vertices^[2].Position))),fWorldTransform);
+     SphereCastData.Normal:=Vector3TermMatrixMulBasis(Normal,fWorldTransform);
      result:=true;
     end;
    end;
