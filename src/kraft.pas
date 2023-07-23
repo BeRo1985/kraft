@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2023-07-23-02-13-0000                       *
+ *                        Version 2023-07-23-03-40-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -14396,9 +14396,10 @@ begin
 
 end;
 
-function OptimizedSphereCastTriangle(const RayOrigin:TKraftVector3;const Radius:TKraftScalar;const RayDirection:TKraftVector3;v0:TKraftVector3;const v1:TKraftVector3;v2:TKraftVector3;const Normal:TKraftVector3;const DoubleSided:boolean;out HitNormal:TKraftVector3;out Time:TKraftScalar):boolean; overload;
+function OptimizedSphereCastTriangle(const RayOrigin:TKraftVector3;const Radius:TKraftScalar;const RayDirection,tv0,v1,tv2,Normal:TKraftVector3;const DoubleSided:boolean;out HitNormal:TKraftVector3;out Time:TKraftScalar):boolean; overload;
 const EPSILON={$ifdef KraftUseDouble}1e-16{$else}1e-7{$endif};
-var v0v1,v0v2,p,t,q,r,n:TKraftVector3;
+var v0,v2:PKraftVector3;
+    v0v1,v0v2,p,t,q,r,n:TKraftVector3;
     Determinant,InverseDeterminant,Temporary,v,w:TKraftScalar;
     Edges:TKraftInt32;
     Backside:boolean;
@@ -14413,16 +14414,18 @@ begin
  if Backside then begin
   if DoubleSided then begin
    // Swap v0 and v2
-   t:=v0;
-   v0:=v2;
-   v2:=t;
+   v0:=@tv2;
+   v2:=@tv0;
   end else begin
    // Single-sided sphere cast => allow only one direction
    exit;
   end;
+ end else begin
+  v0:=@tv0;
+  v2:=@tv2;
  end;
 
- if SquaredDistanceFromPointToTriangle(RayOrigin,v0,v1,v2)<=sqr(Radius) then begin
+ if SquaredDistanceFromPointToTriangle(RayOrigin,v0^,v1,v2^)<=sqr(Radius) then begin
   if Backside then begin
    HitNormal.x:=-Normal.x;
    HitNormal.y:=-Normal.y;
@@ -14437,15 +14440,15 @@ begin
   exit;
  end;
 
- v0v1.x:=v1.x-v0.x;
- v0v1.y:=v1.y-v0.y;
- v0v1.z:=v1.z-v0.z;
+ v0v1.x:=v1.x-v0^.x;
+ v0v1.y:=v1.y-v0^.y;
+ v0v1.z:=v1.z-v0^.z;
 {$ifdef SIMD}
  v0v1.w:=0.0;
 {$endif}
- v0v2.x:=v2.x-v0.x;
- v0v2.y:=v2.y-v0.y;
- v0v2.z:=v2.z-v0.z;
+ v0v2.x:=v2^.x-v0^.x;
+ v0v2.y:=v2^.y-v0^.y;
+ v0v2.z:=v2^.z-v0^.z;
 {$ifdef SIMD}
  v0v2.w:=0.0;
 {$endif}
@@ -14460,7 +14463,7 @@ begin
  Determinant:=(v0v1.x*p.x)+(v0v1.y*p.y)+(v0v1.z*p.z);
  if Determinant<EPSILON then begin
 
-  if IntersectRayCapsule(RayOrigin,RayDirection,v0,v1,Radius,Temporary,n) and (Temporary>=0.0) then begin
+  if IntersectRayCapsule(RayOrigin,RayDirection,v0^,v1,Radius,Temporary,n) and (Temporary>=0.0) then begin
    if (not result) or (Time>Temporary) then begin
     Time:=Temporary;
     HitNormal:=n;
@@ -14468,7 +14471,7 @@ begin
    end;
   end;
 
-  if IntersectRayCapsule(RayOrigin,RayDirection,v1,v2,Radius,Temporary,n) and (Temporary>=0.0) then begin
+  if IntersectRayCapsule(RayOrigin,RayDirection,v1,v2^,Radius,Temporary,n) and (Temporary>=0.0) then begin
    if (not result) or (Time>Temporary) then begin
     Time:=Temporary;
     HitNormal:=n;
@@ -14476,7 +14479,7 @@ begin
    end;
   end;
 
-  if IntersectRayCapsule(RayOrigin,RayDirection,v2,v0,Radius,Temporary,n) and (Temporary>=0.0) then begin
+  if IntersectRayCapsule(RayOrigin,RayDirection,v2^,v0^,Radius,Temporary,n) and (Temporary>=0.0) then begin
    if (not result) or (Time>Temporary) then begin
     Time:=Temporary;
     HitNormal:=n;
@@ -14503,9 +14506,9 @@ begin
   r.z:=-r.z;
  end;
 
- t.x:=RayOrigin.x-(r.x+v0.x);
- t.y:=RayOrigin.y-(r.y+v0.y);
- t.z:=RayOrigin.z-(r.z+v0.z);
+ t.x:=RayOrigin.x-(r.x+v0^.x);
+ t.y:=RayOrigin.y-(r.y+v0^.y);
+ t.z:=RayOrigin.z-(r.z+v0^.z);
 {$ifdef SIMD}
  t.w:=0.0;
 {$endif}
@@ -14573,7 +14576,7 @@ begin
   end;
 
   if ((Edges and (1 shl 0))<>0) and
-     (IntersectRayCapsule(RayOrigin,RayDirection,v0,v1,Radius,Temporary,n) and
+     (IntersectRayCapsule(RayOrigin,RayDirection,v0^,v1,Radius,Temporary,n) and
       (Temporary>=0.0)) then begin
    if (not result) or (Time>Temporary) then begin
     Time:=Temporary;
@@ -14583,7 +14586,7 @@ begin
   end;
 
   if ((Edges and (1 shl 1))<>0) and
-     (IntersectRayCapsule(RayOrigin,RayDirection,v1,v2,Radius,Temporary,n) and
+     (IntersectRayCapsule(RayOrigin,RayDirection,v1,v2^,Radius,Temporary,n) and
       (Temporary>=0.0)) then begin
    if (not result) or (Time>Temporary) then begin
     Time:=Temporary;
@@ -14593,7 +14596,7 @@ begin
   end;
 
   if ((Edges and (1 shl 2))<>0) and
-     (IntersectRayCapsule(RayOrigin,RayDirection,v2,v0,Radius,Temporary,n) and
+     (IntersectRayCapsule(RayOrigin,RayDirection,v2^,v0^,Radius,Temporary,n) and
       (Temporary>=0.0)) then begin
    if (not result) or (Time>Temporary) then begin
     Time:=Temporary;
