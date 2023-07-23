@@ -1412,6 +1412,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure Transform(const WithMatrix:TKraftMatrix3x3); overload;
        procedure Transform(const WithMatrix:TKraftMatrix4x4); overload;
 
+       procedure Decimate(const aDestCountVertices:TKraftInt32);
+
        procedure Finish;
 
        function GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
@@ -23255,6 +23257,690 @@ begin
  finally
   SetLength(NormalCounts,0);
  end;
+end;
+
+procedure TKraftMesh.Decimate(const aDestCountVertices:TKraftInt32);
+type TFloat={$ifdef cpu386}extended{$else}double{$endif};
+     TVector3d=packed record
+      x,y,z:TFloat;
+     end;
+     TVertex=TVector3d;
+     PVertex=^TVertex;
+     TVertices=array of TVertex;
+     TTriangle=record
+      a,b,c:TKraftInt32;
+     end;
+     PTriangle=^TTriangle;
+     TTriangles=array of TTriangle;
+     TNeighbor=record
+      index:TKraftInt32;
+      count:TKraftInt32;
+     end;
+     TNeighbors=array of TNeighbor;
+     TVertexInfo=record
+      Neighbors:TNeighbors;
+      NumNeighbors:TKraftInt32;
+      Faces:array of TKraftInt32;
+      NumFaces:TKraftInt32;
+      Collapse:TKraftInt32;
+      Distance:single;
+     end;
+     PVertexInfo=^TVertexInfo;
+     TVertexInfos=array of TVertexInfo;
+     TFaceInfo=record
+      x,y,z:TFloat;
+      collapsed:boolean;
+     end;
+     PFaceInfo=^TFaceInfo;
+     TFaceInfos=array of TFaceInfo;
+var Vertices:TVertices;
+    Normals:TVertices;
+    NumVertices:TKraftInt32;
+    NewTriangles:TTriangles;
+    NumNewTriangles:TKraftInt32;
+    VertexInfos:TVertexInfos;
+    NumVertexInfos:TKraftInt32;
+    FaceInfos:TFaceInfos;
+    NumFaceInfos:TKraftInt32;
+ function Vector3dCompare(const v1,v2:TVector3d):boolean;
+ begin
+  result:=(abs(v1.x-v2.x)<EPSILON) and (abs(v1.y-v2.y)<EPSILON) and (abs(v1.z-v2.z)<EPSILON);
+ end;
+ function Vector3dSub(const v1,v2:TVector3d):TVector3d;
+ begin
+  result.x:=v1.x-v2.x;
+  result.y:=v1.y-v2.y;
+  result.z:=v1.z-v2.z;
+ end;
+ function Vector3dAdd(const v1,v2:TVector3d):TVector3d;
+ begin
+  result.x:=v1.x+v2.x;
+  result.y:=v1.y+v2.y;
+  result.z:=v1.z+v2.z;
+ end;
+ function Vector3dCross(const v1,v2:TVector3d):TVector3d;
+ begin
+  result.x:=(v1.y*v2.z)-(v1.z*v2.y);
+  result.y:=(v1.z*v2.x)-(v1.x*v2.z);
+  result.z:=(v1.x*v2.y)-(v1.y*v2.x);
+ end;
+ function Vector3dLength(const v:TVector3d):TFloat;
+ begin
+  result:=sqrt(sqr(v.x)+sqr(v.y)+sqr(v.z));
+ end;
+ function Vector3dLengthSquared(const v:TVector3d):TFloat;
+ begin
+  result:=sqr(v.x)+sqr(v.y)+sqr(v.z);
+ end;
+ function Vector3dScalarMul(const v:TVector3d;s:TFloat):TVector3d;
+ begin
+  result.x:=v.x*s;
+  result.y:=v.y*s;
+  result.z:=v.z*s;
+ end;
+ function Vector3dDot(const v1,v2:TVector3d):TFloat;
+ begin
+  result:=(v1.x*v2.x)+(v1.y*v2.y)+(v1.z*v2.z);
+ end;
+ function Vector3dNorm(const v:TVector3d):TVector3d;
+ var l:TFloat;
+ begin
+  l:=Vector3dLength(v);
+  if abs(l)<EPSILON then begin
+   result.x:=0;
+   result.y:=0;
+   result.z:=0;
+  end else begin
+   result:=Vector3dScalarMul(v,1/l);
+  end;
+ end;
+ function Vector3dDist(const v1,v2:TVector3d):TFloat;
+ begin
+  result:=Vector3dLength(Vector3dSub(v2,v1));
+ end;
+ function Vector3d(const v:TKraftVector3):TVector3d;
+ begin
+  result.x:=v.x;
+  result.y:=v.y;
+  result.z:=v.z;
+ end;
+ function Vector3dEx(const v:TVector3d):TKraftVector3;
+ begin
+  result.x:=v.x;
+  result.y:=v.y;
+  result.z:=v.z;
+ end;
+ procedure AddNeighbor(vertex,Neighbor:TKraftInt32);
+ var i:TKraftInt32;
+     v:PVertexInfo;
+ begin
+  if vertex=Neighbor then begin
+   exit;
+  end;
+  v:=@VertexInfos[vertex];
+  begin
+   for i:=0 to v^.NumNeighbors-1 do begin
+    if v^.Neighbors[i].Index=Neighbor then begin
+     inc(v^.Neighbors[i].Count);
+     exit;
+    end;
+   end;
+   i:=v^.NumNeighbors;
+   inc(v^.NumNeighbors);
+   SetLength(v^.Neighbors,v^.NumNeighbors);
+   FillChar(v^.Neighbors[i],SizeOf(TNeighbor),#0);
+   v^.Neighbors[i].Index:=Neighbor;
+  end;
+ end;
+ procedure DeleteNeighbor(vertex,Neighbor:TKraftInt32);
+ var l,i:TKraftInt32;
+     v:PVertexInfo;
+ begin
+  if vertex=Neighbor then begin
+   exit;
+  end;
+  v:=@VertexInfos[vertex];
+  begin
+   l:=v^.NumNeighbors-1;
+   for i:=0 to l do begin
+    if v^.Neighbors[i].Index=Neighbor then begin
+     if v^.Neighbors[i].Count>0 then begin
+      dec(v^.Neighbors[i].Count);
+     end else begin
+      v^.Neighbors[i]:=v^.Neighbors[l];
+      v^.NumNeighbors:=l;
+      if length(v^.Neighbors)<v^.NumNeighbors then begin
+       SetLength(v^.Neighbors,v^.NumNeighbors*2);
+      end;
+     end;
+     exit;
+    end;
+   end;
+  end;
+ end;
+ procedure NewNeighbor(vertex,oldneighbor,newneighbor:TKraftInt32);
+ begin
+  if (vertex=oldneighbor) or (vertex=newneighbor) or (oldneighbor=newneighbor) then begin
+   exit;
+  end;
+  DeleteNeighbor(vertex,oldNeighbor);
+  AddNeighbor(vertex,NewNeighbor);
+ end;
+ procedure AddNewTriangle(vertex,triangle:TKraftInt32);
+ var i:TKraftInt32;
+     v:PVertexInfo;
+     t:PTriangle;
+ begin
+  v:=@VertexInfos[vertex];
+  begin
+   i:=v^.NumFaces;
+   inc(v^.NumFaces);
+   if length(v^.Faces)<v^.NumFaces then begin
+    SetLength(v^.Faces,v^.NumFaces*2);
+   end;
+   v^.Faces[i]:=triangle;
+   t:=@NewTriangles[triangle];
+   begin
+    AddNeighbor(vertex,t^.a);
+    AddNeighbor(vertex,t^.b);
+    AddNeighbor(vertex,t^.c);
+   end;
+  end;
+ end;
+ procedure DeleteNewTriangle(vertex,triangle:TKraftInt32);
+ var i,l:TKraftInt32;
+     v:PVertexInfo;
+     t:PTriangle;
+ begin
+  v:=@VertexInfos[vertex];
+  begin
+   if IsInfinite(v^.Distance) then begin
+    exit;
+   end;
+   l:=v^.NumFaces-1;
+   i:=l;
+   while i>=0 do begin
+    if v^.Faces[i]=triangle then begin
+     v^.Faces[i]:=v^.Faces[l];
+     v^.NumFaces:=l;
+     if length(v^.Faces)<v^.NumFaces then begin
+      SetLength(v^.Faces,v^.NumFaces*2);
+     end;
+     t:=@NewTriangles[triangle];
+     begin
+      DeleteNeighbor(vertex,t^.a);
+      DeleteNeighbor(vertex,t^.b);
+      DeleteNeighbor(vertex,t^.c);
+     end;
+     exit;
+    end;
+    dec(i);
+   end;
+  end;
+ end;
+ function dotproduct(a,b:TKraftInt32):TFloat;
+ begin
+  result:=(FaceInfos[a].x*FaceInfos[b].x)+(FaceInfos[a].y*FaceInfos[b].y)+(FaceInfos[a].z*FaceInfos[b].z);
+ end;
+ function CollapseCost(u,v:TKraftInt32):TFloat;
+ var dx,dy,dz,len,curvature,mincurv,curv:TFloat;
+     sides:array of TKraftInt32;
+     scount,i,j,f:TKraftInt32;
+     vi:PVertexInfo;
+     t:PTriangle;
+ begin
+  dx:=Vertices[u].x-Vertices[v].x;
+  dy:=Vertices[u].y-Vertices[v].y;
+  dz:=Vertices[u].z-Vertices[v].z;
+  len:=sqrt(sqr(dx)+sqr(dy)+sqr(dz));
+  curvature:=0;
+  scount:=0;
+  vi:=@VertexInfos[u];
+  sides:=nil;
+  SetLength(sides,vi^.NumFaces);
+  try
+   FillChar(sides[0],vi^.NumFaces*SizeOf(TKraftInt32),#0);
+   for i:=0 to vi^.NumFaces-1 do begin
+    f:=vi^.Faces[i];
+    t:=@NewTriangles[f];
+    begin
+     if (t^.a=v) or (t^.b=v) or (t^.c=v) then begin
+      sides[scount]:=f;
+      inc(scount);
+     end;
+    end;
+   end;
+   for i:=0 to vi^.NumFaces-1 do begin
+    mincurv:=1;
+    for j:=0 to scount-1 do begin
+     curv:=(1.0-dotproduct(vi^.faces[i],sides[j]))*0.5;
+     if curv<mincurv then begin
+      mincurv:=curv;
+     end;
+    end;
+    if mincurv>curvature then begin
+     curvature:=mincurv;
+    end;
+   end;
+  finally
+   sides:=nil;
+  end;
+  result:=len*curvature;
+ end;
+ procedure ComputeNormal(Index:TKraftInt32);
+ var x1,y1,z1,x2,y2,z2,nx,ny,nz,vl:TKraftFloat;
+     t:PTriangle;
+     f:PFaceInfo;
+ begin
+  t:=@NewTriangles[Index];
+  begin
+   x1:=Vertices[t^.b].x-Vertices[t^.a].x;
+   y1:=Vertices[t^.b].y-Vertices[t^.a].y;
+   z1:=Vertices[t^.b].z-Vertices[t^.a].z;
+   x2:=Vertices[t^.c].x-Vertices[t^.a].x;
+   y2:=Vertices[t^.c].y-Vertices[t^.a].y;
+   z2:=Vertices[t^.c].z-Vertices[t^.a].z;
+   nx:=(y1*z2)-(y2*z1);
+   ny:=(z1*x2)-(z2*x1);
+   nz:=(x1*y2)-(x2*y1);
+   vl:=sqrt(sqr(nx)+sqr(ny)+sqr(nz));
+   if abs(vl)>EPSILON then begin
+    vl:=1/vl;
+    nx:=nx*vl;
+    ny:=ny*vl;
+    nz:=nz*vl;
+   end;
+  end;
+  f:=@FaceInfos[Index];
+  f^.x:=nx;
+  f^.y:=ny;
+  f^.z:=nz;
+ end;
+ procedure ComputeVertexCost(Index:TKraftInt32);
+ var i,j:TKraftInt32;
+     l:TKraftScalar;
+     v:PVertexInfo;
+ begin
+  v:=@VertexInfos[Index];
+  begin
+   if IsInfinite(v^.Distance) then begin
+    exit;
+   end;
+   if v^.NumNeighbors=0 then begin
+    v^.Collapse:=-1;
+    v^.Distance:=0;
+   end else begin
+    v^.Collapse:=v^.Neighbors[0].index;
+    v^.Distance:=CollapseCost(Index,v^.Collapse);
+    for i:=1 to v^.NumNeighbors-1 do begin
+     j:=v^.Neighbors[i].index;
+     l:=CollapseCost(Index,j);
+     if l<v^.Distance then begin
+      v^.Collapse:=j;
+      v^.Distance:=l;
+     end;
+    end;
+   end;
+  end;
+ end;
+ function CollapseVertex:TKraftInt32;
+ var i,j,f:TKraftInt32;
+     d,d2:TKraftFloat;
+     v:PVertexInfo;
+     t:PTriangle;
+ begin
+  result:=0;
+  i:=0;
+  d:=VertexInfos[i].Distance;
+  for j:=1 to NumVertices-1 do begin
+   d2:=VertexInfos[j].Distance;
+   if d2<d then begin
+    d:=d2;
+    i:=j;
+   end;
+  end;
+  if IsInfinite(d) then begin
+   exit;
+  end;
+  v:=@VertexInfos[i];
+  begin
+   v^.Distance:=Infinity;
+   j:=0;
+   while j<v^.NumFaces do begin
+    f:=v^.Faces[j];
+    t:=@NewTriangles[f];
+    begin
+     if (t^.a=v^.Collapse) or (t^.b=v^.Collapse) or (t^.c=v^.Collapse) then begin
+      if FaceInfos[f].Collapsed then begin
+       exit;
+      end;
+      FaceInfos[f].Collapsed:=true;
+      DeleteNewTriangle(t^.a,f);
+      DeleteNewTriangle(t^.b,f);
+      DeleteNewTriangle(t^.c,f);
+      inc(result);
+     end else begin
+      if t^.a=i then begin
+       t^.a:=v^.Collapse;
+      end else if t^.b=i then begin
+       t^.b:=v^.Collapse;
+      end else if t^.c=i then begin
+       t^.c:=v^.Collapse;
+      end else begin
+       exit;
+      end;
+      AddNewTriangle(v^.collapse,f);
+      NewNeighbor(t^.a,i,v^.collapse);
+      NewNeighbor(t^.b,i,v^.collapse);
+      NewNeighbor(t^.c,i,v^.collapse);
+      ComputeNormal(f);
+     end;
+    end;
+    inc(j);
+   end;
+   for j:=0 to v^.NumNeighbors-1 do begin
+    ComputeVertexCost(v^.Neighbors[j].Index);
+   end;
+  end;
+ end;
+ procedure FreezeBorders;
+ var i,j,k,point,count:TKraftInt32;
+     v:PVertexInfo;
+     t:PTriangle;
+ begin
+  for i:=0 to NumVertexInfos-1 do begin
+   v:=@VertexInfos[i];
+   begin
+    for j:=0 to v^.NumNeighbors-1 do begin
+     point:=v^.Neighbors[j].index;
+     count:=0;
+     for k:=0 to v^.NumFaces-1 do begin
+      t:=@NewTriangles[v^.Faces[k]];
+      begin
+       if (t^.a=point) or (t^.b=point) or (t^.c=point) then begin
+        inc(count);
+       end;
+      end;
+     end;
+     if count<2 then begin
+      v^.Distance:=Infinity;
+     end;
+    end;
+   end;
+  end;
+ end;
+ function HashBytes(const a:pointer;Count:TKraftInt32):TKraftUInt32;
+ {$ifdef cpuarm}
+ var b:pansichar;
+     len,h,i:TKraftUInt32;
+ begin
+  result:=2166136261;
+  len:=Count;
+  h:=len;
+  if len>0 then begin
+   b:=a;
+   while len>3 do begin
+    i:=TKraftUInt32(pointer(b)^);
+    h:=(h xor i) xor $2e63823a;
+    inc(h,(h shl 15) or (h shr (32-15)));
+    dec(h,(h shl 9) or (h shr (32-9)));
+    inc(h,(h shl 4) or (h shr (32-4)));
+    dec(h,(h shl 1) or (h shr (32-1)));
+    h:=h xor (h shl 2) or (h shr (32-2));
+    result:=result xor i;
+    inc(result,(result shl 1)+(result shl 4)+(result shl 7)+(result shl 8)+(result shl 24));
+    inc(b,4);
+    dec(len,4);
+   end;
+   if len>1 then begin
+    i:=TKraftUInt16(pointer(b)^);
+    h:=(h xor i) xor $2e63823a;
+    inc(h,(h shl 15) or (h shr (32-15)));
+    dec(h,(h shl 9) or (h shr (32-9)));
+    inc(h,(h shl 4) or (h shr (32-4)));
+    dec(h,(h shl 1) or (h shr (32-1)));
+    h:=h xor (h shl 2) or (h shr (32-2));
+    result:=result xor i;
+    inc(result,(result shl 1)+(result shl 4)+(result shl 7)+(result shl 8)+(result shl 24));
+    inc(b,2);
+    dec(len,2);
+   end;
+   if len>0 then begin
+    i:=TKraftUInt8(b^);
+    h:=(h xor i) xor $2e63823a;
+    inc(h,(h shl 15) or (h shr (32-15)));
+    dec(h,(h shl 9) or (h shr (32-9)));
+    inc(h,(h shl 4) or (h shr (32-4)));
+    dec(h,(h shl 1) or (h shr (32-1)));
+    h:=h xor (h shl 2) or (h shr (32-2));
+    result:=result xor i;
+    inc(result,(result shl 1)+(result shl 4)+(result shl 7)+(result shl 8)+(result shl 24));
+   end;
+  end;
+  result:=result xor h;
+  if result=0 then begin
+   result:=$ffffffff;
+  end;
+ end;
+ {$else}
+ const m=TKraftUInt32($57559429);
+       n=TKraftUInt32($5052acdb);
+ var b:pansichar;
+     h,k,len:TKraftUInt32;
+     p:TKraftUInt64;
+ begin
+  len:=Count;
+  h:=len;
+  k:=h+n+1;
+  if len>0 then begin
+   b:=a;
+   while len>7 do begin
+    begin
+     p:=TKraftUInt32(pointer(b)^)*TKraftUInt64(n);
+     h:=h xor TKraftUInt32(p and $ffffffff);
+     k:=k xor TKraftUInt32(p shr 32);
+     inc(b,4);
+    end;
+    begin
+     p:=TKraftUInt32(pointer(b)^)*TKraftUInt64(m);
+     k:=k xor TKraftUInt32(p and $ffffffff);
+     h:=h xor TKraftUInt32(p shr 32);
+     inc(b,4);
+    end;
+    dec(len,8);
+   end;
+   if len>3 then begin
+    p:=TKraftUInt32(pointer(b)^)*TKraftUInt64(n);
+    h:=h xor TKraftUInt32(p and $ffffffff);
+    k:=k xor TKraftUInt32(p shr 32);
+    inc(b,4);
+    dec(len,4);
+   end;
+   if len>0 then begin
+    if len>1 then begin
+     p:=TKraftUInt16(pointer(b)^);
+     inc(b,2);
+     dec(len,2);
+    end else begin
+     p:=0;
+    end;
+    if len>0 then begin
+     p:=p or (TKraftUInt8(b^) shl 16);
+    end;
+    p:=p*TKraftUInt64(m);
+    k:=k xor TKraftUInt32(p and $ffffffff);
+    h:=h xor TKraftUInt32(p shr 32);
+   end;
+  end;
+  begin
+   p:=(h xor (k+n))*TKraftUInt64(n);
+   h:=h xor TKraftUInt32(p and $ffffffff);
+   k:=k xor TKraftUInt32(p shr 32);
+  end;
+  result:=k xor h;
+  if result=0 then begin
+   result:=$ffffffff;
+  end;
+ end;
+ {$endif}
+ procedure ProgressiveMesh;
+ const HashBits=16;
+       HashSize=1 shl HashBits;
+       HashMask=HashSize-1;
+ type PHashItem=^THashItem;
+      THashItem=record
+       Next:TKraftInt32;
+       Hash:TKraftUInt32;
+       VertexIndex:TKraftInt32;
+       Dummy:TKraftInt32;
+      end;
+      THashItems=array of THashItem;
+      THashTable=array of TKraftInt32;
+ var i,n,j,k,HashItemIndex,CountHashItems,LOD:TKraftInt32;
+     HashItem:PHashItem;
+     HashItems:THashItems;
+     HashTable:THashTable;
+     Hash:TKraftUInt32;
+  function HashVector2(const v:TKraftVector2):TKraftUInt32;
+  begin
+   result:=(round(v.x)*73856093) xor (round(v.y)*19349663);
+  end;
+  function HashVector3(const v:TKraftVector3):TKraftUInt32;
+  begin
+   result:=(round(v.x)*73856093) xor (round(v.y)*19349663) xor (round(v.z)*83492791);
+  end;
+  function HashVector4(const v:TKraftVector4):TKraftUInt32;
+  begin
+   result:=(round(v.x)*73856093) xor (round(v.y)*19349663) xor (round(v.z)*83492791) xor (round(v.w)*29475827);
+  end;
+ begin
+  HashItems:=nil;
+  Vertices:=nil;
+  Normals:=nil;
+  NewTriangles:=nil;
+  HashTable:=nil;
+  try
+   NumVertices:=0;
+   CountHashItems:=0;
+   NumNewTriangles:=fCountTriangles;
+   SetLength(NewTriangles,NumNewTriangles);
+   FillChar(NewTriangles[0],NumNewTriangles*SizeOf(TTriangle),#0);
+   SetLength(HashTable,HashSize);
+   FillChar(HashTable[0],HashSize*SizeOf(TKraftInt32),AnsiChar(#$ff));
+   for i:=0 to fCountTriangles-1 do begin
+    for n:=0 to 2 do begin
+     k:=-1;
+     Hash:=HashVector3(fVertices[fTriangles[i].Vertices[n]]);
+     HashItemIndex:=HashTable[Hash and HashMask];
+     while HashItemIndex>=0 do begin
+      HashItem:=@HashItems[HashItemIndex];
+      if (HashItem^.Hash=Hash) and Vector3dCompare(Vertices[HashItem^.VertexIndex],Vector3d(fVertices[fTriangles[i].Vertices[n]])) then begin
+       k:=HashItem^.VertexIndex;
+       break;
+      end else begin
+       HashItemIndex:=HashItem^.Next;
+      end;
+     end;
+ {   for j:=0 to NumVertices-1 do begin
+      if Vector3dCompare(Vertices^[j],Vector3d(fVertices[fTriangles[i].Vertices[n]])) then begin
+       k:=j;
+       break;
+      end;
+     end;}
+     if k<0 then begin
+      k:=NumVertices;
+      inc(NumVertices);
+      if length(Vertices)<NumVertices then begin
+       SetLength(Vertices,NumVertices*2);
+      end;
+      if length(Normals)<NumVertices then begin
+       SetLength(Normals,NumVertices*2);
+      end;
+      Vertices[k]:=Vector3d(fVertices[fTriangles[i].Vertices[n]]);
+      Normals[k]:=Vector3d(fNormals[fTriangles[i].Normals[n]]);
+      if length(HashItems)<(CountHashItems+1) then begin
+       SetLength(HashItems,(CountHashItems+1)*2);
+      end;
+      HashItem:=@HashItems[CountHashItems];
+      HashItem^.Next:=HashTable[Hash and HashMask];
+      HashTable[Hash and HashMask]:=CountHashItems;
+      HashItem^.Hash:=Hash;
+      inc(CountHashItems);
+      HashItem^.VertexIndex:=k;
+     end;
+     case n of
+      0:begin
+       NewTriangles[i].a:=k;
+      end;
+      1:begin
+       NewTriangles[i].b:=k;
+      end;
+      2:begin
+       NewTriangles[i].c:=k;
+      end;
+     end;
+    end;
+   end;
+   NumVertexInfos:=NumVertices;
+   SetLength(VertexInfos,NumVertexInfos);
+   FillChar(VertexInfos[0],NumVertexInfos*SizeOf(TVertexInfo),#0);
+   NumFaceInfos:=NumNewTriangles;
+   SetLength(FaceInfos,NumFaceInfos);
+   FillChar(FaceInfos[0],NumFaceInfos*SizeOf(TFaceInfo),#0);
+   for i:=0 to NumNewTriangles-1 do begin
+    AddNewTriangle(NewTriangles[i].a,i);
+    AddNewTriangle(NewTriangles[i].b,i);
+    AddNewTriangle(NewTriangles[i].c,i);
+    ComputeNormal(i);
+   end;
+   FreezeBorders;
+   for i:=0 to NumVertices-1 do begin
+    ComputeVertexCost(i);
+   end;
+   Clear(true);
+   LOD:=NumVertices-aDestCountVertices;
+   if LOD<0 then begin
+    LOD:=0;
+   end else if LOD>=NumVertices then begin
+    LOD:=NumVertices-1;
+   end;
+   j:=0;
+   for i:=0 to LOD-1 do begin
+    inc(j,CollapseVertex);
+   end;
+   j:=NumNewTriangles-j;
+   n:=0;
+   for i:=0 to NumNewTriangles-1 do begin
+    if not FaceInfos[i].Collapsed then begin
+     inc(n);
+    end;
+   end;
+   n:=0;
+   for i:=0 to NumNewTriangles-1 do begin
+    if not FaceInfos[i].Collapsed then begin
+     if n<j then begin
+      AddTriangle(AddVertex(Vector3dEx(Vertices[NewTriangles[i].a])),
+                  AddVertex(Vector3dEx(Vertices[NewTriangles[i].b])),
+                  AddVertex(Vector3dEx(Vertices[NewTriangles[i].c])),
+                  AddNormal(Vector3dEx(Normals[NewTriangles[i].a])),
+                  AddNormal(Vector3dEx(Normals[NewTriangles[i].b])),
+                  AddNormal(Vector3dEx(Normals[NewTriangles[i].c])));
+      inc(n);
+     end;
+    end;
+   end;
+  finally
+   VertexInfos:=nil;
+   FaceInfos:=nil;
+   NewTriangles:=nil;
+   Vertices:=nil;
+   Normals:=nil;
+   HashItems:=nil;
+   HashTable:=nil;
+  end;
+ end;
+begin
+ ProgressiveMesh;
 end;
 
 procedure TKraftMesh.Finish;
