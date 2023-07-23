@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2023-07-23-02-07-0000                       *
+ *                        Version 2023-07-23-02-13-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -27237,7 +27237,11 @@ begin
      SphereCastData.TimeOfImpact:=Time;
      SphereCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
      SphereCastData.Normal:=Vector3TermMatrixMulBasis(Normal,fWorldTransform);
-     SphereCastData.SurfaceNormal:=Vector3TermMatrixMulBasis(fShapeConvexHull.fFaces[0].Plane.Normal,fWorldTransform);
+     if Vector3Dot(fShapeConvexHull.fFaces[0].Plane.Normal,Direction)>=0 then begin
+      SphereCastData.SurfaceNormal:=Vector3TermMatrixMulBasis(Vector3Neg(fShapeConvexHull.fFaces[0].Plane.Normal),fWorldTransform);
+     end else begin
+      SphereCastData.SurfaceNormal:=Vector3TermMatrixMulBasis(fShapeConvexHull.fFaces[0].Plane.Normal,fWorldTransform);
+     end;
      result:=true;
     end;
    end;
@@ -27468,7 +27472,7 @@ var SkipListNodeIndex,TriangleIndex:TKraftInt32;
     Triangle:PKraftMeshTriangle;
     First,SidePass:boolean;
     Radius,Nearest,Time,u,v,w:TKraftScalar;
-    Origin,Direction,InvDirection,p,Normal:TKraftVector3;
+    Origin,Direction,InvDirection,p,TriangleNormal,Normal:TKraftVector3;
 begin
  result:=false;
  if ksfSphereCastable in fFlags then begin
@@ -27504,16 +27508,20 @@ begin
           SphereCastData.TimeOfImpact:=Time;
           SphereCastData.Point:=p;
           SphereCastData.Normal:=Normal;
-          SphereCastData.SurfaceNormal:=Triangle^.Plane.Normal;
+          if fMesh.fDoubleSided and (Vector3Dot(Triangle^.Plane.Normal,Direction)>=0) then begin
+           SphereCastData.SurfaceNormal:=Vector3Neg(Triangle^.Plane.Normal);
+          end else begin
+           SphereCastData.SurfaceNormal:=Triangle^.Plane.Normal;
+          end;
           result:=true;
          end;
         end;
        end else begin
         for SidePass:=false to fMesh.fDoubleSided do begin
          if SidePass then begin
-          Normal:=Vector3Neg(Triangle^.Plane.Normal);
+          TriangleNormal:=Vector3Neg(Triangle^.Plane.Normal);
          end else begin
-          Normal:=Triangle^.Plane.Normal;
+          TriangleNormal:=Triangle^.Plane.Normal;
          end;
          if SphereCastTriangle(Origin,
                                Radius,
@@ -27521,7 +27529,7 @@ begin
                                fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],
                                fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],
                                fMesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],
-                               Normal,
+                               TriangleNormal,
                                Time,
                                u,
                                v,
@@ -27544,7 +27552,7 @@ begin
            end else begin
             SphereCastData.Normal:=Normal;
            end;
-           SphereCastData.SurfaceNormal:=Triangle^.Plane.Normal;
+           SphereCastData.SurfaceNormal:=TriangleNormal;
            result:=true;
           end;
          end;
