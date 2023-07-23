@@ -15057,16 +15057,16 @@ end;
 
 function SphereCastTriangle(const RayOrigin:TKraftVector3;const Radius:TKraftScalar;const RayDirection,v0,v1,v2,Normal:TKraftVector3;out Time,u,v,w:TKraftScalar):boolean; overload; {$ifdef caninline}inline;{$endif}
 begin
-//result:=OptimizedSphereCastTriangle(RayOrigin,Radius,RayDirection,v0,v1,v2,Normal,Time,u,v,w);
+ result:=OptimizedSphereCastTriangle(RayOrigin,Radius,RayDirection,v0,v1,v2,Normal,Time,u,v,w);
 //result:=SafeSphereCastTriangle(RayOrigin,Radius,RayDirection,v0,v1,v2,Normal,Time,u,v,w);
- result:=OldSphereCastTriangle(RayOrigin,Radius,RayDirection,v0,v1,v2,Normal,Time,u,v,w);
+//result:=OldSphereCastTriangle(RayOrigin,Radius,RayDirection,v0,v1,v2,Normal,Time,u,v,w);
 end;
 
 function SphereCastTriangle(const RayOrigin:TKraftVector3;const Radius:TKraftScalar;const RayDirection,v0,v1,v2,Normal:TKraftVector3;const DoubldSided:Boolean;out HitNormal:TKraftVector3;out Time:TKraftScalar):boolean; overload; {$ifdef caninline}inline;{$endif}
 begin
-//result:=OptimizedSphereCastTriangle(RayOrigin,Radius,RayDirection,v0,v1,v2,Normal,DoubldSided,HitNormal,Time);
+ result:=OptimizedSphereCastTriangle(RayOrigin,Radius,RayDirection,v0,v1,v2,Normal,DoubldSided,HitNormal,Time);
 //result:=SafeSphereCastTriangle(RayOrigin,Radius,RayDirection,v0,v1,v2,Normal,DoubldSided,HitNormal,Time);
- result:=OldSphereCastTriangle(RayOrigin,Radius,RayDirection,v0,v1,v2,Normal,DoubldSided,HitNormal,Time);
+//result:=OldSphereCastTriangle(RayOrigin,Radius,RayDirection,v0,v1,v2,Normal,DoubldSided,HitNormal,Time);
 end;
 
 function MPRIntersection(const ShapeA,ShapeB:TKraftShape;const TransformA,TransformB:TKraftMatrix4x4):boolean;
