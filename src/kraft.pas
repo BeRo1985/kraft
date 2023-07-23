@@ -1353,8 +1353,6 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftMesh=class(TPersistent)
       private
-       const MaximumTrianglesPerNode=8;
-      private
 
        fPhysics:TKraft;
 
@@ -1389,6 +1387,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fBVHBuildMode:TKraftMeshBVHBuildMode;
 
        fBVHSubdivisionSteps:TKraftInt32;
+
+       fMaximumTrianglesPerNode:TKraftInt32;
 
        function EvaluateSAH(const aParentTreeNode:PKraftMeshTreeNode;const aAxis:TKraftInt32;const aSplitPosition:TKraftScalar):TKraftScalar;
        function FindBestSplitPlaneBruteforce(const aParentTreeNode:PKraftMeshTreeNode;out aAxis:TKraftInt32;out aSplitPosition:TKraftScalar):TKraftScalar;
@@ -1473,6 +1473,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property BVHBuildMode:TKraftMeshBVHBuildMode read fBVHBuildMode write fBVHBuildMode;
 
        property BVHSubdivisionSteps:TKraftInt32 read fBVHSubdivisionSteps write fBVHSubdivisionSteps;
+
+       property MaximumTrianglesPerNode:TKraftInt32 read fMaximumTrianglesPerNode write fMaximumTrianglesPerNode;
 
      end;
 
@@ -22073,6 +22075,8 @@ begin
 
  fBVHSubdivisionSteps:=8;
 
+ fMaximumTrianglesPerNode:=8;
+
 end;
 
 destructor TKraftMesh.Destroy;
@@ -23207,7 +23211,7 @@ begin
    end;
 
    ParentTreeNode:=@fTreeNodes[ParentTreeNodeIndex];
-   if ParentTreeNode^.CountTriangles>0 then begin
+   if ParentTreeNode^.CountTriangles>fMaximumTrianglesPerNode then begin
 
     case fBVHBuildMode of
      TKraftMeshBVHBuildMode.kmbbmSAHSteps:begin
@@ -24209,7 +24213,7 @@ begin
         DynamicAABBTreeNodeStack.Push(NewDynamicAABBTreeNodeStackItem);
         while DynamicAABBTreeNodeStack.Pop(CurrentDynamicAABBTreeNodeStackItem) do begin
          DynamicAABBTreeNode:=@DynamicAABBTreeNodes[CurrentDynamicAABBTreeNodeStackItem.DynamicAABBTreeNodeIndex];
-         if DynamicAABBTreeNode^.CountChildTriangles<=8 then begin
+         if DynamicAABBTreeNode^.CountChildTriangles<=fMaximumTrianglesPerNode then begin
           NewDynamicAABBTreeNodeStackItem.DynamicAABBTreeNodeIndex:=CurrentDynamicAABBTreeNodeStackItem.DynamicAABBTreeNodeIndex;
           NewDynamicAABBTreeNodeStackItem.Pass:=1;
           DynamicAABBTreeNodeStack.Push(NewDynamicAABBTreeNodeStackItem);
@@ -24427,7 +24431,7 @@ begin
    if fCountTriangles>0 then begin
     TreeNode^.FirstTriangleIndex:=0;
     TreeNode^.CountTriangles:=fCountTriangles;
-    if fCountTriangles>=MaximumTrianglesPerNode then begin
+    if fCountTriangles>=fMaximumTrianglesPerNode then begin
      fNodeQueue:=TKraftMeshNodeQueue.Create;
      try
       fNodeQueue.Clear;
