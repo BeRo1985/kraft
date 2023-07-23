@@ -22071,11 +22071,11 @@ begin
  fNodeQueue:=nil;
  fCountActiveWorkers:=0;
 
- fBVHBuildMode:=TKraftMeshBVHBuildMode.kmbbmSAHRandomInsert;
+ fBVHBuildMode:=TKraftMeshBVHBuildMode.kmbbmSAHSteps;
 
- fBVHSubdivisionSteps:=8;
+ fBVHSubdivisionSteps:=32;
 
- fMaximumTrianglesPerNode:=8;
+ fMaximumTrianglesPerNode:=4;
 
 end;
 
