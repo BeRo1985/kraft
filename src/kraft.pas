@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2023-07-21-01-47-0000                       *
+ *                        Version 2023-07-23-02-07-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -898,6 +898,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
       TimeOfImpact:TKraftScalar;
       Point:TKraftVector3;
       Normal:TKraftVector3;
+      SurfaceNormal:TKraftVector3;
      end;
 
      EKraftQuickHull=class(Exception);
@@ -3854,7 +3855,11 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        function SphereCast(const Origin:TKraftVector3;const Radius:TKraftScalar;const Direction:TKraftVector3;const MaxTime:TKraftScalar;var Shape:TKraftShape;var Time:TKraftScalar;var Point,Normal:TKraftVector3;const CollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook=nil):boolean; overload;
 
+       function SphereCast(const Origin:TKraftVector3;const Radius:TKraftScalar;const Direction:TKraftVector3;const MaxTime:TKraftScalar;var Shape:TKraftShape;var Time:TKraftScalar;var Point,Normal,SurfaceNormal:TKraftVector3;const CollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook=nil):boolean; overload;
+
        function SphereCast(const Source:TKraftVector3;const Radius:TKraftScalar;const Target:TKraftVector3;var Shape:TKraftShape;var Time:TKraftScalar;var Point,Normal:TKraftVector3;const CollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook=nil):boolean; overload;
+
+       function SphereCast(const Source:TKraftVector3;const Radius:TKraftScalar;const Target:TKraftVector3;var Shape:TKraftShape;var Time:TKraftScalar;var Point,Normal,SurfaceNormal:TKraftVector3;const CollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook=nil):boolean; overload;
 
        function PushSphere(var Center:TKraftVector3;const Radius:TKraftScalar;const CollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const TryIterations:TKraftInt32=4;const OnPushSphereShapeContactHook:TKraftOnPushSphereShapeContactHook=nil):boolean;
 
@@ -24948,6 +24953,7 @@ begin
     SphereCastData.TimeOfImpact:=Time;
     SphereCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
     SphereCastData.Normal:=Vector3NormEx(Vector3Sub(SphereCastData.Point,Vector3TermMatrixMul(Vector3Origin,fWorldTransform)));
+    SphereCastData.SurfaceNormal:=SphereCastData.Normal;
     result:=true;
    end;
   end;
@@ -25470,6 +25476,7 @@ begin
     end;
     SphereCastData.Point:=Vector3TermMatrixMul(Point,fWorldTransform);
     SphereCastData.Normal:=Vector3TermMatrixMulBasis(Normal,fWorldTransform);
+    SphereCastData.SurfaceNormal:=SphereCastData.Normal;
     result:=true;
    end;
   end;
@@ -25746,6 +25753,7 @@ begin
      SphereCastData.TimeOfImpact:=0.0;
      SphereCastData.Point:=Vector3TermMatrixMul(Origin,fWorldTransform);
      SphereCastData.Normal:=Vector3TermMatrixMulBasis(Face^.Plane.Normal,fWorldTransform);
+     SphereCastData.SurfaceNormal:=SphereCastData.Normal;
      result:=true;
     end else if Vector3LengthSquared(Direction)>EPSILON then begin
      Time:=-Vector3Dot(Face^.Plane.Normal,Direction);
@@ -25755,6 +25763,7 @@ begin
        SphereCastData.TimeOfImpact:=Time;
        SphereCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
        SphereCastData.Normal:=Vector3TermMatrixMulBasis(Face^.Plane.Normal,fWorldTransform);
+       SphereCastData.SurfaceNormal:=SphereCastData.Normal;
        result:=true;
       end;
      end;
@@ -26480,6 +26489,7 @@ begin
   SphereCastData.TimeOfImpact:=Alpha;
   SphereCastData.Point:=Vector3Add(SphereCastData.Origin,Vector3ScalarMul(SphereCastData.Direction,Alpha));
   SphereCastData.Normal:=Vector3ScalarMul(Vector3(fWorldTransform[n,0],fWorldTransform[n,1],fWorldTransform[n,2]),sign[n]);
+  SphereCastData.SurfaceNormal:=SphereCastData.Normal;
   result:=true;
  end;
 end;
@@ -26737,6 +26747,7 @@ begin
    SphereCastData.TimeOfImpact:=0.0;
    SphereCastData.Point:=Vector3TermMatrixMul(Origin,fWorldTransform);
    SphereCastData.Normal:=Vector3TermMatrixMulBasis(fPlane.Normal,fWorldTransform);
+   SphereCastData.SurfaceNormal:=SphereCastData.Normal;
    result:=true;
   end else if Vector3LengthSquared(Direction)>EPSILON then begin
    Time:=-Vector3Dot(fPlane.Normal,Direction);
@@ -26746,6 +26757,7 @@ begin
      SphereCastData.TimeOfImpact:=Time;
      SphereCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
      SphereCastData.Normal:=Vector3TermMatrixMulBasis(fPlane.Normal,fWorldTransform);
+     SphereCastData.SurfaceNormal:=SphereCastData.Normal;
      result:=true;
     end;
    end;
@@ -27225,6 +27237,7 @@ begin
      SphereCastData.TimeOfImpact:=Time;
      SphereCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
      SphereCastData.Normal:=Vector3TermMatrixMulBasis(Normal,fWorldTransform);
+     SphereCastData.SurfaceNormal:=Vector3TermMatrixMulBasis(fShapeConvexHull.fFaces[0].Plane.Normal,fWorldTransform);
      result:=true;
     end;
    end;
@@ -27491,6 +27504,7 @@ begin
           SphereCastData.TimeOfImpact:=Time;
           SphereCastData.Point:=p;
           SphereCastData.Normal:=Normal;
+          SphereCastData.SurfaceNormal:=Triangle^.Plane.Normal;
           result:=true;
          end;
         end;
@@ -27530,6 +27544,7 @@ begin
            end else begin
             SphereCastData.Normal:=Normal;
            end;
+           SphereCastData.SurfaceNormal:=Triangle^.Plane.Normal;
            result:=true;
           end;
          end;
@@ -27545,6 +27560,7 @@ begin
    if result then begin
     SphereCastData.Point:=Vector3TermMatrixMul(SphereCastData.Point,fWorldTransform);
     SphereCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(SphereCastData.Normal,fWorldTransform));
+    SphereCastData.SurfaceNormal:=Vector3NormEx(Vector3TermMatrixMulBasis(SphereCastData.SurfaceNormal,fWorldTransform));
    end;
   end;
  end;
@@ -27964,6 +27980,7 @@ begin
       SphereCastData.Normal.w:=0.0;
  {$endif}
       Vector3Normalize(SphereCastData.Normal);
+      SphereCastData.SurfaceNormal:=SphereCastData.Normal;
       result:=true;
       break;
      end else begin
@@ -40577,6 +40594,7 @@ type TKraftSphereCastProcessNodeData=record
       CollisionGroups:TKraftRigidBodyCollisionGroups;
       Point:TKraftVector3;
       Normal:TKraftVector3;
+      SurfaceNormal:TKraftVector3;
       MaxTime:TKraftScalar;
       Time:TKraftScalar;
       OnSphereCastFilterHook:TKraftOnSphereCastFilterHook;
@@ -40604,6 +40622,7 @@ begin
        Data^.Time:=Data^.SphereCastData.TimeOfImpact;
        Data^.Point:=Data^.SphereCastData.Point;
        Data^.Normal:=Data^.SphereCastData.Normal;
+       Data^.SurfaceNormal:=Data^.SphereCastData.SurfaceNormal;
        Data^.Shape:=CurrentShape;
       end;
      end;
@@ -40724,11 +40743,127 @@ begin
 end;
 {$endif}
 
+function TKraft.SphereCast(const Origin:TKraftVector3;const Radius:TKraftScalar;const Direction:TKraftVector3;const MaxTime:TKraftScalar;var Shape:TKraftShape;var Time:TKraftScalar;var Point,Normal,SurfaceNormal:TKraftVector3;const CollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook=nil):boolean;
+{$ifdef KraftSingleThreadedUsage}
+var Hit:boolean;
+ procedure QueryTree(AABBTree:TKraftDynamicAABBTree);
+ var LocalStack:PKraftDynamicAABBTreeLongintArSphere;
+     LocalStackPointer,NodeID:TKraftInt32;
+     Node:PKraftDynamicAABBTreeNode;
+     CurrentShape:TKraftShape;
+     SphereCastData:TKraftSpherecastData;
+ begin
+  if assigned(AABBTree) then begin
+   if AABBTree.fRoot>=0 then begin
+    LocalStack:=AABBTree.fStack;
+    LocalStack^[0]:=AABBTree.fRoot;
+    LocalStackPointer:=1;
+    while LocalStackPointer>0 do begin
+     dec(LocalStackPointer);
+     NodeID:=LocalStack^[LocalStackPointer];
+     if NodeID>=0 then begin
+      Node:=@AABBTree.fNodes[NodeID];
+      if SphereCastAABB(Origin,Radius,Direction,Node^.AABB) then begin
+       if Node^.Children[0]<0 then begin
+        CurrentShape:=Node^.UserData;
+        SphereCastData.Origin:=Origin;
+        SphereCastData.Radius:=Radius;
+        SphereCastData.Direction:=Direction;
+        SphereCastData.MaxTime:=MaxTime;
+        if (assigned(CurrentShape) and (assigned(CurrentShape.fRigidBody) and ((CurrentShape.fRigidBody.fCollisionGroups*CollisionGroups)<>[]))) and CurrentShape.SphereCast(SphereCastData) then begin
+         if (assigned(aOnSphereCastFilterHook) and aOnSphereCastFilterHook(SphereCastData.Point,SphereCastData.Normal,SphereCastData.TimeOfImpact,CurrentShape)) or not assigned(aOnSphereCastFilterHook) then begin
+          if (Hit and (SphereCastData.TimeOfImpact<Time)) or not Hit then begin
+           Hit:=true;
+           Time:=SphereCastData.TimeOfImpact;
+           Point:=SphereCastData.Point;
+           Normal:=SphereCastData.Normal;
+           SurfaceNormal:=SphereCastData.SurfaceNormal;
+           Shape:=CurrentShape;
+          end;
+         end;
+        end;
+       end else begin
+        if AABBTree.fStackCapacity<=(LocalStackPointer+2) then begin
+         AABBTree.fStackCapacity:=RoundUpToPowerOfTwo(LocalStackPointer+2);
+         ReallocMem(AABBTree.fStack,AABBTree.fStackCapacity*SizeOf(TKraftInt32));
+         LocalStack:=AABBTree.fStack;
+        end;
+        LocalStack^[LocalStackPointer+0]:=Node^.Children[0];
+        LocalStack^[LocalStackPointer+1]:=Node^.Children[1];
+        inc(LocalStackPointer,2);
+       end;
+      end;
+     end;
+    end;
+   end;
+  end;
+ end;
+begin
+ Hit:=false;
+ Time:=MaxTime;
+ QueryTree(fStaticAABBTree);
+ QueryTree(fSleepingAABBTree);
+ QueryTree(fDynamicAABBTree);
+ QueryTree(fKinematicAABBTree);
+ result:=Hit;
+end;
+{$else}
+var Data:TKraftSphereCastProcessNodeData;
+begin
+ Data.CollisionGroups:=CollisionGroups;
+ Data.SphereCastData.Origin:=Origin;
+ Data.SphereCastData.Direction:=Direction;
+ Data.SphereCastData.Radius:=Radius;
+ Data.Point:=Vector3Origin;
+ Data.Normal:=Vector3Origin;
+ Data.MaxTime:=MaxTime;
+ Data.Time:=MaxTime;
+ Data.OnSphereCastFilterHook:=aOnSphereCastFilterHook;
+ Data.AABBTree:=nil;
+ Data.Shape:=nil;
+ Data.Hit:=false;
+ begin
+  Data.AABBTree:=fStaticAABBTree;
+  TKraftSphereCastProcessNode(@Data,fStaticAABBTree.fRoot);
+ end;
+ begin
+  Data.AABBTree:=fSleepingAABBTree;
+  TKraftSphereCastProcessNode(@Data,fSleepingAABBTree.fRoot);
+ end;
+ begin
+  Data.AABBTree:=fDynamicAABBTree;
+  TKraftSphereCastProcessNode(@Data,fDynamicAABBTree.fRoot);
+ end;
+ begin
+  Data.AABBTree:=fKinematicAABBTree;
+  TKraftSphereCastProcessNode(@Data,fKinematicAABBTree.fRoot);
+ end;
+ result:=Data.Hit;
+ if result then begin
+  Shape:=Data.Shape;
+  Time:=Data.Time;
+  Point:=Data.Point;
+  Normal:=Data.Normal;
+  SurfaceNormal:=Data.SurfaceNormal;
+ end;
+end;
+{$endif}
+
 function TKraft.SphereCast(const Source:TKraftVector3;const Radius:TKraftScalar;const Target:TKraftVector3;var Shape:TKraftShape;var Time:TKraftScalar;var Point,Normal:TKraftVector3;const CollisionGroups:TKraftRigidBodyCollisionGroups;const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook):boolean;
 var Len:TKraftScalar;
 begin
  Len:=Vector3Dist(Source,Target);
  result:=SphereCast(Source,Radius,Vector3Norm(Vector3Sub(Target,Source)),Vector3Dist(Source,Target),Shape,Time,Point,Normal,CollisionGroups,aOnSphereCastFilterHook);
+ if result then begin
+  Time:=Time/Len;
+ end;
+end;
+
+function TKraft.SphereCast(const Source:TKraftVector3;const Radius:TKraftScalar;const Target:TKraftVector3;var Shape:TKraftShape;var Time:TKraftScalar;var Point,Normal,SurfaceNormal:TKraftVector3;const CollisionGroups:TKraftRigidBodyCollisionGroups;const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook):boolean;
+var Len:TKraftScalar;
+begin
+ Len:=Vector3Dist(Source,Target);
+ result:=SphereCast(Source,Radius,Vector3Norm(Vector3Sub(Target,Source)),Vector3Dist(Source,Target),Shape,Time,Point,Normal,SurfaceNormal,CollisionGroups,aOnSphereCastFilterHook);
  if result then begin
   Time:=Time/Len;
  end;
