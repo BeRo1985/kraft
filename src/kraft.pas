@@ -23590,7 +23590,7 @@ begin
        i1:=t^.v[ModuloThree[j+1]];
        v1:=@fVertices[i1];
 
-       if v0^.border=v1^.border then begin
+       if v0^.Border=v1^.Border then begin
 
 			  CalculateError(i0,i1,p);
 
@@ -23607,7 +23607,7 @@ begin
 			  if not (Flipped(p,i0,i1,v0^,v1^,Deleted0) or Flipped(p,i1,i0,v1^,v0^,Deleted1)) then begin
 
          UpdateUVs(i0,v0^,p,Deleted0);
-         UpdateUVs(i0,v1^,p,Deleted0);
+         UpdateUVs(i0,v1^,p,Deleted1);
 
          v0^.p:=p;
          v0^.q:=v1^.q+v0^.q;
@@ -23615,7 +23615,7 @@ begin
          tstart:=length(fReferences);
 
          UpdateTriangles(i0,v0^,Deleted0,DeletedTriangles);
-         UpdateTriangles(i0,v1^,Deleted0,DeletedTriangles);
+         UpdateTriangles(i0,v1^,Deleted1,DeletedTriangles);
 
          tcount:=length(fReferences)-tstart;
 
