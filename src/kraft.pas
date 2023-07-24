@@ -23477,14 +23477,14 @@ begin
 end;
 
 function TKraftMeshSimplification.AddTriangle(const aVertex0:TKraftInt32;
-                               const aVertex1:TKraftInt32;
-                               const aVertex2:TKraftInt32;
-                               const aNormal0:PKraftMeshSimplificationVector3;
-                               const aNormal1:PKraftMeshSimplificationVector3;
-                               const aNormal2:PKraftMeshSimplificationVector3;
-                               const aTexCoord0:PKraftMeshSimplificationVector3;
-                               const aTexCoord1:PKraftMeshSimplificationVector3;
-                               const aTexCoord2:PKraftMeshSimplificationVector3):TKraftInt32;
+                                              const aVertex1:TKraftInt32;
+                                              const aVertex2:TKraftInt32;
+                                              const aNormal0:PKraftMeshSimplificationVector3;
+                                              const aNormal1:PKraftMeshSimplificationVector3;
+                                              const aNormal2:PKraftMeshSimplificationVector3;
+                                              const aTexCoord0:PKraftMeshSimplificationVector3;
+                                              const aTexCoord1:PKraftMeshSimplificationVector3;
+                                              const aTexCoord2:PKraftMeshSimplificationVector3):TKraftInt32;
 var t:PTriangle;
 begin
  result:=fCountTriangles;
