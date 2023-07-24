@@ -23313,6 +23313,7 @@ end;
 procedure TKraftMeshSimplification.UpdateTriangles(const aI0:TKraftInt32;var aV:TVertex;var aDeleted:TBoolArray;var aDeletedTriangles:TKraftInt32);
 var k:TKraftInt32;
     r:PReference;
+    r2:TReference;
     t:PTriangle;
     p:TKraftMeshSimplificationVector3;
 begin
@@ -23330,7 +23331,8 @@ begin
 		t^.Error[1]:=CalculateError(t^.v[1],t^.v[2],p);
 		t^.Error[2]:=CalculateError(t^.v[2],t^.v[0],p);
 		t^.Error[3]:=Min(t^.Error[0],Min(t^.Error[1],t^.Error[2]));
-    fReferences:=fReferences+[r^];
+    r2:=r^;
+    fReferences:=fReferences+[r2];
    end;
   end;
  end;
