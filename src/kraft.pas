@@ -1538,15 +1538,18 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property CountTriangles:TKraftInt32 read fCountTriangles;
      end;
 
-     PKraftMeshTriangle=^TKraftMeshTriangle;
+     TKraftMeshTriangleVertices=array[0..2] of TKraftInt32;
+     PKraftMeshTriangleVertices=^TKraftMeshTriangleVertices;
+
      TKraftMeshTriangle=packed record
       Next:TKraftInt32;
-      Vertices:array[0..2] of TKraftInt32;
-      Normals:array[0..2] of TKraftInt32;
+      Vertices:TKraftMeshTriangleVertices;
+      Normals:TKraftMeshTriangleVertices;
       Center:TKraftVector3;
       Plane:TKraftPlane;
       AABB:TKraftAABB;
      end;
+     PKraftMeshTriangle=^TKraftMeshTriangle;
 
      TKraftMeshTriangles=array of TKraftMeshTriangle;
 
@@ -1582,6 +1585,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftMeshVectorHashMap=TKraftHashMap<TKraftVector3,TKraftInt32>;
 
+     TKraftMeshTriangleVerticesHashMap=TKraftHashMap<TKraftMeshTriangleVertices,TKraftInt32>;
+
      TKraftMesh=class(TPersistent)
       private
 
@@ -1592,6 +1597,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fVerticesHashMap:TKraftMeshVectorHashMap;
        fNormalsHashMap:TKraftMeshVectorHashMap;
+       fTriangleVerticesHashMap:TKraftMeshTriangleVerticesHashMap;
 
        fVertices:TKraftVector3Array;
        fCountVertices:TKraftInt32;
@@ -23722,6 +23728,8 @@ begin
 
  fNormalsHashMap:=TKraftMeshVectorHashMap.Create(-1);
 
+ fTriangleVerticesHashMap:=TKraftMeshTriangleVerticesHashMap.Create(-1);
+
  fVertices:=nil;
  fCountVertices:=0;
 
@@ -23769,6 +23777,8 @@ begin
 
  FreeAndNil(fNormalsHashMap);
 
+ FreeAndNil(fTriangleVerticesHashMap);
+
  fVertices:=nil;
 
  fNormals:=nil;
@@ -23801,6 +23811,7 @@ begin
 
  fVerticesHashMap.Clear;
  fNormalsHashMap.Clear;
+ fTriangleVerticesHashMap.Clear;
 
  if aFreeMemory then begin
   fVertices:=nil;
@@ -24105,23 +24116,33 @@ end;
 
 function TKraftMesh.AddTriangle(const AVertexIndex0,AVertexIndex1,AVertexIndex2:TKraftInt32;const ANormalIndex0:TKraftInt32=-1;const ANormalIndex1:TKraftInt32=-1;ANormalIndex2:TKraftInt32=-1):TKraftInt32;
 var Triangle:PKraftMeshTriangle;
+    TriangleVertices:TKraftMeshTriangleVertices;
 begin
- result:=fCountTriangles;
- inc(fCountTriangles);
- if fCountTriangles>length(fTriangles) then begin
-  SetLength(fTriangles,fCountTriangles*2);
+ if (AVertexIndex0=AVertexIndex1) or (AVertexIndex0=AVertexIndex2) or (AVertexIndex1=AVertexIndex2) then begin
+  result:=-1;
+ end else begin
+  TriangleVertices[0]:=AVertexIndex0;
+  TriangleVertices[1]:=AVertexIndex1;
+  TriangleVertices[2]:=AVertexIndex2;
+  result:=fTriangleVerticesHashMap[TriangleVertices];
+  if result<0 then begin
+   result:=fCountTriangles;
+   inc(fCountTriangles);
+   if fCountTriangles>length(fTriangles) then begin
+    SetLength(fTriangles,fCountTriangles*2);
+   end;
+   Triangle:=@fTriangles[result];
+   Triangle^.Vertices:=TriangleVertices;
+   Triangle^.Normals[0]:=ANormalIndex0;
+   Triangle^.Normals[1]:=ANormalIndex1;
+   Triangle^.Normals[2]:=ANormalIndex2;
+   Triangle^.Center:=Vector3Avg(Vertices[Triangle^.Vertices[0]],Vertices[Triangle^.Vertices[1]],Vertices[Triangle^.Vertices[2]]);
+   Triangle^.Plane.Normal:=Vector3NormEx(Vector3Cross(Vector3Sub(fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[0]]),Vector3Sub(fVertices[Triangle^.Vertices[2]],fVertices[Triangle^.Vertices[0]])));
+   Triangle^.Plane.Distance:=-Vector3Dot(Triangle^.Plane.Normal,fVertices[Triangle^.Vertices[0]]);
+   Triangle^.Next:=-1;
+   fTriangleVerticesHashMap.Add(TriangleVertices,result);
+  end;
  end;
- Triangle:=@fTriangles[result];
- Triangle^.Vertices[0]:=AVertexIndex0;
- Triangle^.Vertices[1]:=AVertexIndex1;
- Triangle^.Vertices[2]:=AVertexIndex2;
- Triangle^.Normals[0]:=ANormalIndex0;
- Triangle^.Normals[1]:=ANormalIndex1;
- Triangle^.Normals[2]:=ANormalIndex2;
- Triangle^.Center:=Vector3Avg(Vertices[Triangle^.Vertices[0]],Vertices[Triangle^.Vertices[1]],Vertices[Triangle^.Vertices[2]]);
- Triangle^.Plane.Normal:=Vector3NormEx(Vector3Cross(Vector3Sub(fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[0]]),Vector3Sub(fVertices[Triangle^.Vertices[2]],fVertices[Triangle^.Vertices[0]])));
- Triangle^.Plane.Distance:=-Vector3Dot(Triangle^.Plane.Normal,fVertices[Triangle^.Vertices[0]]);
- Triangle^.Next:=-1;
 end;
 
 procedure TKraftMesh.Load(const AVertices:PKraftVector3;const ACountVertices:TKraftInt32;const ANormals:PKraftVector3;const ACountNormals:TKraftInt32;const AVertexIndices,ANormalIndices:pointer;const ACountIndices:TKraftInt32);
@@ -25063,7 +25084,6 @@ begin
                AddNormal(Triangle^.Normals[1]),
                AddNormal(Triangle^.Normals[2]));
   end;
-  Finish;
  finally
   FreeAndNil(MeshSimplification);
  end;
@@ -25088,20 +25108,39 @@ var Index:TKraftInt32;
     Vertex:PKraftVector3;
     Triangle:PKraftMeshTriangle;
 begin
+ if length(fVertices)<>fCountVertices then begin
+  SetLength(fVertices,fCountVertices);
+ end;
+ if length(fTriangles)<>fCountTriangles then begin
+  SetLength(fTriangles,fCountTriangles);
+ end;
+ for Index:=0 to fCountTriangles-1 do begin
+  Triangle:=@fTriangles[Index];
+  if (Triangle^.Normals[0]<0) or (Triangle^.Normals[1]<0) or (Triangle^.Normals[2]<0) then begin
+   CalculateNormals;
+   break;
+  end;
+ end;
  WriteLine('# Generated by KRAFT physics engine for debugging purposes only');
  WriteLine('o Mesh');
  for Index:=0 to fCountVertices-1 do begin
   Vertex:=@fVertices[Index];
   WriteLine('v '+FloatToStr(Vertex^.x)+' '+FloatToStr(Vertex^.y)+' '+FloatToStr(Vertex^.z));
  end;
+{for Index:=0 to fCountVertices-1 do begin
+  WriteLine('vt 0.0 0.0');
+ end;
  for Index:=0 to fCountNormals-1 do begin
   Vertex:=@fNormals[Index];
   WriteLine('vn '+FloatToStr(Vertex^.x)+' '+FloatToStr(Vertex^.y)+' '+FloatToStr(Vertex^.z));
- end;
+ end;}
  for Index:=0 to fCountTriangles-1 do begin
   Triangle:=@fTriangles[Index];
-  WriteLine('f '+(IntToStr(Triangle^.Vertices[0]+1)+'//'+IntToStr(Triangle^.Normals[0]+1))+' '+(IntToStr(Triangle^.Vertices[1]+1)+'//'+IntToStr(Triangle^.Normals[1]+1))+' '+(IntToStr(Triangle^.Vertices[2]+1)+'//'+IntToStr(Triangle^.Normals[2]+1)));
- end; 
+  WriteLine('f '+IntToStr(Triangle^.Vertices[0]+1)+' '+IntToStr(Triangle^.Vertices[1]+1)+' '+IntToStr(Triangle^.Vertices[2]+1));
+{ WriteLine('f '+IntToStr(Triangle^.Vertices[0]+1)+'/'+(IntToStr(Triangle^.Vertices[0]+1)+'/'+IntToStr(Triangle^.Normals[0]+1))+' '+
+                 IntToStr(Triangle^.Vertices[1]+1)+'/'+(IntToStr(Triangle^.Vertices[1]+1)+'/'+IntToStr(Triangle^.Normals[1]+1))+' '+
+                 IntToStr(Triangle^.Vertices[2]+1)+'/'+(IntToStr(Triangle^.Vertices[2]+1)+'/'+IntToStr(Triangle^.Normals[2]+1)));}
+ end;
 end;
 
 procedure TKraftMesh.SaveToOBJ(const aFileName:String);
@@ -25169,6 +25208,8 @@ begin
  fVerticesHashMap.Clear;
 
  fNormalsHashMap.Clear;
+
+ fTriangleVerticesHashMap.Clear;
 
  if length(fVertices)<>fCountVertices then begin
   SetLength(fVertices,fCountVertices);
