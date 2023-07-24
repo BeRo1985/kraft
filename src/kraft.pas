@@ -1424,30 +1424,30 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        z:TKraftDouble;
        constructor Create(const aVector:TKraftVector3); overload;
        constructor Create(const aX,aY,aZ:TKraftDouble); overload;
-       class operator Implicit(const aInput:TKraftVector3):TKraftMeshSimplificationVector3; inline;
-       class operator Implicit(const aInput:TKraftMeshSimplificationVector3):TKraftVector3; inline;
-       class operator Explicit(const aInput:TKraftVector3):TKraftMeshSimplificationVector3; inline;
-       class operator Explicit(const aInput:TKraftMeshSimplificationVector3):TKraftVector3; inline;
-       class operator Add(const aA,aB:TKraftMeshSimplificationVector3):TKraftMeshSimplificationVector3; inline;
-       class operator Subtract(const aA,aB:TKraftMeshSimplificationVector3):TKraftMeshSimplificationVector3; inline;
-       class operator Multiply(const aA,aB:TKraftMeshSimplificationVector3):TKraftMeshSimplificationVector3; inline;
-       class operator Multiply(const aA:TKraftMeshSimplificationVector3;const aB:TKraftDouble):TKraftMeshSimplificationVector3; inline;
-       class operator Divide(const aA,aB:TKraftMeshSimplificationVector3):TKraftMeshSimplificationVector3; inline;
-       class operator Divide(const aA:TKraftMeshSimplificationVector3;const aB:TKraftDouble):TKraftMeshSimplificationVector3; inline;
-       class operator Negative(const aInput:TKraftMeshSimplificationVector3):TKraftMeshSimplificationVector3; inline;
-       class operator Positive(const aInput:TKraftMeshSimplificationVector3):TKraftMeshSimplificationVector3; inline;
-       function Dot(const aA:TKraftMeshSimplificationVector3):TKraftDouble; inline;
-       function Cross(const aA:TKraftMeshSimplificationVector3):TKraftMeshSimplificationVector3; inline;
-       function Length:TKraftDouble; inline;
-       function Angle(const aV:TKraftMeshSimplificationVector3):TKraftDouble; inline;
-       function Angle2(const aV,aW:TKraftMeshSimplificationVector3):TKraftDouble; inline;
-       function RotateX(const aAngle:TKraftDouble):TKraftMeshSimplificationVector3; inline;
-       function RotateY(const aAngle:TKraftDouble):TKraftMeshSimplificationVector3; inline;
-       function RotateZ(const aAngle:TKraftDouble):TKraftMeshSimplificationVector3; inline;
-       function Clamp(const aMin,aMax:TKraftDouble):TKraftMeshSimplificationVector3; inline;
-       function Frac:TKraftMeshSimplificationVector3; inline;
-       function Int:TKraftMeshSimplificationVector3; inline;
-       function Normalize(const aDesiredLength:TKraftDouble=1.0):TKraftMeshSimplificationVector3; inline;
+       class operator Implicit(const aInput:TKraftVector3):TKraftMeshSimplificationVector3; //inline;
+       class operator Implicit(const aInput:TKraftMeshSimplificationVector3):TKraftVector3; //inline;
+       class operator Explicit(const aInput:TKraftVector3):TKraftMeshSimplificationVector3; //inline;
+       class operator Explicit(const aInput:TKraftMeshSimplificationVector3):TKraftVector3; //inline;
+       class operator Add(const aA,aB:TKraftMeshSimplificationVector3):TKraftMeshSimplificationVector3; //inline;
+       class operator Subtract(const aA,aB:TKraftMeshSimplificationVector3):TKraftMeshSimplificationVector3; //inline;
+       class operator Multiply(const aA,aB:TKraftMeshSimplificationVector3):TKraftMeshSimplificationVector3; //inline;
+       class operator Multiply(const aA:TKraftMeshSimplificationVector3;const aB:TKraftDouble):TKraftMeshSimplificationVector3; //inline;
+       class operator Divide(const aA,aB:TKraftMeshSimplificationVector3):TKraftMeshSimplificationVector3; //inline;
+       class operator Divide(const aA:TKraftMeshSimplificationVector3;const aB:TKraftDouble):TKraftMeshSimplificationVector3; //inline;
+       class operator Negative(const aInput:TKraftMeshSimplificationVector3):TKraftMeshSimplificationVector3; //inline;
+       class operator Positive(const aInput:TKraftMeshSimplificationVector3):TKraftMeshSimplificationVector3; //inline;
+       function Dot(const aA:TKraftMeshSimplificationVector3):TKraftDouble; //inline;
+       function Cross(const aA:TKraftMeshSimplificationVector3):TKraftMeshSimplificationVector3; //inline;
+       function Length:TKraftDouble; //inline;
+       function Angle(const aV:TKraftMeshSimplificationVector3):TKraftDouble; //inline;
+       function Angle2(const aV,aW:TKraftMeshSimplificationVector3):TKraftDouble; //inline;
+       function RotateX(const aAngle:TKraftDouble):TKraftMeshSimplificationVector3; //inline;
+       function RotateY(const aAngle:TKraftDouble):TKraftMeshSimplificationVector3; //inline;
+       function RotateZ(const aAngle:TKraftDouble):TKraftMeshSimplificationVector3; //inline;
+       function Clamp(const aMin,aMax:TKraftDouble):TKraftMeshSimplificationVector3; //inline;
+       function Frac:TKraftMeshSimplificationVector3; //inline;
+       function Int:TKraftMeshSimplificationVector3; //inline;
+       function Normalize(const aDesiredLength:TKraftDouble=1.0):TKraftMeshSimplificationVector3; //inline;
        constructor CreateBarycentric(const aP,aA,aB,aC:TKraftMeshSimplificationVector3);
        constructor CreateInterpolated(const aP,aA,aB,aC,aV0,aV1,aV2:TKraftMeshSimplificationVector3);
      end;
@@ -1458,14 +1458,14 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
       public
        m:array[0..9] of TKraftDouble;
       private
-       function GetElement(const aIndex:TKraftInt32):TKraftDouble; inline;
-       procedure SetElement(const aIndex:TKraftInt32;const aValue:TKraftDouble); inline;
+       function GetElement(const aIndex:TKraftInt32):TKraftDouble; //inline;
+       procedure SetElement(const aIndex:TKraftInt32;const aValue:TKraftDouble); //inline;
       public
        constructor Create(const aC:TKraftDouble); overload;
        constructor Create(const aM11,aM12,aM13,aM14,aM22,aM23,aM24,aM33,aM34,aM44:TKraftDouble); overload;
        constructor Create(const aA,aB,aC,aD:TKraftDouble); overload;
        function Det(const a11,a12,a13,a21,a22,a23,a31,a32,a33:TKraftInt32):TKraftDouble;
-       class operator Add(const aA,aB:TKraftMeshSimplificationSymetricMatrix):TKraftMeshSimplificationSymetricMatrix; inline;
+       class operator Add(const aA,aB:TKraftMeshSimplificationSymetricMatrix):TKraftMeshSimplificationSymetricMatrix; //inline;
       public
        property Elements[const aIndex:TKraftInt32]:TKraftDouble read GetElement write SetElement; default;
      end;
@@ -22969,14 +22969,18 @@ end;
 
 function TKraftMeshSimplificationVector3.Dot(const aA:TKraftMeshSimplificationVector3):TKraftDouble;
 begin
- result:=(x*aA.x)+(y*aA.y)+(aA.z);
+ result:=(x*aA.x)+(y*aA.y)+(z*aA.z);
 end;
 
 function TKraftMeshSimplificationVector3.Cross(const aA:TKraftMeshSimplificationVector3):TKraftMeshSimplificationVector3;
+var tx,ty,tz:TKraftDouble;
 begin
- result.x:=(y*aA.z)-(z*aA.y);
- result.y:=(z*aA.x)-(x*aA.z);
- result.z:=(x*aA.y)-(y*aA.x);
+ tx:=(y*aA.z)-(z*aA.y);
+ ty:=(z*aA.x)-(x*aA.z);
+ tz:=(x*aA.y)-(y*aA.x);
+ result.x:=tx;
+ result.y:=ty;
+ result.z:=tz;
 end;
 
 function TKraftMeshSimplificationVector3.Length:TKraftDouble;
@@ -23151,12 +23155,17 @@ end;
 
 procedure TKraftMeshSimplificationSymetricMatrix.SetElement(const aIndex:TKraftInt32;const aValue:TKraftDouble);
 begin
- m[aIndex]:=aIndex;
+ m[aIndex]:=aValue;
 end;
 
 function TKraftMeshSimplificationSymetricMatrix.Det(const a11,a12,a13,a21,a22,a23,a31,a32,a33:TKraftInt32):TKraftDouble;
 begin
- result:=(((((m[a11]*m[a22]*m[a33])+(m[a13]*m[a21]*m[a32]))+(m[a12]*m[a23]*m[a31]))-(m[a13]*m[a22]*m[a31]))-(m[a11]*m[a23]*m[a32]))-(m[a12]*m[a21]*m[a33]);
+ result:=(((((m[a11]*m[a22]*m[a33])+
+             (m[a13]*m[a21]*m[a32]))+
+             (m[a12]*m[a23]*m[a31]))-
+             (m[a13]*m[a22]*m[a31]))-
+             (m[a11]*m[a23]*m[a32]))-
+             (m[a12]*m[a21]*m[a33]);
 end;
 
 class operator TKraftMeshSimplificationSymetricMatrix.Add(const aA,aB:TKraftMeshSimplificationSymetricMatrix):TKraftMeshSimplificationSymetricMatrix;
@@ -23195,8 +23204,16 @@ end;
 
 class function TKraftMeshSimplification.VertexError(const aQ:TKraftMeshSimplificationSymetricMatrix;const aX,aY,aZ:TKraftDouble):TKraftDouble;
 begin
- result:=((aQ.m[0]*sqr(aX))+(2.0*aQ.m[1]*aX*aY)+(2.0*aQ.m[2]*aX*aZ)+(2.0*aQ.m[3]*aX)+(aQ.m[4]*sqr(aY)))+
-         ((2.0*aQ.m[5]*aY*aZ)+(2.0*aQ.m[6]*aY)+(aQ.m[7]*sqr(aZ))+(2.0*aQ.m[8]*aZ)+aQ.m[9]);
+ result:=((aQ.m[0]*sqr(aX))+
+          (2.0*aQ.m[1]*aX*aY)+
+          (2.0*aQ.m[2]*aX*aZ)+
+          (2.0*aQ.m[3]*aX)+
+          (aQ.m[4]*sqr(aY)))+
+         ((2.0*aQ.m[5]*aY*aZ)+
+          (2.0*aQ.m[6]*aY)+
+          (aQ.m[7]*sqr(aZ))+
+          (2.0*aQ.m[8]*aZ)+
+          aQ.m[9]);
 end;
 
 function TKraftMeshSimplification.CalculateError(const aIDV1,aIDV2:TKraftInt32;out aPResult:TKraftMeshSimplificationVector3):TKraftDouble;
@@ -23221,13 +23238,22 @@ begin
   Error1:=VertexError(q,p1.x,p1.y,p1.z);
   Error2:=VertexError(q,p2.x,p2.y,p2.z);
   Error3:=VertexError(q,p3.x,p3.y,p3.z);
-  result:=Min(Error1,Min(Error2,Error3));
-  if SameValue(result,Error3) then begin
-   aPResult:=p3;
-  end else if SameValue(result,Error2) then begin
-   aPResult:=p2;
+  if Error2<Error3 then begin
+   if Error1<Error2 then begin
+    result:=Error1;
+    aPResult:=p1;
+   end else begin
+    result:=Error2;
+    aPResult:=p2;
+   end;
   end else begin
-   aPResult:=p1;
+   if Error1<Error3 then begin
+    result:=Error1;
+    aPResult:=p1;
+   end else begin
+    result:=Error3;
+    aPResult:=p3;
+   end;
   end;
  end;
 end;
@@ -23254,7 +23280,7 @@ begin
     end else begin
      n:=(d1.Cross(d2)).Normalize;
      aDeleted[k]:=false;
-     if n.Dot(t.n)<0.2 then begin
+     if n.Dot(t^.n)<0.2 then begin
       result:=true;
       exit;
      end;
@@ -23311,7 +23337,6 @@ begin
 end;
 
 procedure TKraftMeshSimplification.UpdateMesh(const aIteration:TKraftInt32);
-const ModuloThree:array[0..5] of TKraftInt32=(0,1,2,0,1,2);
 var Count,i,j,k,tstart,ofs,id:TKraftInt32;
     t:PTriangle;
     v:PVertex;
@@ -23426,7 +23451,7 @@ begin
   for i:=0 to length(fTriangles)-1 do begin
    t:=@fTriangles[i];
    for j:=0 to 2 do begin
-    t^.Error[j]:=CalculateError(t^.v[j],t^.v[ModuloThree[j+1]],p);
+    t^.Error[j]:=CalculateError(t^.v[j],t^.v[(j+1) mod 3],p);
    end;
    t^.Error[3]:=Min(t^.Error[0],Min(t^.Error[1],t^.Error[2]));
   end;
@@ -23567,13 +23592,15 @@ begin
    CountIterations:=100;
   end;
 
+  UpdateMesh(0);
+
   for Iteration:=0 to CountIterations-1 do begin
 
  	 if (not Lossless) and ((CountTriangles-DeletedTriangles)<=aTargetCount) then begin
     break;
    end;
 
-   if Lossless or ((Iteration and 3)=0) then begin
+   if (Iteration<>0) and (Lossless or ((Iteration and 3)=0)) then begin
  	  UpdateMesh(Iteration);
    end;
 
@@ -23591,7 +23618,7 @@ begin
 
     t:=@fTriangles[i];
 
-    if (t.Error[3]<Threshold) and not (t^.Deleted or t^.Dirty) then begin
+    if (t^.Error[3]<Threshold) and not (t^.Deleted or t^.Dirty) then begin
 
      for j:=0 to 2 do begin
 
@@ -23600,7 +23627,7 @@ begin
        i0:=t^.v[j];
        v0:=@fVertices[i0];
 
-       i1:=t^.v[ModuloThree[j+1]];
+       i1:=t^.v[(j+1) mod 3];
        v1:=@fVertices[i1];
 
        if v0^.Border=v1^.Border then begin
@@ -25077,12 +25104,14 @@ begin
   Clear(true);
   for Index:=0 to MeshSimplification.fCountTriangles-1 do begin
    Triangle:=@MeshSimplification.fTriangles[Index];
-   AddTriangle(AddVertex(MeshSimplification.fVertices[Triangle^.v[0]].p),
-               AddVertex(MeshSimplification.fVertices[Triangle^.v[1]].p),
-               AddVertex(MeshSimplification.fVertices[Triangle^.v[2]].p),
-               AddNormal(Triangle^.Normals[0]),
-               AddNormal(Triangle^.Normals[1]),
-               AddNormal(Triangle^.Normals[2]));
+   if not Triangle^.Deleted then begin
+    AddTriangle(AddVertex(MeshSimplification.fVertices[Triangle^.v[0]].p),
+                AddVertex(MeshSimplification.fVertices[Triangle^.v[1]].p),
+                AddVertex(MeshSimplification.fVertices[Triangle^.v[2]].p),
+                AddNormal(Triangle^.Normals[0]),
+                AddNormal(Triangle^.Normals[1]),
+                AddNormal(Triangle^.Normals[2]));
+   end;
   end;
  finally
   FreeAndNil(MeshSimplification);
