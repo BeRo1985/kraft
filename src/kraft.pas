@@ -25003,7 +25003,7 @@ begin
   MeshSimplification.Finish;
   MeshSimplification.SimplifyMesh(aTargetCount,aAgressiveness);
   Clear(true);
-  for Index:=0 to fCountTriangles-1 do begin
+  for Index:=0 to MeshSimplification.fCountTriangles-1 do begin
    Triangle:=@MeshSimplification.fTriangles[Index];
    AddTriangle(AddVertex(MeshSimplification.fVertices[Triangle^.v[0]].p),
                AddVertex(MeshSimplification.fVertices[Triangle^.v[1]].p),
