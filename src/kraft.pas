@@ -23699,6 +23699,10 @@ begin
     break;
    end;
 
+   if Lossless then begin
+    DeletedTriangles:=0;
+   end;
+
   end;
 
  finally
