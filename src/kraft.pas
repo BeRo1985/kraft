@@ -24159,6 +24159,7 @@ end;
 function TKraftMesh.AddTriangle(const AVertexIndex0,AVertexIndex1,AVertexIndex2:TKraftInt32;const ANormalIndex0:TKraftInt32=-1;const ANormalIndex1:TKraftInt32=-1;ANormalIndex2:TKraftInt32=-1):TKraftInt32;
 var Triangle:PKraftMeshTriangle;
     TriangleVertices:TKraftMeshTriangleVertices;
+    Temporary:TKraftInt32;
 begin
  if (AVertexIndex0=AVertexIndex1) or (AVertexIndex0=AVertexIndex2) or (AVertexIndex1=AVertexIndex2) then begin
   result:=-1;
@@ -24166,6 +24167,14 @@ begin
   TriangleVertices[0]:=AVertexIndex0;
   TriangleVertices[1]:=AVertexIndex1;
   TriangleVertices[2]:=AVertexIndex2;
+  while (TriangleVertices[0]>TriangleVertices[1]) or (TriangleVertices[0]>TriangleVertices[2]) do begin
+   Temporary:=TriangleVertices[0];
+   TriangleVertices[0]:=TriangleVertices[1];
+   TriangleVertices[1]:=Temporary;
+   Temporary:=TriangleVertices[1];
+   TriangleVertices[1]:=TriangleVertices[2];
+   TriangleVertices[2]:=Temporary;
+  end;
   result:=fTriangleVerticesHashMap[TriangleVertices];
   if result<0 then begin
    result:=fCountTriangles;
@@ -24174,7 +24183,9 @@ begin
     SetLength(fTriangles,fCountTriangles*2);
    end;
    Triangle:=@fTriangles[result];
-   Triangle^.Vertices:=TriangleVertices;
+   Triangle^.Vertices[0]:=AVertexIndex0;
+   Triangle^.Vertices[1]:=AVertexIndex1;
+   Triangle^.Vertices[2]:=AVertexIndex2;
    Triangle^.Normals[0]:=ANormalIndex0;
    Triangle^.Normals[1]:=ANormalIndex1;
    Triangle^.Normals[2]:=ANormalIndex2;
