@@ -1507,6 +1507,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fReferences:TReferences;
        fCountVertices:TKraftInt32;
        fCountTriangles:TKraftInt32;
+       fCountReferences:TKraftInt32;
        class function VertexError(const aQ:TKraftMeshSimplificationSymetricMatrix;const aX,aY,aZ:TKraftDouble):TKraftDouble; static;
        function CalculateError(const aIDV1,aIDV2:TKraftInt32;out aPResult:TKraftMeshSimplificationVector3):TKraftDouble;
        function Flipped(const aP:TKraftMeshSimplificationVector3;const aI0,aI1:TKraftInt32;var aV0,aV1:TVertex;var aDeleted:TBoolArray):Boolean;
@@ -23192,6 +23193,7 @@ begin
  fReferences:=nil;
  fCountVertices:=0;
  fCountTriangles:=0;
+ fCountReferences:=0;
 end;
 
 destructor TKraftMeshSimplification.Destroy;
@@ -23313,7 +23315,7 @@ end;
 procedure TKraftMeshSimplification.UpdateTriangles(const aI0:TKraftInt32;var aV:TVertex;var aDeleted:TBoolArray;var aDeletedTriangles:TKraftInt32);
 var k:TKraftInt32;
     r:PReference;
-    r2:TReference;
+    TemporaryReferenceCopy:TReference;
     t:PTriangle;
     p:TKraftMeshSimplificationVector3;
 begin
@@ -23331,8 +23333,12 @@ begin
 		t^.Error[1]:=CalculateError(t^.v[1],t^.v[2],p);
 		t^.Error[2]:=CalculateError(t^.v[2],t^.v[0],p);
 		t^.Error[3]:=Min(t^.Error[0],Min(t^.Error[1],t^.Error[2]));
-    r2:=r^;
-    fReferences:=fReferences+[r2];
+    TemporaryReferenceCopy:=r^;
+    inc(fCountReferences);
+    if length(fReferences)<fCountReferences then begin
+     SetLength(fReferences,fCountReferences+((fCountReferences+1) shr 1));
+    end;
+    fReferences[fCountReferences-1]:=TemporaryReferenceCopy;
    end;
   end;
  end;
@@ -23379,7 +23385,10 @@ begin
   v^.tcount:=0;
  end;
 
- SetLength(fReferences,length(fTriangles)*3);
+ fCountReferences:=length(fTriangles)*3;
+ if length(fReferences)<fCountReferences then begin
+  SetLength(fReferences,fCountReferences+((fCountReferences+1) shr 1));
+ end;
  for i:=0 to length(fTriangles)-1 do begin
   t:=@fTriangles[i];
   for j:=0 to 2 do begin
@@ -23654,12 +23663,12 @@ begin
          v0^.p:=p;
          v0^.q:=v1^.q+v0^.q;
 
-         tstart:=length(fReferences);
+         tstart:=fCountReferences;
 
          UpdateTriangles(i0,v0^,Deleted0,DeletedTriangles);
          UpdateTriangles(i0,v1^,Deleted1,DeletedTriangles);
 
-         tcount:=length(fReferences)-tstart;
+         tcount:=fCountReferences-tstart;
 
 			   if tcount<=v0^.tcount then begin
 			    if tcount>0 then begin
