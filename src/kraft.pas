@@ -1548,7 +1548,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure Transform(const WithMatrix:TKraftMatrix3x3); overload;
        procedure Transform(const WithMatrix:TKraftMatrix4x4); overload;
 
-       procedure Decimate(const aTargetCountVertices:TKraftInt32);
+       procedure Decimate(const aTargetCount:TKraftInt32;const aAgressiveness:TKraftDouble=7.0);
 
        procedure Finish;
 
@@ -24251,7 +24251,7 @@ begin
  end;
 end;
 
-procedure TKraftMesh.Decimate(const aTargetCountVertices:TKraftInt32);
+procedure TKraftMesh.Decimate(const aTargetCount:TKraftInt32;const aAgressiveness:TKraftDouble);
 var Index:TKraftInt32;
     MeshSimplification:TKraftMeshSimplification;
     MeshTriangle:PKraftMeshTriangle;
@@ -24276,7 +24276,7 @@ begin
                                   @n2);
   end;
   MeshSimplification.Finish;
-  MeshSimplification.SimplifyMesh(aTargetCountVertices);
+  MeshSimplification.SimplifyMesh(aTargetCount,aAgressiveness);
   Clear(true);
   for Index:=0 to fCountVertices-1 do begin
    AddVertex(MeshSimplification.fVertices[Index].p);
