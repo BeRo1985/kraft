@@ -1510,7 +1510,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        class function VertexError(const aQ:TKraftMeshSimplificationSymetricMatrix;const aX,aY,aZ:TKraftDouble):TKraftDouble; static;
        function CalculateError(const aIDV1,aIDV2:TKraftInt32;out aPResult:TKraftMeshSimplificationVector3):TKraftDouble;
        function Flipped(const aP:TKraftMeshSimplificationVector3;const aI0,aI1:TKraftInt32;var aV0,aV1:TVertex;var aDeleted:TBoolArray):Boolean;
-       procedure UpdateUVs(const aI0:TKraftInt32;const aV:TVertex;const aP:TKraftMeshSimplificationVector3;const aDeleted:TBoolArray);
+       procedure UpdateAttributes(const aI0:TKraftInt32;const aV:TVertex;const aP:TKraftMeshSimplificationVector3;const aDeleted:TBoolArray);
        procedure UpdateTriangles(const aI0:TKraftInt32;var aV:TVertex;var aDeleted:TBoolArray;var aDeletedTriangles:TKraftInt32);
        procedure UpdateMesh(const aIteration:TKraftInt32);
        procedure CompactMesh;
@@ -23222,7 +23222,6 @@ begin
 end;
 
 function TKraftMeshSimplification.Flipped(const aP:TKraftMeshSimplificationVector3;const aI0,aI1:TKraftInt32;var aV0,aV1:TVertex;var aDeleted:TBoolArray):Boolean;
-const ModuloThree:array[0..5] of TKraftInt32=(0,1,2,0,1,2);
 var k,s,id1,id2:TKraftInt32;
     t:PTriangle;
     d1,d2,n:TKraftMeshSimplificationVector3;
@@ -23231,14 +23230,14 @@ begin
   t:=@fTriangles[fReferences[aV0.tstart+k].tid];
   if not t^.Deleted then begin
 	 s:=fReferences[aV0.tstart+k].tvertex;
-   id1:=t^.v[ModuloThree[s+1]];
-   id2:=t^.v[ModuloThree[s+2]];
+   id1:=t^.v[(s+1) mod 3];
+   id2:=t^.v[(s+2) mod 3];
    if (id1=aI1) or (id2=aI1) then begin
     aDeleted[k]:=true;
    end else begin
     d1:=(fVertices[id1].p-aP).Normalize;
     d2:=(fVertices[id2].p-aP).Normalize;
-    if abs(d1.dot(d2))>0.999 then begin
+    if abs(d1.Dot(d2))>0.999 then begin
      result:=true;
      exit;
     end else begin
@@ -23255,21 +23254,21 @@ begin
  result:=false;
 end;
 
-procedure TKraftMeshSimplification.UpdateUVs(const aI0:TKraftInt32;const aV:TVertex;const aP:TKraftMeshSimplificationVector3;const aDeleted:TBoolArray);
+procedure TKraftMeshSimplification.UpdateAttributes(const aI0:TKraftInt32;const aV:TVertex;const aP:TKraftMeshSimplificationVector3;const aDeleted:TBoolArray);
 var k:TKraftInt32;
     r:PReference;
     t:PTriangle;
-    p1,p2,p3:TKraftMeshSimplificationVector3;
+    p1,p2,p3:PKraftMeshSimplificationVector3;
 begin
  for k:=0 to aV.tcount-1 do begin
   r:=@fReferences[aV.tstart+k];
 	t:=@fTriangles[r^.tid];
   if not (t^.Deleted or aDeleted[k]) then begin
-   p1:=fVertices[t^.v[0]].p;
-   p2:=fVertices[t^.v[1]].p;
-   p3:=fVertices[t^.v[2]].p;
-   t^.Normals[r^.tvertex]:=TKraftMeshSimplificationVector3.CreateInterpolated(aP,p1,p2,p3,t^.Normals[0],t^.Normals[1],t^.Normals[2]);
-   t^.TexCoords[r^.tvertex]:=TKraftMeshSimplificationVector3.CreateInterpolated(aP,p1,p2,p3,t^.TexCoords[0],t^.TexCoords[1],t^.TexCoords[2]);
+   p1:=@fVertices[t^.v[0]].p;
+   p2:=@fVertices[t^.v[1]].p;
+   p3:=@fVertices[t^.v[2]].p;
+   t^.Normals[r^.tvertex]:=TKraftMeshSimplificationVector3.CreateInterpolated(aP,p1^,p2^,p3^,t^.Normals[0],t^.Normals[1],t^.Normals[2]);
+   t^.TexCoords[r^.tvertex]:=TKraftMeshSimplificationVector3.CreateInterpolated(aP,p1^,p2^,p3^,t^.TexCoords[0],t^.TexCoords[1],t^.TexCoords[2]);
   end;
  end;
 end;
@@ -23302,23 +23301,25 @@ end;
 
 procedure TKraftMeshSimplification.UpdateMesh(const aIteration:TKraftInt32);
 const ModuloThree:array[0..5] of TKraftInt32=(0,1,2,0,1,2);
-var Dst,i,j,k,tstart,ofs,id:TKraftInt32;
+var Count,i,j,k,tstart,ofs,id:TKraftInt32;
     t:PTriangle;
     v:PVertex;
     r:PReference;
     vcount,vids:TIntArray;
-    n,pv:TKraftMeshSimplificationVector3;
-    p:array[0..2] of TKraftMeshSimplificationVector3;
+    n,p:TKraftMeshSimplificationVector3;
+    p0,p1,p2:PKraftMeshSimplificationVector3;
+    q:TKraftMeshSimplificationSymetricMatrix;
 begin
+
  if aIteration>0 then begin
-  Dst:=0;
+  Count:=0;
   for i:=0 to length(fTriangles)-1 do begin
 	 if not fTriangles[i].Deleted then begin
-    fTriangles[Dst]:=fTriangles[i];
-    inc(Dst);
+    fTriangles[Count]:=fTriangles[i];
+    inc(Count);
    end;
   end;
-	SetLength(fTriangles,Dst);
+	SetLength(fTriangles,Count);
  end;
 
  for i:=0 to length(fVertices)-1 do begin
@@ -23400,20 +23401,21 @@ begin
 
   for i:=0 to length(fTriangles)-1 do begin
    t:=@fTriangles[i];
-   p[0]:=fVertices[t^.v[0]].p;
-   p[1]:=fVertices[t^.v[1]].p;
-   p[2]:=fVertices[t^.v[2]].p;
-   n:=((p[1]-p[0]).Cross(p[2]-p[0])).Normalize;
+   p0:=@fVertices[t^.v[0]].p;
+   p1:=@fVertices[t^.v[1]].p;
+   p2:=@fVertices[t^.v[2]].p;
+   n:=((p1^-p0^).Cross(p2^-p0^)).Normalize;
    t^.n:=n;
+   q:=TKraftMeshSimplificationSymetricMatrix.Create(n.x,n.y,n.z,-n.Dot(p0^));
    for j:=0 to 2 do begin
-		fVertices[t^.v[j]].q:=fVertices[t^.v[j]].q+TKraftMeshSimplificationSymetricMatrix.Create(n.x,n.y,n.z,-n.dot(p[0]));
+		fVertices[t^.v[j]].q:=fVertices[t^.v[j]].q+q;
    end;
   end;
 
   for i:=0 to length(fTriangles)-1 do begin
    t:=@fTriangles[i];
    for j:=0 to 2 do begin
-    t^.Error[j]:=CalculateError(t^.v[j],t^.v[ModuloThree[j+1]],pv);
+    t^.Error[j]:=CalculateError(t^.v[j],t^.v[ModuloThree[j+1]],p);
    end;
    t^.Error[3]:=Min(t^.Error[0],Min(t^.Error[1],t^.Error[2]));
   end;
@@ -23423,34 +23425,34 @@ begin
 end;
 
 procedure TKraftMeshSimplification.CompactMesh;
-var Dst,i,j:TKraftInt32;
+var Count,i,j:TKraftInt32;
     t:PTriangle;
     v:PVertex;
 begin
 
- Dst:=0;
+ Count:=0;
  for i:=0 to length(fVertices)-1 do begin
   fVertices[i].tcount:=0;
  end;
  for i:=0 to length(fTriangles)-1 do begin
   t:=@fTriangles[i];
   if not t^.Deleted then begin
-   fTriangles[Dst]:=t^;
-   inc(Dst);
+   fTriangles[Count]:=t^;
+   inc(Count);
    for j:=0 to 2 do begin
     fVertices[t^.v[j]].tcount:=1;
    end;
 	end;
  end;
- SetLength(fTriangles,Dst);
+ SetLength(fTriangles,Count);
 
- Dst:=0;
+ Count:=0;
  for i:=0 to length(fVertices)-1 do begin
   v:=@fVertices[i];
   if v^.tcount>0 then begin
-	 v^.tstart:=Dst;
-   fVertices[Dst].p:=v^.p;
-   inc(Dst);
+	 v^.tstart:=Count;
+   fVertices[Count].p:=v^.p;
+   inc(Count);
   end;
  end;
  for i:=0 to length(fTriangles)-1 do begin
@@ -23459,7 +23461,7 @@ begin
    t^.v[j]:=fVertices[t^.v[j]].tstart;
 	end;
  end;
- SetLength(fVertices,Dst);
+ SetLength(fVertices,Count);
 
 end;
 
@@ -23578,7 +23580,7 @@ begin
 
     t:=@fTriangles[i];
 
-    if (t.Error[3]<=Threshold) and not (t^.Deleted or t^.Dirty) then begin
+    if (t.Error[3]<Threshold) and not (t^.Deleted or t^.Dirty) then begin
 
      for j:=0 to 2 do begin
 
@@ -23606,8 +23608,8 @@ begin
 
 			  if not (Flipped(p,i0,i1,v0^,v1^,Deleted0) or Flipped(p,i1,i0,v1^,v0^,Deleted1)) then begin
 
-         UpdateUVs(i0,v0^,p,Deleted0);
-         UpdateUVs(i0,v1^,p,Deleted1);
+         UpdateAttributes(i0,v0^,p,Deleted0);
+         UpdateAttributes(i0,v1^,p,Deleted1);
 
          v0^.p:=p;
          v0^.q:=v1^.q+v0^.q;
@@ -23625,18 +23627,20 @@ begin
 				  end else begin
            v0^.tstart:=tstart;
           end;
-          v0^.tcount:=tcount;
-				  break;
 			   end;
+
+         v0^.tcount:=tcount;
+         break;
+
         end;
        end;
       end;
      end;
 
-    end;
+     if (not Lossless) and ((CountTriangles-DeletedTriangles)<=aTargetCount) then begin
+      break;
+     end;
 
-    if (not Lossless) and ((CountTriangles-DeletedTriangles)<=aTargetCount) then begin
-     break;
     end;
 
    end;
