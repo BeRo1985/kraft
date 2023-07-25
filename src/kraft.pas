@@ -1635,6 +1635,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fMaximumTrianglesPerNode:TKraftInt32;
 
+       fTriangleAreaSplitThreshold:TKraftScalar;
+
        function EvaluateSAH(const aParentTreeNode:PKraftMeshTreeNode;const aAxis:TKraftInt32;const aSplitPosition:TKraftScalar):TKraftScalar;
        function FindBestSplitPlaneMeanVariance(const aParentTreeNode:PKraftMeshTreeNode;out aAxis:TKraftInt32;out aSplitPosition:TKraftScalar):Boolean;
        function FindBestSplitPlaneSAHBruteforce(const aParentTreeNode:PKraftMeshTreeNode;out aAxis:TKraftInt32;out aSplitPosition:TKraftScalar):TKraftScalar;
@@ -1648,6 +1650,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 {$endif}
 
        procedure CalculateNormals;
+
+       procedure SplitTooLargeTriangles;
 
       public
 
@@ -1724,6 +1728,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property BVHSubdivisionSteps:TKraftInt32 read fBVHSubdivisionSteps write fBVHSubdivisionSteps;
 
        property MaximumTrianglesPerNode:TKraftInt32 read fMaximumTrianglesPerNode write fMaximumTrianglesPerNode;
+
+       property TriangleAreaSplitThreshold:TKraftScalar read fTriangleAreaSplitThreshold write fTriangleAreaSplitThreshold;
 
      end;
 
@@ -23818,6 +23824,8 @@ begin
 
  fMaximumTrianglesPerNode:=4;
 
+ fTriangleAreaSplitThreshold:=0.0;
+
 end;
 
 destructor TKraftMesh.Destroy;
@@ -25325,6 +25333,143 @@ begin
  end;
 end;
 
+procedure TKraftMesh.SplitTooLargeTriangles;
+type TTriangleQueue=TKraftQueue<TKraftInt32>;
+var TriangleIndex:TKraftInt32;
+    Area:TKraftScalar;
+    Triangle:PKraftMeshTriangle;
+    TriangleQueue:TTriangleQueue;   
+    Vertices,Normals,NewVertices,NewNormals:array[0..2] of TKraftInt32;
+begin
+ if fTriangleAreaSplitThreshold>EPSILON then begin
+
+  TriangleQueue:=TTriangleQueue.Create;
+  try
+
+   // Find seed too large triangles and enqueue them 
+   for TriangleIndex:=0 to fCountTriangles-1 do begin
+    Triangle:=@fTriangles[TriangleIndex];
+    Area:=Vector3Length(Vector3Cross(Vector3Sub(fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[0]]),Vector3Sub(fVertices[Triangle^.Vertices[2]],fVertices[Triangle^.Vertices[0]])))*0.5;
+    if Area>fTriangleAreaSplitThreshold then begin
+     TriangleQueue.Enqueue(TriangleIndex);
+    end;
+   end;
+
+   // Split too large triangles into each four sub triangles until there are no more too large triangles 
+
+   //          p0
+   //          /\
+   //         /  \
+   //        / t3 \
+   //     m2/______\m0
+   //      / \    / \
+   //     / t2\t0/ t1\
+   //  p2/_____\/_____\p1
+   //          m1         
+
+   // t0: m0,m1,m2
+   // t1: m0,p1,m1
+   // t2: m2,m1,p2
+   // t3: p0,m0,m2 
+
+   while TriangleQueue.Dequeue(TriangleIndex) do begin
+    
+    Triangle:=@fTriangles[TriangleIndex];
+
+    Vertices[0]:=Triangle^.Vertices[0]; // p0
+    Vertices[1]:=Triangle^.Vertices[1]; // p1
+    Vertices[2]:=Triangle^.Vertices[2]; // p2
+
+    Normals[0]:=Triangle^.Normals[0];
+    Normals[1]:=Triangle^.Normals[1];
+    Normals[2]:=Triangle^.Normals[2];
+
+    NewVertices[0]:=AddVertex(Vector3Avg(fVertices[Vertices[0]],fVertices[Vertices[1]])); // m0
+    NewVertices[1]:=AddVertex(Vector3Avg(fVertices[Vertices[1]],fVertices[Vertices[2]])); // m1
+    NewVertices[2]:=AddVertex(Vector3Avg(fVertices[Vertices[2]],fVertices[Vertices[0]])); // m2
+
+    NewNormals[0]:=AddNormal(Vector3Norm(Vector3Avg(fNormals[Normals[0]],fNormals[Normals[1]]))); // m0
+    NewNormals[1]:=AddNormal(Vector3Norm(Vector3Avg(fNormals[Normals[1]],fNormals[Normals[2]]))); // m1
+    NewNormals[2]:=AddNormal(Vector3Norm(Vector3Avg(fNormals[Normals[2]],fNormals[Normals[0]]))); // m2
+
+    // Create new four triangles, where the current triangle will overwritten by the first one
+
+    // The first triangle: m0,m1,m2     
+    Triangle^.Vertices[0]:=NewVertices[0]; // m0
+    Triangle^.Vertices[1]:=NewVertices[1]; // m1
+    Triangle^.Vertices[2]:=NewVertices[2]; // m2
+    Triangle^.Normals[0]:=NewNormals[0]; // m0
+    Triangle^.Normals[1]:=NewNormals[1]; // m1
+    Triangle^.Normals[2]:=NewNormals[2]; // m2
+    Triangle^.Plane.Normal:=Vector3NormEx(Vector3Cross(Vector3Sub(fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[0]]),Vector3Sub(fVertices[Triangle^.Vertices[2]],fVertices[Triangle^.Vertices[0]])));
+    Triangle^.Plane.Distance:=-Vector3Dot(Triangle^.Plane.Normal,fVertices[Triangle^.Vertices[0]]);
+    Triangle^.Center:=Vector3Avg(fVertices[Triangle^.Vertices[0]],fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[2]]);
+    Triangle^.AABB.Min.x:=Min(Min(fVertices[Triangle^.Vertices[0]].x,fVertices[Triangle^.Vertices[1]].x),fVertices[Triangle^.Vertices[2]].x)-EPSILON;
+    Triangle^.AABB.Min.y:=Min(Min(fVertices[Triangle^.Vertices[0]].y,fVertices[Triangle^.Vertices[1]].y),fVertices[Triangle^.Vertices[2]].y)-EPSILON;
+    Triangle^.AABB.Min.z:=Min(Min(fVertices[Triangle^.Vertices[0]].z,fVertices[Triangle^.Vertices[1]].z),fVertices[Triangle^.Vertices[2]].z)-EPSILON;
+{$ifdef SIMD}
+    Triangle^.AABB.Min.w:=0.0;
+{$endif}
+    Triangle^.AABB.Max.x:=Max(Max(fVertices[Triangle^.Vertices[0]].x,fVertices[Triangle^.Vertices[1]].x),fVertices[Triangle^.Vertices[2]].x)+EPSILON;
+    Triangle^.AABB.Max.y:=Max(Max(fVertices[Triangle^.Vertices[0]].y,fVertices[Triangle^.Vertices[1]].y),fVertices[Triangle^.Vertices[2]].y)+EPSILON;
+    Triangle^.AABB.Max.z:=Max(Max(fVertices[Triangle^.Vertices[0]].z,fVertices[Triangle^.Vertices[1]].z),fVertices[Triangle^.Vertices[2]].z)+EPSILON; 
+{$ifdef SIMD}
+    Triangle^.AABB.Max.w:=0.0;
+{$endif} 
+    Area:=Vector3Length(Vector3Cross(Vector3Sub(fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[0]]),Vector3Sub(fVertices[Triangle^.Vertices[2]],fVertices[Triangle^.Vertices[0]])))*0.5;
+    if Area>fTriangleAreaSplitThreshold then begin
+     TriangleQueue.Enqueue(TriangleIndex); // Enqueue the first triangle again, when it is still too large 
+    end;
+
+    // The second triangle: m0,p1,m1
+    TriangleIndex:=AddTriangle(NewVertices[0], // m0
+                               Vertices[1], // p1
+                               NewVertices[1], // m1
+                               NewNormals[0], // m0
+                               Normals[1], // p1
+                               NewNormals[1]); // m1
+    Triangle:=@fTriangles[TriangleIndex];
+    Area:=Vector3Length(Vector3Cross(Vector3Sub(fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[0]]),Vector3Sub(fVertices[Triangle^.Vertices[2]],fVertices[Triangle^.Vertices[0]])))*0.5;
+    if Area>fTriangleAreaSplitThreshold then begin
+     TriangleQueue.Enqueue(TriangleIndex); // Enqueue the second triangle, when it is still too large 
+    end;
+
+    // The third triangle: m2,m1,p2
+    TriangleIndex:=AddTriangle(NewVertices[2],
+                               NewVertices[1],
+                               Vertices[2],
+                               NewNormals[2],
+                               NewNormals[1],
+                               Normals[2]);
+    Triangle:=@fTriangles[TriangleIndex];
+    Area:=Vector3Length(Vector3Cross(Vector3Sub(fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[0]]),Vector3Sub(fVertices[Triangle^.Vertices[2]],fVertices[Triangle^.Vertices[0]])))*0.5;
+    if Area>fTriangleAreaSplitThreshold then begin
+     TriangleQueue.Enqueue(TriangleIndex); // Enqueue the third triangle, when it is still too large 
+    end;
+
+    // The fourth triangle: p0,m0,m2
+    TriangleIndex:=AddTriangle(Vertices[0],
+                               NewVertices[0],
+                               NewVertices[2],
+                               Normals[0],
+                               NewNormals[0],
+                               NewNormals[2]);
+    Triangle:=@fTriangles[TriangleIndex];
+    Area:=Vector3Length(Vector3Cross(Vector3Sub(fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[0]]),Vector3Sub(fVertices[Triangle^.Vertices[2]],fVertices[Triangle^.Vertices[0]])))*0.5;
+    if Area>fTriangleAreaSplitThreshold then begin
+     TriangleQueue.Enqueue(TriangleIndex); // Enqueue the fourth triangle, when it is still too large
+    end;
+    
+   end;
+
+  finally
+   FreeAndNil(TriangleQueue);
+  end; 
+
+ end;
+
+end;
+
 procedure TKraftMesh.Finish;
 type TDynamicAABBTreeNode=record
       AABB:TKraftAABB;
@@ -25376,6 +25521,16 @@ var Index{$ifdef KraftPasMP},JobIndex{$endif},TreeNodeIndex,SkipListNodeIndex,
     Seed:TKraftUInt32;
 begin
 
+ for Index:=0 to fCountTriangles-1 do begin
+  Triangle:=@fTriangles[Index];
+  if (Triangle^.Normals[0]<0) or (Triangle^.Normals[1]<0) or (Triangle^.Normals[2]<0) then begin
+   CalculateNormals;
+   break;
+  end;
+ end;
+
+ SplitTooLargeTriangles;
+
  fVerticesHashMap.Clear;
 
  fNormalsHashMap.Clear;
@@ -25387,14 +25542,6 @@ begin
  end;
  if length(fTriangles)<>fCountTriangles then begin
   SetLength(fTriangles,fCountTriangles);
- end;
-
- for Index:=0 to fCountTriangles-1 do begin
-  Triangle:=@fTriangles[Index];
-  if (Triangle^.Normals[0]<0) or (Triangle^.Normals[1]<0) or (Triangle^.Normals[2]<0) then begin
-   CalculateNormals;
-   break;
-  end;
  end;
 
  if fCountSkipListNodes=0 then begin
