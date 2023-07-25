@@ -1578,6 +1578,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftMeshBVHBuildMode=
       (
+       kmbbmMeanVariance,
        kmbbmSAHBruteforce,
        kmbbmSAHSteps,
        kmbbmSAHBinned,
@@ -1623,6 +1624,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fSmoothSphereCastNormals:boolean;
 
        fNodeQueue:TKraftMeshNodeQueue;
+{$ifdef KraftPasMP}
+       fNodeQueueLock:TPasMPSlimReaderWriterLock;
+{$endif}
        fCountActiveWorkers:TKraftInt32;
 
        fBVHBuildMode:TKraftMeshBVHBuildMode;
@@ -1632,9 +1636,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fMaximumTrianglesPerNode:TKraftInt32;
 
        function EvaluateSAH(const aParentTreeNode:PKraftMeshTreeNode;const aAxis:TKraftInt32;const aSplitPosition:TKraftScalar):TKraftScalar;
-       function FindBestSplitPlaneBruteforce(const aParentTreeNode:PKraftMeshTreeNode;out aAxis:TKraftInt32;out aSplitPosition:TKraftScalar):TKraftScalar;
-       function FindBestSplitPlaneSteps(const aParentTreeNode:PKraftMeshTreeNode;out aAxis:TKraftInt32;out aSplitPosition:TKraftScalar):TKraftScalar;
-       function FindBestSplitPlaneBinned(const aParentTreeNode:PKraftMeshTreeNode;out aAxis:TKraftInt32;out aSplitPosition:TKraftScalar):TKraftScalar;
+       function FindBestSplitPlaneMeanVariance(const aParentTreeNode:PKraftMeshTreeNode;out aAxis:TKraftInt32;out aSplitPosition:TKraftScalar):Boolean;
+       function FindBestSplitPlaneSAHBruteforce(const aParentTreeNode:PKraftMeshTreeNode;out aAxis:TKraftInt32;out aSplitPosition:TKraftScalar):TKraftScalar;
+       function FindBestSplitPlaneSAHSteps(const aParentTreeNode:PKraftMeshTreeNode;out aAxis:TKraftInt32;out aSplitPosition:TKraftScalar):TKraftScalar;
+       function FindBestSplitPlaneSAHBinned(const aParentTreeNode:PKraftMeshTreeNode;out aAxis:TKraftInt32;out aSplitPosition:TKraftScalar):TKraftScalar;
        function CalculateNodeCost(const aParentTreeNode:PKraftMeshTreeNode):TKraftScalar;
        procedure UpdateNodeBounds(const aParentTreeNode:PKraftMeshTreeNode);
        procedure ProcessNodeQueue;
@@ -23802,11 +23807,14 @@ begin
  fNext:=nil;
 
  fNodeQueue:=nil;
+{$ifdef KraftPasMP}
+ fNodeQueueLock:=nil;
+{$endif}
  fCountActiveWorkers:=0;
 
- fBVHBuildMode:=TKraftMeshBVHBuildMode.kmbbmSAHSteps;
+ fBVHBuildMode:=TKraftMeshBVHBuildMode.kmbbmMeanVariance; //kmbbmSAHSteps
 
- fBVHSubdivisionSteps:=3;
+ fBVHSubdivisionSteps:=32;
 
  fMaximumTrianglesPerNode:=4;
 
@@ -24758,7 +24766,73 @@ begin
  end;
 end;
 
-function TKraftMesh.FindBestSplitPlaneBruteforce(const aParentTreeNode:PKraftMeshTreeNode;out aAxis:TKraftInt32;out aSplitPosition:TKraftScalar):TKraftScalar;
+function TKraftMesh.FindBestSplitPlaneMeanVariance(const aParentTreeNode:PKraftMeshTreeNode;out aAxis:TKraftInt32;out aSplitPosition:TKraftScalar):Boolean;
+var TriangleIndex:TKraftInt32;
+    Triangle:PKraftMeshTriangle;
+    MeanX,MeanY,MeanZ,VarianceX,VarianceY,VarianceZ:TKraftDouble;
+    Center:PKraftVector3;
+begin
+
+ aAxis:=-1;
+ aSplitPosition:=0.0;
+
+ result:=false;
+
+ if aParentTreeNode^.CountTriangles>0 then begin
+
+  MeanX:=0.0;
+  MeanY:=0.0;
+  MeanZ:=0.0;
+  for TriangleIndex:=aParentTreeNode^.FirstTriangleIndex to aParentTreeNode^.FirstTriangleIndex+(aParentTreeNode^.CountTriangles-1) do begin
+   Triangle:=@fTriangles[TriangleIndex];
+   Center:=@Triangle^.Center;
+   MeanX:=MeanX+Center^.x;
+   MeanY:=MeanY+Center^.y;
+   MeanZ:=MeanZ+Center^.z;
+  end;
+  MeanX:=MeanX/aParentTreeNode^.CountTriangles;
+  MeanY:=MeanY/aParentTreeNode^.CountTriangles;
+  MeanZ:=MeanZ/aParentTreeNode^.CountTriangles;
+
+  VarianceX:=0.0;
+  VarianceY:=0.0;
+  VarianceZ:=0.0;
+  for TriangleIndex:=aParentTreeNode^.FirstTriangleIndex to aParentTreeNode^.FirstTriangleIndex+(aParentTreeNode^.CountTriangles-1) do begin
+   Triangle:=@fTriangles[TriangleIndex];
+   Center:=@Triangle^.Center;
+   VarianceX:=VarianceX+sqr(Center^.x-MeanX);
+   VarianceY:=VarianceY+sqr(Center^.y-MeanY);
+   VarianceZ:=VarianceZ+sqr(Center^.z-MeanZ);
+  end;
+  VarianceX:=VarianceX/aParentTreeNode^.CountTriangles;
+  VarianceY:=VarianceY/aParentTreeNode^.CountTriangles;
+  VarianceZ:=VarianceZ/aParentTreeNode^.CountTriangles;
+
+  if VarianceX<VarianceY then begin
+   if VarianceY<VarianceZ then begin
+    aAxis:=2;
+    aSplitPosition:=MeanZ;
+   end else begin
+    aAxis:=1;
+    aSplitPosition:=MeanY;
+   end;
+  end else begin
+   if VarianceX<VarianceZ then begin
+    aAxis:=2;
+    aSplitPosition:=MeanZ;
+   end else begin
+    aAxis:=0;
+    aSplitPosition:=MeanX;
+   end;
+  end;
+
+  result:=true;
+
+ end;
+
+end;
+
+function TKraftMesh.FindBestSplitPlaneSAHBruteforce(const aParentTreeNode:PKraftMeshTreeNode;out aAxis:TKraftInt32;out aSplitPosition:TKraftScalar):TKraftScalar;
 var AxisIndex,TriangleIndex:TKraftInt32;
     Triangle:PKraftMeshTriangle;
     Cost,SplitPosition:TKraftScalar;
@@ -24780,7 +24854,7 @@ begin
  end;
 end;
 
-function TKraftMesh.FindBestSplitPlaneSteps(const aParentTreeNode:PKraftMeshTreeNode;out aAxis:TKraftInt32;out aSplitPosition:TKraftScalar):TKraftScalar;
+function TKraftMesh.FindBestSplitPlaneSAHSteps(const aParentTreeNode:PKraftMeshTreeNode;out aAxis:TKraftInt32;out aSplitPosition:TKraftScalar):TKraftScalar;
 var AxisIndex,StepIndex:TKraftInt32;
     Cost,SplitPosition,Time:TKraftScalar;
 begin
@@ -24802,18 +24876,18 @@ begin
  end;
 end;
 
-function TKraftMesh.FindBestSplitPlaneBinned(const aParentTreeNode:PKraftMeshTreeNode;out aAxis:TKraftInt32;out aSplitPosition:TKraftScalar):TKraftScalar;
-const CountBINs=8;
+function TKraftMesh.FindBestSplitPlaneSAHBinned(const aParentTreeNode:PKraftMeshTreeNode;out aAxis:TKraftInt32;out aSplitPosition:TKraftScalar):TKraftScalar;
+const CountMaxBINs=64;
 type TBIN=record
       Count:TKraftInt32;
       Bounds:TKraftAABB;
      end;
      PBIN=^TBIN;
-     TBINs=array[0..CountBINs-1] of TBIN;
-var AxisIndex,TriangleIndex,BINIndex,LeftSum,RightSum:TKraftInt32;
+     TBINs=array[0..CountMaxBINs-1] of TBIN;
+var AxisIndex,TriangleIndex,BINIndex,LeftSum,RightSum,CountBINs:TKraftInt32;
     BoundsMin,BoundsMax,Scale,PlaneCost:TKraftScalar;
-    LeftArea,RightArea:array[0..CountBINs-1] of TKraftScalar;
-    LeftCount,RightCount:array[0..CountBINs-1] of TKraftInt32;
+    LeftArea,RightArea:array[0..CountMaxBINs-1] of TKraftScalar;
+    LeftCount,RightCount:array[0..CountMaxBINs-1] of TKraftInt32;
     LeftBounds,RightBounds:TKraftAABB;
     Triangle:PKraftMeshTriangle;
     BINs:TBINs;
@@ -24825,6 +24899,8 @@ begin
  aAxis:=-1;
 
  if aParentTreeNode^.CountTriangles>0 then begin
+
+  CountBINs:=Min(Max(fBVHSubdivisionSteps,3),CountMaxBINs);
 
   for AxisIndex:=0 to 2 do begin
 
@@ -24850,22 +24926,22 @@ begin
 
     for TriangleIndex:=aParentTreeNode^.FirstTriangleIndex to aParentTreeNode^.FirstTriangleIndex+(aParentTreeNode^.CountTriangles-1) do begin
      Triangle:=@fTriangles[TriangleIndex];
-     BINIndex:=Min(trunc((Triangle^.Center.xyz[AxisIndex]-BoundsMin)*Scale),CountBINs-1);
+     BINIndex:=Min(Max(trunc((Triangle^.Center.xyz[AxisIndex]-BoundsMin)*Scale),0),CountBINs-1);
      BIN:=@BINs[BINIndex];
      if BIN^.Count=0 then begin
-      BIN^.Bounds.Min.x:=Min(Min(Vertices[Triangle^.Vertices[0]].x,Vertices[Triangle^.Vertices[1]].x),Vertices[Triangle^.Vertices[2]].x);
-      BIN^.Bounds.Min.y:=Min(Min(Vertices[Triangle^.Vertices[0]].y,Vertices[Triangle^.Vertices[1]].y),Vertices[Triangle^.Vertices[2]].y);
-      BIN^.Bounds.Min.z:=Min(Min(Vertices[Triangle^.Vertices[0]].z,Vertices[Triangle^.Vertices[1]].z),Vertices[Triangle^.Vertices[2]].z);
-      BIN^.Bounds.Max.x:=Max(Max(Vertices[Triangle^.Vertices[0]].x,Vertices[Triangle^.Vertices[1]].x),Vertices[Triangle^.Vertices[2]].x);
-      BIN^.Bounds.Max.y:=Max(Max(Vertices[Triangle^.Vertices[0]].y,Vertices[Triangle^.Vertices[1]].y),Vertices[Triangle^.Vertices[2]].y);
-      BIN^.Bounds.Max.z:=Max(Max(Vertices[Triangle^.Vertices[0]].z,Vertices[Triangle^.Vertices[1]].z),Vertices[Triangle^.Vertices[2]].z);
+      BIN^.Bounds.Min.x:=Min(Min(fVertices[Triangle^.Vertices[0]].x,fVertices[Triangle^.Vertices[1]].x),fVertices[Triangle^.Vertices[2]].x);
+      BIN^.Bounds.Min.y:=Min(Min(fVertices[Triangle^.Vertices[0]].y,fVertices[Triangle^.Vertices[1]].y),fVertices[Triangle^.Vertices[2]].y);
+      BIN^.Bounds.Min.z:=Min(Min(fVertices[Triangle^.Vertices[0]].z,fVertices[Triangle^.Vertices[1]].z),fVertices[Triangle^.Vertices[2]].z);
+      BIN^.Bounds.Max.x:=Max(Max(fVertices[Triangle^.Vertices[0]].x,fVertices[Triangle^.Vertices[1]].x),fVertices[Triangle^.Vertices[2]].x);
+      BIN^.Bounds.Max.y:=Max(Max(fVertices[Triangle^.Vertices[0]].y,fVertices[Triangle^.Vertices[1]].y),fVertices[Triangle^.Vertices[2]].y);
+      BIN^.Bounds.Max.z:=Max(Max(fVertices[Triangle^.Vertices[0]].z,fVertices[Triangle^.Vertices[1]].z),fVertices[Triangle^.Vertices[2]].z);
      end else begin
-      BIN^.Bounds.Min.x:=Min(BIN^.Bounds.Min.x,Min(Min(Vertices[Triangle^.Vertices[0]].x,Vertices[Triangle^.Vertices[1]].x),Vertices[Triangle^.Vertices[2]].x));
-      BIN^.Bounds.Min.y:=Min(BIN^.Bounds.Min.y,Min(Min(Vertices[Triangle^.Vertices[0]].y,Vertices[Triangle^.Vertices[1]].y),Vertices[Triangle^.Vertices[2]].y));
-      BIN^.Bounds.Min.z:=Min(BIN^.Bounds.Min.z,Min(Min(Vertices[Triangle^.Vertices[0]].z,Vertices[Triangle^.Vertices[1]].z),Vertices[Triangle^.Vertices[2]].z));
-      BIN^.Bounds.Max.x:=Max(BIN^.Bounds.Max.x,Max(Max(Vertices[Triangle^.Vertices[0]].x,Vertices[Triangle^.Vertices[1]].x),Vertices[Triangle^.Vertices[2]].x));
-      BIN^.Bounds.Max.y:=Max(BIN^.Bounds.Max.y,Max(Max(Vertices[Triangle^.Vertices[0]].y,Vertices[Triangle^.Vertices[1]].y),Vertices[Triangle^.Vertices[2]].y));
-      BIN^.Bounds.Max.z:=Max(BIN^.Bounds.Max.z,Max(Max(Vertices[Triangle^.Vertices[0]].z,Vertices[Triangle^.Vertices[1]].z),Vertices[Triangle^.Vertices[2]].z));
+      BIN^.Bounds.Min.x:=Min(BIN^.Bounds.Min.x,Min(Min(fVertices[Triangle^.Vertices[0]].x,fVertices[Triangle^.Vertices[1]].x),fVertices[Triangle^.Vertices[2]].x));
+      BIN^.Bounds.Min.y:=Min(BIN^.Bounds.Min.y,Min(Min(fVertices[Triangle^.Vertices[0]].y,fVertices[Triangle^.Vertices[1]].y),fVertices[Triangle^.Vertices[2]].y));
+      BIN^.Bounds.Min.z:=Min(BIN^.Bounds.Min.z,Min(Min(fVertices[Triangle^.Vertices[0]].z,fVertices[Triangle^.Vertices[1]].z),fVertices[Triangle^.Vertices[2]].z));
+      BIN^.Bounds.Max.x:=Max(BIN^.Bounds.Max.x,Max(Max(fVertices[Triangle^.Vertices[0]].x,fVertices[Triangle^.Vertices[1]].x),fVertices[Triangle^.Vertices[2]].x));
+      BIN^.Bounds.Max.y:=Max(BIN^.Bounds.Max.y,Max(Max(fVertices[Triangle^.Vertices[0]].y,fVertices[Triangle^.Vertices[1]].y),fVertices[Triangle^.Vertices[2]].y));
+      BIN^.Bounds.Max.z:=Max(BIN^.Bounds.Max.z,Max(Max(fVertices[Triangle^.Vertices[0]].z,fVertices[Triangle^.Vertices[1]].z),fVertices[Triangle^.Vertices[2]].z));
      end;
 {$ifdef SIMD}
      BIN^.Bounds.Min.w:=0.0;
@@ -24929,20 +25005,20 @@ var TriangleIndex:TKraftInt32;
 begin
  if aParentTreeNode^.CountTriangles>0 then begin
   Triangle:=@fTriangles[aParentTreeNode^.FirstTriangleIndex];
-  aParentTreeNode.AABB.Min.x:=Min(Min(Vertices[Triangle^.Vertices[0]].x,Vertices[Triangle^.Vertices[1]].x),Vertices[Triangle^.Vertices[2]].x);
-  aParentTreeNode.AABB.Min.y:=Min(Min(Vertices[Triangle^.Vertices[0]].y,Vertices[Triangle^.Vertices[1]].y),Vertices[Triangle^.Vertices[2]].y);
-  aParentTreeNode.AABB.Min.z:=Min(Min(Vertices[Triangle^.Vertices[0]].z,Vertices[Triangle^.Vertices[1]].z),Vertices[Triangle^.Vertices[2]].z);
-  aParentTreeNode.AABB.Max.x:=Max(Max(Vertices[Triangle^.Vertices[0]].x,Vertices[Triangle^.Vertices[1]].x),Vertices[Triangle^.Vertices[2]].x);
-  aParentTreeNode.AABB.Max.y:=Max(Max(Vertices[Triangle^.Vertices[0]].y,Vertices[Triangle^.Vertices[1]].y),Vertices[Triangle^.Vertices[2]].y);
-  aParentTreeNode.AABB.Max.z:=Max(Max(Vertices[Triangle^.Vertices[0]].z,Vertices[Triangle^.Vertices[1]].z),Vertices[Triangle^.Vertices[2]].z);
+  aParentTreeNode.AABB.Min.x:=Min(Min(fVertices[Triangle^.Vertices[0]].x,fVertices[Triangle^.Vertices[1]].x),fVertices[Triangle^.Vertices[2]].x);
+  aParentTreeNode.AABB.Min.y:=Min(Min(fVertices[Triangle^.Vertices[0]].y,fVertices[Triangle^.Vertices[1]].y),fVertices[Triangle^.Vertices[2]].y);
+  aParentTreeNode.AABB.Min.z:=Min(Min(fVertices[Triangle^.Vertices[0]].z,fVertices[Triangle^.Vertices[1]].z),fVertices[Triangle^.Vertices[2]].z);
+  aParentTreeNode.AABB.Max.x:=Max(Max(fVertices[Triangle^.Vertices[0]].x,fVertices[Triangle^.Vertices[1]].x),fVertices[Triangle^.Vertices[2]].x);
+  aParentTreeNode.AABB.Max.y:=Max(Max(fVertices[Triangle^.Vertices[0]].y,fVertices[Triangle^.Vertices[1]].y),fVertices[Triangle^.Vertices[2]].y);
+  aParentTreeNode.AABB.Max.z:=Max(Max(fVertices[Triangle^.Vertices[0]].z,fVertices[Triangle^.Vertices[1]].z),fVertices[Triangle^.Vertices[2]].z);
   for TriangleIndex:=aParentTreeNode^.FirstTriangleIndex+1 to aParentTreeNode^.FirstTriangleIndex+(aParentTreeNode^.CountTriangles-1) do begin
    Triangle:=@fTriangles[TriangleIndex];
-   aParentTreeNode.AABB.Min.x:=Min(aParentTreeNode.AABB.Min.x,Min(Min(Vertices[Triangle^.Vertices[0]].x,Vertices[Triangle^.Vertices[1]].x),Vertices[Triangle^.Vertices[2]].x));
-   aParentTreeNode.AABB.Min.y:=Min(aParentTreeNode.AABB.Min.y,Min(Min(Vertices[Triangle^.Vertices[0]].y,Vertices[Triangle^.Vertices[1]].y),Vertices[Triangle^.Vertices[2]].y));
-   aParentTreeNode.AABB.Min.z:=Min(aParentTreeNode.AABB.Min.z,Min(Min(Vertices[Triangle^.Vertices[0]].z,Vertices[Triangle^.Vertices[1]].z),Vertices[Triangle^.Vertices[2]].z));
-   aParentTreeNode.AABB.Max.x:=Max(aParentTreeNode.AABB.Max.x,Max(Max(Vertices[Triangle^.Vertices[0]].x,Vertices[Triangle^.Vertices[1]].x),Vertices[Triangle^.Vertices[2]].x));
-   aParentTreeNode.AABB.Max.y:=Max(aParentTreeNode.AABB.Max.y,Max(Max(Vertices[Triangle^.Vertices[0]].y,Vertices[Triangle^.Vertices[1]].y),Vertices[Triangle^.Vertices[2]].y));
-   aParentTreeNode.AABB.Max.z:=Max(aParentTreeNode.AABB.Max.z,Max(Max(Vertices[Triangle^.Vertices[0]].z,Vertices[Triangle^.Vertices[1]].z),Vertices[Triangle^.Vertices[2]].z));
+   aParentTreeNode.AABB.Min.x:=Min(aParentTreeNode.AABB.Min.x,Min(Min(fVertices[Triangle^.Vertices[0]].x,fVertices[Triangle^.Vertices[1]].x),fVertices[Triangle^.Vertices[2]].x));
+   aParentTreeNode.AABB.Min.y:=Min(aParentTreeNode.AABB.Min.y,Min(Min(fVertices[Triangle^.Vertices[0]].y,fVertices[Triangle^.Vertices[1]].y),fVertices[Triangle^.Vertices[2]].y));
+   aParentTreeNode.AABB.Min.z:=Min(aParentTreeNode.AABB.Min.z,Min(Min(fVertices[Triangle^.Vertices[0]].z,fVertices[Triangle^.Vertices[1]].z),fVertices[Triangle^.Vertices[2]].z));
+   aParentTreeNode.AABB.Max.x:=Max(aParentTreeNode.AABB.Max.x,Max(Max(fVertices[Triangle^.Vertices[0]].x,fVertices[Triangle^.Vertices[1]].x),fVertices[Triangle^.Vertices[2]].x));
+   aParentTreeNode.AABB.Max.y:=Max(aParentTreeNode.AABB.Max.y,Max(Max(fVertices[Triangle^.Vertices[0]].y,fVertices[Triangle^.Vertices[1]].y),fVertices[Triangle^.Vertices[2]].y));
+   aParentTreeNode.AABB.Max.z:=Max(aParentTreeNode.AABB.Max.z,Max(Max(fVertices[Triangle^.Vertices[0]].z,fVertices[Triangle^.Vertices[1]].z),fVertices[Triangle^.Vertices[2]].z));
   end;
   aParentTreeNode.AABB.Min.x:=aParentTreeNode.AABB.Min.x-EPSILON;
   aParentTreeNode.AABB.Min.y:=aParentTreeNode.AABB.Min.y-EPSILON;
@@ -24973,7 +25049,21 @@ begin
 
   Added:=false;
 
-  while fNodeQueue.Dequeue(ParentTreeNodeIndex) do begin
+  while true do begin
+
+{$ifdef KraftPasMP}
+   fNodeQueueLock.Acquire;
+   try
+    OK:=fNodeQueue.Dequeue(ParentTreeNodeIndex);
+   finally
+    fNodeQueueLock.Release;
+   end;
+{$else}
+   OK:=fNodeQueue.Dequeue(ParentTreeNodeIndex);
+{$endif}
+   if not OK then begin
+    break;
+   end;
 
    if not Added then begin
 {$ifdef KraftPasMP}
@@ -24986,18 +25076,26 @@ begin
    if ParentTreeNode^.CountTriangles>fMaximumTrianglesPerNode then begin
 
     case fBVHBuildMode of
-     TKraftMeshBVHBuildMode.kmbbmSAHSteps:begin
-      SplitCost:=FindBestSplitPlaneSteps(ParentTreeNode,AxisIndex,SplitPosition);
-     end;
-     TKraftMeshBVHBuildMode.kmbbmSAHBinned:begin
-      SplitCost:=FindBestSplitPlaneBinned(ParentTreeNode,AxisIndex,SplitPosition);
+     TKraftMeshBVHBuildMode.kmbbmMeanVariance:begin
+      OK:=FindBestSplitPlaneMeanVariance(ParentTreeNode,AxisIndex,SplitPosition);
      end;
      else begin
-      SplitCost:=FindBestSplitPlaneBruteforce(ParentTreeNode,AxisIndex,SplitPosition);
+      case fBVHBuildMode of
+       TKraftMeshBVHBuildMode.kmbbmSAHSteps:begin
+        SplitCost:=FindBestSplitPlaneSAHSteps(ParentTreeNode,AxisIndex,SplitPosition);
+       end;
+       TKraftMeshBVHBuildMode.kmbbmSAHBinned:begin
+        SplitCost:=FindBestSplitPlaneSAHBinned(ParentTreeNode,AxisIndex,SplitPosition);
+       end;
+       else begin
+        SplitCost:=FindBestSplitPlaneSAHBruteforce(ParentTreeNode,AxisIndex,SplitPosition);
+       end;
+      end;
+      OK:=SplitCost<CalculateNodeCost(ParentTreeNode);
      end;
     end;
 
-    if SplitCost<CalculateNodeCost(ParentTreeNode) then begin
+    if OK then begin
 
      LeftIndex:=ParentTreeNode^.FirstTriangleIndex;
      RightIndex:=ParentTreeNode^.FirstTriangleIndex+(ParentTreeNode^.CountTriangles-1);
@@ -25031,14 +25129,32 @@ begin
       ChildTreeNode^.CountTriangles:=LeftCount;
       ChildTreeNode^.FirstLeftChild:=-1;
       UpdateNodeBounds(ChildTreeNode);
+{$ifdef KraftPasMP}
+      fNodeQueueLock.Acquire;
+      try
+       fNodeQueue.Enqueue(LeftChildIndex);
+      finally
+       fNodeQueueLock.Release;
+      end;
+{$else}
       fNodeQueue.Enqueue(LeftChildIndex);
+{$endif}
 
       ChildTreeNode:=@fTreeNodes[RightChildIndex];
       ChildTreeNode^.FirstTriangleIndex:=LeftIndex;
       ChildTreeNode^.CountTriangles:=ParentTreeNode^.CountTriangles-LeftCount;
       ChildTreeNode^.FirstLeftChild:=-1;
       UpdateNodeBounds(ChildTreeNode);
+{$ifdef KraftPasMP}
+      fNodeQueueLock.Acquire;
+      try
+       fNodeQueue.Enqueue(RightChildIndex);
+      finally
+       fNodeQueueLock.Release;
+      end;
+{$else}
       fNodeQueue.Enqueue(RightChildIndex);
+{$endif}
 
      end;
 
@@ -25636,23 +25752,32 @@ begin
     if fCountTriangles>=fMaximumTrianglesPerNode then begin
      fNodeQueue:=TKraftMeshNodeQueue.Create;
      try
-      fNodeQueue.Clear;
-      fNodeQueue.Enqueue(0);
-      fCountActiveWorkers:=0;
+{$ifdef KraftPasMP}
+      fNodeQueueLock:=TPasMPSlimReaderWriterLock.Create;
+      try
+{$endif}
+       fNodeQueue.Clear;
+       fNodeQueue.Enqueue(0);
+       fCountActiveWorkers:=0;
  {$ifdef KraftPasMP}if assigned(fPhysics.fPasMP) and (fPhysics.fPasMP.CountJobWorkerThreads>0) then begin
-       Jobs:=nil;
-       try
-        SetLength(Jobs,fPhysics.fPasMP.CountJobWorkerThreads);
-        for JobIndex:=0 to length(Jobs)-1 do begin
-         Jobs[JobIndex]:=fPhysics.fPasMP.Acquire(BuildJob,self,nil,0,0);
-        end;
-        fPhysics.fPasMP.Invoke(Jobs);
-       finally
         Jobs:=nil;
+        try
+         SetLength(Jobs,fPhysics.fPasMP.CountJobWorkerThreads);
+         for JobIndex:=0 to length(Jobs)-1 do begin
+          Jobs[JobIndex]:=fPhysics.fPasMP.Acquire(BuildJob,self,nil,0,0);
+         end;
+         fPhysics.fPasMP.Invoke(Jobs);
+        finally
+         Jobs:=nil;
+        end;
+       end else{$endif}begin
+        ProcessNodeQueue;
        end;
-      end else{$endif}begin
-       ProcessNodeQueue;
+{$ifdef KraftPasMP}
+      finally
+       FreeAndNil(fNodeQueueLock);
       end;
+{$endif}
      finally
       FreeAndNil(fNodeQueue);
      end;
