@@ -389,7 +389,7 @@ type { TKraftRayCastVehicle }
                      fSettings:TKraftRaycastVehicle.TSettings;
                      fName:UTF8String; // Name of the axle
                      fWheels:TKraftRaycastVehicle.TSettings.TWheels; // Wheels of the axle
-                     fStabilizerBarAntiRollForce:TKraftScalar; // Anti roll force of the stabilizer bar
+                     fStabilizerBarAntiRollForceFactor:TKraftScalar; // Anti roll force of the stabilizer bar
                     public
                      constructor Create(const aSettings:TKraftRaycastVehicle.TSettings); reintroduce;
                      destructor Destroy; override;
@@ -400,7 +400,7 @@ type { TKraftRayCastVehicle }
                     public
                      property Name:UTF8String read fName write fName;
                      property Wheels:TKraftRaycastVehicle.TSettings.TWheels read fWheels;
-                     property StabilizerBarAntiRollForce:TKraftScalar read fStabilizerBarAntiRollForce write fStabilizerBarAntiRollForce;
+                     property StabilizerBarAntiRollForceFactor:TKraftScalar read fStabilizerBarAntiRollForceFactor write fStabilizerBarAntiRollForceFactor;
                    end;
                    TAxles=Generics.Collections.TObjectList<TAxle>;
                    { TAckermannGroup }
@@ -454,13 +454,13 @@ type { TKraftRayCastVehicle }
               fSteeringSpeedEnvelope:TEnvelope;
               fGripFactorEnvelope:TEnvelope;
               fDownForceCurveEnvelope:TEnvelope;
-              fDownForce:TKraftScalar;
+              fDownForceFactor:TKraftScalar;
               fJumpImpulse:TKraftScalar;
               fFlightStabilizationAngularVelocityDamping:TKraftVector3;
               fFlightStabilizationDamping:TKraftScalar;
               fFlightStabilizationForce:TKraftScalar;
               fKeepUprightThreshold:TKraftScalar;
-              fKeepUprightForce:TKraftScalar;
+              fKeepUprightForceFactor:TKraftScalar;
               fWheels:TWheels;
               fAxles:TAxles;
               fAckermannGroups:TAckermannGroups;
@@ -505,13 +505,13 @@ type { TKraftRayCastVehicle }
               property GripFactorEnvelope:TEnvelope read fGripFactorEnvelope;
               property SteeringSpeedEnvelope:TEnvelope read fSteeringSpeedEnvelope;
               property DownForceCurveEnvelope:TEnvelope read fDownForceCurveEnvelope;
-              property DownForce:TKraftScalar read fDownForce write fDownForce;
+              property DownForceFactor:TKraftScalar read fDownForceFactor write fDownForceFactor;
               property JumpImpulse:TKraftScalar read fJumpImpulse write fJumpImpulse;
               property FlightStabilizationAngularVelocityDamping:TKraftVector3 read fFlightStabilizationAngularVelocityDamping write fFlightStabilizationAngularVelocityDamping;
               property FlightStabilizationDamping:TKraftScalar read fFlightStabilizationDamping write fFlightStabilizationDamping;
               property FlightStabilizationForce:TKraftScalar read fFlightStabilizationForce write fFlightStabilizationForce;
               property KeepUprightThreshold:TKraftScalar read fKeepUprightThreshold write fKeepUprightThreshold;
-              property KeepUprightForce:TKraftScalar read fKeepUprightForce write fKeepUprightForce;
+              property KeepUprightForce:TKraftScalar read fKeepUprightForceFactor write fKeepUprightForceFactor;
               property Wheels:TWheels read fWheels;
               property Axles:TAxles read fAxles;
               property AckermannGroups:TAckermannGroups read fAckermannGroups;
@@ -543,9 +543,9 @@ type { TKraftRayCastVehicle }
               fLastWorldTransform:TKraftMatrix4x4;
               fVisualWorldTransform:TKraftMatrix4x4;
 {$ifdef DebugDraw}
-              fDebugAntiRollForce:TKraftVector3;
-              fLastDebugAntiRollForce:TKraftVector3;
-              fVisualDebugAntiRollForce:TKraftVector3;
+              fDebugAntiRollForceFactor:TKraftVector3;
+              fLastDebugAntiRollForceFactor:TKraftVector3;
+              fVisualDebugAntiRollForceFactor:TKraftVector3;
               fDebugAccelerationForce:TKraftVector3;
               fLastDebugAccelerationForce:TKraftVector3;
               fVisualDebugAccelerationForce:TKraftVector3;
@@ -699,9 +699,9 @@ type { TKraftRayCastVehicle }
        fDebugAirResistanceForce:TKraftVector3;
        fLastDebugAirResistanceForce:TKraftVector3;
        fVisualDebugAirResistanceForce:TKraftVector3;
-       fDebugDownForce:TKraftVector3;
-       fLastDebugDownForce:TKraftVector3;
-       fVisualDebugDownForce:TKraftVector3;
+       fDebugDownForceFactor:TKraftVector3;
+       fLastDebugDownForceFactor:TKraftVector3;
+       fVisualDebugDownForceFactor:TKraftVector3;
        fDebugFlightStabilizationTorque:TKraftVector3;
        fLastDebugFlightStabilizationTorque:TKraftVector3;
        fVisualDebugFlightStabilizationTorque:TKraftVector3;
@@ -1459,7 +1459,7 @@ begin
  if assigned(aJSONItem) and (aJSONItem is TPasJSONItemObject) then begin
   fWheels.Clear;
   fName:=TPasJSON.GetString(TPasJSONItemObject(aJSONItem).Properties['name'],fName);
-  fStabilizerBarAntiRollForce:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['stabilizerbarantirollforce'],fStabilizerBarAntiRollForce);
+  fStabilizerBarAntiRollForceFactor:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['stabilizerbarantirollforcefactor'],fStabilizerBarAntiRollForceFactor);
   JSONItem:=TPasJSONItemObject(aJSONItem).Properties['wheels'];
   if assigned(JSONItem) and (JSONItem is TPasJSONItemArray) then begin
    JSONItemArray:=TPasJSONItemArray(JSONItem);
@@ -1487,7 +1487,7 @@ var Index:TPasJSONSizeInt;
 begin
  result:=TPasJSONItemObject.Create;
  TPasJSONItemObject(result).Add('name',TPasJSONItemString.Create(fName));
- TPasJSONItemObject(result).Add('stabilizerbarantirollforce',TPasJSONItemNumber.Create(fStabilizerBarAntiRollForce));
+ TPasJSONItemObject(result).Add('stabilizerbarantirollforcefactor',TPasJSONItemNumber.Create(fStabilizerBarAntiRollForceFactor));
  JSONItemArray:=TPasJSONItemArray.Create;
  try
   for Index:=0 to fWheels.Count-1 do begin
@@ -1625,7 +1625,7 @@ begin
  fGripFactorEnvelope:=TEnvelope.CreateLinear(0.0,1.0,100.0,1.0);
 
  fDownForceCurveEnvelope:=TEnvelope.CreateLinear(0.0,0.0,200.0,100.0);
- fDownForce:=1.0;
+ fDownForceFactor:=1.0;
 
  fJumpImpulse:=350.0;
 
@@ -1634,7 +1634,7 @@ begin
  fFlightStabilizationForce:=8.0;
 
  fKeepUprightThreshold:=0.9;
- fKeepUprightForce:=0.0;
+ fKeepUprightForceFactor:=0.0;
 
  fWheels:=TWheels.Create(true);
 
@@ -1750,9 +1750,9 @@ begin
  // The grip envelope
  fGripFactorEnvelope.FillLinear(0.0,1.0,100.0,1.0);
 
- // The down force curve envelope and setttings
+ // The down force curve envelope and settings
  fDownForceCurveEnvelope.FillLinear(0.0,0.0,200.0,100.0);
- fDownForce:=1.0;
+ fDownForceFactor:=1.0;
 
  // The jump impulse
  fJumpImpulse:=350.0;
@@ -1764,7 +1764,7 @@ begin
 
  // The keep upright force
  fKeepUprightThreshold:=0.9;
- fKeepUprightForce:=0.0;
+ fKeepUprightForceFactor:=0.0;
 
  // The wheels
  begin
@@ -1899,7 +1899,7 @@ begin
    AxleFront.fName:='front';
    AxleFront.fWheels.Add(WheelFrontLeft);
    AxleFront.fWheels.Add(WheelFrontRight);
-   AxleFront.fStabilizerBarAntiRollForce:=100.0;
+   AxleFront.fStabilizerBarAntiRollForceFactor:=1.5;
   finally
    fAxles.Add(AxleFront);
   end;
@@ -1909,7 +1909,7 @@ begin
    AxleRear.fName:='rear';
    AxleRear.fWheels.Add(WheelRearLeft);
    AxleRear.fWheels.Add(WheelRearRight);
-   AxleRear.fStabilizerBarAntiRollForce:=100.0;
+   AxleRear.fStabilizerBarAntiRollForceFactor:=1.5;
   finally
    fAxles.Add(AxleRear);
   end;
@@ -2006,7 +2006,7 @@ begin
   fGripFactorEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['gripfactorenvelope']);
 
   fDownForceCurveEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['downforcecurveenvelope']);
-  fDownForce:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['downforce'],fDownForce);
+  fDownForceFactor:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['downforcefactor'],fDownForceFactor);
 
   fJumpImpulse:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['jumpimpulse'],fJumpImpulse);
 
@@ -2015,7 +2015,7 @@ begin
   fFlightStabilizationForce:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['flightstabilizationforce'],fFlightStabilizationForce);
 
   fKeepUprightThreshold:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['keepuprightthreshold'],KeepUprightThreshold);
-  fKeepUprightForce:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['keepuprightforce'],KeepUprightForce);
+  fKeepUprightForceFactor:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['keepuprightforcefactor'],KeepUprightForce);
 
   fWheels.Clear;
   JSONItem:=TPasJSONItemObject(aJSONItem).Properties['wheels'];
@@ -2157,7 +2157,7 @@ begin
  TPasJSONItemObject(result).Add('gripfactorenvelope',fGripFactorEnvelope.SaveToJSON);
 
  TPasJSONItemObject(result).Add('downforcecurveenvelope',fDownForceCurveEnvelope.SaveToJSON);
- TPasJSONItemObject(result).Add('downforce',TPasJSONItemNumber.Create(fDownForce));
+ TPasJSONItemObject(result).Add('downforcefactor',TPasJSONItemNumber.Create(fDownForceFactor));
 
  TPasJSONItemObject(result).Add('jumpimpulse',TPasJSONItemNumber.Create(fJumpImpulse));
 
@@ -2166,7 +2166,7 @@ begin
  TPasJSONItemObject(result).Add('flightstabilizationforce',TPasJSONItemNumber.Create(fFlightStabilizationForce));
 
  TPasJSONItemObject(result).Add('keepuprightthreshold',TPasJSONItemNumber.Create(fKeepUprightThreshold));
- TPasJSONItemObject(result).Add('keepuprightforce',TPasJSONItemNumber.Create(fKeepUprightForce));
+ TPasJSONItemObject(result).Add('keepuprightforcefactor',TPasJSONItemNumber.Create(fKeepUprightForceFactor));
 
  JSONItem:=TPasJSONItemObject.Create;
  try
@@ -2675,7 +2675,7 @@ begin
  fLastSuspensionLength:=fSuspensionLength;
  fLastWorldTransform:=fWorldTransform;
 {$ifdef DebugDraw}
- fLastDebugAntiRollForce:=fDebugAntiRollForce;
+ fLastDebugAntiRollForceFactor:=fDebugAntiRollForceFactor;
  fLastDebugAccelerationForce:=fDebugAccelerationForce;
  fLastDebugLongitudinalForce:=fDebugLongitudinalForce;
  fLastDebugLaterialForce:=fDebugLaterialForce;
@@ -2689,7 +2689,7 @@ begin
  fVisualSuspensionLength:=Lerp(fLastSuspensionLength,fSuspensionLength,aAlpha);
  fVisualWorldTransform:=Matrix4x4Slerp(fLastWorldTransform,fWorldTransform,aAlpha);
 {$ifdef DebugDraw}
- fVisualDebugAntiRollForce:=Vector3Lerp(fLastDebugAntiRollForce,fDebugAntiRollForce,aAlpha);
+ fVisualDebugAntiRollForceFactor:=Vector3Lerp(fLastDebugAntiRollForceFactor,fDebugAntiRollForceFactor,aAlpha);
  fVisualDebugAccelerationForce:=Vector3Lerp(fLastDebugAccelerationForce,fDebugAccelerationForce,aAlpha);
  fVisualDebugLongitudinalForce:=Vector3Lerp(fLastDebugLongitudinalForce,fDebugLongitudinalForce,aAlpha);
  fVisualDebugLaterialForce:=Vector3Lerp(fLastDebugLaterialForce,fDebugLaterialForce,aAlpha);
@@ -2734,33 +2734,33 @@ begin
 end;
 
 procedure TKraftRayCastVehicle.TAxle.UpdateAntiRollBar;
-var TravelL,TravelR,AntiRollForce:TKraftScalar;
+var TravelL,TravelR,AntiRollForceFactor:TKraftScalar;
     WheelLeft,WheelRight:TKraftRayCastVehicle.TWheel;
 begin
- if (fWheels.Count=2) and not IsZero(fSettings.fStabilizerBarAntiRollForce) then begin
+ if (fWheels.Count=2) and not IsZero(fSettings.fStabilizerBarAntiRollForceFactor) then begin
   WheelLeft:=fWheels[0];
   WheelRight:=fWheels[1];
   TravelL:=1.0-Clamp01(WheelLeft.fSuspensionCompressionRatio);
   TravelR:=1.0-Clamp01(WheelRight.fSuspensionCompressionRatio);
-  AntiRollForce:=(TravelL-TravelR)*fSettings.fStabilizerBarAntiRollForce;
-  if WheelLeft.fIsGrounded and (abs(AntiRollForce)>EPSILON) then begin
-   fVehicle.fRigidBody.AddForceAtPosition(Vector3ScalarMul(fVehicle.fWorldDown,AntiRollForce),WheelLeft.GetSuspensionHitPosition,kfmForce,false);
+  AntiRollForceFactor:=(TravelL-TravelR)*fSettings.fStabilizerBarAntiRollForceFactor;
+  if WheelLeft.fIsGrounded and (abs(AntiRollForceFactor)>EPSILON) then begin
+   fVehicle.fRigidBody.AddForceAtPosition(Vector3ScalarMul(fVehicle.fWorldDown,AntiRollForceFactor*fVehicle.fRigidBody.Mass),WheelLeft.GetSuspensionHitPosition,kfmForce,false);
 {$ifdef DebugDraw}
-   WheelLeft.fDebugAntiRollForce:=Vector3ScalarMul(fVehicle.fWorldDown,AntiRollForce);
+   WheelLeft.fDebugAntiRollForceFactor:=Vector3ScalarMul(fVehicle.fWorldDown,AntiRollForceFactor);
 {$endif}
   end else begin
 {$ifdef DebugDraw}
-   WheelLeft.fDebugAntiRollForce:=Vector3Origin;
+   WheelLeft.fDebugAntiRollForceFactor:=Vector3Origin;
 {$endif}
   end;
-  if WheelRight.fIsGrounded and (abs(AntiRollForce)>EPSILON) then begin
-   fVehicle.fRigidBody.AddForceAtPosition(Vector3ScalarMul(fVehicle.fWorldDown,-AntiRollForce),WheelRight.GetSuspensionHitPosition,kfmForce,false);
+  if WheelRight.fIsGrounded and (abs(AntiRollForceFactor)>EPSILON) then begin
+   fVehicle.fRigidBody.AddForceAtPosition(Vector3ScalarMul(fVehicle.fWorldDown,-AntiRollForceFactor*fVehicle.fRigidBody.Mass),WheelRight.GetSuspensionHitPosition,kfmForce,false);
 {$ifdef DebugDraw}
-   WheelRight.fDebugAntiRollForce:=Vector3ScalarMul(fVehicle.fWorldDown,-AntiRollForce);
+   WheelRight.fDebugAntiRollForceFactor:=Vector3ScalarMul(fVehicle.fWorldDown,-AntiRollForceFactor);
 {$endif}
   end else begin
 {$ifdef DebugDraw}
-   WheelRight.fDebugAntiRollForce:=Vector3Origin;
+   WheelRight.fDebugAntiRollForceFactor:=Vector3Origin;
 {$endif}
   end;
  end;
@@ -3379,18 +3379,18 @@ begin
    break;
   end;
  end;
- if AllWheelsGrounded and not IsZero(fSettings.fDownForce) then begin
+ if AllWheelsGrounded and not IsZero(fSettings.fDownForceFactor) then begin
   DownForceAmount:=fSettings.fDownForceCurveEnvelope.GetValueAtTime(fAbsoluteSpeedKMH)*0.01;
-  Force:=Vector3ScalarMul(fWorldDown,fRigidBody.Mass*DownForceAmount*fSettings.fDownForce);
+  Force:=Vector3ScalarMul(fWorldDown,DownForceAmount*fSettings.fDownForceFactor);
 {$ifdef DebugDraw}
-  fDebugDownForce:=Force;
+  fDebugDownForceFactor:=Force;
 {$endif}
   if Vector3Length(Force)>EPSILON then begin
-   fRigidBody.AddWorldForce(Force,kfmForce,false);
+   fRigidBody.AddWorldForce(Vector3ScalarMul(Force,fRigidBody.Mass),kfmForce,false);
   end;
 {$ifdef DebugDraw}
  end else begin
-  fDebugDownForce:=Vector3Origin;
+  fDebugDownForceFactor:=Vector3Origin;
 {$endif}
  end;
 end;
@@ -3496,7 +3496,7 @@ begin
  fDebugKeepUprightTorque:=Vector3Origin;
 {$endif}
 
-if not (IsZero(fSettings.fKeepUprightForce) or IsZero(fSettings.fKeepUprightThreshold)) then begin
+if not (IsZero(fSettings.fKeepUprightForceFactor) or IsZero(fSettings.fKeepUprightThreshold)) then begin
 
   KeepUpNormal:=Vector3Neg(fPhysics.Gravity.Vector);
 
@@ -3506,12 +3506,12 @@ if not (IsZero(fSettings.fKeepUprightForce) or IsZero(fSettings.fKeepUprightThre
 
    Axis:=Vector3Norm(Vector3Cross(fWorldUp,NewUp));
 
-   Torque:=Vector3ScalarMul(Axis,fSettings.fKeepUprightForce);
+   Torque:=Vector3ScalarMul(Axis,fSettings.fKeepUprightForceFactor);
    if Vector3Length(Torque)>1e-6 then begin
 {$ifdef DebugDraw}
     Vector3DirectAdd(fDebugKeepUprightTorque,Torque);
 {$endif}
-    fRigidBody.AddWorldTorque(Torque,kfmForce,false);
+    fRigidBody.AddWorldTorque(Vector3ScalarMul(Torque,fRigidBody.Mass),kfmForce,false);
    end;
 
   end;
@@ -3600,7 +3600,7 @@ begin
  fLastWorldPosition:=Vector3(PKraftRawVector3(pointer(@fLastWorldTransform[3,0]))^);
 {$ifdef DebugDraw}
  fLastDebugAirResistanceForce:=fDebugAirResistanceForce;
- fLastDebugDownForce:=fDebugDownForce;
+ fLastDebugDownForceFactor:=fDebugDownForceFactor;
  fLastDebugFlightStabilizationTorque:=fDebugFlightStabilizationTorque;
  fLastDebugKeepUprightTorque:=fDebugKeepUprightTorque;
 {$endif}
@@ -3625,7 +3625,7 @@ begin
  fVisualWorldPosition:=Vector3(PKraftRawVector3(pointer(@fVisualWorldTransform[3,0]))^);
 {$ifdef DebugDraw}
  fVisualDebugAirResistanceForce:=Vector3Lerp(fLastDebugAirResistanceForce,fDebugAirResistanceForce,aAlpha);
- fVisualDebugDownForce:=Vector3Lerp(fLastDebugDownForce,fDebugDownForce,aAlpha);
+ fVisualDebugDownForceFactor:=Vector3Lerp(fLastDebugDownForceFactor,fDebugDownForceFactor,aAlpha);
  fVisualDebugFlightStabilizationTorque:=Vector3Lerp(fLastDebugFlightStabilizationTorque,fDebugFlightStabilizationTorque,aAlpha);
  fVisualDebugKeepUprightTorque:=Vector3Lerp(fLastDebugKeepUprightTorque,fDebugKeepUprightTorque,aAlpha);
 {$endif}
@@ -3788,7 +3788,7 @@ begin
 {$endif}
 
   v0:=v;
-  v1:=Vector3Add(v0,Vector3ScalarMul(fVisualDebugDownForce,1.0));
+  v1:=Vector3Add(v0,Vector3ScalarMul(fVisualDebugDownForceFactor,1.0));
   Color:=Vector4(0.5,0.25,0.75,1.0);
 {$ifdef NoOpenGL}
   if assigned(fDebugDrawLine) then begin
@@ -3860,7 +3860,7 @@ begin
 
   Color:=Vector4(1.0,0.0,1.0,1.0);
   v0:=Vector3TermMatrixMul(Wheel.GetSuspensionRelativePosition,fVisualWorldTransform);
-  v1:=Vector3Add(v0,Wheel.fVisualDebugAntiRollForce);
+  v1:=Vector3Add(v0,Wheel.fVisualDebugAntiRollForceFactor);
 {$ifdef NoOpenGL}
   if assigned(fDebugDrawLine) then begin
    fDebugDrawLine(v0,v1,Color);
