@@ -1783,8 +1783,8 @@ begin
    WheelFrontLeft.fMass:=1.0;
    WheelFrontLeft.fSuspensionClamping:=false;
    WheelFrontLeft.fSuspensionRestLength:=0.8;
-   WheelFrontLeft.fSuspensionStrength:=1200.0;
-   WheelFrontLeft.fSuspensionDamping:=75.0;
+   WheelFrontLeft.fSuspensionStrength:=20.0;
+   WheelFrontLeft.fSuspensionDamping:=1.25;
    WheelFrontLeft.fSuspensionRelaxRate:=0.4;
    WheelFrontLeft.fAccelerationForceFactor:=0.25;
    WheelFrontLeft.fBrakeForceFactor:=0.25;
@@ -1812,8 +1812,8 @@ begin
    WheelFrontRight.fMass:=1.0;
    WheelFrontRight.fSuspensionClamping:=false;
    WheelFrontRight.fSuspensionRestLength:=0.8;
-   WheelFrontRight.fSuspensionStrength:=1200.0;
-   WheelFrontRight.fSuspensionDamping:=75.0;
+   WheelFrontRight.fSuspensionStrength:=20.0;
+   WheelFrontRight.fSuspensionDamping:=1.25;
    WheelFrontRight.fSuspensionRelaxRate:=0.4;
    WheelFrontRight.fAccelerationForceFactor:=0.25;
    WheelFrontRight.fBrakeForceFactor:=0.25;
@@ -1841,8 +1841,8 @@ begin
    WheelRearLeft.fMass:=1.0;
    WheelRearLeft.fSuspensionClamping:=false;
    WheelRearLeft.fSuspensionRestLength:=0.8;
-   WheelRearLeft.fSuspensionStrength:=1200.0;
-   WheelRearLeft.fSuspensionDamping:=75.0;
+   WheelRearLeft.fSuspensionStrength:=20.0;
+   WheelRearLeft.fSuspensionDamping:=1.25;
    WheelRearLeft.fSuspensionRelaxRate:=0.4;
    WheelRearLeft.fAccelerationForceFactor:=0.25;
    WheelRearLeft.fBrakeForceFactor:=0.25;
@@ -1870,8 +1870,8 @@ begin
    WheelRearRight.fMass:=1.0;
    WheelRearRight.fSuspensionClamping:=false;
    WheelRearRight.fSuspensionRestLength:=0.8;
-   WheelRearRight.fSuspensionStrength:=1200.0;
-   WheelRearRight.fSuspensionDamping:=75.0;
+   WheelRearRight.fSuspensionStrength:=20.0;
+   WheelRearRight.fSuspensionDamping:=1.25;
    WheelRearRight.fSuspensionRelaxRate:=0.4;
    WheelRearRight.fAccelerationForceFactor:=0.25;
    WheelRearRight.fBrakeForceFactor:=0.25;
@@ -2369,7 +2369,7 @@ begin
                                                                         CurrentVelocity,
                                                                         SuspensionRestLengthWithRadius,
                                                                         fSettings.fSuspensionStrength,
-                                                                        fSettings.fSuspensionDamping);
+                                                                        fSettings.fSuspensionDamping)*fVehicle.fRigidBody.Mass;
 
  if abs(Force)>EPSILON then begin
 
@@ -2431,8 +2431,8 @@ begin
 
   fSuspensionLength:=fSettings.fSuspensionRestLength-fSuspensionCompressionDistance;
 
-  Force:=(fSuspensionCompressionRatio*fSettings.fSuspensionStrength)-
-         (((fSuspensionPreviousCompressionDistance-fSuspensionCompressionDistance)*fSettings.SuspensionDamping)*fVehicle.fInverseDeltaTime);
+  Force:=((fSuspensionCompressionRatio*fSettings.fSuspensionStrength)-
+          (((fSuspensionPreviousCompressionDistance-fSuspensionCompressionDistance)*fSettings.SuspensionDamping)*fVehicle.fInverseDeltaTime))*fVehicle.fRigidBody.Mass;
 
   if abs(Force)>EPSILON then begin
 
