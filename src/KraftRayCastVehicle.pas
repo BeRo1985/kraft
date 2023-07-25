@@ -455,6 +455,7 @@ type { TKraftRayCastVehicle }
               fGripFactorEnvelope:TEnvelope;
               fDownForceCurveEnvelope:TEnvelope;
               fDownForce:TKraftScalar;
+              fJumpImpulse:TKraftScalar;
               fFlightStabilizationAngularVelocityDamping:TKraftVector3;
               fFlightStabilizationDamping:TKraftScalar;
               fFlightStabilizationForce:TKraftScalar;
@@ -505,6 +506,7 @@ type { TKraftRayCastVehicle }
               property SteeringSpeedEnvelope:TEnvelope read fSteeringSpeedEnvelope;
               property DownForceCurveEnvelope:TEnvelope read fDownForceCurveEnvelope;
               property DownForce:TKraftScalar read fDownForce write fDownForce;
+              property JumpImpulse:TKraftScalar read fJumpImpulse write fJumpImpulse;
               property FlightStabilizationAngularVelocityDamping:TKraftVector3 read fFlightStabilizationAngularVelocityDamping write fFlightStabilizationAngularVelocityDamping;
               property FlightStabilizationDamping:TKraftScalar read fFlightStabilizationDamping write fFlightStabilizationDamping;
               property FlightStabilizationForce:TKraftScalar read fFlightStabilizationForce write fFlightStabilizationForce;
@@ -666,6 +668,9 @@ type { TKraftRayCastVehicle }
        fInputBrake:Boolean;
        fInputHandBrake:Boolean;
        fInputDrift:Boolean;
+       fInputJump:Boolean;
+       fIsJump:Boolean;
+       fLastJump:Boolean;
        fIsAcceleration:Boolean;
        fIsReverseAcceleration:Boolean;
        fIsBrake:Boolean;
@@ -726,6 +731,7 @@ type { TKraftRayCastVehicle }
        procedure UpdateAntiRollBar;
        procedure UpdateAirResistance;
        procedure UpdateDownForce;
+       procedure UpdateJump;
        procedure UpdateFlightStabilization;
        procedure UpdateKeepUpright;
        procedure UpdateWheelRotations;
@@ -788,6 +794,7 @@ type { TKraftRayCastVehicle }
        property InputBrake:Boolean read fInputBrake write fInputBrake;
        property InputHandBrake:Boolean read fInputHandBrake write fInputHandBrake;
        property InputDrift:Boolean read fInputDrift write fInputDrift;
+       property InputJump:Boolean read fInputJump write fInputJump;
        property Speed:TKraftScalar read fSpeed write fSpeed;
        property SpeedKMH:TKraftScalar read fSpeedKMH write fSpeedKMH;
        property AbsoluteSpeedKMH:TKraftScalar read fAbsoluteSpeedKMH write fAbsoluteSpeedKMH;
@@ -1620,6 +1627,8 @@ begin
  fDownForceCurveEnvelope:=TEnvelope.CreateLinear(0.0,0.0,200.0,100.0);
  fDownForce:=1.0;
 
+ fJumpImpulse:=350.0;
+
  fFlightStabilizationAngularVelocityDamping:=Vector3(40.0,10.0,40.0);
  fFlightStabilizationDamping:=0.0;
  fFlightStabilizationForce:=8.0;
@@ -1744,6 +1753,9 @@ begin
  // The down force curve envelope and setttings
  fDownForceCurveEnvelope.FillLinear(0.0,0.0,200.0,100.0);
  fDownForce:=1.0;
+
+ // The jump impulse
+ fJumpImpulse:=350.0;
 
  // The flight stabilization settings
  fFlightStabilizationAngularVelocityDamping:=Vector3(40.0,10.0,40.0);
@@ -1996,6 +2008,8 @@ begin
   fDownForceCurveEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['downforcecurveenvelope']);
   fDownForce:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['downforce'],fDownForce);
 
+  fJumpImpulse:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['jumpimpulse'],fJumpImpulse);
+
   fFlightStabilizationAngularVelocityDamping:=JSONToVector3(TPasJSONItemObject(aJSONItem).Properties['flightstabilizationangularvelocitydamping'],fFlightStabilizationAngularVelocityDamping);
   fFlightStabilizationDamping:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['flightstabilizationdamping'],fFlightStabilizationDamping);
   fFlightStabilizationForce:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['flightstabilizationforce'],fFlightStabilizationForce);
@@ -2144,6 +2158,8 @@ begin
 
  TPasJSONItemObject(result).Add('downforcecurveenvelope',fDownForceCurveEnvelope.SaveToJSON);
  TPasJSONItemObject(result).Add('downforce',TPasJSONItemNumber.Create(fDownForce));
+
+ TPasJSONItemObject(result).Add('jumpimpulse',TPasJSONItemNumber.Create(fJumpImpulse));
 
  TPasJSONItemObject(result).Add('flightstabilizationangularvelocitydamping',Vector3ToJSON(fFlightStabilizationAngularVelocityDamping));
  TPasJSONItemObject(result).Add('flightstabilizationdamping',TPasJSONItemNumber.Create(fFlightStabilizationDamping));
@@ -3203,6 +3219,8 @@ begin
 
  fIsDrift:=fInputDrift;
 
+ fIsJump:=fInputJump;
+
  if abs(Horizontal)>0.001 then begin
   NewSteerAngle:=fSteeringAngle+(Horizontal*fSettings.fSteeringSpeedEnvelope.GetValueAtTime(fAbsoluteSpeedKMH*GetSteeringHandBrakeDriftK));
   fSteeringAngle:=Min(abs(NewSteerAngle),GetSteerAngleLimitInDegrees(fSpeedKMH))*Sign(NewSteerAngle);
@@ -3377,6 +3395,31 @@ begin
  end;
 end;
 
+procedure TKraftRayCastVehicle.UpdateJump;
+var Index:TKraftInt32;
+    Wheel:TWheel;
+    AnyWheelsGrounded:Boolean;
+begin
+ if fIsJump then begin
+  if not fLastJump then begin
+   AnyWheelsGrounded:=false;
+   for Index:=0 to fWheels.Count-1 do begin
+    Wheel:=fWheels[Index];
+    if Wheel.fIsGrounded then begin
+     AnyWheelsGrounded:=true;
+     break;
+    end;
+   end;
+   if AnyWheelsGrounded then begin
+    fLastJump:=true;
+    fRigidBody.SetWorldForce(Vector3ScalarMul(fWorldUp,fSettings.JumpImpulse),kfmImpulse);
+   end;
+  end;
+ end else begin
+  fLastJump:=false;
+ end;
+end;
+
 procedure TKraftRayCastVehicle.UpdateFlightStabilization;
 var Index:TKraftInt32;
     Wheel:TWheel;
@@ -3519,6 +3562,7 @@ begin
   UpdateAntiRollBar;
   UpdateAirResistance;
   UpdateDownForce;
+  UpdateJump;
   UpdateFlightStabilization;
   UpdateKeepUpright;
  end;
