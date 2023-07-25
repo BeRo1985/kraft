@@ -458,7 +458,7 @@ type { TKraftRayCastVehicle }
               fJumpImpulse:TKraftScalar;
               fFlightStabilizationAngularVelocityDamping:TKraftVector3;
               fFlightStabilizationDamping:TKraftScalar;
-              fFlightStabilizationForce:TKraftScalar;
+              fFlightStabilizationForceFactor:TKraftScalar;
               fKeepUprightThreshold:TKraftScalar;
               fKeepUprightForceFactor:TKraftScalar;
               fWheels:TWheels;
@@ -509,7 +509,7 @@ type { TKraftRayCastVehicle }
               property JumpImpulse:TKraftScalar read fJumpImpulse write fJumpImpulse;
               property FlightStabilizationAngularVelocityDamping:TKraftVector3 read fFlightStabilizationAngularVelocityDamping write fFlightStabilizationAngularVelocityDamping;
               property FlightStabilizationDamping:TKraftScalar read fFlightStabilizationDamping write fFlightStabilizationDamping;
-              property FlightStabilizationForce:TKraftScalar read fFlightStabilizationForce write fFlightStabilizationForce;
+              property FlightStabilizationForceFactor:TKraftScalar read fFlightStabilizationForceFactor write fFlightStabilizationForceFactor;
               property KeepUprightThreshold:TKraftScalar read fKeepUprightThreshold write fKeepUprightThreshold;
               property KeepUprightForce:TKraftScalar read fKeepUprightForceFactor write fKeepUprightForceFactor;
               property Wheels:TWheels read fWheels;
@@ -1631,7 +1631,7 @@ begin
 
  fFlightStabilizationAngularVelocityDamping:=Vector3(40.0,10.0,40.0);
  fFlightStabilizationDamping:=0.0;
- fFlightStabilizationForce:=8.0;
+ fFlightStabilizationForceFactor:=8.0;
 
  fKeepUprightThreshold:=0.9;
  fKeepUprightForceFactor:=0.0;
@@ -1760,7 +1760,7 @@ begin
  // The flight stabilization settings
  fFlightStabilizationAngularVelocityDamping:=Vector3(40.0,10.0,40.0);
  fFlightStabilizationDamping:=0.0;
- fFlightStabilizationForce:=8.0;
+ fFlightStabilizationForceFactor:=8.0;
 
  // The keep upright force
  fKeepUprightThreshold:=0.9;
@@ -2012,7 +2012,7 @@ begin
 
   fFlightStabilizationAngularVelocityDamping:=JSONToVector3(TPasJSONItemObject(aJSONItem).Properties['flightstabilizationangularvelocitydamping'],fFlightStabilizationAngularVelocityDamping);
   fFlightStabilizationDamping:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['flightstabilizationdamping'],fFlightStabilizationDamping);
-  fFlightStabilizationForce:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['flightstabilizationforce'],fFlightStabilizationForce);
+  fFlightStabilizationForceFactor:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['flightstabilizationforcefactor'],fFlightStabilizationForceFactor);
 
   fKeepUprightThreshold:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['keepuprightthreshold'],KeepUprightThreshold);
   fKeepUprightForceFactor:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['keepuprightforcefactor'],KeepUprightForce);
@@ -2163,7 +2163,7 @@ begin
 
  TPasJSONItemObject(result).Add('flightstabilizationangularvelocitydamping',Vector3ToJSON(fFlightStabilizationAngularVelocityDamping));
  TPasJSONItemObject(result).Add('flightstabilizationdamping',TPasJSONItemNumber.Create(fFlightStabilizationDamping));
- TPasJSONItemObject(result).Add('flightstabilizationforce',TPasJSONItemNumber.Create(fFlightStabilizationForce));
+ TPasJSONItemObject(result).Add('flightstabilizationforcefactor',TPasJSONItemNumber.Create(fFlightStabilizationForceFactor));
 
  TPasJSONItemObject(result).Add('keepuprightthreshold',TPasJSONItemNumber.Create(fKeepUprightThreshold));
  TPasJSONItemObject(result).Add('keepuprightforcefactor',TPasJSONItemNumber.Create(fKeepUprightForceFactor));
@@ -3466,7 +3466,7 @@ begin
   end;
 
   // Give a nicely balanced feeling for rebalancing the vehicle with keep-up-right-forward  
-  if not IsZero(fSettings.fFlightStabilizationForce) then begin
+  if not IsZero(fSettings.fFlightStabilizationForceFactor) then begin
 
    // Length of axis depends on the angle - i.e. the further awat
    // the vehicle is from being upright, the larger the applied impulse
@@ -3476,11 +3476,11 @@ begin
    Axis:=Vector3Norm(Vector3Cross(fWorldUp,Vector3Norm(Vector3Neg(fPhysics.Gravity.Vector))));
 
    if Vector3Length(Torque)>EPSILON then begin
-    Torque:=Vector3ScalarMul(Axis,fSettings.fFlightStabilizationForce*fRigidBody.Mass);
+    Torque:=Vector3ScalarMul(Axis,fSettings.fFlightStabilizationForceFactor);
 {$ifdef DebugDraw}
     fDebugFlightStabilizationTorque:=Torque;
 {$endif}
-    fRigidBody.AddWorldTorque(Torque,kfmForce,false);
+    fRigidBody.AddWorldTorque(Vector3ScalarMul(Torque,fRigidBody.Mass),kfmForce,false);
    end;
   end;
 
