@@ -2296,7 +2296,7 @@ end;
 function TKraftRayCastVehicle.TWheel.GetWheelLongitudinalDirection:TKraftVector3;
 begin
  if fSettings.fSteering then begin
-  result:=Vector3TermQuaternionRotate(fVehicle.fWorldForward,QuaternionFromAxisAngle(Vector3(0.0,1.0,0.0),fYawRad));
+  result:=Vector3TermQuaternionRotate(fVehicle.fWorldForward,QuaternionFromAxisAngle(fVehicle.fWorldUp,fYawRad));
  end else begin
   result:=fVehicle.fWorldForward;
  end;
@@ -2351,6 +2351,8 @@ begin
   RayLength:=SuspensionRestLengthWithRadius-fSettings.Radius;
   if fVehicle.fPhysics.SphereCast(RayOrigin,fSettings.fRadius,RayDirection,RayLength,HitShape,HitTime,HitPoint,HitNormal,fVehicle.fCastCollisionGroups,fVehicle.RayCastFilter) then begin
    CurrentLength:=HitTime+fSettings.fRadius;
+   Vector3DirectAdd(fVehicle.fHitAverageNormal,HitNormal);
+   inc(fVehicle.fHitAverageNormalCount);
   end else begin
    CurrentLength:=SuspensionRestLengthWithRadius;
    HitShape:=nil;
@@ -2359,6 +2361,8 @@ begin
   RayLength:=SuspensionRestLengthWithRadius;
   if fVehicle.fPhysics.RayCast(RayOrigin,RayDirection,RayLength,HitShape,HitTime,HitPoint,HitNormal,fVehicle.fCastCollisionGroups,fVehicle.RayCastFilter) then begin
    CurrentLength:=HitTime;
+   Vector3DirectAdd(fVehicle.fHitAverageNormal,HitNormal);
+   inc(fVehicle.fHitAverageNormalCount);
   end else begin
    CurrentLength:=SuspensionRestLengthWithRadius;
    HitShape:=nil;
@@ -2428,6 +2432,11 @@ begin
                                          HitNormal,
                                          fVehicle.fCastCollisionGroups,
                                          fVehicle.RayCastFilter);
+ end;
+
+ if fIsGrounded then begin
+  Vector3DirectAdd(fVehicle.fHitAverageNormal,HitNormal);
+  inc(fVehicle.fHitAverageNormalCount);
  end;
 
  fSuspensionPreviousCompressionDistance:=fSuspensionCompressionDistance;
@@ -3278,7 +3287,9 @@ end;
 procedure TKraftRayCastVehicle.UpdateGravityAndNearlyFlatGroundDetection;
 var Normal,GravityDirection:TKraftVector3;
 begin
- if (fHitAverageNormalCount>0) and (fSettings.fMaximumGravitySlopeAngle>EPSILON) then begin
+ if (fHitAverageNormalCount>0) and
+    ((fSettings.fMaximumGravitySlopeAngle<0.0) or
+     (fSettings.fMaximumGravitySlopeAngle>EPSILON)) then begin
   // If there are any hit points derived from the suspension's raycasting or spherecasting, we
   // compute the average normal across all of them. This value is then used to ascertain whether
   // the vehicle is on a surface that's nearly parallel to the direction of gravity, indicating a
@@ -3291,7 +3302,8 @@ begin
   // when the vehicle is actually stationary on a nearly flat surface.
   Normal:=Vector3Neg(Vector3Norm(fHitAverageNormal));
   GravityDirection:=Vector3Norm(fPhysics.Gravity.Vector);
-  if Vector3Dot(Normal,GravityDirection)>=cos(fSettings.fMaximumGravitySlopeAngle*DEG2RAD) then begin
+  if (fSettings.fMaximumGravitySlopeAngle<0.0) or
+     (Vector3Dot(Normal,GravityDirection)>=cos(fSettings.fMaximumGravitySlopeAngle*DEG2RAD)) then begin
    fRigidBody.Flags:=fRigidBody.Flags+[krbfHasOwnGravity];
    fRigidBody.Gravity.Vector:=Vector3ScalarMul(Normal,Vector3Length(fPhysics.Gravity.Vector));
   end else begin
