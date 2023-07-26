@@ -629,6 +629,8 @@ type { TKraftRayCastVehicle }
             TAckermannGroups=Generics.Collections.TObjectList<TAckermannGroup>;
       private
        fPhysics:TKraft;
+       fOwnsRigidBody:Boolean;
+       fOwnsFreeShape:Boolean;
        fRigidBody:TKraftRigidBody;
        fShape:TKraftShape;
        fWheels:TWheels;
@@ -2275,7 +2277,7 @@ begin
  fSettings:=aSettings;
  fAxle:=nil;
  fIsGrounded:=false;
- fSuspensionLength:=0.0;
+ fSuspensionLength:=fSettings.fSuspensionRestLength;
  fSuspension.fCurrentLength:=0.0;
  fSuspension.fCurrentVelocity:=0.0;
  fYawRad:=0.0;
@@ -2882,6 +2884,8 @@ constructor TKraftRayCastVehicle.Create(const aPhysics:TKraft);
 begin
  inherited Create;
  fPhysics:=aPhysics;
+ fOwnsRigidBody:=false;
+ fOwnsFreeShape:=false;
  fRigidBody:=nil;
  fShape:=nil;
  fAccelerationInput:=0.0;
@@ -2904,6 +2908,12 @@ begin
  FreeAndNil(fAxles);
  FreeAndNil(fWheels);
  FreeAndNil(fSettings);
+ if fOwnsFreeShape then begin
+  FreeAndNil(fShape);
+ end;
+ if fOwnsRigidBody then begin
+  FreeAndNil(fRigidBody);
+ end;
  inherited Destroy;
 end;
 
@@ -3009,6 +3019,14 @@ begin
   fShape.Friction:=fSettings.fRigidBodyFriction;
 
   fRigidBody.Finish;
+
+  fOwnsRigidBody:=true;
+  fOwnsFreeShape:=true;
+
+ end else begin
+
+  fOwnsRigidBody:=false;
+  fOwnsFreeShape:=false;
 
  end;
 
