@@ -727,7 +727,7 @@ type { TKraftRayCastVehicle }
        procedure UpdateInput;
        procedure UpdateWorldTransformVectors;
        procedure UpdateSuspension;
-       procedure UpdateGravityAndNearlyFlatGroundDetection;
+       procedure UpdateTractionAndGravityAndNearlyFlatGroundDetection;
        procedure UpdateAckermannSteering;
        procedure UpdateSteering;
        procedure UpdateAcceleration;
@@ -3284,31 +3284,41 @@ begin
  end;
 end;
 
-procedure TKraftRayCastVehicle.UpdateGravityAndNearlyFlatGroundDetection;
+procedure TKraftRayCastVehicle.UpdateTractionAndGravityAndNearlyFlatGroundDetection;
 var Normal,GravityDirection:TKraftVector3;
+    Factor:TKraftScalar;
 begin
- if (fHitAverageNormalCount>0) and
-    ((fSettings.fMaximumGravitySlopeAngle<0.0) or
-     (fSettings.fMaximumGravitySlopeAngle>EPSILON)) then begin
-  // If there are any hit points derived from the suspension's raycasting or spherecasting, we
-  // compute the average normal across all of them. This value is then used to ascertain whether
-  // the vehicle is on a surface that's nearly parallel to the direction of gravity, indicating a
-  // flat or nearly flat ground.
-  // The calculated normal is compared to the gravity direction within the limits of a predefined
-  // maximum slope angle. If the angle between the normal and gravity direction is less than or
-  // equal to this maximum slope angle, the vehicle is considered to be on a nearly flat surface.
-  // This assessment can enable putting the vehicle into a 'sleep mode' when it's on such a surface,
-  // avoiding unnecessary computations or actions. For instance, it can prevent unintended sliding
-  // when the vehicle is actually stationary on a nearly flat surface.
+
+ if fHitAverageNormalCount>0 then begin
+
   Normal:=Vector3Neg(Vector3Norm(fHitAverageNormal));
-  GravityDirection:=Vector3Norm(fPhysics.Gravity.Vector);
-  if (fSettings.fMaximumGravitySlopeAngle<0.0) or
-     (Vector3Dot(Normal,GravityDirection)>=cos(fSettings.fMaximumGravitySlopeAngle*DEG2RAD)) then begin
+
+  Factor:=0.0;
+
+  if fSettings.fMaximumGravitySlopeAngle>EPSILON then begin
+   // If there are any hit points derived from the suspension's raycasting or spherecasting, we
+   // compute the average normal across all of them. This value is then used to ascertain whether
+   // the vehicle is on a surface that's nearly parallel to the direction of gravity, indicating a
+   // flat or nearly flat ground.
+   // The calculated normal is compared to the gravity direction within the limits of a predefined
+   // maximum slope angle. If the angle between the normal and gravity direction is less than or
+   // equal to this maximum slope angle, the vehicle is considered to be on a nearly flat surface.
+   // This assessment can enable putting the vehicle into a 'sleep mode' when it's on such a surface,
+   // avoiding unnecessary computations or actions. For instance, it can prevent unintended sliding
+   // when the vehicle is actually stationary on a nearly flat surface.
+   GravityDirection:=Vector3Norm(fPhysics.Gravity.Vector);
+   if Vector3Dot(Normal,GravityDirection)>=cos(fSettings.fMaximumGravitySlopeAngle*DEG2RAD) then begin
+    Factor:=1.0;
+   end;
+  end;
+
+  if Factor>EPSILON then begin
    fRigidBody.Flags:=fRigidBody.Flags+[krbfHasOwnGravity];
-   fRigidBody.Gravity.Vector:=Vector3ScalarMul(Normal,Vector3Length(fPhysics.Gravity.Vector));
+   fRigidBody.Gravity.Vector:=Vector3ScalarMul(Vector3Norm(Vector3Lerp(GravityDirection,Normal,Factor)),Vector3Length(fPhysics.Gravity.Vector));
   end else begin
    fRigidBody.Flags:=fRigidBody.Flags-[krbfHasOwnGravity];
   end;
+
  end else begin
   fRigidBody.Flags:=fRigidBody.Flags-[krbfHasOwnGravity];
  end;
@@ -3555,7 +3565,7 @@ begin
 
 {if krbfAwake in fRigidBody.Flags then}begin
   UpdateSuspension;
-  UpdateGravityAndNearlyFlatGroundDetection;
+  UpdateTractionAndGravityAndNearlyFlatGroundDetection;
   UpdateAckermannSteering;
   UpdateSteering;
   UpdateAcceleration;
