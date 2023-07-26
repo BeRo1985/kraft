@@ -634,7 +634,8 @@ type { TKraftRayCastVehicle }
        fAccelerationInput:TKraftScalar;
        fSettings:TSettings;
        fForward:TKraftVector3;
-       fVelocity:TKraftVector3;       
+       fVelocity:TKraftVector3;
+       fCountGroundedWheels:TKraftInt32;
        fDeltaTime:TKraftScalar;
        fInverseDeltaTime:TKraftScalar;
        fDebugDrawLine:TDebugDrawLine;
@@ -3249,9 +3250,13 @@ var Index:TKraftInt32;
 begin
  fHitAverageNormal:=Vector3Origin;
  fHitAverageNormalCount:=0;
+ fCountGroundedWheels:=0;
  for Index:=0 to fWheels.Count-1 do begin
   Wheel:=fWheels[Index];
   Wheel.UpdateSuspension;
+  if Wheel.fIsGrounded then begin
+   inc(fCountGroundedWheels);
+  end;
  end;
 end;
 
@@ -3365,21 +3370,10 @@ begin
 end;
 
 procedure TKraftRayCastVehicle.UpdateDownForce;
-var Index:TKraftInt32;
-    Wheel:TWheel;
-    DownForceAmount:TKraftScalar;
+var DownForceAmount:TKraftScalar;
     Force:TKraftVector3;
-    AllWheelsGrounded:boolean;
 begin
- AllWheelsGrounded:=true;
- for Index:=0 to fWheels.Count-1 do begin
-  Wheel:=fWheels[Index];
-  if not Wheel.fIsGrounded then begin
-   AllWheelsGrounded:=false;
-   break;
-  end;
- end;
- if AllWheelsGrounded and not IsZero(fSettings.fDownForceFactor) then begin
+ if (fCountGroundedWheels=fWheels.Count) and not IsZero(fSettings.fDownForceFactor) then begin
   DownForceAmount:=fSettings.fDownForceCurveEnvelope.GetValueAtTime(fAbsoluteSpeedKMH)*0.01;
   Force:=Vector3ScalarMul(fWorldDown,DownForceAmount*fSettings.fDownForceFactor);
 {$ifdef DebugDraw}
@@ -3396,21 +3390,10 @@ begin
 end;
 
 procedure TKraftRayCastVehicle.UpdateJump;
-var Index:TKraftInt32;
-    Wheel:TWheel;
-    AnyWheelsGrounded:Boolean;
 begin
  if fIsJump then begin
   if not fLastJump then begin
-   AnyWheelsGrounded:=false;
-   for Index:=0 to fWheels.Count-1 do begin
-    Wheel:=fWheels[Index];
-    if Wheel.fIsGrounded then begin
-     AnyWheelsGrounded:=true;
-     break;
-    end;
-   end;
-   if AnyWheelsGrounded then begin
+   if fCountGroundedWheels>0 then begin
     fLastJump:=true;
     fRigidBody.SetWorldForce(Vector3ScalarMul(fWorldUp,fSettings.JumpImpulse),kfmImpulse);
    end;
@@ -3421,26 +3404,14 @@ begin
 end;
 
 procedure TKraftRayCastVehicle.UpdateFlightStabilization;
-var Index:TKraftInt32;
-    Wheel:TWheel;
-    VehicleUp,AntiGravityUp,Axis,Torque,AngularVelocity:TKraftVector3;
-    AllWheelsGrounded:boolean;
+var VehicleUp,AntiGravityUp,Axis,Torque,AngularVelocity:TKraftVector3;
 begin
 
 {$ifdef DebugDraw}
  fDebugFlightStabilizationTorque:=Vector3Origin;
 {$endif}
 
- AllWheelsGrounded:=true;
- for Index:=0 to fWheels.Count-1 do begin
-  Wheel:=fWheels[Index];
-  if not Wheel.fIsGrounded then begin
-   AllWheelsGrounded:=false;
-   break;
-  end;
- end;
-
- if not AllWheelsGrounded then begin
+ if fCountGroundedWheels<>fWheels.Count then begin
 
   fAfterFlightSlipperyTiresTime:=1.0;
 
