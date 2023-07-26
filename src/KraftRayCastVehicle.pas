@@ -3305,6 +3305,8 @@ begin
 
   Normal:=Vector3Neg(Vector3Norm(fHitAverageNormal));
 
+  GravityDirection:=Vector3Norm(fPhysics.Gravity.Vector);
+
   Factor:=Clamp01(fSettings.fDrivingTractionFactorEnvelope.GetValueAtTime(fAbsoluteSpeedKMH));
 
   if fSettings.fMaximumGravitySlopeAngle>EPSILON then begin
@@ -3318,7 +3320,6 @@ begin
    // This assessment can enable putting the vehicle into a 'sleep mode' when it's on such a surface,
    // avoiding unnecessary computations or actions. For instance, it can prevent unintended sliding
    // when the vehicle is actually stationary on a nearly flat surface.
-   GravityDirection:=Vector3Norm(fPhysics.Gravity.Vector);
    if Vector3Dot(Normal,GravityDirection)>=cos(fSettings.fMaximumGravitySlopeAngle*DEG2RAD) then begin
     Factor:=1.0;
    end;
