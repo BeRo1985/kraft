@@ -3474,7 +3474,7 @@ procedure TKraftRayCastVehicle.UpdateDownForce;
 var DownForceAmount:TKraftScalar;
     Force:TKraftVector3;
 begin
- if {(fCountGroundedWheels=fWheels.Count) and}not IsZero(fSettings.fDownForceFactor) then begin
+ if (fCountGroundedWheels>0) and not IsZero(fSettings.fDownForceFactor) then begin
   DownForceAmount:=fSettings.fDownForceCurveEnvelope.GetValueAtTime(fAbsoluteSpeedKMH)*0.01;
   Force:=Vector3ScalarMul(fWorldDown,DownForceAmount*fSettings.fDownForceFactor);
 {$ifdef DebugDraw}
