@@ -307,6 +307,7 @@ type { TKraftRayCastVehicle }
                             fRotationAxisMappingZ:TKraftInt32;
                             fRotationFactors:TKraftVector3;
                             fHeightOffset:TKraftScalar;
+                            fRadius:TKraftScalar;
                            public
                             constructor Create(const aWheel:TKraftRaycastVehicle.TSettings.TWheel); reintroduce;
                             destructor Destroy; override; 
@@ -322,6 +323,7 @@ type { TKraftRayCastVehicle }
                             property RotationAxisMappingZ:TKraftInt32 read fRotationAxisMappingZ write fRotationAxisMappingZ;
                             property RotationFactors:TKraftVector3 read fRotationFactors write fRotationFactors;
                             property HeightOffset:TKraftScalar read fHeightOffset write fHeightOffset;
+                            property Radius:TKraftScalar read fRadius write fRadius;
                           end;
                     private
                      fSettings:TSettings;
@@ -537,6 +539,9 @@ type { TKraftRayCastVehicle }
               fYawRad:TKraftScalar;
               fLastYawRad:TKraftScalar;
               fVisualYawRad:TKraftScalar;
+              fPhysicalRotationRad:TKraftScalar;
+              fLastPhysicalRotationRad:TKraftScalar;
+              fVisualPhysicalRotationRad:TKraftScalar;
               fRotationRad:TKraftScalar;
               fLastRotationRad:TKraftScalar;
               fVisualRotationRad:TKraftScalar;
@@ -588,7 +593,7 @@ type { TKraftRayCastVehicle }
               property Settings:TKraftRayCastVehicle.TSettings.TWheel read fSettings;
               property Axle:TKraftRayCastVehicle.TAxle read fAxle write fAxle;
               property VisualYawRad:TKraftScalar read fVisualYawRad;
-              property VisualRotationRad:TKraftScalar read fVisualRotationRad;
+              property VisualRotationRad:TKraftScalar read fVisualPhysicalRotationRad;
               property VisualSuspensionLength:TKraftScalar read fVisualSuspensionLength;
             end;
             { TWheels }
@@ -1346,6 +1351,7 @@ begin
   fRotationAxisMappingZ:=round(RotationAxisMapping.z);
   fRotationFactors:=JSONToVector3(TPasJSONItemObject(aJSONItem).Properties['rotationfactors'],fRotationFactors);
   fHeightOffset:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['heightoffset'],fHeightOffset);
+  fRadius:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['radius'],fRadius);
  end;
 end;
 
@@ -1356,6 +1362,7 @@ begin
  TPasJSONItemObject(result).Add('rotationaxismapping',Vector3ToJSON(Vector3(fRotationAxisMappingX,fRotationAxisMappingY,fRotationAxisMappingZ)));
  TPasJSONItemObject(result).Add('rotationfactors',Vector3ToJSON(fRotationFactors));
  TPasJSONItemObject(result).Add('heightoffset',TPasJSONItemNumber.Create(fHeightOffset));
+ TPasJSONItemObject(result).Add('radius',TPasJSONItemNumber.Create(fRadius));
 end;
 {$endif}
 
@@ -2282,7 +2289,7 @@ begin
  fSuspension.fCurrentVelocity:=0.0;
  fSuspension.fCompression:=0.0;
  fYawRad:=0.0;
- fRotationRad:=0.0;
+ fPhysicalRotationRad:=0.0;
  fWorldTransform:=Matrix4x4Identity;
  fLastWorldTransform:=Matrix4x4Identity;
  fVisualWorldTransform:=Matrix4x4Identity;
@@ -2341,7 +2348,7 @@ function TKraftRayCastVehicle.TWheel.GetWheelTransform:TKraftMatrix4x4;
 var {LocalWheelPosition,}WorldWheelPosition:TKraftVector3;
     LocalWheelRotation,WorldWheelRotation:TKraftQuaternion;
 begin
- LocalWheelRotation:=QuaternionFromAngles(fYawRad,0.0,fRotationRad);
+ LocalWheelRotation:=QuaternionFromAngles(fYawRad,0.0,fPhysicalRotationRad);
  WorldWheelPosition:=Vector3Add(GetSuspensionPosition,Vector3ScalarMul(fVehicle.fWorldDown,fSuspensionLength{-fSettings.fRadius}));
  WorldWheelRotation:=QuaternionMul(fVehicle.fRigidBody.Sweep.q,LocalWheelRotation);
  result:=QuaternionToMatrix4x4(WorldWheelRotation);
@@ -2688,15 +2695,35 @@ begin
  // Longitudinal speed (meters/sec)
  TireLongSpeed:=Vector3Dot(WheelVelocity,WorldWheelForward);
 
- // Circle length = 2 * PI * R
- WheelLengthMeters:=TwoPI*fSettings.fRadius;
+ // For physical-side wheel radius:
+ begin
 
- // Wheel "Revolutions per second";
- RevolutionsPerSecond:=TireLongSpeed/WheelLengthMeters;
+  // Circle length = 2 * PI * R
+  WheelLengthMeters:=TwoPI*fSettings.fRadius;
 
- DeltaRotation:=TwoPI*RevolutionsPerSecond*fVehicle.fDeltaTime;
+  // Wheel "Revolutions per second";
+  RevolutionsPerSecond:=TireLongSpeed/WheelLengthMeters;
 
- fRotationRad:=fRotationRad+DeltaRotation;
+  DeltaRotation:=TwoPI*RevolutionsPerSecond*fVehicle.fDeltaTime;
+
+  fPhysicalRotationRad:=fPhysicalRotationRad+DeltaRotation;
+
+ end;
+
+ // For visual-side wheel radius:
+ begin
+
+  // Circle length = 2 * PI * R
+  WheelLengthMeters:=TwoPI*fSettings.fVisual.fRadius;
+
+  // Wheel "Revolutions per second";
+  RevolutionsPerSecond:=TireLongSpeed/WheelLengthMeters;
+
+  DeltaRotation:=TwoPI*RevolutionsPerSecond*fVehicle.fDeltaTime;
+
+  fRotationRad:=fRotationRad+DeltaRotation;
+
+ end;
 
 end;
 
@@ -2708,6 +2735,7 @@ end;
 procedure TKraftRayCastVehicle.TWheel.StoreWorldTransforms;
 begin
  fLastYawRad:=fYawRad;
+ fLastPhysicalRotationRad:=fPhysicalRotationRad;
  fLastRotationRad:=fRotationRad;
  fLastSuspensionLength:=fSuspensionLength;
  fLastWorldTransform:=fWorldTransform;
@@ -2722,6 +2750,7 @@ end;
 procedure TKraftRayCastVehicle.TWheel.InterpolateWorldTransforms(const aAlpha:TKraftScalar);
 begin
  fVisualYawRad:=AngleLerp(fLastYawRad,fYawRad,aAlpha);
+ fVisualPhysicalRotationRad:=AngleLerp(fLastPhysicalRotationRad,fPhysicalRotationRad,aAlpha);
  fVisualRotationRad:=AngleLerp(fLastRotationRad,fRotationRad,aAlpha);
  fVisualSuspensionLength:=Lerp(fLastSuspensionLength,fSuspensionLength,aAlpha);
  fVisualWorldTransform:=Matrix4x4Slerp(fLastWorldTransform,fWorldTransform,aAlpha);
@@ -3445,7 +3474,7 @@ procedure TKraftRayCastVehicle.UpdateDownForce;
 var DownForceAmount:TKraftScalar;
     Force:TKraftVector3;
 begin
- if (fCountGroundedWheels=fWheels.Count) and not IsZero(fSettings.fDownForceFactor) then begin
+ if {(fCountGroundedWheels=fWheels.Count) and}not IsZero(fSettings.fDownForceFactor) then begin
   DownForceAmount:=fSettings.fDownForceCurveEnvelope.GetValueAtTime(fAbsoluteSpeedKMH)*0.01;
   Force:=Vector3ScalarMul(fWorldDown,DownForceAmount*fSettings.fDownForceFactor);
 {$ifdef DebugDraw}
