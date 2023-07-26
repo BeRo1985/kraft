@@ -2278,8 +2278,9 @@ begin
  fAxle:=nil;
  fIsGrounded:=false;
  fSuspensionLength:=fSettings.fSuspensionRestLength;
- fSuspension.fCurrentLength:=0.0;
+ fSuspension.fCurrentLength:=fSettings.fSuspensionRestLength+fSettings.Radius;
  fSuspension.fCurrentVelocity:=0.0;
+ fSuspension.fCompression:=0.0;
  fYawRad:=0.0;
  fRotationRad:=0.0;
  fWorldTransform:=Matrix4x4Identity;
