@@ -456,6 +456,7 @@ type { TKraftRayCastVehicle }
               fDownForceCurveEnvelope:TEnvelope;
               fDownForceFactor:TKraftScalar;
               fJumpImpulse:TKraftScalar;
+              fFlightSteeringTorqueFactor:TKraftScalar;
               fFlightStabilizationAngularVelocityDamping:TKraftVector3;
               fFlightStabilizationDamping:TKraftScalar;
               fFlightStabilizationForceFactor:TKraftScalar;
@@ -507,6 +508,7 @@ type { TKraftRayCastVehicle }
               property DownForceCurveEnvelope:TEnvelope read fDownForceCurveEnvelope;
               property DownForceFactor:TKraftScalar read fDownForceFactor write fDownForceFactor;
               property JumpImpulse:TKraftScalar read fJumpImpulse write fJumpImpulse;
+              property FlightSteeringTorqueFactor:TKraftScalar read fFlightSteeringTorqueFactor write fFlightSteeringTorqueFactor;
               property FlightStabilizationAngularVelocityDamping:TKraftVector3 read fFlightStabilizationAngularVelocityDamping write fFlightStabilizationAngularVelocityDamping;
               property FlightStabilizationDamping:TKraftScalar read fFlightStabilizationDamping write fFlightStabilizationDamping;
               property FlightStabilizationForceFactor:TKraftScalar read fFlightStabilizationForceFactor write fFlightStabilizationForceFactor;
@@ -683,6 +685,7 @@ type { TKraftRayCastVehicle }
        fHandBrakeSlipperyTiresTime:TKraftScalar;
        fDriftSlipperyTiresTime:TKraftScalar;
        fSteeringAngle:TKraftScalar;
+       fFlightSteering:TKraftScalar;
        fAccelerationRescueForceState:TRescueForceState;
        fReverseAccelerationRescueForceState:TRescueForceState;
        fAccelerationForceMagnitude:TKraftScalar;
@@ -1630,6 +1633,8 @@ begin
 
  fJumpImpulse:=350.0;
 
+ fFlightSteeringTorqueFactor:=20.0;
+
  fFlightStabilizationAngularVelocityDamping:=Vector3(40.0,10.0,40.0);
  fFlightStabilizationDamping:=0.0;
  fFlightStabilizationForceFactor:=8.0;
@@ -1757,6 +1762,9 @@ begin
 
  // The jump impulse
  fJumpImpulse:=350.0;
+
+ // The flight sterring torque factor
+ fFlightSteeringTorqueFactor:=20.0;
 
  // The flight stabilization settings
  fFlightStabilizationAngularVelocityDamping:=Vector3(40.0,10.0,40.0);
@@ -2011,6 +2019,8 @@ begin
 
   fJumpImpulse:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['jumpimpulse'],fJumpImpulse);
 
+  fFlightSteeringTorqueFactor:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['flightsteeringtorquefactor'],fFlightSteeringTorqueFactor);
+
   fFlightStabilizationAngularVelocityDamping:=JSONToVector3(TPasJSONItemObject(aJSONItem).Properties['flightstabilizationangularvelocitydamping'],fFlightStabilizationAngularVelocityDamping);
   fFlightStabilizationDamping:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['flightstabilizationdamping'],fFlightStabilizationDamping);
   fFlightStabilizationForceFactor:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['flightstabilizationforcefactor'],fFlightStabilizationForceFactor);
@@ -2161,6 +2171,8 @@ begin
  TPasJSONItemObject(result).Add('downforcefactor',TPasJSONItemNumber.Create(fDownForceFactor));
 
  TPasJSONItemObject(result).Add('jumpimpulse',TPasJSONItemNumber.Create(fJumpImpulse));
+
+ TPasJSONItemObject(result).Add('flightsteeringtorquefactor',TPasJSONItemNumber.Create(fFlightSteeringTorqueFactor));
 
  TPasJSONItemObject(result).Add('flightstabilizationangularvelocitydamping',Vector3ToJSON(fFlightStabilizationAngularVelocityDamping));
  TPasJSONItemObject(result).Add('flightstabilizationdamping',TPasJSONItemNumber.Create(fFlightStabilizationDamping));
@@ -2909,6 +2921,7 @@ begin
  fHandBrakeSlipperyTiresTime:=0.0;
  fDriftSlipperyTiresTime:=0.0;
  fSteeringAngle:=0.0;
+ fFlightSteering:=0.0;
  fAccelerationRescueForceState.Reset;
  fReverseAccelerationRescueForceState.Reset;
 end;
@@ -3230,6 +3243,8 @@ begin
   fSteeringAngle:=Max(abs(fSteeringAngle)-(AngleReturnSpeedDegressPerSecond*fDeltaTime),0.0)*Sign(fSteeringAngle);
  end;
 
+ fFlightSteering:=Lerp(fFlightSteering,Horizontal,exp(-fDeltaTime*0.1));
+
  fAccelerationForceMagnitude:=CalcAccelerationForceMagnitude*Clamp01(0.8+((1.0-GetHandBrakeK)*0.2));
 
  if IsBrakeNow or IsHandBrakeNow then begin
@@ -3318,6 +3333,9 @@ begin
  for Index:=0 to fWheels.Count-1 do begin
   Wheel:=fWheels[Index];
   Wheel.UpdateLaterialForce;
+ end;
+ if (fCountGroundedWheels=0) and not (IsZero(fSettings.fFlightSteeringTorqueFactor) or IsZero(fFlightSteering)) then begin
+  fRigidBody.AddBodyTorque(Vector3ScalarMul(Vector3(0.0,fFlightSteering,0.0),fRigidBody.Mass*fSettings.fFlightSteeringTorqueFactor),kfmForce,false);
  end;
 end;
 
