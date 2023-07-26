@@ -453,6 +453,7 @@ type { TKraftRayCastVehicle }
               fSteeringResetSpeedEnvelope:TEnvelope;
               fSteeringSpeedEnvelope:TEnvelope;
               fGripFactorEnvelope:TEnvelope;
+              fDrivingTractionFactorEnvelope:TEnvelope;
               fDownForceCurveEnvelope:TEnvelope;
               fDownForceFactor:TKraftScalar;
               fJumpImpulse:TKraftScalar;
@@ -503,8 +504,9 @@ type { TKraftRayCastVehicle }
               property ReverseBrakeCurveEnvelope:TEnvelope read fReverseBrakeCurveEnvelope;
               property SteerAngleLimitEnvelope:TEnvelope read fSteerAngleLimitEnvelope;
               property SteeringResetSpeedEnvelope:TEnvelope read fSteeringResetSpeedEnvelope;
-              property GripFactorEnvelope:TEnvelope read fGripFactorEnvelope;
               property SteeringSpeedEnvelope:TEnvelope read fSteeringSpeedEnvelope;
+              property GripFactorEnvelope:TEnvelope read fGripFactorEnvelope;
+              property DrivingTractionFactorEnvelope:TEnvelope read fDrivingTractionFactorEnvelope;
               property DownForceCurveEnvelope:TEnvelope read fDownForceCurveEnvelope;
               property DownForceFactor:TKraftScalar read fDownForceFactor write fDownForceFactor;
               property JumpImpulse:TKraftScalar read fJumpImpulse write fJumpImpulse;
@@ -1628,6 +1630,8 @@ begin
 
  fGripFactorEnvelope:=TEnvelope.CreateLinear(0.0,1.0,100.0,1.0);
 
+ fDrivingTractionFactorEnvelope:=TEnvelope.CreateLinear(10.0,0.0,50.0,1.0);
+
  fDownForceCurveEnvelope:=TEnvelope.CreateLinear(0.0,0.0,200.0,100.0);
  fDownForceFactor:=1.0;
 
@@ -1665,6 +1669,7 @@ begin
  FreeAndNil(fSteeringResetSpeedEnvelope);
  FreeAndNil(fSteeringSpeedEnvelope);
  FreeAndNil(fGripFactorEnvelope);
+ FreeAndNil(fDrivingTractionFactorEnvelope);
  FreeAndNil(fDownForceCurveEnvelope);
  inherited Destroy;
 end;
@@ -1755,6 +1760,9 @@ begin
 
  // The grip envelope
  fGripFactorEnvelope.FillLinear(0.0,1.0,100.0,1.0);
+
+ // The driving traction factor envelope
+ fDrivingTractionFactorEnvelope.FillLinear(10.0,0.0,50.0,1.0);
 
  // The down force curve envelope and settings
  fDownForceCurveEnvelope.FillLinear(0.0,0.0,200.0,100.0);
@@ -2014,6 +2022,8 @@ begin
 
   fGripFactorEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['gripfactorenvelope']);
 
+  fDrivingTractionFactorEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['drivingtractionfactorenvelope']);
+
   fDownForceCurveEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['downforcecurveenvelope']);
   fDownForceFactor:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['downforcefactor'],fDownForceFactor);
 
@@ -2166,6 +2176,8 @@ begin
  TPasJSONItemObject(result).Add('steeringspeedenvelope',fSteeringSpeedEnvelope.SaveToJSON);
 
  TPasJSONItemObject(result).Add('gripfactorenvelope',fGripFactorEnvelope.SaveToJSON);
+
+ TPasJSONItemObject(result).Add('drivingtractionfactorenvelope',fDrivingTractionFactorEnvelope.SaveToJSON);
 
  TPasJSONItemObject(result).Add('downforcecurveenvelope',fDownForceCurveEnvelope.SaveToJSON);
  TPasJSONItemObject(result).Add('downforcefactor',TPasJSONItemNumber.Create(fDownForceFactor));
@@ -3293,7 +3305,7 @@ begin
 
   Normal:=Vector3Neg(Vector3Norm(fHitAverageNormal));
 
-  Factor:=0.0;
+  Factor:=Clamp01(fSettings.fDrivingTractionFactorEnvelope.GetValueAtTime(fAbsoluteSpeedKMH));
 
   if fSettings.fMaximumGravitySlopeAngle>EPSILON then begin
    // If there are any hit points derived from the suspension's raycasting or spherecasting, we
