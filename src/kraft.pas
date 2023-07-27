@@ -1633,6 +1633,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fBVHSubdivisionSteps:TKraftInt32;
 
+       fBVHTraversalCost:TKraftScalar;
+
+       fBVHIntersectionCost:TKraftScalar;
+
        fMaximumTrianglesPerNode:TKraftInt32;
 
        fTriangleAreaSplitThreshold:TKraftScalar;
@@ -1729,6 +1733,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property BVHBuildMode:TKraftMeshBVHBuildMode read fBVHBuildMode write fBVHBuildMode;
 
        property BVHSubdivisionSteps:TKraftInt32 read fBVHSubdivisionSteps write fBVHSubdivisionSteps;
+
+       property BVHTraversalCost:TKraftScalar read fBVHTraversalCost write fBVHTraversalCost;
+
+       property BVHIntersectionCost:TKraftScalar read fBVHIntersectionCost write fBVHIntersectionCost;
 
        property MaximumTrianglesPerNode:TKraftInt32 read fMaximumTrianglesPerNode write fMaximumTrianglesPerNode;
 
@@ -10683,19 +10691,12 @@ begin
 end;
 
 function AABBArea(const AABB:TKraftAABB):TKraftScalar;
-begin
- result:=2.0*((abs(AABB.Max.x-AABB.Min.x)*abs(AABB.Max.y-AABB.Min.y))+
-              (abs(AABB.Max.y-AABB.Min.y)*abs(AABB.Max.z-AABB.Min.z))+
-              (abs(AABB.Max.x-AABB.Min.x)*abs(AABB.Max.z-AABB.Min.z)))
-end;
-
-function AABBAreaEx(const AABB:TKraftAABB):TKraftScalar;
 var ex,ey,ez:TKraftScalar;
 begin
  ex:=abs(AABB.Max.x-AABB.Min.x);
  ey:=abs(AABB.Max.y-AABB.Min.y);
  ez:=abs(AABB.Max.z-AABB.Min.z);
- result:=(ex*ey)+(ey*ez)+(ez*ex);
+ result:=2.0*((ex*ey)+(ey*ez)+(ez*ex));
 end;
 
 function AABBCombine(const AABB,WithAABB:TKraftAABB):TKraftAABB;
@@ -23821,9 +23822,13 @@ begin
 {$endif}
  fCountActiveWorkers:=0;
 
- fBVHBuildMode:=TKraftMeshBVHBuildMode.kmbbmMeanVariance; //kmbbmSAHSteps
+ fBVHBuildMode:=TKraftMeshBVHBuildMode.kmbbmMeanVariance; //kmbbmSAHSteps;
 
- fBVHSubdivisionSteps:=32;
+ fBVHSubdivisionSteps:=8;
+
+ fBVHTraversalCost:=2.0;
+
+ fBVHIntersectionCost:=1.0;
 
  fMaximumTrianglesPerNode:=4;
 
@@ -24767,13 +24772,15 @@ begin
  end;
  result:=0.0;
  if LeftCount>0 then begin
-  result:=result+(LeftCount*AABBAreaEx(LeftAABB));
+  result:=result+(LeftCount*AABBArea(LeftAABB));
  end;
  if RightCount>0 then begin
-  result:=result+(RightCount*AABBAreaEx(RightAABB));
+  result:=result+(RightCount*AABBArea(RightAABB));
  end;
  if (result<=0.0) or IsZero(result) then begin
   result:=Infinity;
+ end else begin
+  result:=result*fBVHIntersectionCost;
  end;
 end;
 
@@ -24973,7 +24980,7 @@ begin
      end else begin
       LeftBounds:=AABBCombine(LeftBounds,BIN^.Bounds);
      end;
-     LeftArea[BINIndex]:=AABBAreaEx(LeftBounds);
+     LeftArea[BINIndex]:=AABBArea(LeftBounds);
 
      BIN:=@BINs[CountBINs-(BINIndex+1)];
      inc(RightSum,BIN^.Count);
@@ -24983,13 +24990,14 @@ begin
      end else begin
       RightBounds:=AABBCombine(RightBounds,BIN^.Bounds);
      end;
-     RightArea[CountBINs-(BINIndex+2)]:=AABBAreaEx(RightBounds);
+     RightArea[CountBINs-(BINIndex+2)]:=AABBArea(RightBounds);
 
     end;
 
     Scale:=(BoundsMax-BoundsMin)/CountBINs;
     for BINIndex:=0 to CountBINs-2 do begin
-     PlaneCost:=(LeftCount[BINIndex]*LeftArea[BINIndex])+(RightCount[BINIndex]*RightArea[BINIndex]);
+     PlaneCost:=((LeftCount[BINIndex]*LeftArea[BINIndex])+
+                 (RightCount[BINIndex]*RightArea[BINIndex]))*fBVHIntersectionCost;
      if PlaneCost<result then begin
       result:=PlaneCost;
       aAxis:=AxisIndex;
@@ -25007,7 +25015,7 @@ end;
 
 function TKraftMesh.CalculateNodeCost(const aParentTreeNode:PKraftMeshTreeNode):TKraftScalar;
 begin
- result:=AABBAreaEx(aParentTreeNode^.AABB)*aParentTreeNode^.CountTriangles;
+ result:=AABBArea(aParentTreeNode^.AABB)*((aParentTreeNode^.CountTriangles*fBVHIntersectionCost)-fBVHTraversalCost);
 end;
 
 procedure TKraftMesh.UpdateNodeBounds(const aParentTreeNode:PKraftMeshTreeNode);
