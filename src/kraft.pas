@@ -12833,7 +12833,7 @@ begin
   result:=HashData(PKraftUInt8(@WideString(Pointer(@Key)^)[1]),length(WideString(Pointer(@Key)^))*SizeOf(WideChar));
  end else if (SizeOf(TKraftHashMapKey)=SizeOf(UnicodeString)) and
              (TypeInfo(TKraftHashMapKey)=TypeInfo(UnicodeString)) then begin
-  result:=HashData(PKraftUInt8(@UnicodeString(Pointer(@Key)^)[1]),length(UnicodeString(Pointer(@Key)^))*SizeOf(UnicodeChar));
+  result:=HashData(PKraftUInt8(@UnicodeString(Pointer(@Key)^)[1]),length(UnicodeString(Pointer(@Key)^))*SizeOf({$ifdef fpc}UnicodeChar{$else}WideChar{$endif}));
  end else if (SizeOf(TKraftHashMapKey)=SizeOf(String)) and
              (TypeInfo(TKraftHashMapKey)=TypeInfo(String)) then begin
   result:=HashData(PKraftUInt8(@String(Pointer(@Key)^)[1]),length(String(Pointer(@Key)^))*SizeOf(Char));
