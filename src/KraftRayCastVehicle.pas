@@ -674,6 +674,7 @@ type { TKraftRayCastVehicle }
        fVisualWorldBackward:TKraftVector3;
        fVisualWorldForward:TKraftVector3;
        fVisualWorldPosition:TKraftVector3;
+       fInputAIFlightSteerFactor:TKraftScalar;
        fInputAISteering:TKraftScalar;
        fInputHorizontal:TKraftScalar;
        fInputVertical:TKraftScalar;
@@ -803,6 +804,7 @@ type { TKraftRayCastVehicle }
        property VisualWorldForward:TKraftVector3 read fVisualWorldForward write fVisualWorldForward;
        property VisualWorldPosition:TKraftVector3 read fVisualWorldPosition write fVisualWorldPosition;
       published
+       property InputAIFlightSteerFactor:TKraftScalar read fInputAIFlightSteerFactor write fInputAIFlightSteerFactor;
        property InputAISteering:TKraftScalar read fInputAISteering write fInputAISteering;
        property InputHorizontal:TKraftScalar read fInputHorizontal write fInputHorizontal;
        property InputVertical:TKraftScalar read fInputVertical write fInputVertical;
@@ -2933,6 +2935,7 @@ begin
  fWheels:=TKraftRayCastVehicle.TWheels.Create(true);
  fAxles:=TKraftRayCastVehicle.TAxles.Create(true);
  fAckermannGroups:=TKraftRayCastVehicle.TAckermannGroups.Create(true);
+ fInputAIFlightSteerFactor:=100.0;
  Reset;
 end;
 
@@ -3318,11 +3321,11 @@ begin
 
  if fInputAI then begin
 
-  NewSteerAngle:=InputAISteering*RAD2DEG;
+  NewSteerAngle:=fInputAISteering*RAD2DEG;
 
   fSteeringAngle:=Min(abs(NewSteerAngle),GetSteerAngleLimitInDegrees(fSpeedKMH))*Sign(NewSteerAngle);
 
-  fFlightSteering:=Lerp(fFlightSteering,InputAISteering,exp(-fDeltaTime*0.1));
+  fFlightSteering:=Lerp(fFlightSteering,Min(Max(InputAISteering*fInputAIFlightSteerFactor,-1.0),1.0),exp(-fDeltaTime*0.1));
 
  end else begin
 
