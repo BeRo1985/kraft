@@ -674,15 +674,13 @@ type { TKraftRayCastVehicle }
        fVisualWorldBackward:TKraftVector3;
        fVisualWorldForward:TKraftVector3;
        fVisualWorldPosition:TKraftVector3;
-       fInputAISteering:TKraftScalar;
-       fInputHorizontal:TKraftScalar;
        fInputVertical:TKraftScalar;
+       fInputHorizontal:TKraftScalar;
        fInputReset:Boolean;
        fInputBrake:Boolean;
        fInputHandBrake:Boolean;
        fInputDrift:Boolean;
        fInputJump:Boolean;
-       fInputAI:Boolean;
        fIsJump:Boolean;
        fLastJump:Boolean;
        fIsAcceleration:Boolean;
@@ -803,15 +801,13 @@ type { TKraftRayCastVehicle }
        property VisualWorldForward:TKraftVector3 read fVisualWorldForward write fVisualWorldForward;
        property VisualWorldPosition:TKraftVector3 read fVisualWorldPosition write fVisualWorldPosition;
       published
-       property InputAISteering:TKraftScalar read fInputAISteering write fInputAISteering;
-       property InputHorizontal:TKraftScalar read fInputHorizontal write fInputHorizontal;
        property InputVertical:TKraftScalar read fInputVertical write fInputVertical;
+       property InputHorizontal:TKraftScalar read fInputHorizontal write fInputHorizontal;
        property InputReset:Boolean read fInputReset write fInputReset;
        property InputBrake:Boolean read fInputBrake write fInputBrake;
        property InputHandBrake:Boolean read fInputHandBrake write fInputHandBrake;
        property InputDrift:Boolean read fInputDrift write fInputDrift;
        property InputJump:Boolean read fInputJump write fInputJump;
-       property InputAI:Boolean read fInputAI write fInputAI;
        property Speed:TKraftScalar read fSpeed write fSpeed;
        property SpeedKMH:TKraftScalar read fSpeedKMH write fSpeedKMH;
        property AbsoluteSpeedKMH:TKraftScalar read fAbsoluteSpeedKMH write fAbsoluteSpeedKMH;
@@ -3316,19 +3312,7 @@ begin
   fSteeringAngle:=Max(abs(fSteeringAngle)-(AngleReturnSpeedDegressPerSecond*fDeltaTime),0.0)*Sign(fSteeringAngle);
  end;
 
- if fInputAI then begin
-
-  NewSteerAngle:=InputAISteering*RAD2DEG;
-
-  fSteeringAngle:=Min(abs(NewSteerAngle),GetSteerAngleLimitInDegrees(fSpeedKMH))*Sign(NewSteerAngle);
-
-  fFlightSteering:=Lerp(fFlightSteering,InputAISteering,exp(-fDeltaTime*0.1));
-
- end else begin
-
-  fFlightSteering:=Lerp(fFlightSteering,Horizontal,exp(-fDeltaTime*0.1));
-
- end;
+ fFlightSteering:=Lerp(fFlightSteering,Horizontal,exp(-fDeltaTime*0.1));
 
  fAccelerationForceMagnitude:=CalcAccelerationForceMagnitude*Clamp01(0.8+((1.0-GetHandBrakeK)*0.2));
 
