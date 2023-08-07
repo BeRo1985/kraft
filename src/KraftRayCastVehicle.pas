@@ -778,6 +778,7 @@ type { TKraftRayCastVehicle }
        property IsAcceleration:boolean read fIsAcceleration;
        property IsReverseAcceleration:boolean read fIsReverseAcceleration;
        property CountPoweredWheels:TKraftInt32 read fCountPoweredWheels;
+       property CountGroundedWheels:TKraftInt32 read fCountGroundedWheels;
       public
        property WorldTransform:TKraftMatrix4x4 read fWorldTransform write fWorldTransform;
        property WorldLeft:TKraftVector3 read fWorldLeft write fWorldLeft;
