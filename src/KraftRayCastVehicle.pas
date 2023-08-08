@@ -3817,7 +3817,7 @@ begin
 
  begin
 
-  v:=Vector3TermMatrixMul(Vector3Origin,fVisualWorldTransform);
+  v:=Vector3TermMatrixMul(fRigidBody.Sweep.LocalCenter,fVisualWorldTransform);
 
   v0:=Vector3Add(v,Vector3ScalarMul(fVisualWorldDown,0.1));
   v1:=Vector3Add(v,Vector3ScalarMul(fVisualWorldUp,0.1));
