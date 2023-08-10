@@ -12839,7 +12839,21 @@ begin
   result:=HashData(PKraftUInt8(@String(Pointer(@Key)^)[1]),length(String(Pointer(@Key)^))*SizeOf(Char));
  end else{$endif}if (SizeOf(TKraftHashMapKey)=SizeOf(TKraftVector3)) and
                     (TypeInfo(TKraftHashMapKey)=TypeInfo(TKraftVector3)) then begin
-  result:=((round(PKraftVector3(@Key)^.x*1024.0)*73856093) xor (round(PKraftVector3(@Key)^.y*1024.0)*19349663) xor (round(PKraftVector3(@Key)^.z*1024.0)*83492791));
+  {if (abs(PKraftVector3(@Key)^.x)<=1.0) and
+      (abs(PKraftVector3(@Key)^.y)<=1.0) and
+      (abs(PKraftVector3(@Key)^.z)<=1.0) then begin}
+   if (((PKraftUInt32(Pointer(@PKraftVector3(@Key)^.x))^ or
+         PKraftUInt32(Pointer(@PKraftVector3(@Key)^.y))^ or
+         PKraftUInt32(Pointer(@PKraftVector3(@Key)^.z))^) and TKraftUInt32($7fffffff))<=TKraftUInt32($3f800000)) then begin
+    // Possibly a normal => Different hashing scale, since normals are -1.0 .. 1.0 scaled
+    result:=(round(PKraftVector3(@Key)^.x*65536.0)*73856093) xor
+            (round(PKraftVector3(@Key)^.y*65536.0)*19349663) xor
+            (round(PKraftVector3(@Key)^.z*65536.0)*83492791);
+   end else begin
+    result:=(round(PKraftVector3(@Key)^.x)*73856093) xor
+            (round(PKraftVector3(@Key)^.y)*19349663) xor
+            (round(PKraftVector3(@Key)^.z)*83492791);
+   end;
  end else begin
   case SizeOf(TKraftHashMapKey) of
    SizeOf(UInt16):begin
