@@ -12839,7 +12839,7 @@ begin
   result:=HashData(PKraftUInt8(@String(Pointer(@Key)^)[1]),length(String(Pointer(@Key)^))*SizeOf(Char));
  end else{$endif}if (SizeOf(TKraftHashMapKey)=SizeOf(TKraftVector3)) and
                     (TypeInfo(TKraftHashMapKey)=TypeInfo(TKraftVector3)) then begin
-  result:=((round(PKraftVector3(@Key)^.x*100.0)*73856093) xor (round(PKraftVector3(@Key)^.y*100.0)*19349663) xor (round(PKraftVector3(@Key)^.z*100.0)*83492791));
+  result:=((round(PKraftVector3(@Key)^.x*1024.0)*73856093) xor (round(PKraftVector3(@Key)^.y*1024.0)*19349663) xor (round(PKraftVector3(@Key)^.z*1024.0)*83492791));
  end else begin
   case SizeOf(TKraftHashMapKey) of
    SizeOf(UInt16):begin
