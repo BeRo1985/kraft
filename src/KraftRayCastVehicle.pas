@@ -3524,7 +3524,7 @@ begin
  end;
 end;
 
-procedure TKraftRayCastVehicle.UpdateFlightStabilization;
+ procedure TKraftRayCastVehicle.UpdateFlightStabilization;
 var VehicleUp,AntiGravityUp,Axis,Torque,AngularVelocity:TKraftVector3;
 begin
 
@@ -3532,7 +3532,7 @@ begin
  fDebugFlightStabilizationTorque:=Vector3Origin;
 {$endif}
 
- if fCountGroundedWheels<>fWheels.Count then begin
+ if fCountGroundedWheels=0{fWheels.Count} then begin
 
   fAfterFlightSlipperyTiresTime:=1.0;
 
