@@ -6189,14 +6189,14 @@ end;
 
 procedure Vector3MatrixMul(var v:TKraftVector3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix4x4); overload; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler;
 const cOne:array[0..3] of TKraftScalar=(0.0,0.0,0.0,1.0);
-{$if defined(cpuamd64) and defined(Windows)}
+//{$if defined(cpuamd64) and defined(Windows)}
 var StackSave0,StackSave1:array[0..3] of single;
-{$ifend}
+//{$ifend}
 asm
-{$if defined(cpuamd64) and defined(Windows)}
+//{$if defined(cpuamd64) and defined(Windows)}
  movups dqword ptr [StackSave0],xmm6
  movups dqword ptr [StackSave1],xmm7
-{$ifend}
+//{$ifend}
  movups xmm0,dqword ptr [v]     // d c b a
 {$if defined(cpuamd64)}
  movups xmm1,dqword ptr [rip+Vector3Mask]
@@ -6226,10 +6226,10 @@ asm
  addps xmm2,xmm3
  addps xmm0,xmm2
  movups dqword ptr [v],xmm0
-{$if defined(cpuamd64) and defined(Windows)}
+//{$if defined(cpuamd64) and defined(Windows)}
  movups xmm6,dqword ptr [StackSave0]
  movups xmm7,dqword ptr [StackSave1]
-{$ifend}
+//{$ifend}
 end;
 {$else}
 var t:TKraftVector3;
@@ -6352,14 +6352,14 @@ end;
 
 function Vector3TermMatrixMul({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix4x4):TKraftVector3; overload; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler;
 const cOne:array[0..3] of TKraftScalar=(0.0,0.0,0.0,1.0);
-{$if defined(cpuamd64) and defined(Windows)}
+//{$if defined(cpuamd64) and defined(Windows)}
 var StackSave0,StackSave1:array[0..3] of single;
-{$ifend}
+//{$ifend}
 asm
-{$if defined(cpuamd64) and defined(Windows)}
+//{$if defined(cpuamd64) and defined(Windows)}
  movups dqword ptr [StackSave0],xmm6
  movups dqword ptr [StackSave1],xmm7
-{$ifend}
+//{$ifend}
  movups xmm0,dqword ptr [v]     // d c b a
 {$if defined(cpuamd64)}
  movups xmm1,dqword ptr [rip+Vector3Mask]
@@ -6389,10 +6389,10 @@ asm
  addps xmm2,xmm3
  addps xmm0,xmm2
  movups dqword ptr [result],xmm0
-{$if defined(cpuamd64) and defined(Windows)}
+//{$if defined(cpuamd64) and defined(Windows)}
  movups xmm6,dqword ptr [StackSave0]
  movups xmm7,dqword ptr [StackSave1]
-{$ifend}
+//{$ifend}
 end;
 {$else}
 begin
@@ -6481,18 +6481,18 @@ begin
 {$endif}
 end;
 
-function Vector3TermMatrixMulBasis({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix4x4):TKraftVector3; overload; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64) and not defined(Windows)}nostackframe;{$ifend}
+function Vector3TermMatrixMulBasis({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix4x4):TKraftVector3; overload; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; //{$if defined(fpc) and defined(cpuamd64) and not defined(Windows)}nostackframe;{$ifend}
 const Mask:array[0..3] of TKraftUInt32=($ffffffff,$ffffffff,$ffffffff,$00000000);
-{$if defined(cpuamd64) and defined(Windows)}
+//{$if defined(cpuamd64) and defined(Windows)}
 var StackSave0:array[0..3] of single;
-{$ifend}
+//{$ifend}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
 {$ifend}
-{$if defined(cpuamd64) and defined(Windows)}
+//{$if defined(cpuamd64) and defined(Windows)}
  movups dqword ptr [StackSave0],xmm6
-{$ifend}
+//{$ifend}
  movups xmm0,dqword ptr [v]     // d c b a
  movaps xmm1,xmm0               // d c b a
  movaps xmm2,xmm0               // d c b a
@@ -6516,9 +6516,9 @@ asm
  addps xmm0,xmm1
  addps xmm0,xmm2
  movups dqword ptr [result],xmm0
-{$if defined(cpuamd64) and defined(Windows)}
+//{$if defined(cpuamd64) and defined(Windows)}
  movups xmm6,dqword ptr [StackSave0]
-{$ifend}
+//{$ifend}
 end;
 {$else}
 begin
@@ -6571,14 +6571,14 @@ end;
 
 function Vector3TermQuaternionRotate({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} q:TKraftQuaternion):TKraftVector3; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler;
 const Mask:array[0..3] of TKraftUInt32=($ffffffff,$ffffffff,$ffffffff,$00000000);
-{$if defined(cpuamd64) and defined(Windows)}
+//{$if defined(cpuamd64) and defined(Windows)}
 var StackSave0,StackSave1:array[0..3] of single;
-{$ifend}
+//{$ifend}
 asm
-{$if defined(cpuamd64) and defined(Windows)}
+//{$if defined(cpuamd64) and defined(Windows)}
  movups dqword ptr [StackSave0],xmm6
  movups dqword ptr [StackSave1],xmm7
-{$ifend}
+//{$ifend}
 
  movups xmm4,dqword ptr [q] // xmm4 = q.xyzw
 
@@ -6631,10 +6631,10 @@ asm
 
  movups dqword ptr [result],xmm1
 
-{$if defined(cpuamd64) and defined(Windows)}
+//{$if defined(cpuamd64) and defined(Windows)}
  movups xmm6,dqword ptr [StackSave0]
  movups xmm7,dqword ptr [StackSave1]
-{$ifend}
+//{$ifend}
 
 end;
 {$elseif defined(SIMD)}
@@ -7829,14 +7829,14 @@ begin
 end;
 
 procedure Matrix4x4Mul(var m1:TKraftMatrix4x4;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m2:TKraftMatrix4x4); overload; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler;
-{$if defined(cpuamd64) and defined(Windows)}
+//{$if defined(cpuamd64) and defined(Windows)}
 var StackSave0,StackSave1:array[0..3] of single;
-{$ifend}
+//{$ifend}
 asm
-{$if defined(cpuamd64) and defined(Windows)}
+//{$if defined(cpuamd64) and defined(Windows)}
  movups dqword ptr [StackSave0],xmm6
  movups dqword ptr [StackSave1],xmm7
-{$ifend}
+//{$ifend}
 
  movups xmm0,dqword ptr [m2+0]
  movups xmm1,dqword ptr [m2+16]
@@ -7899,10 +7899,10 @@ asm
  addps xmm4,xmm6
  movups dqword ptr [m1+48],xmm4
 
-{$if defined(cpuamd64) and defined(Windows)}
+//{$if defined(cpuamd64) and defined(Windows)}
  movups xmm6,dqword ptr [StackSave0]
  movups xmm7,dqword ptr [StackSave1]
-{$ifend}
+//{$ifend}
 
 end;
 {$else}
@@ -7929,14 +7929,14 @@ end;
 {$ifend}
 
 procedure Matrix4x4Mul(var mr:TKraftMatrix4x4;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m1,m2:TKraftMatrix4x4); overload; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler;
-{$if defined(cpuamd64) and defined(Windows)}
+//{$if defined(cpuamd64) and defined(Windows)}
 var StackSave0,StackSave1:array[0..3] of single;
-{$ifend}
+//{$ifend}
 asm
-{$if defined(cpuamd64) and defined(Windows)}
+//{$if defined(cpuamd64) and defined(Windows)}
  movups dqword ptr [StackSave0],xmm6
  movups dqword ptr [StackSave1],xmm7
-{$ifend}
+//{$ifend}
 
  movups xmm0,dqword ptr [m2+0]
  movups xmm1,dqword ptr [m2+16]
@@ -7999,10 +7999,10 @@ asm
  addps xmm4,xmm6
  movups dqword ptr [mr+48],xmm4
 
-{$if defined(cpuamd64) and defined(Windows)}
+//{$if defined(cpuamd64) and defined(Windows)}
  movups xmm6,dqword ptr [StackSave0]
  movups xmm7,dqword ptr [StackSave1]
-{$ifend}
+//{$ifend}
 
 end;
 {$else}
@@ -8067,14 +8067,14 @@ begin
 end;
 
 function Matrix4x4TermMul({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m1,m2:TKraftMatrix4x4):TKraftMatrix4x4; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler;
-{$if defined(cpuamd64) and defined(Windows)}
+//{$if defined(cpuamd64) and defined(Windows)}
 var StackSave0,StackSave1:array[0..3] of single;
-{$ifend}
+//{$ifend}
 asm
-{$if defined(cpuamd64) and defined(Windows)}
+//{$if defined(cpuamd64) and defined(Windows)}
  movups dqword ptr [StackSave0],xmm6
  movups dqword ptr [StackSave1],xmm7
-{$ifend}
+//{$ifend}
 
  movups xmm0,dqword ptr [m2+0]
  movups xmm1,dqword ptr [m2+16]
@@ -8137,10 +8137,10 @@ asm
  addps xmm4,xmm6
  movups dqword ptr [result+48],xmm4
 
-{$if defined(cpuamd64) and defined(Windows)}
+//{$if defined(cpuamd64) and defined(Windows)}
  movups xmm6,dqword ptr [StackSave0]
  movups xmm7,dqword ptr [StackSave1]
-{$ifend}
+//{$ifend}
 
 end;
 {$else}
@@ -8369,14 +8369,14 @@ end;
 {$ifend}
 
 function Matrix4x4Determinant({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix4x4):TKraftScalar; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler;
-{$if defined(cpuamd64) and defined(Windows)}
+//{$if defined(cpuamd64) and defined(Windows)}
 var StackSave0,StackSave1:array[0..3] of single;
-{$ifend}
+//{$ifend}
 asm
-{$if defined(cpuamd64) and defined(Windows)}
+//{$if defined(cpuamd64) and defined(Windows)}
  movups dqword ptr [StackSave0],xmm6
  movups dqword ptr [StackSave1],xmm7
-{$ifend}
+//{$ifend}
 
  movups xmm0,dqword ptr [m+32]
  movups xmm1,dqword ptr [m+48]
@@ -8417,10 +8417,10 @@ asm
  addss xmm5,xmm6
  movss dword ptr [result],xmm5
 
-{$if defined(cpuamd64) and defined(Windows)}
+//{$if defined(cpuamd64) and defined(Windows)}
  movups xmm6,dqword ptr [StackSave0]
  movups xmm7,dqword ptr [StackSave1]
-{$ifend}
+//{$ifend}
 
 end;
 {$else}
@@ -8604,14 +8604,14 @@ begin
 end;
 
 function Matrix4x4Inverse(var mr:TKraftMatrix4x4;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} ma:TKraftMatrix4x4):boolean; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler;
-{$if defined(cpuamd64) and defined(Windows)}
+//{$if defined(cpuamd64) and defined(Windows)}
 var StackSave0,StackSave1:array[0..3] of single;
-{$ifend}
+//{$ifend}
 asm
-{$if defined(cpuamd64) and defined(Windows)}
+//{$if defined(cpuamd64) and defined(Windows)}
  movups dqword ptr [StackSave0],xmm6
  movups dqword ptr [StackSave1],xmm7
-{$ifend}
+//{$ifend}
 
 {$ifdef cpu386}
  mov ecx,esp
@@ -8865,10 +8865,10 @@ asm
 {$endif}
  mov eax,1
 
-{$if defined(cpuamd64) and defined(Windows)}
+//{$if defined(cpuamd64) and defined(Windows)}
  movups xmm6,dqword ptr [StackSave0]
  movups xmm7,dqword ptr [StackSave1]
-{$ifend}
+//{$ifend}
 end;
 {$else}
 var inv:array[0..15] of TKraftScalar;
@@ -8917,14 +8917,14 @@ end;
 {$ifend}
 
 function Matrix4x4TermInverse({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} ma:TKraftMatrix4x4):TKraftMatrix4x4; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler;
-{$if defined(cpuamd64) and defined(Windows)}
+//{$if defined(cpuamd64) and defined(Windows)}
 var StackSave0,StackSave1:array[0..3] of single;
-{$ifend}
+//{$ifend}
 asm
-{$if defined(cpuamd64) and defined(Windows)}
+//{$if defined(cpuamd64) and defined(Windows)}
  movups dqword ptr [StackSave0],xmm6
  movups dqword ptr [StackSave1],xmm7
-{$ifend}
+//{$ifend}
 
 {$ifdef cpu386}
  mov ecx,esp
@@ -9177,10 +9177,10 @@ asm
  mov rsp,rax
 {$endif}
 
-{$if defined(cpuamd64) and defined(Windows)}
+//{$if defined(cpuamd64) and defined(Windows)}
  movups xmm6,dqword ptr [StackSave0]
  movups xmm7,dqword ptr [StackSave1]
-{$ifend}
+//{$ifend}
 
 end;
 {$else}
