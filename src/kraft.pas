@@ -12850,9 +12850,9 @@ begin
            (round(PKraftVector3(@Key)^.y*65536.0)*19349663) xor
            (round(PKraftVector3(@Key)^.z*65536.0)*83492791);
   end else begin
-   result:=(round(PKraftVector3(@Key)^.x)*73856093) xor
-           (round(PKraftVector3(@Key)^.y)*19349663) xor
-           (round(PKraftVector3(@Key)^.z)*83492791);
+   result:=(round(PKraftVector3(@Key)^.x*1024.0)*73856093) xor
+           (round(PKraftVector3(@Key)^.y*1024.0)*19349663) xor
+           (round(PKraftVector3(@Key)^.z*1024.0)*83492791);
   end;
  end else begin
   case SizeOf(TKraftHashMapKey) of
