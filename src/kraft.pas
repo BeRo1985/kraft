@@ -1667,9 +1667,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure LoadFromStream(const AStream:TStream);
        procedure SaveToStream(const AStream:TStream);
 
-       function AddVertex(const AVertex:TKraftVector3):TKraftInt32;
+       function AddVertex(const aVertex:TKraftVector3;const aUnique:boolean=false):TKraftInt32;
 
-       function AddNormal(const aNormal:TKraftVector3):TKraftInt32;
+       function AddNormal(const aNormal:TKraftVector3;const aUnique:boolean=false):TKraftInt32;
 
        function AddTriangle(const AVertexIndex0,AVertexIndex1,AVertexIndex2:TKraftInt32;const ANormalIndex0:TKraftInt32=-1;const ANormalIndex1:TKraftInt32=-1;ANormalIndex2:TKraftInt32=-1):TKraftInt32;
 
@@ -24166,33 +24166,51 @@ begin
 
 end;
 
-function TKraftMesh.AddVertex(const AVertex:TKraftVector3):TKraftInt32;
+function TKraftMesh.AddVertex(const aVertex:TKraftVector3;const aUnique:boolean):TKraftInt32;
 begin
- result:=fVerticesHashMap[AVertex];
- if result<0 then begin
+ if aUnique then begin
   result:=fCountVertices;
   inc(fCountVertices);
   if fCountVertices>length(fVertices) then begin
    SetLength(fVertices,fCountVertices*2);
   end;
-  fVertices[result]:=AVertex;
-  fVerticesHashMap.Add(AVertex,result);
+  fVertices[result]:=aVertex;
+ end else begin
+  result:=fVerticesHashMap[aVertex];
+  if result<0 then begin
+   result:=fCountVertices;
+   inc(fCountVertices);
+   if fCountVertices>length(fVertices) then begin
+    SetLength(fVertices,fCountVertices*2);
+   end;
+   fVertices[result]:=aVertex;
+   fVerticesHashMap.Add(aVertex,result);
+  end;
  end;
 end;
 
-function TKraftMesh.AddNormal(const aNormal:TKraftVector3):TKraftInt32;
+function TKraftMesh.AddNormal(const aNormal:TKraftVector3;const aUnique:boolean):TKraftInt32;
 var Normal:TKraftVector3;
 begin
  Normal:=Vector3Norm(aNormal);
- result:=fNormalsHashMap[Normal];
- if result<0 then begin
+ if aUnique then begin
   result:=fCountNormals;
   inc(fCountNormals);
   if fCountNormals>length(fNormals) then begin
    SetLength(fNormals,fCountNormals*2);
   end;
   fNormals[result]:=Normal;
-  fNormalsHashMap.Add(Normal,result);
+ end else begin
+  result:=fNormalsHashMap[Normal];
+  if result<0 then begin
+   result:=fCountNormals;
+   inc(fCountNormals);
+   if fCountNormals>length(fNormals) then begin
+    SetLength(fNormals,fCountNormals*2);
+   end;
+   fNormals[result]:=Normal;
+   fNormalsHashMap.Add(Normal,result);
+  end;
  end;
 end;
 
