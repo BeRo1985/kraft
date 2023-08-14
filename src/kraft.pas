@@ -33667,6 +33667,11 @@ begin
  end else if fContactPairLast=AContactPair then begin
   fContactPairLast:=AContactPair^.Previous;
  end;
+
+ if AContactPair^.MeshContactPair<>nil then begin
+  RemoveMeshContact(AContactPair^.MeshContactPair);
+ end;
+
  AContactPair^.Previous:=nil;
  AContactPair^.Next:=fFreeContactPairs;
  fFreeContactPairs:=AContactPair;
