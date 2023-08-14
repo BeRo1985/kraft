@@ -30,16 +30,15 @@ Kraft Physics Engine has the following features:
 - Collision response and friction (Sequential impulses with post projection)
 - Joint constraints (Grab, Distance, Rope, Ball Socket, Hinge, Slider, Fixed)
 - Collision filtering with groups
-- Ray casting
+- Ray casting and sphere casting (ray "with" spherical thickness)
 - Sleeping of inactive rigid bodies
 - Island-based multithreading
 - It can be used also for 1D and 2D physics, and not only for 3D physics
-- SIMD optimizations for x86-32 (later also for x86-64)
+- SIMD optimizations for x86-32 and x86-64
 
 ## Future possibly possible features
 
-- Sphere casting / Linear casting
-- Raycast vehicles      
+- Linear casting
 - More joint constraint types (for example cone twist, universal and/or general 6DOF)
 - Cloths / Soft body
 
