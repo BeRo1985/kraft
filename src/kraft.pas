@@ -33662,13 +33662,21 @@ begin
  end else if fContactPairFirst=AContactPair then begin
   fContactPairFirst:=AContactPair^.Next;
  end;
+
  if assigned(AContactPair^.Next) then begin
   AContactPair^.Next^.Previous:=AContactPair^.Previous;
  end else if fContactPairLast=AContactPair then begin
   fContactPairLast:=AContactPair^.Previous;
  end;
+
+ if assigned(AContactPair^.MeshContactPair) then begin
+  RemoveMeshContact(AContactPair^.MeshContactPair);
+ end;
+
  AContactPair^.Previous:=nil;
+
  AContactPair^.Next:=fFreeContactPairs;
+
  fFreeContactPairs:=AContactPair;
 
  dec(fCountContactPairs);
