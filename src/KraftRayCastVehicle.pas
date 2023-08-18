@@ -3066,6 +3066,18 @@ begin
   fOwnsRigidBody:=false;
   fOwnsFreeShape:=false;
 
+  fShape.Flags:=fShape.Flags+[ksfHasForcedCenterOfMass];
+  fShape.ForcedCenterOfMass.Vector:=fSettings.fCenterOfMass;
+  fShape.ForcedMass:=MassSum;
+  fShape.Restitution:=fSettings.fRigidBodyRestitution;
+  fShape.Density:=fSettings.fRigidBodyDensity;
+  fShape.Friction:=fSettings.fRigidBodyFriction;
+
+  fRigidBody.CollisionGroups:=fCollisionGroups;
+  fRigidBody.CollideWithCollisionGroups:=fCollideWithCollisionGroups;
+  fRigidBody.AngularVelocityDamp:=fSettings.fAngularVelocityDamp;
+  fRigidBody.LinearVelocityDamp:=fSettings.fLinearVelocityDamp;
+
  end;
 
  fShape.OnCanCollideWith:=ShapeCanCollideWith;
