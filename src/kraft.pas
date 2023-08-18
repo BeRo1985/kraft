@@ -148,7 +148,7 @@ unit kraft;
 {$endif}
 {-$define NonSIMD}
 {$if (not defined(fpc)) and defined(cpuamd64)}
- {$define NonSIMD} // Due to inline assembler bugs at the Delphi compiler
+ {-$define NonSIMD} // Due to inline assembler bugs at the Delphi compiler
 {$ifend}
 
 {$ifdef NonSIMD}
@@ -5500,7 +5500,7 @@ begin
 {$endif}
 end;
 
-function Vector3ScalarMul({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3;const s:TKraftScalar):TKraftVector3; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
+function Vector3ScalarMul({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3;const s:TKraftScalar):TKraftVector3; {$if defined(SIMD) and defined(SIMDASM) and defined(fpc) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -5747,7 +5747,7 @@ begin
 end;
 {$ifend}
 
-procedure Vector3Scale(var v:TKraftVector3;const s:TKraftScalar); overload; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
+procedure Vector3Scale(var v:TKraftVector3;const s:TKraftScalar); overload; {$if defined(SIMD) and defined(SIMDASM) and defined(fpc) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
@@ -9953,7 +9953,7 @@ begin
 end;
 {$ifend}
 
-function QuaternionScalarMul({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} q:TKraftQuaternion;const s:TKraftScalar):TKraftQuaternion; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
+function QuaternionScalarMul({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} q:TKraftQuaternion;const s:TKraftScalar):TKraftQuaternion; {$if defined(SIMD) and defined(SIMDASM) and defined(fpc) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
