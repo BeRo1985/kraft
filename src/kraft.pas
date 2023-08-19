@@ -21667,6 +21667,9 @@ begin
   AStream.ReadBuffer(fVertices[i].Position.x,SizeOf(TKraftScalar));
   AStream.ReadBuffer(fVertices[i].Position.y,SizeOf(TKraftScalar));
   AStream.ReadBuffer(fVertices[i].Position.z,SizeOf(TKraftScalar));
+{$ifdef SIMD}
+  fVertices[i].Position.w:=0.0;
+{$endif}
   AStream.ReadBuffer(fVertices[i].CountAdjacencies,SizeOf(TKraftInt32));
   SetLength(fVertices[i].Adjacencies,fVertices[i].CountAdjacencies);
   for j:=0 to fVertices[i].CountAdjacencies-1 do begin
@@ -21681,6 +21684,9 @@ begin
   AStream.ReadBuffer(fFaces[i].Plane.Normal.x,SizeOf(TKraftScalar));
   AStream.ReadBuffer(fFaces[i].Plane.Normal.y,SizeOf(TKraftScalar));
   AStream.ReadBuffer(fFaces[i].Plane.Normal.z,SizeOf(TKraftScalar));
+{$ifdef SIMD}
+  fFaces[i].Plane.Normal.w:=0.0;
+{$endif}
   AStream.ReadBuffer(fFaces[i].Plane.Distance,SizeOf(TKraftScalar));
   AStream.ReadBuffer(fFaces[i].CountVertices,SizeOf(TKraftInt32));
   SetLength(fFaces[i].Vertices,fFaces[i].CountVertices);
@@ -21703,25 +21709,62 @@ begin
  AStream.ReadBuffer(fSphere.Center.x,SizeOf(TKraftScalar));
  AStream.ReadBuffer(fSphere.Center.y,SizeOf(TKraftScalar));
  AStream.ReadBuffer(fSphere.Center.z,SizeOf(TKraftScalar));
+{$ifdef SIMD}
+ fSphere.Center.w:=0.0;
+{$endif}
  AStream.ReadBuffer(fSphere.Radius,SizeOf(TKraftScalar));
 
  AStream.ReadBuffer(fAABB.Min.x,SizeOf(TKraftScalar));
  AStream.ReadBuffer(fAABB.Min.y,SizeOf(TKraftScalar));
  AStream.ReadBuffer(fAABB.Min.z,SizeOf(TKraftScalar));
+{$ifdef SIMD}
+ fAABB.Min.w:=0.0;
+{$endif}
  AStream.ReadBuffer(fAABB.Max.x,SizeOf(TKraftScalar));
  AStream.ReadBuffer(fAABB.Max.y,SizeOf(TKraftScalar));
  AStream.ReadBuffer(fAABB.Max.z,SizeOf(TKraftScalar));
+{$ifdef SIMD}
+ fAABB.Max.w:=0.0;
+{$endif}
 
  AStream.ReadBuffer(fAngularMotionDisc,SizeOf(TKraftScalar));
 
- AStream.ReadBuffer(fMassData.Inertia,SizeOf(TKraftMatrix3x3));
- AStream.ReadBuffer(fMassData.Center,SizeOf(TKraftVector3));
+ AStream.ReadBuffer(fMassData.Inertia[0,0],SizeOf(TKraftScalar));
+ AStream.ReadBuffer(fMassData.Inertia[0,1],SizeOf(TKraftScalar));
+ AStream.ReadBuffer(fMassData.Inertia[0,2],SizeOf(TKraftScalar));
+{$ifdef SIMD}
+ fMassData.Inertia[0,3]:=0.0;
+{$endif}
+ AStream.ReadBuffer(fMassData.Inertia[1,0],SizeOf(TKraftScalar));
+ AStream.ReadBuffer(fMassData.Inertia[1,1],SizeOf(TKraftScalar));
+ AStream.ReadBuffer(fMassData.Inertia[1,2],SizeOf(TKraftScalar));
+{$ifdef SIMD}
+ fMassData.Inertia[1,3]:=0.0;
+{$endif}
+ AStream.ReadBuffer(fMassData.Inertia[2,0],SizeOf(TKraftScalar));
+ AStream.ReadBuffer(fMassData.Inertia[2,1],SizeOf(TKraftScalar));
+ AStream.ReadBuffer(fMassData.Inertia[2,2],SizeOf(TKraftScalar));
+{$ifdef SIMD}
+ fMassData.Inertia[2,3]:=0.0;
+{$endif}
+
+ AStream.ReadBuffer(fMassData.Center.x,SizeOf(TKraftScalar));
+ AStream.ReadBuffer(fMassData.Center.y,SizeOf(TKraftScalar));
+ AStream.ReadBuffer(fMassData.Center.z,SizeOf(TKraftScalar));
+{$ifdef SIMD}
+ fMassData.Center.w:=0.0;
+{$endif}
+
  AStream.ReadBuffer(fMassData.Mass,SizeOf(TKraftScalar));
+
  AStream.ReadBuffer(fMassData.Volume,SizeOf(TKraftScalar));
 
  AStream.ReadBuffer(fCentroid.x,SizeOf(TKraftScalar));
  AStream.ReadBuffer(fCentroid.y,SizeOf(TKraftScalar));
  AStream.ReadBuffer(fCentroid.z,SizeOf(TKraftScalar));
+{$ifdef SIMD}
+ fCentroid.w:=0.0;
+{$endif}
 
 end;
 
@@ -21782,8 +21825,18 @@ begin
 
  AStream.WriteBuffer(fAngularMotionDisc,SizeOf(TKraftScalar));
 
- AStream.WriteBuffer(fMassData.Inertia,SizeOf(TKraftMatrix3x3));
- AStream.WriteBuffer(fMassData.Center,SizeOf(TKraftVector3));
+ AStream.WriteBuffer(fMassData.Inertia[0,0],SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fMassData.Inertia[0,1],SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fMassData.Inertia[0,2],SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fMassData.Inertia[1,0],SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fMassData.Inertia[1,1],SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fMassData.Inertia[1,2],SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fMassData.Inertia[2,0],SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fMassData.Inertia[2,1],SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fMassData.Inertia[2,2],SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fMassData.Center.x,SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fMassData.Center.y,SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fMassData.Center.z,SizeOf(TKraftScalar));
  AStream.WriteBuffer(fMassData.Mass,SizeOf(TKraftScalar));
  AStream.WriteBuffer(fMassData.Volume,SizeOf(TKraftScalar));
 
