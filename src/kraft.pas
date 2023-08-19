@@ -27552,7 +27552,9 @@ begin
   fMassData.Center.w:=0.0;
 {$endif}
  end;
- Matrix3x3Add(fMassData.Inertia,InertiaTensorParallelAxisTheorem(fMassData.Center,fMassData.Mass));
+ fMassData.Inertia:=Matrix3x3TermAdd(InertiaTensorTransform(fMassData.Inertia,Matrix3x3(fLocalTransform)),
+                                     InertiaTensorParallelAxisTheorem(fMassData.Center,fMassData.Mass));
+//Matrix3x3Add(fMassData.Inertia,InertiaTensorParallelAxisTheorem(fMassData.Center,fMassData.Mass));
 end;
 
 function TKraftShapeSphere.GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
@@ -28295,27 +28297,31 @@ begin
 end;
 
 procedure TKraftShapeConvexHull.CalculateMassData;
+var Scale:TKraftScalar;
 begin
  fMassData:=fConvexHull.fMassData;
  if fForcedMass>EPSILON then begin
   fMassData.Mass:=fForcedMass;
  end else begin
-  fMassData.Mass:=fMassData.Mass*fDensity;
+  fMassData.Mass:=fMassData.Volume*fDensity;
  end;
+ Scale:=fMassData.Mass/fConvexHull.fMassData.Mass;
+ fMassData.Inertia[0,0]:=fMassData.Inertia[0,0]*Scale;
+ fMassData.Inertia[0,1]:=fMassData.Inertia[0,1]*Scale;
+ fMassData.Inertia[0,2]:=fMassData.Inertia[0,2]*Scale;
+ fMassData.Inertia[1,0]:=fMassData.Inertia[1,0]*Scale;
+ fMassData.Inertia[1,1]:=fMassData.Inertia[1,1]*Scale;
+ fMassData.Inertia[1,2]:=fMassData.Inertia[1,2]*Scale;
+ fMassData.Inertia[2,0]:=fMassData.Inertia[2,0]*Scale;
+ fMassData.Inertia[2,1]:=fMassData.Inertia[2,1]*Scale;
+ fMassData.Inertia[2,2]:=fMassData.Inertia[2,2]*Scale;
  if ksfHasForcedCenterOfMass in fFlags then begin
   fMassData.Center:=Vector3TermMatrixMul(fForcedCenterOfMass,fLocalTransform);
  end else begin
   fMassData.Center:=Vector3TermMatrixMul(fMassData.Center,fLocalTransform);
  end;
- fMassData.Inertia[0,0]:=fMassData.Inertia[0,0]*fDensity;
- fMassData.Inertia[0,1]:=fMassData.Inertia[0,1]*fDensity;
- fMassData.Inertia[0,2]:=fMassData.Inertia[0,2]*fDensity;
- fMassData.Inertia[1,0]:=fMassData.Inertia[1,0]*fDensity;
- fMassData.Inertia[1,1]:=fMassData.Inertia[1,1]*fDensity;
- fMassData.Inertia[1,2]:=fMassData.Inertia[1,2]*fDensity;
- fMassData.Inertia[2,0]:=fMassData.Inertia[2,0]*fDensity;
- fMassData.Inertia[2,1]:=fMassData.Inertia[2,1]*fDensity;
- fMassData.Inertia[2,2]:=fMassData.Inertia[2,2]*fDensity;
+ fMassData.Inertia:=Matrix3x3TermAdd(InertiaTensorTransform(fMassData.Inertia,Matrix3x3(fLocalTransform)),
+                                     InertiaTensorParallelAxisTheorem(Vector3Sub(fMassData.Center,fConvexHull.fMassData.Center),fMassData.Mass));
 end;
 
 function TKraftShapeConvexHull.GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
