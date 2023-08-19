@@ -636,6 +636,7 @@ type { TKraftRayCastVehicle }
        fPhysics:TKraft;
        fOwnsRigidBody:Boolean;
        fOwnsFreeShape:Boolean;
+       fConvexHull:TKraftConvexHull;
        fRigidBody:TKraftRigidBody;
        fShape:TKraftShape;
        fWheels:TWheels;
@@ -772,6 +773,7 @@ type { TKraftRayCastVehicle }
        property Axles:TAxles read fAxles;
       published
        property Physics:TKraft read fPhysics;
+       property ConvexHull:TKraftConvexHull read fConvexHull write fConvexHull;
        property RigidBody:TKraftRigidBody read fRigidBody write fRigidBody;
        property Shape:TKraftShape read fShape write fShape;
        property Controllable:boolean read fControllable write fControllable;
@@ -2921,6 +2923,7 @@ constructor TKraftRayCastVehicle.Create(const aPhysics:TKraft);
 begin
  inherited Create;
  fPhysics:=aPhysics;
+ fConvexHull:=nil;
  fOwnsRigidBody:=false;
  fOwnsFreeShape:=false;
  fRigidBody:=nil;
@@ -3048,7 +3051,11 @@ begin
   fRigidBody.AngularVelocityDamp:=fSettings.fAngularVelocityDamp;
   fRigidBody.LinearVelocityDamp:=fSettings.fLinearVelocityDamp;
 
-  fShape:=TKraftShapeBox.Create(fPhysics,fRigidBody,Vector3(fSettings.fWidth*0.5,fSettings.fHeight*0.5,fSettings.fLength*0.5));
+  if assigned(fConvexHull) then begin
+   fShape:=TKraftShapeConvexHull.Create(fPhysics,fRigidBody,fConvexHull);
+  end else begin
+   fShape:=TKraftShapeBox.Create(fPhysics,fRigidBody,Vector3(fSettings.fWidth*0.5,fSettings.fHeight*0.5,fSettings.fLength*0.5));
+  end;
   fShape.Flags:=fShape.Flags+[ksfHasForcedCenterOfMass];
   fShape.ForcedCenterOfMass.Vector:=fSettings.fCenterOfMass;
   fShape.ForcedMass:=MassSum;
