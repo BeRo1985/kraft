@@ -1770,6 +1770,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fRestitution:TKraftScalar;
 
+       fRestitutionThreshold:TKraftScalar;
+
        fDensity:TKraftScalar;
 
        fForcedMass:TKraftScalar;
@@ -1945,6 +1947,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property Friction:TKraftScalar read fFriction write fFriction;
 
        property Restitution:TKraftScalar read fRestitution write fRestitution;
+
+       property RestitutionThreshold:TKraftScalar read fRestitutionThreshold write fRestitutionThreshold;
 
        property Density:TKraftScalar read fDensity write fDensity;
 
@@ -2323,6 +2327,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        Edges:array[0..1] of TKraftContactPairEdge;
        Friction:TKraftScalar;
        Restitution:TKraftScalar;
+       RestitutionThreshold:TKraftScalar;
        Manifold:TKraftContactManifold;
        Flags:TKraftContactFlags;
        TimeOfImpactCount:TKraftInt32;
@@ -3461,6 +3466,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
       TangentMass:array[0..1] of TKraftScalar;
       InverseMasses:array[0..1] of TKraftScalar;
       Restitution:TKraftScalar;
+      RestitutionThreshold:TKraftScalar;
       Friction:TKraftScalar;
       Indices:array[0..1] of TKraftInt32;
       CountPoints:TKraftInt32;
@@ -3489,17 +3495,18 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
       LocalCenters:array[0..1] of TKraftVector3;
       RelativePositions:array[0..1] of TKraftVector3;
       WorldInverseInertiaTensors:array[0..1] of TKraftMatrix3x3;
-      Separation:single;
-      RestitutionBias:single;
-      LostSpeculativeBounce:single;
-      SpeculativeVelocity:single;
-      NormalImpulse:single;
-      TangentImpulse:array[0..1] of single;
-      NormalMass:single;
-      TangentMass:array[0..1] of single;
-      InverseMasses:array[0..1] of single;
-      Restitution:single;
-      Friction:single;
+      Separation:TKraftScalar;
+      RestitutionBias:TKraftScalar;
+      LostSpeculativeBounce:TKraftScalar;
+      SpeculativeVelocity:TKraftScalar;
+      NormalImpulse:TKraftScalar;
+      TangentImpulse:array[0..1] of TKraftScalar;
+      NormalMass:TKraftScalar;
+      TangentMass:array[0..1] of TKraftScalar;
+      InverseMasses:array[0..1] of TKraftScalar;
+      Restitution:TKraftScalar;
+      RestitutionThreshold:TKraftScalar;
+      Friction:TKraftScalar;
       Indices:array[0..1] of TKraftInt32;
      end;
 
@@ -27150,6 +27157,8 @@ begin
 
  fRestitution:=0.0;
 
+ fRestitutionThreshold:=-1.0;
+
  fDensity:=1.0;
 
  fForcedMass:=0.0;
@@ -33477,6 +33486,7 @@ procedure TKraftContactManager.AddConvexContact(const ARigidBodyA,ARigidBodyB:TK
 var i:TKraftInt32;
     ContactPair:PKraftContactPair;
     HashTableBucket:PKraftContactPairHashTableBucket;
+    RestitutionThresholdA,RestitutionThresholdB:TKraftScalar;
 begin
 
  if assigned(fFreeContactPairs) then begin
@@ -33540,7 +33550,21 @@ begin
 
  ContactPair^.Friction:=sqrt(AShapeA.fFriction*AShapeB.fFriction);
 
- ContactPair^.Restitution:=max(AShapeA.fRestitution,AShapeB.fRestitution);
+ ContactPair^.Restitution:=Max(AShapeA.fRestitution,AShapeB.fRestitution);
+
+ if AShapeA.fRestitutionThreshold>=0.0 then begin
+  RestitutionThresholdA:=AShapeA.fRestitutionThreshold;
+ end else begin
+  RestitutionThresholdA:=fPhysics.fVelocityThreshold;
+ end;
+
+ if AShapeB.fRestitutionThreshold>=0.0 then begin
+  RestitutionThresholdB:=AShapeB.fRestitutionThreshold;
+ end else begin
+  RestitutionThresholdB:=fPhysics.fVelocityThreshold;
+ end;
+
+ ContactPair^.RestitutionThreshold:=Min(RestitutionThresholdA,RestitutionThresholdB);
 
  if assigned(fContactPairLast) then begin
   ContactPair^.Previous:=fContactPairLast;
@@ -39518,6 +39542,7 @@ begin
   VelocityState^.InverseMasses[0]:=ContactPair^.RigidBodies[0].fInverseMass;
   VelocityState^.InverseMasses[1]:=ContactPair^.RigidBodies[1].fInverseMass;
   VelocityState^.Restitution:=ContactPair^.Restitution;
+  VelocityState^.RestitutionThreshold:=ContactPair^.RestitutionThreshold;
   VelocityState^.Friction:=ContactPair^.Friction;
   VelocityState^.Indices[0]:=ContactPair^.RigidBodies[0].fIslandIndices[fIsland.fIslandIndex];
   VelocityState^.Indices[1]:=ContactPair^.RigidBodies[1].fIslandIndices[fIsland.fIslandIndex];
@@ -39579,6 +39604,7 @@ begin
   SpeculativeContactState^.InverseMasses[0]:=ContactPair^.RigidBodies[0].fInverseMass;
   SpeculativeContactState^.InverseMasses[1]:=ContactPair^.RigidBodies[1].fInverseMass;
   SpeculativeContactState^.Restitution:=ContactPair^.Restitution;
+  SpeculativeContactState^.RestitutionThreshold:=ContactPair^.RestitutionThreshold;
   SpeculativeContactState^.Friction:=ContactPair^.Friction;
   SpeculativeContactState^.Indices[0]:=ContactPair^.RigidBodies[0].fIslandIndices[fIsland.fIslandIndex];
   SpeculativeContactState^.Indices[1]:=ContactPair^.RigidBodies[1].fIslandIndices[fIsland.fIslandIndex];
@@ -39713,7 +39739,7 @@ begin
                                         Vector3Cross(wA,
                                                      ContactPoint^.RelativePositions[0]))),
                   VelocityState^.Normal);
-   if dv<(-fPhysics.fVelocityThreshold) then begin
+   if dv<(-VelocityState^.RestitutionThreshold) then begin
     ContactPoint^.Bias:=ContactPoint^.BaumgarteBias-(VelocityState^.Restitution*dv);
    end else begin
     ContactPoint^.Bias:=ContactPoint^.BaumgarteBias;
@@ -39804,7 +39830,7 @@ begin
                                                     SpeculativeContactState^.RelativePositions[0]))),
                  SpeculativeContactState^.Normal);
   SpeculativeContactState^.RestitutionBias:=RestitutionBias;
-  if dv<(-fPhysics.fVelocityThreshold) then begin
+  if dv<(-SpeculativeContactState^.RestitutionThreshold) then begin
    RestitutionBias:=Max(RestitutionBias,-(SpeculativeContactState^.Restitution*dv));
   end;
   SpeculativeContactState^.LostSpeculativeBounce:=RestitutionBias;
@@ -39869,7 +39895,7 @@ begin
                                          Vector3Cross(wA,
                                                       ContactPoint^.RelativePositions[0]))),
                    VelocityState^.Normal);
-    if dv<(-fPhysics.fVelocityThreshold) then begin
+    if dv<(-VelocityState^.RestitutionThreshold) then begin
      ContactPoint^.Bias:=ContactPoint^.BaumgarteBias-(VelocityState^.Restitution*dv);
     end;
    end;
@@ -39924,7 +39950,7 @@ begin
                                        Vector3Cross(wA,
                                                     SpeculativeContactState^.RelativePositions[0]))),
                  SpeculativeContactState^.Normal);
-  if dv<(-fPhysics.fVelocityThreshold) then begin
+  if dv<(-SpeculativeContactState^.RestitutionThreshold) then begin
    RestitutionBias:=Max(RestitutionBias,-(SpeculativeContactState^.Restitution*dv));
   end;
   SpeculativeContactState^.LostSpeculativeBounce:=RestitutionBias;
