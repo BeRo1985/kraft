@@ -129,7 +129,7 @@ begin
    Shape:=TKraftShapeBox.Create(KraftPhysics,RigidBody,Vector3(0.125,1.0,0.5));
    Shape.Restitution:=0.4;
    Shape.Density:=1.0;
-   RigidBody.ForcedMass:=1.0;
+   RigidBody.ForcedMass:=100.0;
    RigidBody.Finish;
    RigidBody.SetWorldTransformation(Matrix4x4TermMul(Matrix4x4TermMul(Matrix4x4Translate(0.0,TKraftShapeBox(Shape).Extents.y,-8.0-((Index/CountDominos)*4.0)),Matrix4x4RotateY((Index-((CountDominos-1)*0.5))*(pi/CountDominos)*2.0)),Matrix4x4Translate(JumpingRampWidth+(CarWidth*4),0.0,-12.0)));
    RigidBody.CollisionGroups:=[0,1];
@@ -166,8 +166,8 @@ begin
      RigidBody.SetRigidBodyType(krbtDYNAMIC);
      Shape:=TKraftShapeBox.Create(KraftPhysics,RigidBody,Vector3(1.0,0.5,0.25));
      Shape.Restitution:=0.4;
-     Shape.Density:=10.0;
-  // RigidBody.ForcedMass:=1.0;
+     //Shape.Density:=10.0;
+     RigidBody.ForcedMass:=25.0;
      RigidBody.Finish;
      RigidBody.SetWorldTransformation(Matrix4x4Translate((((j+((i and 1)*0.5))-(Height*0.5))*(TKraftShapeBox(Shape).Extents.x*2.0))-((JumpingRampWidth+(CarWidth*4))*2),TKraftShapeBox(Shape).Extents.y+((Height-(i+1))*(TKraftShapeBox(Shape).Extents.y*2.0)),-8.0));
      RigidBody.CollisionGroups:=[0];
