@@ -3064,6 +3064,7 @@ begin
 
   if assigned(fConvexHull) then begin
    fShape:=TKraftShapeConvexHull.Create(fPhysics,fRigidBody,fConvexHull);
+   fShape.LocalTransform:=Matrix4x4Translate(Vector3Neg(fSettings.fConvexHullOffset));
   end else begin
    fShape:=TKraftShapeBox.Create(fPhysics,fRigidBody,Vector3(fSettings.fWidth*0.5,fSettings.fHeight*0.5,fSettings.fLength*0.5));
   end;
