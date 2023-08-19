@@ -433,6 +433,7 @@ type { TKraftRayCastVehicle }
               fRigidBodyRestitution:TKraftScalar;
               fRigidBodyDensity:TKraftScalar;
               fRigidBodyFriction:TKraftScalar;
+              fConvexHullOffset:TKraftVector3;
               fVisualModelOffset:TKraftVector3;
               fCenterOfMass:TKraftVector3;
               fChassisMass:TKraftScalar;
@@ -486,6 +487,7 @@ type { TKraftRayCastVehicle }
               property RigidBodyRestitution:TKraftScalar read fRigidBodyRestitution write fRigidBodyRestitution;
               property RigidBodyDensity:TKraftScalar read fRigidBodyDensity write fRigidBodyDensity;
               property RigidBodyFriction:TKraftScalar read fRigidBodyFriction write fRigidBodyFriction;
+              property ConvexHullOffset:TKraftVector3 read fConvexHullOffset write fConvexHullOffset;
               property VisualModelOffset:TKraftVector3 read fVisualModelOffset write fVisualModelOffset;
               property CenterOfMass:TKraftVector3 read fCenterOfMass write fCenterOfMass;
               property ChassisMass:TKraftScalar read fChassisMass write fChassisMass;
@@ -1614,6 +1616,8 @@ begin
  fRigidBodyDensity:=1.0;
  fRigidBodyFriction:=0.0;
 
+ fConvexHullOffset:=Vector3(0.0,0.0,0.0);
+
  fVisualModelOffset:=Vector3(0.0,0.0,0.0);
 
  fCenterOfMass:=Vector3(0.0,0.0,0.24);
@@ -1714,6 +1718,9 @@ begin
  fRigidBodyRestitution:=0.3;
  fRigidBodyDensity:=1.0;
  fRigidBodyFriction:=0.0;
+
+ // The convex hull offset
+ fConvexHullOffset:=Vector3(0.0,0.0,0.0);
 
  // The rigid body visual model offset
  fVisualModelOffset:=Vector3(0.0,0.0,0.0);
@@ -1996,6 +2003,8 @@ begin
   fRigidBodyDensity:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['rigidbodydensity'],fRigidBodyDensity);
   fRigidBodyFriction:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['rigidbodyfriction'],fRigidBodyFriction);
 
+  fConvexHullOffset:=JSONToVector3(TPasJSONItemObject(aJSONItem).Properties['convexhulloffset'],fConvexHullOffset);
+
   fVisualModelOffset:=JSONToVector3(TPasJSONItemObject(aJSONItem).Properties['visualmodeloffset'],fVisualModelOffset);
 
   fCenterOfMass:=JSONToVector3(TPasJSONItemObject(aJSONItem).Properties['centerofmass'],fCenterOfMass);
@@ -2150,6 +2159,8 @@ begin
  TPasJSONItemObject(result).Add('rigidbodydensity',TPasJSONItemNumber.Create(fRigidBodyDensity));
 
  TPasJSONItemObject(result).Add('rigidbodyfriction',TPasJSONItemNumber.Create(fRigidBodyFriction));
+
+ TPasJSONItemObject(result).Add('convexhulloffset',Vector3ToJSON(fConvexHullOffset));
 
  TPasJSONItemObject(result).Add('visualmodeloffset',Vector3ToJSON(fVisualModelOffset));
 
