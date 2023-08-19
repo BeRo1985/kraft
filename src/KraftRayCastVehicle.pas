@@ -431,6 +431,7 @@ type { TKraftRayCastVehicle }
               fAngularVelocityDamp:TKraftScalar;
               fLinearVelocityDamp:TKraftScalar;
               fRigidBodyRestitution:TKraftScalar;
+              fRigidBodyRestitutionThreshold:TKraftScalar;
               fRigidBodyDensity:TKraftScalar;
               fRigidBodyFriction:TKraftScalar;
               fShapeOffset:TKraftVector3;
@@ -485,6 +486,7 @@ type { TKraftRayCastVehicle }
               property AngularVelocityDamp:TKraftScalar read fAngularVelocityDamp write fAngularVelocityDamp;
               property LinearVelocityDamp:TKraftScalar read fLinearVelocityDamp write fLinearVelocityDamp;
               property RigidBodyRestitution:TKraftScalar read fRigidBodyRestitution write fRigidBodyRestitution;
+              property RigidBodyRestitutionThreshold:TKraftScalar read fRigidBodyRestitutionThreshold write fRigidBodyRestitutionThreshold;
               property RigidBodyDensity:TKraftScalar read fRigidBodyDensity write fRigidBodyDensity;
               property RigidBodyFriction:TKraftScalar read fRigidBodyFriction write fRigidBodyFriction;
               property ShapeOffset:TKraftVector3 read fShapeOffset write fShapeOffset;
@@ -1613,6 +1615,7 @@ begin
  fLinearVelocityDamp:=0.3275;
 
  fRigidBodyRestitution:=0.3;
+ fRigidBodyRestitutionThreshold:=-1.0;
  fRigidBodyDensity:=1.0;
  fRigidBodyFriction:=0.0;
 
@@ -1716,6 +1719,7 @@ begin
 
  // The rigid body physical properties
  fRigidBodyRestitution:=0.3;
+ fRigidBodyRestitutionThreshold:=-1.0;
  fRigidBodyDensity:=1.0;
  fRigidBodyFriction:=0.0;
 
@@ -2000,6 +2004,7 @@ begin
   fLinearVelocityDamp:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['linearvelocitydamp'],fLinearVelocityDamp);
 
   fRigidBodyRestitution:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['rigidbodyrestitution'],fRigidBodyRestitution);
+  fRigidBodyRestitutionThreshold:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['rigidbodyrestitutionthreshold'],fRigidBodyRestitutionThreshold);
   fRigidBodyDensity:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['rigidbodydensity'],fRigidBodyDensity);
   fRigidBodyFriction:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['rigidbodyfriction'],fRigidBodyFriction);
 
@@ -2155,6 +2160,8 @@ begin
  TPasJSONItemObject(result).Add('linearvelocitydamp',TPasJSONItemNumber.Create(fLinearVelocityDamp));
 
  TPasJSONItemObject(result).Add('rigidbodyrestitution',TPasJSONItemNumber.Create(fRigidBodyRestitution));
+
+ TPasJSONItemObject(result).Add('rigidbodyrestitutionthreshold',TPasJSONItemNumber.Create(fRigidBodyRestitutionThreshold));
 
  TPasJSONItemObject(result).Add('rigidbodydensity',TPasJSONItemNumber.Create(fRigidBodyDensity));
 
@@ -3072,6 +3079,7 @@ begin
   fShape.ForcedCenterOfMass.Vector:=fSettings.fCenterOfMass;
   fShape.ForcedMass:=MassSum;
   fShape.Restitution:=fSettings.fRigidBodyRestitution;
+  fShape.RestitutionThreshold:=fSettings.fRigidBodyRestitutionThreshold;
   fShape.Density:=fSettings.fRigidBodyDensity;
   fShape.Friction:=fSettings.fRigidBodyFriction;
 
@@ -3089,6 +3097,7 @@ begin
   fShape.ForcedCenterOfMass.Vector:=fSettings.fCenterOfMass;
   fShape.ForcedMass:=MassSum;
   fShape.Restitution:=fSettings.fRigidBodyRestitution;
+  fShape.RestitutionThreshold:=fSettings.fRigidBodyRestitutionThreshold;
   fShape.Density:=fSettings.fRigidBodyDensity;
   fShape.Friction:=fSettings.fRigidBodyFriction;
 
