@@ -27543,7 +27543,7 @@ begin
  fMassData.Inertia[2,1]:=0.0;
  fMassData.Inertia[2,2]:=(2.0*(sqr(fRadius)*fMassData.Mass))/5.0;
  if ksfHasForcedCenterOfMass in fFlags then begin
-  fMassData.Center:=fForcedCenterOfMass;
+  fMassData.Center:=Vector3TermMatrixMul(fForcedCenterOfMass,fLocalTransform);
  end else begin
   fMassData.Center.x:=fLocalTransform[3,0];
   fMassData.Center.y:=fLocalTransform[3,1];
@@ -27808,7 +27808,7 @@ begin
  fMassData.Inertia[2,1]:=(CapMassData.Inertia[2,1]*2.0)+CylinderMassData.Inertia[2,1];
  fMassData.Inertia[2,2]:=(CapMassData.Inertia[2,2]*2.0)+CylinderMassData.Inertia[2,2];
  if ksfHasForcedCenterOfMass in fFlags then begin
-  fMassData.Center:=fForcedCenterOfMass;
+  fMassData.Center:=Vector3TermMatrixMul(fForcedCenterOfMass,fLocalTransform);
  end else begin
   fMassData.Center.x:=fLocalTransform[3,0];
   fMassData.Center.y:=fLocalTransform[3,1];
@@ -27839,7 +27839,7 @@ begin
  fMassData.Inertia[2,1]:=0.0;
  fMassData.Inertia[2,2]:=(((5.0*(fHeight*fHeight*fHeight))+(20.0*(fHeight*fHeight)*fRadius)+(45.0*fHeight*(fRadius*fRadius))+(32.0*(fRadius*fRadius*fRadius)))/((60.0*fHeight)+(80.0*fRadius)))*fMassData.Mass;
  if ksfHasForcedCenterOfMass in fFlags then begin
-  fMassData.Center:=fForcedCenterOfMass;
+  fMassData.Center:=Vector3TermMatrixMul(fForcedCenterOfMass,fLocalTransform);
  end else begin
   fMassData.Center.x:=fLocalTransform[3,0];
   fMassData.Center.y:=fLocalTransform[3,1];
@@ -28303,7 +28303,9 @@ begin
   fMassData.Mass:=fMassData.Mass*fDensity;
  end;
  if ksfHasForcedCenterOfMass in fFlags then begin
-  fMassData.Center:=fForcedCenterOfMass;
+  fMassData.Center:=Vector3TermMatrixMul(fForcedCenterOfMass,fLocalTransform);
+ end else begin
+  fMassData.Center:=Vector3TermMatrixMul(fMassData.Center,fLocalTransform);
  end;
  fMassData.Inertia[0,0]:=fMassData.Inertia[0,0]*fDensity;
  fMassData.Inertia[0,1]:=fMassData.Inertia[0,1]*fDensity;
@@ -28627,7 +28629,7 @@ begin
  fMassData.Inertia[2,1]:=0.0;
  fMassData.Inertia[2,2]:=((sqr(fExtents.x)+sqr(fExtents.y))*fMassData.Mass)/12.0;
  if ksfHasForcedCenterOfMass in fFlags then begin
-  fMassData.Center:=fForcedCenterOfMass;
+  fMassData.Center:=Vector3TermMatrixMul(fForcedCenterOfMass,fLocalTransform);
  end else begin
   fMassData.Center.x:=fLocalTransform[3,0];
   fMassData.Center.y:=fLocalTransform[3,1];
@@ -30550,6 +30552,8 @@ begin
    fMassData.Inertia:=Matrix3x3Null;
 
   end;
+
+  fMassData.Center:=Vector3TermMatrixMul(fMassData.Center,fLocalTransform);
 
  end;
 
