@@ -3607,8 +3607,9 @@ begin
    // the vehicle is not much away from being upright.
    Axis:=Vector3Norm(Vector3Cross(fWorldUp,Vector3Norm(Vector3Neg(fPhysics.Gravity.Vector))));
 
+   Torque:=Vector3ScalarMul(Axis,fSettings.fFlightStabilizationForceFactor);
+
    if Vector3Length(Torque)>EPSILON then begin
-    Torque:=Vector3ScalarMul(Axis,fSettings.fFlightStabilizationForceFactor);
 {$ifdef DebugDraw}
     fDebugFlightStabilizationTorque:=Torque;
 {$endif}
