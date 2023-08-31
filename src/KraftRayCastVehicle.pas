@@ -636,6 +636,8 @@ type { TKraftRayCastVehicle }
             end;
             { TAckermannGroups }
             TAckermannGroups=Generics.Collections.TObjectList<TAckermannGroup>;
+            TOnGroundContactAfterJump=procedure(const aSender:TKraftRayCastVehicle) of object;
+            TOnJump=procedure(const aSender:TKraftRayCastVehicle) of object;
       private
        fPhysics:TKraft;
        fOwnsRigidBody:Boolean;
@@ -690,7 +692,7 @@ type { TKraftRayCastVehicle }
        fInputJump:Boolean;
        fInputAI:Boolean;
        fIsJump:Boolean;
-       fLastJump:Boolean;
+       fJumpState:TKraftInt32;
        fIsAcceleration:Boolean;
        fIsReverseAcceleration:Boolean;
        fIsBrake:Boolean;
@@ -716,6 +718,8 @@ type { TKraftRayCastVehicle }
        fCollisionGroups:TKraftRigidBodyCollisionGroups;
        fCollideWithCollisionGroups:TKraftRigidBodyCollisionGroups;
        fCastCollisionGroups:TKraftRigidBodyCollisionGroups;
+       fOnGroundContactAfterJump:TOnGroundContactAfterJump;
+       fOnJump:TOnJump;
 {$ifdef DebugDraw}
        fDebugAirResistanceForce:TKraftVector3;
        fLastDebugAirResistanceForce:TKraftVector3;
@@ -773,6 +777,8 @@ type { TKraftRayCastVehicle }
        property CollisionGroups:TKraftRigidBodyCollisionGroups read fCollisionGroups write fCollisionGroups;
        property CollideWithCollisionGroups:TKraftRigidBodyCollisionGroups read fCollideWithCollisionGroups write fCollideWithCollisionGroups;
        property CastCollisionGroups:TKraftRigidBodyCollisionGroups read fCastCollisionGroups write fCastCollisionGroups;
+       property OnGroundContactAfterJump:TOnGroundContactAfterJump read fOnGroundContactAfterJump write fOnGroundContactAfterJump;
+       property OnJump:TOnJump read fOnJump write fOnJump;
        property Wheels:TWheels read fWheels;
        property Axles:TAxles read fAxles;
       published
@@ -2953,6 +2959,8 @@ begin
  fCollisionGroups:=[1];
  fCollideWithCollisionGroups:=[Low(TKraftRigidBodyCollisionGroup)..High(TKraftRigidBodyCollisionGroup)];
  fCastCollisionGroups:=[Low(TKraftRigidBodyCollisionGroup)..High(TKraftRigidBodyCollisionGroup)];
+ fOnGroundContactAfterJump:=nil;
+ fOnJump:=nil;
  fSettings:=TKraftRayCastVehicle.TSettings.Create;
  fWheels:=TKraftRayCastVehicle.TWheels.Create(true);
  fAxles:=TKraftRayCastVehicle.TAxles.Create(true);
@@ -3006,6 +3014,7 @@ procedure TKraftRayCastVehicle.Reset;
 begin
  fIsAcceleration:=false;
  fIsReverseAcceleration:=false;
+ fJumpState:=0;
  fAfterFlightSlipperyTiresTime:=0.0;
  fBrakeSlipperyTiresTime:=0.0;
  fHandBrakeSlipperyTiresTime:=0.0;
@@ -3552,16 +3561,56 @@ end;
 
 procedure TKraftRayCastVehicle.UpdateJump;
 begin
- if fIsJump then begin
-  if not fLastJump then begin
-   if fCountGroundedWheels>0 then begin
-    fLastJump:=true;
-    fRigidBody.SetWorldForce(Vector3ScalarMul(fWorldUp,fSettings.JumpImpulse),kfmImpulse);
+ // The jump state machine is a simple state machine with just four states:
+ repeat
+  case fJumpState of
+   1:begin
+    // Jump phase 1: The "maybe-still-on-the-ground-after-jump" phase but check if the vehicle is in the air, and if so, set the jump state to 2 
+    if fCountGroundedWheels=0 then begin
+     fJumpState:=2;
+    end else begin
+     // If the vehicle is still on the ground, do nothing and abort the repeat loop
+     break;
+    end;
+   end;
+   2:begin
+    // Jump phase 2: The "in-the-air-after-jump" phase but check if the vehicle is on the ground again, and if so, set the jump state to 3
+    if fCountGroundedWheels>0 then begin
+     if assigned(fOnGroundContactAfterJump) then begin
+      fOnGroundContactAfterJump(self); // The  "ground-hit-after-jump" callback, for example, for playing a sound or start drifting as at Mario Kart  
+     end;
+     fJumpState:=3;
+    end else begin
+     // If the vehicle is still in the air, do nothing and abort the repeat loop
+     break;
+    end;
+   end;
+   3:begin
+    // Jump phase 3: The "multi-jump-prevention" phase, so check if the jump button is released, and if so, reset the jump state to 0, so that
+    // as long the jump button is still pressed, don't trigger a new jump
+    if fIsJump then begin
+     // If the jump button is still pressed, do nothing and abort the repeat loop
+     break;
+    end else begin 
+     // But if the jump button is released, reset the jump state to 0 for the next jump
+     fJumpState:=0;
+    end;
+   end;
+   else {0:}begin
+    // Jump phase 0: If vehicle is on the ground and the jump button is pressed, trigger a new jump
+    if fIsJump and (fCountGroundedWheels>0) then begin
+     fJumpState:=1;
+     fRigidBody.SetWorldForce(Vector3ScalarMul(fWorldUp,fSettings.JumpImpulse),kfmImpulse);
+     if assigned(fOnJump) then begin
+      fOnJump(self); // The "jump" callback, for example, for playing a sound
+     end;
+    end else begin
+     // Otherwise if the jump button is not pressed, do nothing 
+    end;
+    break; // Abort the repeat loop in any case at this special state, because it is the start "and" end of the jump state machine  
    end;
   end;
- end else begin
-  fLastJump:=false;
- end;
+ until false;
 end;
 
  procedure TKraftRayCastVehicle.UpdateFlightStabilization;
