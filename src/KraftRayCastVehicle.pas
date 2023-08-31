@@ -3593,7 +3593,7 @@ begin
        fJumpState:=4; // Direct to the "multi-jump-prevention" phase
       end; 
      end else begin
-      fJumpState:=4;
+      fJumpState:=4; // Direct to the "multi-jump-prevention" phase
      end;
     end else begin
      // If the vehicle is still in the air, do nothing and abort the repeat loop
