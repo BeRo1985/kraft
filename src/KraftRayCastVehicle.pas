@@ -3570,7 +3570,7 @@ end;
 
 procedure TKraftRayCastVehicle.UpdateJump;
 begin
- // The jump state machine is a simple state machine with just four states:
+ // The jump state machine is a simple state machine with just five states:
  repeat
   case fJumpState of
    1:begin
