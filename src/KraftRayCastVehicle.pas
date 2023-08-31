@@ -636,7 +636,7 @@ type { TKraftRayCastVehicle }
             end;
             { TAckermannGroups }
             TAckermannGroups=Generics.Collections.TObjectList<TAckermannGroup>;
-            TOnGroundContactAfterJump=procedure(const aSender:TKraftRayCastVehicle) of object;
+            TOnGroundContactAfterJump=function(const aSender:TKraftRayCastVehicle):Boolean of object;
             TOnJump=procedure(const aSender:TKraftRayCastVehicle) of object;
       private
        fPhysics:TKraft;
@@ -720,6 +720,7 @@ type { TKraftRayCastVehicle }
        fCastCollisionGroups:TKraftRigidBodyCollisionGroups;
        fOnGroundContactAfterJump:TOnGroundContactAfterJump;
        fOnJump:TOnJump;
+       fData:TObject;
 {$ifdef DebugDraw}
        fDebugAirResistanceForce:TKraftVector3;
        fLastDebugAirResistanceForce:TKraftVector3;
@@ -766,6 +767,7 @@ type { TKraftRayCastVehicle }
        destructor Destroy; override;
        procedure Reset;
        procedure Finish;
+       procedure ReleaseJump;
        procedure Update(const aDeltaTime:TKraftScalar);
        procedure StoreWorldTransforms;
        procedure InterpolateWorldTransforms(const aAlpha:TKraftScalar);
@@ -779,6 +781,7 @@ type { TKraftRayCastVehicle }
        property CastCollisionGroups:TKraftRigidBodyCollisionGroups read fCastCollisionGroups write fCastCollisionGroups;
        property OnGroundContactAfterJump:TOnGroundContactAfterJump read fOnGroundContactAfterJump write fOnGroundContactAfterJump;
        property OnJump:TOnJump read fOnJump write fOnJump;
+       property Data:TObject read fData write fData;
        property Wheels:TWheels read fWheels;
        property Axles:TAxles read fAxles;
       published
@@ -2952,6 +2955,7 @@ begin
  fOwnsFreeShape:=false;
  fRigidBody:=nil;
  fShape:=nil;
+ fData:=nil;
  fAccelerationInput:=0.0;
  fControllable:=true;
  fForward:=Vector3(0.0,0.0,-1.0);
@@ -3559,6 +3563,11 @@ begin
  end;
 end;
 
+procedure TKraftRayCastVehicle.ReleaseJump; 
+begin
+ fJumpState:=4; // To the "multi-jump-prevention" phase 
+end;
+
 procedure TKraftRayCastVehicle.UpdateJump;
 begin
  // The jump state machine is a simple state machine with just four states:
@@ -3574,19 +3583,29 @@ begin
     end;
    end;
    2:begin
-    // Jump phase 2: The "in-the-air-after-jump" phase but check if the vehicle is on the ground again, and if so, set the jump state to 3
+    // Jump phase 2: The "in-the-air-after-jump" phase but check if the vehicle is on the ground again, and if so, set the jump state to 3 or 4
     if fCountGroundedWheels>0 then begin
      if assigned(fOnGroundContactAfterJump) then begin
-      fOnGroundContactAfterJump(self); // The  "ground-hit-after-jump" callback, for example, for playing a sound or start drifting as at Mario Kart  
+      // The "ground-hit-after-jump" callback, for example, for playing a sound or start drifting as at Mario Kart       
+      if fOnGroundContactAfterJump(self) then begin 
+       fJumpState:=3; // Drifting or something-else-after-jump action, so delay the "multi-jump-prevention" phase until the one action is finished, by calling "ReleaseJump"
+      end else begin
+       fJumpState:=4; // Direct to the "multi-jump-prevention" phase
+      end; 
+     end else begin
+      fJumpState:=4;
      end;
-     fJumpState:=3;
     end else begin
      // If the vehicle is still in the air, do nothing and abort the repeat loop
      break;
     end;
    end;
    3:begin
-    // Jump phase 3: The "multi-jump-prevention" phase, so check if the jump button is released, and if so, reset the jump state to 0, so that
+    // Jump phase 3: The "drifting-after-jump" phase, do nothing and abort the repeat loop, until "ReleaseJump" is called, for example after drifting and so on  
+    break;
+   end;
+   4:begin
+    // Jump phase 4: The "multi-jump-prevention" phase, so check if the jump button is released, and if so, reset the jump state to 0, so that
     // as long the jump button is still pressed, don't trigger a new jump
     if fIsJump then begin
      // If the jump button is still pressed, do nothing and abort the repeat loop
