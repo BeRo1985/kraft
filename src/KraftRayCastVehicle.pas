@@ -644,6 +644,7 @@ type { TKraftRayCastVehicle }
             TAckermannGroups=Generics.Collections.TObjectList<TAckermannGroup>;
             TOnGroundContactAfterJump=function(const aSender:TKraftRayCastVehicle):Boolean of object;
             TOnJump=procedure(const aSender:TKraftRayCastVehicle) of object;
+            TOnJumpDone=procedure(const aSender:TKraftRayCastVehicle) of object;
       private
        fPhysics:TKraft;
        fOwnsRigidBody:Boolean;
@@ -726,6 +727,7 @@ type { TKraftRayCastVehicle }
        fCastCollisionGroups:TKraftRigidBodyCollisionGroups;
        fOnGroundContactAfterJump:TOnGroundContactAfterJump;
        fOnJump:TOnJump;
+       fOnJumpDone:TOnJumpDone;
        fData:TObject;
 {$ifdef DebugDraw}
        fDebugAirResistanceForce:TKraftVector3;
@@ -787,6 +789,7 @@ type { TKraftRayCastVehicle }
        property CastCollisionGroups:TKraftRigidBodyCollisionGroups read fCastCollisionGroups write fCastCollisionGroups;
        property OnGroundContactAfterJump:TOnGroundContactAfterJump read fOnGroundContactAfterJump write fOnGroundContactAfterJump;
        property OnJump:TOnJump read fOnJump write fOnJump;
+       property OnJumpDone:TOnJumpDone read fOnJumpDone write fOnJumpDone;
        property Data:TObject read fData write fData;
        property Wheels:TWheels read fWheels;
        property Axles:TAxles read fAxles;
@@ -3001,6 +3004,7 @@ begin
  fCastCollisionGroups:=[Low(TKraftRigidBodyCollisionGroup)..High(TKraftRigidBodyCollisionGroup)];
  fOnGroundContactAfterJump:=nil;
  fOnJump:=nil;
+ fOnJumpDone:=nil;
  fSettings:=TKraftRayCastVehicle.TSettings.Create;
  fWheels:=TKraftRayCastVehicle.TWheels.Create(true);
  fAxles:=TKraftRayCastVehicle.TAxles.Create(true);
@@ -3662,6 +3666,9 @@ begin
     end else begin 
      // But if the jump button is released, reset the jump state to 0 for the next jump
      fJumpState:=0;
+     if assigned(fOnJumpDone) then begin
+      fOnJumpDone(self); // The "jump done" callback, for example, for playing a sound
+     end;
     end;
    end;
    else {0:}begin
