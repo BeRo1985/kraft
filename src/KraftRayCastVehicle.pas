@@ -3664,7 +3664,7 @@ begin
   case fJumpState of
    1:begin
     // Jump phase 1: The "maybe-still-on-the-ground-after-jump" phase but check if the vehicle is in the air, and if so, set the jump state to 2 
-    if fCountGroundedWheels=0 then begin
+    if (fCountGroundedWheels=0) or not fIsJump then begin
      fJumpState:=2;
     end else begin
      // If the vehicle is still on the ground, do nothing and abort the repeat loop
