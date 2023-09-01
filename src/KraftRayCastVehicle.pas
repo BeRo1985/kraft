@@ -464,6 +464,7 @@ type { TKraftRayCastVehicle }
               fDownForceCurveEnvelope:TEnvelope;
               fDownForceFactor:TKraftScalar;
               fJumpImpulse:TKraftScalar;
+              fDriftAfterJump:LongBool;
               fFlightSteeringTorqueFactor:TKraftScalar;
               fFlightStabilizationAngularVelocityDamping:TKraftVector3;
               fFlightStabilizationDamping:TKraftScalar;
@@ -522,6 +523,7 @@ type { TKraftRayCastVehicle }
               property DownForceCurveEnvelope:TEnvelope read fDownForceCurveEnvelope;
               property DownForceFactor:TKraftScalar read fDownForceFactor write fDownForceFactor;
               property JumpImpulse:TKraftScalar read fJumpImpulse write fJumpImpulse;
+              property DriftAfterJump:LongBool read fDriftAfterJump write fDriftAfterJump;
               property FlightSteeringTorqueFactor:TKraftScalar read fFlightSteeringTorqueFactor write fFlightSteeringTorqueFactor;
               property FlightStabilizationAngularVelocityDamping:TKraftVector3 read fFlightStabilizationAngularVelocityDamping write fFlightStabilizationAngularVelocityDamping;
               property FlightStabilizationDamping:TKraftScalar read fFlightStabilizationDamping write fFlightStabilizationDamping;
@@ -700,6 +702,7 @@ type { TKraftRayCastVehicle }
        fInputAI:Boolean;
        fIsJump:Boolean;
        fJumpState:TKraftInt32;
+       fDriftAfterJump:Boolean;
        fIsAcceleration:Boolean;
        fIsReverseAcceleration:Boolean;
        fIsBrake:Boolean;
@@ -1686,6 +1689,8 @@ begin
 
  fJumpImpulse:=350.0;
 
+ fDriftAfterJump:=false;
+
  fFlightSteeringTorqueFactor:=20.0;
 
  fFlightStabilizationAngularVelocityDamping:=Vector3(40.0,10.0,40.0);
@@ -1835,6 +1840,9 @@ begin
 
  // The jump impulse
  fJumpImpulse:=350.0;
+
+ // The DriftAfterJump
+ fDriftAfterJump:=false;
 
  // The flight sterring torque factor
  fFlightSteeringTorqueFactor:=20.0;
@@ -2103,6 +2111,8 @@ begin
 
   fJumpImpulse:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['jumpimpulse'],fJumpImpulse);
 
+  fDriftAfterJump:=TPasJSON.GetBoolean(TPasJSONItemObject(aJSONItem).Properties['driftafterjump'],fDriftAfterJump);
+
   fFlightSteeringTorqueFactor:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['flightsteeringtorquefactor'],fFlightSteeringTorqueFactor);
 
   fFlightStabilizationAngularVelocityDamping:=JSONToVector3(TPasJSONItemObject(aJSONItem).Properties['flightstabilizationangularvelocitydamping'],fFlightStabilizationAngularVelocityDamping);
@@ -2267,6 +2277,8 @@ begin
  TPasJSONItemObject(result).Add('downforcefactor',TPasJSONItemNumber.Create(fDownForceFactor));
 
  TPasJSONItemObject(result).Add('jumpimpulse',TPasJSONItemNumber.Create(fJumpImpulse));
+
+ TPasJSONItemObject(result).Add('driftafterjump',TPasJSONItemBoolean.Create(fDriftAfterJump));
 
  TPasJSONItemObject(result).Add('flightsteeringtorquefactor',TPasJSONItemNumber.Create(fFlightSteeringTorqueFactor));
 
@@ -3059,6 +3071,7 @@ begin
  fIsAcceleration:=false;
  fIsReverseAcceleration:=false;
  fJumpState:=0;
+ fDriftAfterJump:=false;
  fAfterFlightSlipperyTiresTime:=0.0;
  fBrakeSlipperyTiresTime:=0.0;
  fHandBrakeSlipperyTiresTime:=0.0;
@@ -3398,17 +3411,17 @@ begin
   fHandBrakeSlipperyTiresTime:=Max(0.1,fSettings.fHandBrakeSlipperyTime);
  end;
 
- if fIsDrift then begin
-  fDriftSlipperyTiresTime:=Max(0.1,fSettings.fDriftSlipperyTime);
- end;
-
  fIsBrake:=IsBrakeNow;
 
  fIsHandBrake:=IsHandBrakeNow and not (fIsAcceleration or fIsReverseAcceleration);
 
- fIsDrift:=fInputDrift;
+ fIsDrift:=fInputDrift or fDriftAfterJump;
 
  fIsJump:=fInputJump;
+
+ if fIsDrift then begin
+  fDriftSlipperyTiresTime:=Max(0.1,fSettings.fDriftSlipperyTime);
+ end;
 
  if abs(Horizontal)>0.001 then begin
   Factor:=fSettings.fSteeringSpeedEnvelope.GetValueAtTime(fAbsoluteSpeedKMH*GetSteeringHandBrakeK);
@@ -3643,7 +3656,12 @@ begin
       if fOnGroundContactAfterJump(self) then begin 
        fJumpState:=3; // Drifting or something-else-after-jump action, so delay the "multi-jump-prevention" phase until the one action is finished, by calling "ReleaseJump"
       end else begin
-       fJumpState:=4; // Direct to the "multi-jump-prevention" phase
+       if fSettings.fDriftAfterJump then begin
+        fDriftAfterJump:=true;
+        fJumpState:=3; // Drifting or something-else-after-jump action, so delay the "multi-jump-prevention" phase until the one action is finished, by calling "ReleaseJump"
+       end else begin
+        fJumpState:=4; // Direct to the "multi-jump-prevention" phase
+       end;
       end; 
      end else begin
       fJumpState:=4; // Direct to the "multi-jump-prevention" phase
@@ -3669,11 +3687,13 @@ begin
      if assigned(fOnJumpDone) then begin
       fOnJumpDone(self); // The "jump done" callback, for example, for playing a sound
      end;
+     fDriftAfterJump:=false;
     end;
    end;
    else {0:}begin
     // Jump phase 0: If vehicle is on the ground and the jump button is pressed, trigger a new jump
     if fIsJump and (fCountGroundedWheels>0) then begin
+     fDriftAfterJump:=false;
      fJumpState:=1;
      fRigidBody.SetWorldForce(Vector3ScalarMul(fWorldUp,fSettings.JumpImpulse),kfmImpulse);
      if assigned(fOnJump) then begin
@@ -3682,7 +3702,7 @@ begin
     end else begin
      // Otherwise if the jump button is not pressed, do nothing 
     end;
-    break; // Abort the repeat loop in any case at this special state, because it is the start "and" end of the jump state machine  
+    break; // Abort the repeat loop in any case at this special state, because it is the start "and" end of the jump state machine
    end;
   end;
  until false;
