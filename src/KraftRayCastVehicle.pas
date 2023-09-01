@@ -456,6 +456,7 @@ type { TKraftRayCastVehicle }
               fSteerAngleLimitEnvelope:TEnvelope;
               fSteeringResetSpeedEnvelope:TEnvelope;
               fSteeringSpeedEnvelope:TEnvelope;
+              fDriftAngleAccelerationFactorEnvelope:TEnvelope;
               fDriftSteerAngleLimitEnvelope:TEnvelope;
               fDriftSteeringResetSpeedEnvelope:TEnvelope;
               fDriftSteeringSpeedEnvelope:TEnvelope;
@@ -515,9 +516,10 @@ type { TKraftRayCastVehicle }
               property SteerAngleLimitEnvelope:TEnvelope read fSteerAngleLimitEnvelope;
               property SteeringResetSpeedEnvelope:TEnvelope read fSteeringResetSpeedEnvelope;
               property SteeringSpeedEnvelope:TEnvelope read fSteeringSpeedEnvelope;
-              property DriftSteerAngleLimitEnvelope:TEnvelope read fSteerAngleLimitEnvelope;
-              property DriftSteeringResetSpeedEnvelope:TEnvelope read fSteeringResetSpeedEnvelope;
-              property DriftSteeringSpeedEnvelope:TEnvelope read fSteeringSpeedEnvelope;
+              property DriftAngleAccelerationFactorEnvelope:TEnvelope read fDriftAngleAccelerationFactorEnvelope;
+              property DriftSteerAngleLimitEnvelope:TEnvelope read fDriftSteerAngleLimitEnvelope;
+              property DriftSteeringResetSpeedEnvelope:TEnvelope read fDriftSteeringResetSpeedEnvelope;
+              property DriftSteeringSpeedEnvelope:TEnvelope read fDriftSteeringSpeedEnvelope;
               property GripFactorEnvelope:TEnvelope read fGripFactorEnvelope;
               property DrivingTractionFactorEnvelope:TEnvelope read fDrivingTractionFactorEnvelope;
               property DownForceCurveEnvelope:TEnvelope read fDownForceCurveEnvelope;
@@ -560,6 +562,7 @@ type { TKraftRayCastVehicle }
               fSuspensionLength:TKraftScalar;
               fLastSuspensionLength:TKraftScalar;
               fVisualSuspensionLength:TKraftScalar;
+              fLaterialForceStrength:TKraftScalar;
               fWorldTransform:TKraftMatrix4x4;
               fLastWorldTransform:TKraftMatrix4x4;
               fVisualWorldTransform:TKraftMatrix4x4;
@@ -1674,6 +1677,8 @@ begin
 
  fSteeringSpeedEnvelope:=TEnvelope.CreateLinear(0.0,2.0,100.0,0.5);
 
+ fDriftAngleAccelerationFactorEnvelope:=TEnvelope.CreateLinear(1.0,1.0,90.0,1.0);
+
  fDriftSteerAngleLimitEnvelope:=TEnvelope.CreateLinear(0.0,35.0,100.0,5.0);
 
  fDriftSteeringResetSpeedEnvelope:=TEnvelope.CreateEaseInOut(0.0,30.0,100.0,10.0,64);
@@ -1722,6 +1727,7 @@ begin
  FreeAndNil(fSteerAngleLimitEnvelope);
  FreeAndNil(fSteeringResetSpeedEnvelope);
  FreeAndNil(fSteeringSpeedEnvelope);
+ FreeAndNil(fDriftAngleAccelerationFactorEnvelope);
  FreeAndNil(fDriftSteerAngleLimitEnvelope);
  FreeAndNil(fDriftSteeringResetSpeedEnvelope);
  FreeAndNil(fDriftSteeringSpeedEnvelope);
@@ -1818,6 +1824,9 @@ begin
 
  // The steering speed envelope
  fSteeringSpeedEnvelope.FillLinear(0.0,2.0,100.0,0.5);
+
+ // The drift angle acceleration factor envelope
+ fDriftAngleAccelerationFactorEnvelope.FillLinear(1.0,1.0,90.0,1.0);
 
  // The drift steering angle limit envelope
  fDriftSteerAngleLimitEnvelope.FillLinear(0.0,35.0,100.0,5.0);
@@ -2096,6 +2105,8 @@ begin
 
   fSteeringSpeedEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['steeringspeedenvelope']);
 
+  fDriftAngleAccelerationFactorEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['driftangleaccelerationfactorenvelope']);
+
   fDriftSteerAngleLimitEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['driftsteeranglelimitenvelope']);
 
   fDriftSteeringResetSpeedEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['driftsteeringresetspeedenvelope']);
@@ -2262,6 +2273,8 @@ begin
  TPasJSONItemObject(result).Add('steeringresetspeedenvelope',fSteeringResetSpeedEnvelope.SaveToJSON);
 
  TPasJSONItemObject(result).Add('steeringspeedenvelope',fSteeringSpeedEnvelope.SaveToJSON);
+
+ TPasJSONItemObject(result).Add('driftangleaccelerationfactorenvelope',fDriftAngleAccelerationFactorEnvelope.SaveToJSON);
 
  TPasJSONItemObject(result).Add('driftsteeranglelimitenvelope',fDriftSteerAngleLimitEnvelope.SaveToJSON);
 
@@ -2649,6 +2662,7 @@ begin
   LaterialVelocity:=Vector3Dot(LaterialDirection,fVehicle.fRigidBody.GetWorldLinearVelocityFromPoint(SuspensionPosition));
   DesiredVelocityChange:=-(LaterialVelocity*GetWheelGripFactor*SlipperyK);
   DesiredAcceleration:=DesiredVelocityChange*fVehicle.fInverseDeltaTime;
+  fLaterialForceStrength:=abs(DesiredVelocityChange);
   Force:=Vector3ScalarMul(LaterialDirection,DesiredAcceleration*fSettings.fMass);
 {$ifdef DebugDraw}
   Vector3DirectAdd(fDebugLaterialForce,Force);
@@ -2656,12 +2670,14 @@ begin
   if Vector3Length(Force)>EPSILON then begin
    fVehicle.fRigidBody.AddForceAtPosition(Force,GetWheelTorquePosition,kfmForce,false);
   end;
+ end else begin
+  fLaterialForceStrength:=0.0;
  end;
 end;
 
 procedure TKraftRayCastVehicle.TWheel.UpdateAcceleration;
 var WheelForward,Force:TKraftVector3;
-    MaximumSpeed,MaximumReverseSpeed,ForceMagnitude:TKraftScalar;
+    MaximumSpeed,MaximumReverseSpeed,ForceMagnitude,Factor,DriftK:TKraftScalar;
 begin
 
 {$ifdef DebugDraw}
@@ -2691,7 +2707,14 @@ begin
 
    WheelForward:=GetWheelLongitudinalDirection;
 
-   ForceMagnitude:=fVehicle.fAccelerationForceMagnitude;
+   DriftK:=fVehicle.GetDriftK;
+   if not IsZero(DriftK) then begin
+    Factor:=Lerp(1.0,Max(1.0,fVehicle.fSettings.fDriftAngleAccelerationFactorEnvelope.GetValueAtTime(abs(fYawRad*RAD2DEG))),DriftK);
+   end else begin
+    Factor:=1.0;
+   end;
+
+   ForceMagnitude:=fVehicle.fAccelerationForceMagnitude*Factor;
 
    Force:=Vector3ScalarMul(WheelForward,ForceMagnitude*Clamp01(fSettings.fAccelerationForceFactor)*fVehicle.fInverseDeltaTime);
 //   Force:=Vector3ScalarMul(WheelForward,fVehicle.fAccelerationForceMagnitude*Clamp01(fSettings.fAccelerationForceFactor)*fVehicle.fInverseDeltaTime);
@@ -3453,7 +3476,7 @@ begin
 
  end;
 
- fAccelerationForceMagnitude:=CalcAccelerationForceMagnitude*Clamp01(0.8+((1.0-GetHandBrakeK)*0.2));
+ fAccelerationForceMagnitude:=CalcAccelerationForceMagnitude*Clamp01(0.8+((1.0-GetHandBrakeK)*0.2));//*Lerp(1.0,1.0,Clamp01(GetDriftK));
 
  if IsBrakeNow or IsHandBrakeNow then begin
   fBrakeForceMagnitude:=CalcBrakeForceMagnitude;
