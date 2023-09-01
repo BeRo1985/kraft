@@ -456,6 +456,9 @@ type { TKraftRayCastVehicle }
               fSteerAngleLimitEnvelope:TEnvelope;
               fSteeringResetSpeedEnvelope:TEnvelope;
               fSteeringSpeedEnvelope:TEnvelope;
+              fDriftSteerAngleLimitEnvelope:TEnvelope;
+              fDriftSteeringResetSpeedEnvelope:TEnvelope;
+              fDriftSteeringSpeedEnvelope:TEnvelope;
               fGripFactorEnvelope:TEnvelope;
               fDrivingTractionFactorEnvelope:TEnvelope;
               fDownForceCurveEnvelope:TEnvelope;
@@ -511,6 +514,9 @@ type { TKraftRayCastVehicle }
               property SteerAngleLimitEnvelope:TEnvelope read fSteerAngleLimitEnvelope;
               property SteeringResetSpeedEnvelope:TEnvelope read fSteeringResetSpeedEnvelope;
               property SteeringSpeedEnvelope:TEnvelope read fSteeringSpeedEnvelope;
+              property DriftSteerAngleLimitEnvelope:TEnvelope read fSteerAngleLimitEnvelope;
+              property DriftSteeringResetSpeedEnvelope:TEnvelope read fSteeringResetSpeedEnvelope;
+              property DriftSteeringSpeedEnvelope:TEnvelope read fSteeringSpeedEnvelope;
               property GripFactorEnvelope:TEnvelope read fGripFactorEnvelope;
               property DrivingTractionFactorEnvelope:TEnvelope read fDrivingTractionFactorEnvelope;
               property DownForceCurveEnvelope:TEnvelope read fDownForceCurveEnvelope;
@@ -739,7 +745,7 @@ type { TKraftRayCastVehicle }
        function RayCastFilter(const aPoint,aNormal:TKraftVector3;const aTime:TKraftScalar;const aShape:TKraftShape):boolean;
        function GetHandBrakeK:TKraftScalar;
        function GetDriftK:TKraftScalar;
-       function GetSteeringHandBrakeDriftK:TKraftScalar;
+       function GetSteeringHandBrakeK:TKraftScalar;
        function GetSteerAngleLimitInDegrees(const aSpeedKMH:TKraftScalar):TKraftScalar;
        function GetSpeed:TKraftScalar;
        function GetAccelerationOrBrakeForceMagnitude(const aEnvelope:TEnvelope;const aSpeedKMH,aDeltaTime:TKraftScalar;const aBraking:boolean):TKraftScalar;
@@ -1662,6 +1668,12 @@ begin
 
  fSteeringSpeedEnvelope:=TEnvelope.CreateLinear(0.0,2.0,100.0,0.5);
 
+ fDriftSteerAngleLimitEnvelope:=TEnvelope.CreateLinear(0.0,35.0,100.0,5.0);
+
+ fDriftSteeringResetSpeedEnvelope:=TEnvelope.CreateEaseInOut(0.0,30.0,100.0,10.0,64);
+
+ fDriftSteeringSpeedEnvelope:=TEnvelope.CreateLinear(0.0,2.0,100.0,0.5);
+
  fGripFactorEnvelope:=TEnvelope.CreateLinear(0.0,1.0,100.0,1.0);
 
  fDrivingTractionFactorEnvelope:=TEnvelope.CreateLinear(10.0,0.0,50.0,1.0);
@@ -1702,6 +1714,9 @@ begin
  FreeAndNil(fSteerAngleLimitEnvelope);
  FreeAndNil(fSteeringResetSpeedEnvelope);
  FreeAndNil(fSteeringSpeedEnvelope);
+ FreeAndNil(fDriftSteerAngleLimitEnvelope);
+ FreeAndNil(fDriftSteeringResetSpeedEnvelope);
+ FreeAndNil(fDriftSteeringSpeedEnvelope);
  FreeAndNil(fGripFactorEnvelope);
  FreeAndNil(fDrivingTractionFactorEnvelope);
  FreeAndNil(fDownForceCurveEnvelope);
@@ -1795,6 +1810,15 @@ begin
 
  // The steering speed envelope
  fSteeringSpeedEnvelope.FillLinear(0.0,2.0,100.0,0.5);
+
+ // The drift steering angle limit envelope
+ fDriftSteerAngleLimitEnvelope.FillLinear(0.0,35.0,100.0,5.0);
+
+ // The drift steering reset speed envelope
+ fDriftSteeringResetSpeedEnvelope.FillEaseInOut(0.0,30.0,100.0,10.0,64);
+
+ // The drift steering speed envelope
+ fDriftSteeringSpeedEnvelope.FillLinear(0.0,2.0,100.0,0.5);
 
  // The grip envelope
  fGripFactorEnvelope.FillLinear(0.0,1.0,100.0,1.0);
@@ -2061,6 +2085,12 @@ begin
 
   fSteeringSpeedEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['steeringspeedenvelope']);
 
+  fDriftSteerAngleLimitEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['driftsteeranglelimitenvelope']);
+
+  fDriftSteeringResetSpeedEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['driftsteeringresetspeedenvelope']);
+
+  fDriftSteeringSpeedEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['driftsteeringspeedenvelope']);
+
   fGripFactorEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['gripfactorenvelope']);
 
   fDrivingTractionFactorEnvelope.LoadFromJSON(TPasJSONItemObject(aJSONItem).Properties['drivingtractionfactorenvelope']);
@@ -2219,6 +2249,12 @@ begin
  TPasJSONItemObject(result).Add('steeringresetspeedenvelope',fSteeringResetSpeedEnvelope.SaveToJSON);
 
  TPasJSONItemObject(result).Add('steeringspeedenvelope',fSteeringSpeedEnvelope.SaveToJSON);
+
+ TPasJSONItemObject(result).Add('driftsteeranglelimitenvelope',fDriftSteerAngleLimitEnvelope.SaveToJSON);
+
+ TPasJSONItemObject(result).Add('driftsteeringresetspeedenvelope',fDriftSteeringResetSpeedEnvelope.SaveToJSON);
+
+ TPasJSONItemObject(result).Add('driftsteeringspeedenvelope',fDriftSteeringSpeedEnvelope.SaveToJSON);
 
  TPasJSONItemObject(result).Add('gripfactorenvelope',fGripFactorEnvelope.SaveToJSON);
 
@@ -3149,14 +3185,19 @@ begin
  result:=result*result*result*(result*((result*6.0)-15.0)+10.0);
 end;
 
-function TKraftRayCastVehicle.GetSteeringHandBrakeDriftK:TKraftScalar;
+function TKraftRayCastVehicle.GetSteeringHandBrakeK:TKraftScalar;
 begin
- result:=0.4+(Min(1.0-GetHandBrakeK,1.0-GetDriftK)*0.6);
+ result:=0.4+((1.0-GetHandBrakeK)*0.6);
 end;
 
 function TKraftRayCastVehicle.GetSteerAngleLimitInDegrees(const aSpeedKMH:TKraftScalar):TKraftScalar;
+var DriftK:TKraftScalar;
 begin
- result:=fSettings.fSteerAngleLimitEnvelope.GetValueAtTime(aSpeedKMH*GetSteeringHandBrakeDriftK);
+ result:=fSettings.fSteerAngleLimitEnvelope.GetValueAtTime(aSpeedKMH*GetSteeringHandBrakeK);
+ DriftK:=GetDriftK;
+ if not IsZero(DriftK) then begin
+  result:=Lerp(result,fSettings.fDriftSteerAngleLimitEnvelope.GetValueAtTime(aSpeedKMH),DriftK);
+ end;
 end;
 
 function TKraftRayCastVehicle.GetSpeed:TKraftScalar;
@@ -3306,7 +3347,7 @@ begin
 end;
 
 procedure TKraftRayCastVehicle.UpdateInput;
-var Vertical,Horizontal,NewSteerAngle,AngleReturnSpeedDegressPerSecond:TKraftScalar;
+var Vertical,Horizontal,NewSteerAngle,AngleReturnSpeedDegressPerSecond,Factor:TKraftScalar;
     IsBrakeNow,IsHandBrakeNow:boolean;
 begin
 
@@ -3366,10 +3407,18 @@ begin
  fIsJump:=fInputJump;
 
  if abs(Horizontal)>0.001 then begin
-  NewSteerAngle:=fSteeringAngle+(Horizontal*fSettings.fSteeringSpeedEnvelope.GetValueAtTime(fAbsoluteSpeedKMH*GetSteeringHandBrakeDriftK));
+  Factor:=fSettings.fSteeringSpeedEnvelope.GetValueAtTime(fAbsoluteSpeedKMH*GetSteeringHandBrakeK);
+  if not IsZero(fDriftSlipperyTiresTime) then begin
+   Factor:=Lerp(Factor,fSettings.fDriftSteeringSpeedEnvelope.GetValueAtTime(fAbsoluteSpeedKMH),GetDriftK);
+  end;
+  NewSteerAngle:=fSteeringAngle+(Horizontal*Factor);
   fSteeringAngle:=Min(abs(NewSteerAngle),GetSteerAngleLimitInDegrees(fSpeedKMH))*Sign(NewSteerAngle);
  end else begin
-  AngleReturnSpeedDegressPerSecond:=fSettings.fSteeringResetSpeedEnvelope.GetValueAtTime(fAbsoluteSpeedKMH)*Clamp01(fAbsoluteSpeedKMH*0.5);
+  Factor:=fSettings.fSteeringResetSpeedEnvelope.GetValueAtTime(fAbsoluteSpeedKMH);
+  if not IsZero(fDriftSlipperyTiresTime) then begin
+   Factor:=Lerp(Factor,fSettings.fDriftSteeringResetSpeedEnvelope.GetValueAtTime(fAbsoluteSpeedKMH),GetDriftK);
+  end;
+  AngleReturnSpeedDegressPerSecond:=Factor*Clamp01(fAbsoluteSpeedKMH*0.5);
   fSteeringAngle:=Max(abs(fSteeringAngle)-(AngleReturnSpeedDegressPerSecond*fDeltaTime),0.0)*Sign(fSteeringAngle);
  end;
 
