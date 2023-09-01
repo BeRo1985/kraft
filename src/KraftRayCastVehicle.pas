@@ -3675,8 +3675,9 @@ begin
     // Jump phase 3: The "drifting-after-jump" phase, do nothing and abort the repeat loop, until "ReleaseJump" is called, for example after drifting and so on  
     if fSettings.fDriftAfterJump and not fIsJump then begin
      fJumpState:=4; // Direct to the "multi-jump-prevention" phase
+    end else begin
+     break;
     end;
-    break;
    end;
    4:begin
     // Jump phase 4: The "multi-jump-prevention" phase, so check if the jump button is released, and if so, reset the jump state to 0, so that
