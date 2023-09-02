@@ -1675,7 +1675,7 @@ begin
 
  fSteeringResetSpeedEnvelope:=TEnvelope.CreateEaseInOut(0.0,30.0,100.0,10.0,64);
 
- fSteeringSpeedEnvelope:=TEnvelope.CreateLinear(0.0,2.0,100.0,0.5);
+ fSteeringSpeedEnvelope:=TEnvelope.CreateLinear(0.0,200.0,100.0,50.0);
 
  fDriftAngleAccelerationFactorEnvelope:=TEnvelope.CreateLinear(1.0,1.0,90.0,1.0);
 
@@ -1683,7 +1683,7 @@ begin
 
  fDriftSteeringResetSpeedEnvelope:=TEnvelope.CreateEaseInOut(0.0,30.0,100.0,10.0,64);
 
- fDriftSteeringSpeedEnvelope:=TEnvelope.CreateLinear(0.0,2.0,100.0,0.5);
+ fDriftSteeringSpeedEnvelope:=TEnvelope.CreateLinear(0.0,200.0,100.0,50.0);
 
  fGripFactorEnvelope:=TEnvelope.CreateLinear(0.0,1.0,100.0,1.0);
 
@@ -1823,7 +1823,7 @@ begin
  fSteeringResetSpeedEnvelope.FillEaseInOut(0.0,30.0,100.0,10.0,64);
 
  // The steering speed envelope
- fSteeringSpeedEnvelope.FillLinear(0.0,2.0,100.0,0.5);
+ fSteeringSpeedEnvelope.FillLinear(0.0,200.0,100.0,50.0);
 
  // The drift angle acceleration factor envelope
  fDriftAngleAccelerationFactorEnvelope.FillLinear(1.0,1.0,90.0,1.0);
@@ -1835,7 +1835,7 @@ begin
  fDriftSteeringResetSpeedEnvelope.FillEaseInOut(0.0,30.0,100.0,10.0,64);
 
  // The drift steering speed envelope
- fDriftSteeringSpeedEnvelope.FillLinear(0.0,2.0,100.0,0.5);
+ fDriftSteeringSpeedEnvelope.FillLinear(0.0,200.0,100.0,50.0);
 
  // The grip envelope
  fGripFactorEnvelope.FillLinear(0.0,1.0,100.0,1.0);
