@@ -3451,7 +3451,7 @@ begin
   if not IsZero(fDriftSlipperyTiresTime) then begin
    Factor:=Lerp(Factor,fSettings.fDriftSteeringSpeedEnvelope.GetValueAtTime(fAbsoluteSpeedKMH),GetDriftK);
   end;
-  NewSteerAngle:=fSteeringAngle+(Horizontal*Factor);
+  NewSteerAngle:=fSteeringAngle+(Horizontal*Factor*fDeltaTime);
   fSteeringAngle:=Min(abs(NewSteerAngle),GetSteerAngleLimitInDegrees(fSpeedKMH))*Sign(NewSteerAngle);
  end else begin
   Factor:=fSettings.fSteeringResetSpeedEnvelope.GetValueAtTime(fAbsoluteSpeedKMH);
