@@ -18996,7 +18996,7 @@ var CountPoints:TKraftInt32;
  begin
   result:=Tri.n[0]<0;
  end;
- function TriNEIB(const Tri:TTri;const va,vb:TKraftInt32):plongint;
+ function TriNEIB(const Tri:TTri;const va,vb:TKraftInt32):PKraftInt32;
  var i,i1,i2:TKraftInt32;
  begin
   for i:=0 to 2 do begin
@@ -19016,7 +19016,7 @@ var CountPoints:TKraftInt32;
  end;
  procedure NNFix(var Tris:TTris;const CountTris,k:TKraftInt32);
  var i,i1,i2:TKraftInt32;
-     nn:plongint;
+     nn:PKraftInt32;
  begin
   if Tris[k].ID>=0 then begin
    Assert(Tris[k].ID=k);
@@ -24332,7 +24332,7 @@ end;
 procedure TKraftMesh.Load(const AVertices:PKraftVector3;const ACountVertices:TKraftInt32;const ANormals:PKraftVector3;const ACountNormals:TKraftInt32;const AVertexIndices,ANormalIndices:pointer;const ACountIndices:TKraftInt32);
 var i:TKraftInt32;
     Triangle:PKraftMeshTriangle;
-    v,n:plongint;
+    v,n:PKraftInt32;
     HasNormals:boolean;
 begin
 
