@@ -24278,6 +24278,7 @@ function TKraftMesh.AddTriangle(const AVertexIndex0,AVertexIndex1,AVertexIndex2:
 var Triangle:PKraftMeshTriangle;
     TriangleVertices:TKraftMeshTriangleVertices;
     Temporary:TKraftInt32;
+    n:TKraftVector3;
 begin
  if (AVertexIndex0=AVertexIndex1) or (AVertexIndex0=AVertexIndex2) or (AVertexIndex1=AVertexIndex2) then begin
   result:=-1;
@@ -24311,6 +24312,18 @@ begin
    Triangle^.Plane.Normal:=Vector3NormEx(Vector3Cross(Vector3Sub(fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[0]]),Vector3Sub(fVertices[Triangle^.Vertices[2]],fVertices[Triangle^.Vertices[0]])));
    Triangle^.Plane.Distance:=-Vector3Dot(Triangle^.Plane.Normal,fVertices[Triangle^.Vertices[0]]);
    Triangle^.Next:=-1;
+   if (Triangle^.Normals[0]>=0) and (Triangle^.Normals[1]>=0) and (Triangle^.Normals[2]>=0) then begin
+    n:=Vector3NormEx(Vector3Avg(fNormals[Triangle^.Normals[0]],fNormals[Triangle^.Normals[1]],fNormals[Triangle^.Normals[2]]));
+    if Vector3Dot(Triangle^.Plane.Normal,n)<0.0 then begin
+     Triangle^.Vertices[1]:=AVertexIndex2;
+     Triangle^.Vertices[2]:=AVertexIndex1;
+     Triangle^.Normals[1]:=ANormalIndex2;
+     Triangle^.Normals[2]:=ANormalIndex1;
+     Triangle^.Center:=Vector3Avg(Vertices[Triangle^.Vertices[0]],Vertices[Triangle^.Vertices[1]],Vertices[Triangle^.Vertices[2]]);
+     Triangle^.Plane.Normal:=Vector3NormEx(Vector3Cross(Vector3Sub(fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[0]]),Vector3Sub(fVertices[Triangle^.Vertices[2]],fVertices[Triangle^.Vertices[0]])));
+     Triangle^.Plane.Distance:=-Vector3Dot(Triangle^.Plane.Normal,fVertices[Triangle^.Vertices[0]]);
+    end;
+   end;
    fTriangleVerticesHashMap.Add(TriangleVertices,result);
   end;
  end;
