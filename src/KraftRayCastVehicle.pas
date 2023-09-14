@@ -654,6 +654,7 @@ type { TKraftRayCastVehicle }
        fPhysics:TKraft;
        fOwnsRigidBody:Boolean;
        fOwnsFreeShape:Boolean;
+       fOnRayCastFilter:TKraftOnRayCastFilterHook;
        fConvexHull:TKraftConvexHull;
        fRigidBody:TKraftRigidBody;
        fShape:TKraftShape;
@@ -801,6 +802,7 @@ type { TKraftRayCastVehicle }
        property Axles:TAxles read fAxles;
       published
        property Physics:TKraft read fPhysics;
+       property OnRayCastFilter:TKraftOnRayCastFilterHook read fOnRayCastFilter;
        property ConvexHull:TKraftConvexHull read fConvexHull write fConvexHull;
        property RigidBody:TKraftRigidBody read fRigidBody write fRigidBody;
        property Shape:TKraftShape read fShape write fShape;
@@ -3024,6 +3026,7 @@ constructor TKraftRayCastVehicle.Create(const aPhysics:TKraft);
 begin
  inherited Create;
  fPhysics:=aPhysics;
+ fOnRayCastFilter:=nil;
  fConvexHull:=nil;
  fOwnsRigidBody:=false;
  fOwnsFreeShape:=false;
@@ -3085,6 +3088,10 @@ begin
     end;
    end;
   end;
+ end;
+ if assigned(fOnRayCastFilter) and not fOnRayCastFilter(aPoint,aNormal,aTime,aShape) then begin
+  result:=false;
+  exit;
  end;
  result:=Vector3Dot(aNormal,fWorldUp)>0.0;
 end;
