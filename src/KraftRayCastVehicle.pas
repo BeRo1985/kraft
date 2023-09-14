@@ -802,7 +802,7 @@ type { TKraftRayCastVehicle }
        property Axles:TAxles read fAxles;
       published
        property Physics:TKraft read fPhysics;
-       property OnRayCastFilter:TKraftOnRayCastFilterHook read fOnRayCastFilter;
+       property OnRayCastFilter:TKraftOnRayCastFilterHook read fOnRayCastFilter write fOnRayCastFilter;
        property ConvexHull:TKraftConvexHull read fConvexHull write fConvexHull;
        property RigidBody:TKraftRigidBody read fRigidBody write fRigidBody;
        property Shape:TKraftShape read fShape write fShape;
