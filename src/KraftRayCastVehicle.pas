@@ -466,6 +466,8 @@ type { TKraftRayCastVehicle }
               fDownForceFactor:TKraftScalar;
               fJumpImpulse:TKraftScalar;
               fDriftAfterJump:LongBool;
+              fSuperJumpImpulse:TKraftScalar;
+              fDriftAfterSuperJump:LongBool;
               fFlightSteeringTorqueFactor:TKraftScalar;
               fFlightStabilizationAngularVelocityDamping:TKraftVector3;
               fFlightStabilizationDamping:TKraftScalar;
@@ -526,6 +528,8 @@ type { TKraftRayCastVehicle }
               property DownForceFactor:TKraftScalar read fDownForceFactor write fDownForceFactor;
               property JumpImpulse:TKraftScalar read fJumpImpulse write fJumpImpulse;
               property DriftAfterJump:LongBool read fDriftAfterJump write fDriftAfterJump;
+              property SuperJumpImpulse:TKraftScalar read fSuperJumpImpulse write fSuperJumpImpulse;
+              property DriftAfterSuperJump:LongBool read fDriftAfterSuperJump write fDriftAfterSuperJump;
               property FlightSteeringTorqueFactor:TKraftScalar read fFlightSteeringTorqueFactor write fFlightSteeringTorqueFactor;
               property FlightStabilizationAngularVelocityDamping:TKraftVector3 read fFlightStabilizationAngularVelocityDamping write fFlightStabilizationAngularVelocityDamping;
               property FlightStabilizationDamping:TKraftScalar read fFlightStabilizationDamping write fFlightStabilizationDamping;
@@ -650,6 +654,9 @@ type { TKraftRayCastVehicle }
             TOnGroundContactAfterJump=function(const aSender:TKraftRayCastVehicle):Boolean of object;
             TOnJump=procedure(const aSender:TKraftRayCastVehicle) of object;
             TOnJumpDone=procedure(const aSender:TKraftRayCastVehicle) of object;
+            TOnGroundContactAfterSuperJump=function(const aSender:TKraftRayCastVehicle):Boolean of object;
+            TOnSuperJump=procedure(const aSender:TKraftRayCastVehicle) of object;
+            TOnSuperJumpDone=procedure(const aSender:TKraftRayCastVehicle) of object;
       private
        fPhysics:TKraft;
        fOwnsRigidBody:Boolean;
@@ -703,10 +710,14 @@ type { TKraftRayCastVehicle }
        fInputHandBrake:Boolean;
        fInputDrift:Boolean;
        fInputJump:Boolean;
+       fInputSuperJump:Boolean;
        fInputAI:Boolean;
        fIsJump:Boolean;
        fJumpState:TKraftInt32;
        fDriftAfterJump:Boolean;
+       fIsSuperJump:Boolean;
+       fSuperJumpState:TKraftInt32;
+       fDriftAfterSuperJump:Boolean;
        fIsAcceleration:Boolean;
        fIsReverseAcceleration:Boolean;
        fIsBrake:Boolean;
@@ -735,6 +746,9 @@ type { TKraftRayCastVehicle }
        fOnGroundContactAfterJump:TOnGroundContactAfterJump;
        fOnJump:TOnJump;
        fOnJumpDone:TOnJumpDone;
+       fOnGroundContactAfterSuperJump:TOnGroundContactAfterJump;
+       fOnSuperJump:TOnJump;
+       fOnSuperJumpDone:TOnJumpDone;
        fData:TObject;
 {$ifdef DebugDraw}
        fDebugAirResistanceForce:TKraftVector3;
@@ -773,6 +787,7 @@ type { TKraftRayCastVehicle }
        procedure UpdateAirResistance;
        procedure UpdateDownForce;
        procedure UpdateJump;
+       procedure UpdateSuperJump;
        procedure UpdateFlightStabilization;
        procedure UpdateKeepUpright;
        procedure UpdateWheelRotations;
@@ -783,6 +798,7 @@ type { TKraftRayCastVehicle }
        procedure Reset;
        procedure Finish;
        procedure ReleaseJump;
+       procedure ReleaseSuperJump;
        procedure Update(const aDeltaTime:TKraftScalar);
        procedure StoreWorldTransforms;
        procedure InterpolateWorldTransforms(const aAlpha:TKraftScalar);
@@ -797,6 +813,9 @@ type { TKraftRayCastVehicle }
        property OnGroundContactAfterJump:TOnGroundContactAfterJump read fOnGroundContactAfterJump write fOnGroundContactAfterJump;
        property OnJump:TOnJump read fOnJump write fOnJump;
        property OnJumpDone:TOnJumpDone read fOnJumpDone write fOnJumpDone;
+       property OnGroundContactAfterSuperJump:TOnGroundContactAfterSuperJump read fOnGroundContactAfterSuperJump write fOnGroundContactAfterSuperJump;
+       property OnSuperJump:TOnSuperJump read fOnJump write fOnSuperJump;
+       property OnSuperJumpDone:TOnSuperJumpDone read fOnSuperJumpDone write fOnSuperJumpDone;
        property Data:TObject read fData write fData;
        property Wheels:TWheels read fWheels;
        property Axles:TAxles read fAxles;
@@ -846,6 +865,7 @@ type { TKraftRayCastVehicle }
        property InputHandBrake:Boolean read fInputHandBrake write fInputHandBrake;
        property InputDrift:Boolean read fInputDrift write fInputDrift;
        property InputJump:Boolean read fInputJump write fInputJump;
+       property InputSuperJump:Boolean read fInputSuperJump write fInputSuperJump;
        property InputAI:Boolean read fInputAI write fInputAI;
        property Speed:TKraftScalar read fSpeed write fSpeed;
        property SpeedKMH:TKraftScalar read fSpeedKMH write fSpeedKMH;
@@ -1698,6 +1718,10 @@ begin
 
  fDriftAfterJump:=false;
 
+ fSuperJumpImpulse:=350.0;
+
+ fDriftAfterSuperJump:=false;
+
  fFlightSteeringTorqueFactor:=20.0;
 
  fFlightStabilizationAngularVelocityDamping:=Vector3(40.0,10.0,40.0);
@@ -1854,6 +1878,12 @@ begin
 
  // The DriftAfterJump
  fDriftAfterJump:=false;
+
+ // The super jump impulse
+ fSuperJumpImpulse:=350.0;
+
+ // The DriftAfterSuperJump
+ fDriftAfterSuperJump:=false;
 
  // The flight sterring torque factor
  fFlightSteeringTorqueFactor:=20.0;
@@ -2126,6 +2156,10 @@ begin
 
   fDriftAfterJump:=TPasJSON.GetBoolean(TPasJSONItemObject(aJSONItem).Properties['driftafterjump'],fDriftAfterJump);
 
+  fSuperJumpImpulse:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['superjumpimpulse'],fSuperJumpImpulse);
+
+  fDriftAfterSuperJump:=TPasJSON.GetBoolean(TPasJSONItemObject(aJSONItem).Properties['driftaftersuperjump'],fDriftAfterSuperJump);
+
   fFlightSteeringTorqueFactor:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['flightsteeringtorquefactor'],fFlightSteeringTorqueFactor);
 
   fFlightStabilizationAngularVelocityDamping:=JSONToVector3(TPasJSONItemObject(aJSONItem).Properties['flightstabilizationangularvelocitydamping'],fFlightStabilizationAngularVelocityDamping);
@@ -2294,6 +2328,10 @@ begin
  TPasJSONItemObject(result).Add('jumpimpulse',TPasJSONItemNumber.Create(fJumpImpulse));
 
  TPasJSONItemObject(result).Add('driftafterjump',TPasJSONItemBoolean.Create(fDriftAfterJump));
+
+ TPasJSONItemObject(result).Add('superjumpimpulse',TPasJSONItemNumber.Create(fSuperJumpImpulse));
+
+ TPasJSONItemObject(result).Add('driftaftersuperjump',TPasJSONItemBoolean.Create(fDriftAfterSuperJump));
 
  TPasJSONItemObject(result).Add('flightsteeringtorquefactor',TPasJSONItemNumber.Create(fFlightSteeringTorqueFactor));
 
@@ -3043,6 +3081,9 @@ begin
  fOnGroundContactAfterJump:=nil;
  fOnJump:=nil;
  fOnJumpDone:=nil;
+ fOnGroundContactAfterSuperJump:=nil;
+ fOnSuperJump:=nil;
+ fOnSuperJumpDone:=nil;
  fSettings:=TKraftRayCastVehicle.TSettings.Create;
  fWheels:=TKraftRayCastVehicle.TWheels.Create(true);
  fAxles:=TKraftRayCastVehicle.TAxles.Create(true);
@@ -3102,6 +3143,8 @@ begin
  fIsReverseAcceleration:=false;
  fJumpState:=0;
  fDriftAfterJump:=false;
+ fSuperJumpState:=0;
+ fDriftAfterSuperJump:=false;
  fAfterFlightSlipperyTiresTime:=0.0;
  fBrakeSlipperyTiresTime:=0.0;
  fHandBrakeSlipperyTiresTime:=0.0;
@@ -3445,9 +3488,11 @@ begin
 
  fIsHandBrake:=IsHandBrakeNow and not (fIsAcceleration or fIsReverseAcceleration);
 
- fIsDrift:=fInputDrift or fDriftAfterJump;
+ fIsDrift:=fInputDrift or fDriftAfterJump or fDriftAfterSuperJump;
 
  fIsJump:=fInputJump;
+
+ fIsSuperJump:=fInputSuperJump;
 
  if fIsDrift then begin
   fDriftSlipperyTiresTime:=Max(0.1,fSettings.fDriftSlipperyTime);
@@ -3659,9 +3704,9 @@ begin
  end;
 end;
 
-procedure TKraftRayCastVehicle.ReleaseJump; 
+procedure TKraftRayCastVehicle.ReleaseJump;
 begin
- fJumpState:=4; // To the "multi-jump-prevention" phase 
+ fJumpState:=4; // To the "multi-jump-prevention" phase
 end;
 
 procedure TKraftRayCastVehicle.UpdateJump;
@@ -3670,7 +3715,7 @@ begin
  repeat
   case fJumpState of
    1:begin
-    // Jump phase 1: The "maybe-still-on-the-ground-after-jump" phase but check if the vehicle is in the air, and if so, set the jump state to 2 
+    // Jump phase 1: The "maybe-still-on-the-ground-after-jump" phase but check if the vehicle is in the air, and if so, set the jump state to 2
     if (fCountGroundedWheels=0) or not fIsJump then begin
      fJumpState:=2;
     end else begin
@@ -3682,8 +3727,8 @@ begin
     // Jump phase 2: The "in-the-air-after-jump" phase but check if the vehicle is on the ground again, and if so, set the jump state to 3 or 4
     if fCountGroundedWheels>0 then begin
      if assigned(fOnGroundContactAfterJump) then begin
-      // The "ground-hit-after-jump" callback, for example, for playing a sound or start drifting as at Mario Kart       
-      if fOnGroundContactAfterJump(self) then begin 
+      // The "ground-hit-after-jump" callback, for example, for playing a sound or start drifting as at Mario Kart
+      if fOnGroundContactAfterJump(self) then begin
        fJumpState:=3; // Drifting or something-else-after-jump action, so delay the "multi-jump-prevention" phase until the one action is finished, by calling "ReleaseJump"
       end else begin
        if fSettings.fDriftAfterJump then begin
@@ -3692,7 +3737,7 @@ begin
        end else begin
         fJumpState:=4; // Direct to the "multi-jump-prevention" phase
        end;
-      end; 
+      end;
      end else begin
       fJumpState:=4; // Direct to the "multi-jump-prevention" phase
      end;
@@ -3702,7 +3747,7 @@ begin
     end;
    end;
    3:begin
-    // Jump phase 3: The "drifting-after-jump" phase, do nothing and abort the repeat loop, until "ReleaseJump" is called, for example after drifting and so on  
+    // Jump phase 3: The "drifting-after-jump" phase, do nothing and abort the repeat loop, until "ReleaseJump" is called, for example after drifting and so on
     if fSettings.fDriftAfterJump and not fIsJump then begin
      fJumpState:=4; // Direct to the "multi-jump-prevention" phase
     end else begin
@@ -3715,7 +3760,7 @@ begin
     if fIsJump then begin
      // If the jump button is still pressed, do nothing and abort the repeat loop
      break;
-    end else begin 
+    end else begin
      // But if the jump button is released, reset the jump state to 0 for the next jump
      fJumpState:=0;
      if assigned(fOnJumpDone) then begin
@@ -3734,7 +3779,7 @@ begin
       fOnJump(self); // The "jump" callback, for example, for playing a sound
      end;
     end else begin
-     // Otherwise if the jump button is not pressed, do nothing 
+     // Otherwise if the jump button is not pressed, do nothing
     end;
     break; // Abort the repeat loop in any case at this special state, because it is the start "and" end of the jump state machine
    end;
@@ -3742,7 +3787,90 @@ begin
  until false;
 end;
 
- procedure TKraftRayCastVehicle.UpdateFlightStabilization;
+procedure TKraftRayCastVehicle.ReleaseSuperJump;
+begin
+ fSuperJumpState:=4; // To the "multi-jump-prevention" phase
+end;
+
+procedure TKraftRayCastVehicle.UpdateSuperJump;
+begin
+ // The jump state machine is a simple state machine with just five states:
+ repeat
+  case fSuperJumpState of
+   1:begin
+    // Jump phase 1: The "maybe-still-on-the-ground-after-jump" phase but check if the vehicle is in the air, and if so, set the jump state to 2
+    if (fCountGroundedWheels=0) or not fIsSuperJump then begin
+     fSuperJumpState:=2;
+    end else begin
+     // If the vehicle is still on the ground, do nothing and abort the repeat loop
+     break;
+    end;
+   end;
+   2:begin
+    // Jump phase 2: The "in-the-air-after-jump" phase but check if the vehicle is on the ground again, and if so, set the jump state to 3 or 4
+    if fCountGroundedWheels>0 then begin
+     if assigned(fOnGroundContactAfterSuperJump) then begin
+      // The "ground-hit-after-jump" callback, for example, for playing a sound or start drifting as at Mario Kart
+      if fOnGroundContactAfterSuperJump(self) then begin
+       fSuperJumpState:=3; // Drifting or something-else-after-jump action, so delay the "multi-jump-prevention" phase until the one action is finished, by calling "ReleaseJump"
+      end else begin
+       if fSettings.fDriftAfterSuperJump then begin
+        fDriftAfterSuperJump:=true;
+        fSuperJumpState:=3; // Drifting or something-else-after-jump action, so delay the "multi-jump-prevention" phase until the one action is finished, by calling "ReleaseJump"
+       end else begin
+        fSuperJumpState:=4; // Direct to the "multi-jump-prevention" phase
+       end;
+      end;
+     end else begin
+      fSuperJumpState:=4; // Direct to the "multi-jump-prevention" phase
+     end;
+    end else begin
+     // If the vehicle is still in the air, do nothing and abort the repeat loop
+     break;
+    end;
+   end;
+   3:begin
+    // Jump phase 3: The "drifting-after-jump" phase, do nothing and abort the repeat loop, until "ReleaseJump" is called, for example after drifting and so on
+    if fSettings.fDriftAfterSuperJump and not fIsSuperJump then begin
+     fSuperJumpState:=4; // Direct to the "multi-jump-prevention" phase
+    end else begin
+     break;
+    end;
+   end;
+   4:begin
+    // Jump phase 4: The "multi-jump-prevention" phase, so check if the jump button is released, and if so, reset the jump state to 0, so that
+    // as long the jump button is still pressed, don't trigger a new jump
+    if fIsSuperJump then begin
+     // If the jump button is still pressed, do nothing and abort the repeat loop
+     break;
+    end else begin
+     // But if the jump button is released, reset the jump state to 0 for the next jump
+     fSuperJumpState:=0;
+     if assigned(fOnSuperJumpDone) then begin
+      fOnSuperJumpDone(self); // The "jump done" callback, for example, for playing a sound
+     end;
+     fDriftAfterSuperJump:=false;
+    end;
+   end;
+   else {0:}begin
+    // Jump phase 0: If vehicle is on the ground and the jump button is pressed, trigger a new jump
+    if fIsSuperJump and (fCountGroundedWheels>0) then begin
+     fDriftAfterSuperJump:=false;
+     fSuperJumpState:=1;
+     fRigidBody.SetWorldForce(Vector3ScalarMul(fWorldUp,fSettings.SuperJumpImpulse),kfmImpulse);
+     if assigned(fOnSuperJump) then begin
+      fOnSuperJump(self); // The "jump" callback, for example, for playing a sound
+     end;
+    end else begin
+     // Otherwise if the jump button is not pressed, do nothing
+    end;
+    break; // Abort the repeat loop in any case at this special state, because it is the start "and" end of the jump state machine
+   end;
+  end;
+ until false;
+end;
+
+procedure TKraftRayCastVehicle.UpdateFlightStabilization;
 var VehicleUp,AntiGravityUp,Axis,Torque,AngularVelocity:TKraftVector3;
 begin
 
@@ -3874,6 +4002,7 @@ begin
   UpdateAirResistance;
   UpdateDownForce;
   UpdateJump;
+  UpdateSuperJump;
   UpdateFlightStabilization;
   UpdateKeepUpright;
  end;
