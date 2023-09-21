@@ -469,6 +469,8 @@ type { TKraftRayCastVehicle }
               fSuperJumpImpulse:TKraftScalar;
               fDriftAfterSuperJump:LongBool;
               fFlightSteeringTorqueFactor:TKraftScalar;
+              fFlightSteeringTorqueFactorOnJump:TKraftScalar;
+              fFlightSteeringTorqueFactorOnSuperJump:TKraftScalar;
               fFlightStabilizationAngularVelocityDamping:TKraftVector3;
               fFlightStabilizationDamping:TKraftScalar;
               fFlightStabilizationForceFactor:TKraftScalar;
@@ -531,6 +533,8 @@ type { TKraftRayCastVehicle }
               property SuperJumpImpulse:TKraftScalar read fSuperJumpImpulse write fSuperJumpImpulse;
               property DriftAfterSuperJump:LongBool read fDriftAfterSuperJump write fDriftAfterSuperJump;
               property FlightSteeringTorqueFactor:TKraftScalar read fFlightSteeringTorqueFactor write fFlightSteeringTorqueFactor;
+              property FlightSteeringTorqueFactorOnJump:TKraftScalar read fFlightSteeringTorqueFactorOnJump write fFlightSteeringTorqueFactorOnJump;
+              property FlightSteeringTorqueFactorOnSuperJump:TKraftScalar read fFlightSteeringTorqueFactorOnSuperJump write fFlightSteeringTorqueFactorOnSuperJump;
               property FlightStabilizationAngularVelocityDamping:TKraftVector3 read fFlightStabilizationAngularVelocityDamping write fFlightStabilizationAngularVelocityDamping;
               property FlightStabilizationDamping:TKraftScalar read fFlightStabilizationDamping write fFlightStabilizationDamping;
               property FlightStabilizationForceFactor:TKraftScalar read fFlightStabilizationForceFactor write fFlightStabilizationForceFactor;
@@ -1724,6 +1728,10 @@ begin
 
  fFlightSteeringTorqueFactor:=20.0;
 
+ fFlightSteeringTorqueFactorOnJump:=40.0;
+
+ fFlightSteeringTorqueFactorOnSuperJump:=200.0;
+
  fFlightStabilizationAngularVelocityDamping:=Vector3(40.0,10.0,40.0);
  fFlightStabilizationDamping:=0.0;
  fFlightStabilizationForceFactor:=8.0;
@@ -1887,6 +1895,12 @@ begin
 
  // The flight sterring torque factor
  fFlightSteeringTorqueFactor:=20.0;
+
+ // The flight sterring torque factor on jump
+ fFlightSteeringTorqueFactorOnJump:=40.0;
+
+ // The flight sterring torque factor on super jump
+ fFlightSteeringTorqueFactorOnSuperJump:=200.0;
 
  // The flight stabilization settings
  fFlightStabilizationAngularVelocityDamping:=Vector3(40.0,10.0,40.0);
@@ -2162,6 +2176,10 @@ begin
 
   fFlightSteeringTorqueFactor:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['flightsteeringtorquefactor'],fFlightSteeringTorqueFactor);
 
+  fFlightSteeringTorqueFactorOnJump:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['flightsteeringtorquefactoronjump'],fFlightSteeringTorqueFactorOnJump);
+
+  fFlightSteeringTorqueFactorOnSuperJump:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['flightsteeringtorquefactoronsuperjump'],fFlightSteeringTorqueFactorOnSuperJump);
+
   fFlightStabilizationAngularVelocityDamping:=JSONToVector3(TPasJSONItemObject(aJSONItem).Properties['flightstabilizationangularvelocitydamping'],fFlightStabilizationAngularVelocityDamping);
   fFlightStabilizationDamping:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['flightstabilizationdamping'],fFlightStabilizationDamping);
   fFlightStabilizationForceFactor:=TPasJSON.GetNumber(TPasJSONItemObject(aJSONItem).Properties['flightstabilizationforcefactor'],fFlightStabilizationForceFactor);
@@ -2334,6 +2352,10 @@ begin
  TPasJSONItemObject(result).Add('driftaftersuperjump',TPasJSONItemBoolean.Create(fDriftAfterSuperJump));
 
  TPasJSONItemObject(result).Add('flightsteeringtorquefactor',TPasJSONItemNumber.Create(fFlightSteeringTorqueFactor));
+
+ TPasJSONItemObject(result).Add('flightsteeringtorquefactoronjump',TPasJSONItemNumber.Create(fFlightSteeringTorqueFactorOnJump));
+
+ TPasJSONItemObject(result).Add('flightsteeringtorquefactoronsuperjump',TPasJSONItemNumber.Create(fFlightSteeringTorqueFactorOnSuperJump));
 
  TPasJSONItemObject(result).Add('flightstabilizationangularvelocitydamping',Vector3ToJSON(fFlightStabilizationAngularVelocityDamping));
  TPasJSONItemObject(result).Add('flightstabilizationdamping',TPasJSONItemNumber.Create(fFlightStabilizationDamping));
@@ -3626,13 +3648,21 @@ end;
 procedure TKraftRayCastVehicle.UpdateSteering;
 var Index:TKraftInt32;
     Wheel:TWheel;
+    FlightSteeringTorqueFactor:TKraftScalar;
 begin
  for Index:=0 to fWheels.Count-1 do begin
   Wheel:=fWheels[Index];
   Wheel.UpdateLaterialForce;
  end;
- if (fCountGroundedWheels=0) and not (IsZero(fSettings.fFlightSteeringTorqueFactor) or IsZero(fFlightSteering)) then begin
-  fRigidBody.AddBodyTorque(Vector3ScalarMul(Vector3(0.0,fFlightSteering,0.0),fRigidBody.Mass*fSettings.fFlightSteeringTorqueFactor),kfmForce,false);
+ if ((fSuperJumpState=1) or (fSuperJumpState=2)) and not IsZero(fSettings.fFlightSteeringTorqueFactorOnSuperJump) then begin
+  FlightSteeringTorqueFactor:=fSettings.fFlightSteeringTorqueFactorOnSuperJump;
+ end else if ((fJumpState=1) or (fJumpState=2)) and not IsZero(fSettings.fFlightSteeringTorqueFactorOnJump) then begin
+  FlightSteeringTorqueFactor:=fSettings.fFlightSteeringTorqueFactorOnJump;
+ end else begin
+  FlightSteeringTorqueFactor:=fSettings.fFlightSteeringTorqueFactor;
+ end;
+ if (fCountGroundedWheels=0) and not (IsZero(FlightSteeringTorqueFactor) or IsZero(fFlightSteering)) then begin
+  fRigidBody.AddBodyTorque(Vector3ScalarMul(Vector3(0.0,fFlightSteering,0.0),fRigidBody.Mass*FlightSteeringTorqueFactor),kfmForce,false);
  end;
 end;
 
