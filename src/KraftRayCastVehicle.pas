@@ -818,7 +818,7 @@ type { TKraftRayCastVehicle }
        property OnJump:TOnJump read fOnJump write fOnJump;
        property OnJumpDone:TOnJumpDone read fOnJumpDone write fOnJumpDone;
        property OnGroundContactAfterSuperJump:TOnGroundContactAfterSuperJump read fOnGroundContactAfterSuperJump write fOnGroundContactAfterSuperJump;
-       property OnSuperJump:TOnSuperJump read fOnJump write fOnSuperJump;
+       property OnSuperJump:TOnSuperJump read fOnSuperJump write fOnSuperJump;
        property OnSuperJumpDone:TOnSuperJumpDone read fOnSuperJumpDone write fOnSuperJumpDone;
        property Data:TObject read fData write fData;
        property Wheels:TWheels read fWheels;
