@@ -750,9 +750,9 @@ type { TKraftRayCastVehicle }
        fOnGroundContactAfterJump:TOnGroundContactAfterJump;
        fOnJump:TOnJump;
        fOnJumpDone:TOnJumpDone;
-       fOnGroundContactAfterSuperJump:TOnGroundContactAfterJump;
-       fOnSuperJump:TOnJump;
-       fOnSuperJumpDone:TOnJumpDone;
+       fOnGroundContactAfterSuperJump:TOnGroundContactAfterSuperJump;
+       fOnSuperJump:TOnSuperJump;
+       fOnSuperJumpDone:TOnSuperJumpDone;
        fData:TObject;
 {$ifdef DebugDraw}
        fDebugAirResistanceForce:TKraftVector3;
