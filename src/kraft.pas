@@ -32506,7 +32506,8 @@ var OldManifoldCountContacts:TKraftInt32;
 
     // Face contact
 
-    if Manifold.FaceQueryBA.Separation>((Manifold.FaceQueryAB.Separation*RelativeFaceTolerance)+AbsoluteTolerance) then begin
+    if (Manifold.FaceQueryBA.Separation>((Manifold.FaceQueryAB.Separation*RelativeFaceTolerance)+AbsoluteTolerance)) and
+       (Manifold.FaceQueryBA.Index>=0) then begin
 
      // Face contact BA
 
@@ -32516,9 +32517,11 @@ var OldManifoldCountContacts:TKraftInt32;
      Manifold.ContactManifoldType:=kcmtFaceB;
      Manifold.LocalNormal:=ShapeB.fConvexHull.fFaces[Manifold.FaceQueryBA.Index].Plane.Normal;
 
-     ClipFaceContactPoints(ShapeB,IncidentFaceIndex,ShapeA,ReferenceFaceIndex,true);
+     if (ReferenceFaceIndex>=0) and (IncidentFaceIndex>=0) then begin
+      ClipFaceContactPoints(ShapeB,IncidentFaceIndex,ShapeA,ReferenceFaceIndex,true);
+     end;
 
-    end else begin
+    end else if Manifold.FaceQueryAB.Index>=0 then begin
 
      // Face contact AB
 
@@ -32528,7 +32531,9 @@ var OldManifoldCountContacts:TKraftInt32;
      Manifold.ContactManifoldType:=kcmtFaceA;
      Manifold.LocalNormal:=ShapeA.fConvexHull.fFaces[Manifold.FaceQueryAB.Index].Plane.Normal;
 
-     ClipFaceContactPoints(ShapeA,ReferenceFaceIndex,ShapeB,IncidentFaceIndex,false);
+     if (ReferenceFaceIndex>=0) and (IncidentFaceIndex>=0) then begin
+      ClipFaceContactPoints(ShapeA,ReferenceFaceIndex,ShapeB,IncidentFaceIndex,false);
+     end;
 
     end;
 
