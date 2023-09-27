@@ -1641,6 +1641,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fTriangleAreaSplitThreshold:TKraftScalar;
 
+       fParallel:Boolean;
+
        function EvaluateSAH(const aParentTreeNode:PKraftMeshTreeNode;const aAxis:TKraftInt32;const aSplitPosition:TKraftScalar):TKraftScalar;
        function FindBestSplitPlaneMeanVariance(const aParentTreeNode:PKraftMeshTreeNode;out aAxis:TKraftInt32;out aSplitPosition:TKraftScalar):Boolean;
        function FindBestSplitPlaneSAHBruteforce(const aParentTreeNode:PKraftMeshTreeNode;out aAxis:TKraftInt32;out aSplitPosition:TKraftScalar):TKraftScalar;
@@ -1741,6 +1743,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property MaximumTrianglesPerNode:TKraftInt32 read fMaximumTrianglesPerNode write fMaximumTrianglesPerNode;
 
        property TriangleAreaSplitThreshold:TKraftScalar read fTriangleAreaSplitThreshold write fTriangleAreaSplitThreshold;
+
+       property Parallel:Boolean read fParallel write fParallel;
 
      end;
 
@@ -23908,6 +23912,8 @@ begin
 
  fTriangleAreaSplitThreshold:=0.0;
 
+ fParallel:=false;
+
 end;
 
 destructor TKraftMesh.Destroy;
@@ -26111,7 +26117,7 @@ begin
        fNodeQueue.Clear;
        fNodeQueue.Enqueue(0);
        fCountActiveWorkers:=0;
- {$ifdef KraftPasMP}if assigned(fPhysics.fPasMP) and (fPhysics.fPasMP.CountJobWorkerThreads>0) then begin
+ {$ifdef KraftPasMP}if fParallel and assigned(fPhysics.fPasMP) and (fPhysics.fPasMP.CountJobWorkerThreads>0) then begin
         Jobs:=nil;
         try
          SetLength(Jobs,fPhysics.fPasMP.CountJobWorkerThreads);
