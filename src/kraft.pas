@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2023-12-23-05-01-0000                       *
+ *                        Version 2023-12-23-21-14-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -4605,7 +4605,7 @@ function QuaternionToTangentSpaceMatrix3x3(AQuaternion:TKraftQuaternion):TKraftM
 function QuaternionFromMatrix4x4({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} AMatrix:TKraftMatrix4x4):TKraftQuaternion; {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function QuaternionToMatrix4x4(AQuaternion:TKraftQuaternion):TKraftMatrix4x4; {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function QuaternionToEuler({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} AQuaternion:TKraftQuaternion):TKraftVector3; {$ifdef caninline}inline;{$endif}
-procedure QuaternionToAxisAngle(AQuaternion:TKraftQuaternion;var Axis:TKraftVector3;var Angle:TKraftScalar); {$ifdef caninline}inline;{$endif}
+procedure QuaternionToAxisAngle(AQuaternion:TKraftQuaternion;out Axis:TKraftVector3;out Angle:TKraftScalar); {$ifdef caninline}inline;{$endif}
 function QuaternionGenerator(AQuaternion:TKraftQuaternion):TKraftVector3; {$ifdef caninline}inline;{$endif}
 function QuaternionLerp({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} q1,q2:TKraftQuaternion;const t:TKraftScalar):TKraftQuaternion; {$ifdef caninline}inline;{$endif}
 function QuaternionNlerp({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} q1,q2:TKraftQuaternion;const t:TKraftScalar):TKraftQuaternion; {$ifdef caninline}inline;{$endif}
@@ -10499,7 +10499,7 @@ begin
 {$endif}
 end;
 
-procedure QuaternionToAxisAngle(AQuaternion:TKraftQuaternion;var Axis:TKraftVector3;var Angle:TKraftScalar);
+procedure QuaternionToAxisAngle(AQuaternion:TKraftQuaternion;out Axis:TKraftVector3;out Angle:TKraftScalar);
 var SinAngle:TKraftScalar;
 begin
  QuaternionNormalize(AQuaternion);
