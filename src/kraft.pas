@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2023-07-23-03-40-0000                       *
+ *                        Version 2023-12-23-05-01-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -4613,7 +4613,7 @@ function QuaternionSlerp({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} q1
 function QuaternionIntegrate({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} q:TKraftQuaternion;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Omega:TKraftVector3;const DeltaTime:TKraftScalar):TKraftQuaternion; {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function QuaternionSpin({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} q:TKraftQuaternion;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Omega:TKraftVector3;const DeltaTime:TKraftScalar):TKraftQuaternion; overload; {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 procedure QuaternionDirectSpin(var q:TKraftQuaternion;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Omega:TKraftVector3;const DeltaTime:TKraftScalar); overload; {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
-function QuaternionFromToRotation({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} FromDirection,ToDirection:TKraftVector3):TKraftQuaternion; {$ifdef caninline}inline;{$endif}
+function QuaternionFromToRotation({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} aFromDirection,aToDirection:TKraftVector3):TKraftQuaternion; {$ifdef caninline}inline;{$endif}
 
 function Modulo(x,y:TKraftScalar):TKraftScalar; {$ifdef caninline}inline;{$endif}
 function ModuloPos(x,y:TKraftScalar):TKraftScalar; {$ifdef caninline}inline;{$endif}
@@ -10630,8 +10630,29 @@ begin
  q:=QuaternionTermNormalize(tq);
 end;
 
-function QuaternionFromToRotation({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} FromDirection,ToDirection:TKraftVector3):TKraftQuaternion;
-var t:TKraftVector3;
+function QuaternionFromToRotation({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} aFromDirection,aToDirection:TKraftVector3):TKraftQuaternion;
+var FromDirection,ToDirection,t:TKraftVector3;
+    DotProduct:TKraftScalar;
+begin
+ FromDirection:=Vector3Norm(aFromDirection);
+ ToDirection:=Vector3Norm(aToDirection);
+ DotProduct:=Vector3Dot(FromDirection,ToDirection);
+ if Abs(DotProduct)>=1.0 then begin
+  if DotProduct>0.0 then begin
+   result:=QuaternionIdentity;
+  end else begin
+   result:=QuaternionFromAxisAngle(Vector3Perpendicular(FromDirection),PI);
+  end;
+ end else begin
+  t:=Vector3Cross(FromDirection,ToDirection);
+  result.x:=t.x;
+  result.y:=t.y;
+  result.z:=t.z;
+  result.w:=DotProduct+sqrt(Vector3LengthSquared(FromDirection)*Vector3LengthSquared(ToDirection));
+  QuaternionNormalize(result);
+ end;
+end;
+{var t:TKraftVector3;
 begin
  t:=Vector3Cross(Vector3Norm(FromDirection),Vector3Norm(ToDirection));
  result.x:=t.x;
@@ -10640,7 +10661,7 @@ begin
  result.w:=sqrt((sqr(FromDirection.x)+sqr(FromDirection.y)+sqr(FromDirection.z))*
                 (sqr(ToDirection.x)+sqr(ToDirection.y)+sqr(ToDirection.z)))+
                ((FromDirection.x*ToDirection.x)+(FromDirection.y*ToDirection.y)+(FromDirection.z*ToDirection.z));
-end;
+end;}
 
 function Modulo(x,y:TKraftScalar):TKraftScalar; {$ifdef caninline}inline;{$endif}
 begin
