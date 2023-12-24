@@ -16353,15 +16353,23 @@ begin
 
 end;
 
-function MPRAreSweptShapesIntersecting(const ShapeA,ShapeB:TKraftShape;const Sweep:TKraftVector3;const TransformB:TKraftMatrix4x4;var HitPosition:TKraftVector3):boolean;
- function GetSweptExtremePoint(const Direction:TKraftVector3;out ExtremePointA:TKraftVector3):TKraftVector3;
- begin
-  ExtremePointA:=ShapeA.GetLocalFullSupport(Direction);
-  result:=Vector3Sub(ExtremePointA,Vector3TermMatrixMul(ShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Direction,TransformB)),TransformB));
-  if Vector3Dot(Direction,Sweep)>0.0 then begin
-   result:=Vector3Add(result,Sweep);
-  end;
+function MPRGetSweptExtremePoint(const ShapeA,ShapeB:TKraftShape;const Sweep:TKraftVector3;const TransformB:TKraftMatrix4x4;const Direction:TKraftVector3;out ExtremePointA:TKraftVector3):TKraftVector3;
+var ExtremePointB:TKraftVector3;
+begin
+ ExtremePointA:=ShapeA.GetLocalFullSupport(Direction);
+ ExtremePointB:=Vector3TermMatrixMul(
+                 ShapeB.GetLocalFullSupport(
+                  Vector3TermMatrixMulTransposedBasis(Vector3Neg(Direction),TransformB)
+                 ),
+                 TransformB
+                );
+ result:=Vector3Sub(ExtremePointA,ExtremePointB);
+ if Vector3Dot(Direction,Sweep)>0.0 then begin
+  result:=Vector3Add(result,Sweep);
  end;
+end;
+
+function MPRAreSweptShapesIntersecting(const ShapeA,ShapeB:TKraftShape;const Sweep:TKraftVector3;const TransformB:TKraftMatrix4x4;var HitPosition:TKraftVector3):boolean;
 var Count:TKraftInt32;
     LocalPointB,v0,v1,v1a,v2,v2a,v3,v3a,v4,v4a,v1v0,v2v0,v3v0,t,n:TKraftVector3;
     Dot,DotV0,BarycentricCoordinate,v0v1v2v3Volume,v1v2v3Volume,v0v2v3Volume,v0v1v3Volume,
@@ -16385,7 +16393,7 @@ begin
  v0:=Vector3Neg(LocalPointB);
 
  n:=LocalPointB;
- v1:=GetSweptExtremePoint(n,v1a);
+ v1:=MPRGetSweptExtremePoint(ShapeA,ShapeB,Sweep,TransformB,n,v1a);
 
  n:=Vector3Cross(v1,v0);
  if Vector3LengthSquared(n)<EPSILON then begin
@@ -16394,19 +16402,19 @@ begin
    result:=false;
   end else begin
    DotV0:=Vector3Dot(v0,LocalPointB);
-   BarycentricCoordinate:=-(Dotv0/(Dot-DotV0));
+   BarycentricCoordinate:=(-DotV0)/(Dot-DotV0);
    HitPosition:=Vector3ScalarMul(v1a,BarycentricCoordinate);
    result:=true;
   end;
   exit;
  end;
 
- v2:=GetSweptExtremePoint(n,v2a);
+ v2:=MPRGetSweptExtremePoint(ShapeA,ShapeB,Sweep,TransformB,n,v2a);
 
  n:=Vector3Cross(Vector3Sub(v1,v0),Vector3Sub(v2,v0));
 
  for Count:=1 to MPRMaximumIterations do begin
-  v3:=GetSweptExtremePoint(n,v3a);
+  v3:=MPRGetSweptExtremePoint(ShapeA,ShapeB,Sweep,TransformB,n,v3a);
   if Vector3Dot(v0,Vector3Cross(v1,v3))<0.0 then begin
    v2:=v3;
    v2a:=v3a;
@@ -16442,12 +16450,18 @@ begin
    v1Weight:=v0v2v3volume*InverseTotalVolume;
    v2Weight:=v0v1v3volume*InverseTotalVolume;
    v3Weight:=1.0-(v0Weight+v1Weight+v2Weight);
-   HitPosition:=Vector3Add(Vector3Add(Vector3ScalarMul(v1a,v1Weight),Vector3ScalarMul(v2a,v2Weight)),Vector3ScalarMul(v3a,v3Weight));
+   HitPosition:=Vector3Add(
+                 Vector3Add(
+                  Vector3ScalarMul(v1a,v1Weight),
+                  Vector3ScalarMul(v2a,v2Weight)
+                 ),
+                 Vector3ScalarMul(v3a,v3Weight)
+                );
    result:=true;
    exit;
   end;
 
-  v4:=GetSweptExtremePoint(n,v4a);
+  v4:=MPRGetSweptExtremePoint(ShapeA,ShapeB,Sweep,TransformB,n,v4a);
   Dot2:=Vector3Dot(v4,n);
   if (Dot2<0.0) or
      ((Dot2-Dot)<MPRTolerance) or
@@ -16479,7 +16493,7 @@ begin
 
 end;
 
-function MPRSweep(const ShapeA,ShapeB:TKraftShape;const SweepA,SweepB:TKraftSweep):boolean; overload;
+function MPRSweepTest(const ShapeA,ShapeB:TKraftShape;const SweepA,SweepB:TKraftSweep):boolean;
 var RayLengthSquared,SweepLength,MaximumRadius,t0,t1:TKraftScalar;
     VelocityWorld,LocalOrigin,LocalDirection,Sweep,HitPosition,VelocityA,VelocityB:TKraftVector3;
     NegativeSweepLength:boolean;
@@ -16540,6 +16554,86 @@ begin
 
  result:=MPRAreSweptShapesIntersecting(ShapeA,ShapeB,Sweep,LocalTransformBinA,HitPosition);
 
+end;
+
+function MPRSweepCast(const ShapeA,ShapeB:TKraftShape;const SweepA,SweepB:TKraftSweep;out HitPosition,HitNormal:TKraftVector3;out HitTime:TKraftScalar):boolean;
+var RayLengthSquared,SweepLength,MaximumRadius,t0,t1:TKraftScalar;
+    VelocityWorld,LocalOrigin,LocalDirection,Sweep,VelocityA,VelocityB,
+    MinkowskiRayHit:TKraftVector3;
+    NegativeSweepLength:boolean;
+    LocalTransformBinA:TKraftMatrix4x4;
+    Positions:array[0..1,0..1] of TKraftVector3;
+    Transforms:array[0..1,0..1] of TKraftMatrix4x4;
+begin
+ result:=false;
+
+ Transforms[0,0]:=Matrix4x4TermMul(ShapeA.fLocalTransform,SweepTransform(SweepA,0.0));
+ Transforms[0,1]:=Matrix4x4TermMul(ShapeA.fLocalTransform,SweepTransform(SweepA,1.0));
+ Transforms[1,0]:=Matrix4x4TermMul(ShapeB.fLocalTransform,SweepTransform(SweepB,0.0));
+ Transforms[1,1]:=Matrix4x4TermMul(ShapeB.fLocalTransform,SweepTransform(SweepB,1.0));
+
+ Positions[0,0]:=Vector3TermMatrixMul(ShapeA.fLocalCenterOfMass,Transforms[0,0]);
+ Positions[0,1]:=Vector3TermMatrixMul(ShapeA.fLocalCenterOfMass,Transforms[0,1]);
+ Positions[1,0]:=Vector3TermMatrixMul(ShapeB.fLocalCenterOfMass,Transforms[1,0]);
+ Positions[1,1]:=Vector3TermMatrixMul(ShapeB.fLocalCenterOfMass,Transforms[1,1]);
+
+ if not SweepSphereSphere(Positions[0,0],Positions[0,1],ShapeA.fShapeSphere.Radius,Positions[1,0],Positions[1,1],ShapeB.fShapeSphere.Radius,t0,t1) then begin
+  exit;
+ end;
+
+ VelocityA:=Vector3Sub(Positions[0,1],Positions[0,0]);
+ VelocityB:=Vector3Sub(Positions[1,1],Positions[1,0]);
+
+ VelocityWorld:=Vector3Sub(VelocityB,VelocityA);
+
+ LocalDirection:=Vector3SafeNorm(Vector3TermMatrixMulTransposedBasis(VelocityWorld,Transforms[0,0]));
+
+ LocalTransformBinA:=Matrix4x4TermMulInverted(Transforms[1,0],Transforms[0,0]);
+
+ MaximumRadius:=ShapeA.fShapeSphere.Radius+ShapeB.fShapeSphere.Radius;
+
+ LocalOrigin.x:=LocalTransformBinA[3,0];
+ LocalOrigin.y:=LocalTransformBinA[3,1];
+ LocalOrigin.z:=LocalTransformBinA[3,2];
+{$ifdef SIMD}
+ LocalOrigin.w:=0.0;
+{$endif}
+
+ // This sweep amount needs to expand the minkowski difference to fully intersect the plane defined by the sweep direction and origin.
+ RayLengthSquared:=Vector3LengthSquared(LocalDirection);
+ if RayLengthSquared>EPSILON then begin
+  // Scale the sweep length by the margins. Divide by the length to pull the margin into terms of the length of the ray.
+  SweepLength:=(Vector3Dot(LocalOrigin,LocalDirection)+MaximumRadius)/sqrt(RayLengthSquared);
+ end else begin
+  SweepLength:=0.0;
+ end;
+
+ // If the sweep direction is found to be negative, the ray can be thought of as pointing away from the shape, so then do not sweep backward.
+ NegativeSweepLength:=SweepLength<0.0;
+ if NegativeSweepLength then begin
+  SweepLength:=0.0;
+ end;
+
+ Sweep:=Vector3ScalarMul(LocalDirection,SweepLength);
+
+ result:=MPRAreSweptShapesIntersecting(ShapeA,ShapeB,Sweep,LocalTransformBinA,HitPosition);
+ if not result then begin
+  exit;
+ end;
+
+ if NegativeSweepLength then begin
+  HitPosition:=Vector3TermMatrixMulBasis(HitPosition,Transforms[0,0]);
+  HitNormal:=Vector3Norm(Vector3TermMatrixMulBasis(LocalDirection,Transforms[0,0]));
+  HitTime:=0.0;
+  result:=true;
+  exit;
+ end;
+{
+ if MPRSweepActualCast(ShapeA,ShapeB,SweepLength,RayLengthSquared,Sweep,LocalTransformBinA,HitPosition,HitNormal,HitTime) then begin
+  MinkowskiRayHit:=Vector3ScalarMul(LocalDirection,-HitTime);
+
+ end;
+ //}
 end;
 
 function SignedDistanceFieldClosestPoints(const ShapeA,ShapeB:TKraftShape;const TransformA,TransformB:TKraftMatrix4x4;out PositionA,PositionB,ClosestPoint:TKraftVector3;out DistanceA,DistanceB:TKraftScalar):boolean;
@@ -32927,7 +33021,7 @@ var OldManifoldCountContacts:TKraftInt32;
   if (Manifold.CountContacts=0) and SpeculativeContacts and (ContactManager.fPhysics.fContinuousMode=kcmSpeculativeContacts) and
      (assigned(Shapes[0].fRigidBody) and assigned(Shapes[1].fRigidBody)) and
      ((krbfContinuous in Shapes[0].fRigidBody.fFlags) or (krbfContinuous in Shapes[1].fRigidBody.fFlags)) then begin
-   if not (((Shapes[0].fRigidBody.fRigidBodyType=krbtDYNAMIC) and (Shapes[1].fRigidBody.fRigidBodyType=krbtDYNAMIC)) and not
+   if not (((Shapes[0].fRigidBody.fRigidBodyType=krbtDynamic) and (Shapes[1].fRigidBody.fRigidBodyType=krbtDynamic)) and not
            (ContactManager.fPhysics.fContinuousAgainstDynamics and
             ((krbfContinuousAgainstDynamics in Shapes[0].fRigidBody.fFlags) or (krbfContinuousAgainstDynamics in Shapes[1].fRigidBody.fFlags)))) then begin
     for Index:=0 to 1 do begin
@@ -32960,7 +33054,7 @@ var OldManifoldCountContacts:TKraftInt32;
       GJK.UseRadii:=false;
       GJK.Run;
       if (GJK.Distance>0.0) and (GJK.Distance<(VelocityLength+EPSILON)) and not GJK.Failed then begin
-       if MPRSweep(ShapeA,ShapeB,Sweeps[0],Sweeps[1]) then begin
+       if MPRSweepTest(ShapeA,ShapeB,Sweeps[0],Sweeps[1]) then begin
         Manifold.ContactManifoldType:=kcmtSpeculative;
         Manifold.CountContacts:=1;
         Manifold.LocalNormal:=Vector3SafeNorm(Vector3TermMatrixMulTransposedBasis(Vector3Neg(GJK.Normal),Shapes[1].fWorldTransform));
@@ -43142,6 +43236,8 @@ begin
     inc(fContinuousTime,fHighResolutionTimer.GetTime-StartTime);
    end;
   end;
+  else begin
+  end;
  end;
 
  Constraint:=fConstraintFirst;
@@ -43158,7 +43254,7 @@ begin
 
  RigidBody:=fRigidBodyFirst;
  while assigned(RigidBody) do begin
-  if RigidBody.fRigidBodyType<>krbtSTATIC then begin
+  if RigidBody.fRigidBodyType<>krbtStatic then begin
    RigidBody.fForce:=Vector3Origin;
    RigidBody.fTorque:=Vector3Origin;
   end;
