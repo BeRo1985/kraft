@@ -16556,6 +16556,282 @@ begin
 
 end;
 
+function MPRSweepActualCast(const ShapeA,ShapeB:TKraftShape;const SweepLength,RayLengthSquared:TKraftScalar;const LocalDirection,Sweep:TKraftVector3;const LocalTransformBinA:TKraftMatrix4x4;out HitPosition,HitNormal:TKraftVector3;out HitTime:TKraftScalar):boolean;
+var n,v1,v1a,v2,v2a,v3,v3a,v4,v4a,t:TKraftVector3;
+    Rate,Distance,Dot,SupportDot:TKraftScalar;
+    Count:TKraftInt32;
+begin
+
+ result:=false;
+
+ HitPosition:=Vector3Origin;
+ HitNormal:=Vector3Origin;
+ HitTime:=0.0;
+
+ n:=LocalDirection;
+ v1:=MPRGetSweptExtremePoint(ShapeA,ShapeB,Sweep,LocalTransformBinA,n,v1a);
+ 
+ n:=Vector3Cross(v1,LocalDirection);
+ if Vector3LengthSquared(n)<EPSILON then begin
+  if RayLengthSquared>EPSILON then begin
+   HitNormal:=Vector3Norm(Vector3ScalarMul(LocalDirection,1.0/sqrt(RayLengthSquared)));
+  end else begin
+   HitNormal:=Vector3Origin;
+  end;
+  Rate:=Vector3Dot(HitNormal,LocalDirection);
+  Distance:=Vector3Dot(HitNormal,v1);
+  if Rate>0.0 then begin
+   HitTime:=SweepLength-(Distance/Rate);
+  end else begin
+   HitTime:=SweepLength;
+  end;
+  if HitTime<0.0 then begin
+   HitTime:=0.0;
+  end;
+  result:=HitTime<=1.0;
+  exit;
+ end;
+
+ v2:=MPRGetSweptExtremePoint(ShapeA,ShapeB,Sweep,LocalTransformBinA,n,v2a);
+
+ n:=Vector3Cross(v1,v2);
+
+ Dot:=Vector3Dot(n,LocalDirection);
+ if Dot>0.0 then begin
+  t:=v1;
+  v1:=v2;
+  v2:=t;
+  t:=v1a;
+  v1a:=v2a;
+  v2a:=t;
+  n:=Vector3Neg(n);
+ end;
+
+ for Count:=1 to MPRMaximumIterations do begin
+
+  v3:=MPRGetSweptExtremePoint(ShapeA,ShapeB,Sweep,LocalTransformBinA,n,v3a);
+
+  if Vector3Dot(Vector3Cross(v1,v3),LocalDirection)<0.0 then begin
+   v2:=v3;
+   v2a:=v3a;
+   n:=Vector3Cross(v1,v2);
+   continue;
+  end else if Vector3Dot(Vector3Cross(v3,v2),LocalDirection)<0.0 then begin
+   v1:=v3;
+   v1a:=v3a;
+   n:=Vector3Cross(v2,v3);
+   continue;
+  end else begin
+   break;
+  end;
+
+  if Count=MPRMaximumIterations then begin  
+   exit;
+  end;
+
+ end;
+
+ Count:=0;
+ while true do begin
+
+  n:=Vector3Cross(Vector3Sub(v1,v2),Vector3Sub(v3,v2));
+
+  v4:=MPRGetSweptExtremePoint(ShapeA,ShapeB,Sweep,LocalTransformBinA,n,v4a);
+
+  Dot:=Vector3Dot(n,v1);  
+  SupportDot:=Vector3Dot(n,v4);
+
+  if ((SupportDot-Dot)<MPRTolerance) or (Count>MPRMaximumIterations) then begin
+   if Vector3LengthSquared(n)>EPSILON then begin
+    HitNormal:=Vector3Norm(n);
+    Dot:=Vector3Dot(HitNormal,LocalDirection);
+    SupportDot:=Vector3Dot(HitNormal,v1);
+    HitTime:=SweepLength-(SupportDot/Dot);
+   end else begin
+    HitNormal:=LocalDirection;
+    HitTime:=SweepLength;
+   end;
+   if HitTime<0.0 then begin
+    HitTime:=0.0;
+   end;
+   result:=HitTime<=1.0;
+   exit;
+  end;
+
+  t:=Vector3Cross(v4,LocalDirection);
+  
+  if Vector3Dot(v1,t)>=0.0 then begin
+   if Vector3Dot(v2,t)>=0.0 then begin
+    v1:=v4;
+    v1a:=v4a;
+   end else begin
+    v3:=v4;
+    v3a:=v4a;
+   end;
+  end else begin
+   if Vector3Dot(v3,t)>=0.0 then begin
+    v2:=v4;
+    v2a:=v4a;
+   end else begin
+    v1:=v4;
+    v1a:=v4a;
+   end;
+  end;
+
+  inc(Count);
+
+ end;
+
+end;
+
+function MPRGetLocalPosition(const ShapeA,ShapeB:TKraftShape;const LocalTransformBinA:TKraftMatrix4x4;const MinkowskiRayHit:TKraftVector3;out LocalPosition:TKraftVector3):boolean;
+var Count:TKraftInt32;
+    RayDirection,v0,v1,v1a,v1b,v2,v2a,v2b,v3,v3a,v3b,v4,v4a,v4b,t,n,v0v1,v0v2,v0v3,v2v3,v2v1,
+    PointToV0,PointToV1,PointToV2,PointToV3,PointToV4:TKraftVector3;
+    Dot,DotV0,Dot2,BarycentricCoordinate,u,v,w:TKraftScalar;
+begin
+
+ result:=false;
+
+ RayDirection:=Vector3Add(MinkowskiRayHit,Vector3(LocalTransformBinA[3,0],LocalTransformBinA[3,1],LocalTransformBinA[3,2]));
+ 
+ if Vector3LengthSquared(RayDirection)<EPSILON then begin
+  LocalPosition:=Vector3Origin;
+  result:=true;
+  exit;
+ end;
+
+ v0:=Vector3Neg(Vector3(LocalTransformBinA[3,0],LocalTransformBinA[3,1],LocalTransformBinA[3,2]));
+
+ n:=RayDirection;
+
+ v1a:=ShapeA.GetLocalFullSupport(n);
+ v1b:=Vector3TermMatrixMulBasis(ShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),LocalTransformBinA)),LocalTransformBinA);
+ v1:=Vector3Sub(v1b,v1a);
+
+ n:=Vector3Cross(v1,v0);
+ if Vector3LengthSquared(n)<EPSILON then begin
+  Dot:=Vector3Dot(Vector3Sub(v1,MinkowskiRayHit),RayDirection);
+  DotV0:=Vector3Dot(Vector3Sub(v0,MinkowskiRayHit),RayDirection);
+  BarycentricCoordinate:=(-DotV0)/(Dot-DotV0);
+  LocalPosition:=Vector3ScalarMul(v1a,BarycentricCoordinate);
+  result:=true;
+  exit;
+ end;
+
+ v2a:=ShapeA.GetLocalFullSupport(n);
+ v2b:=Vector3TermMatrixMulBasis(ShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),LocalTransformBinA)),LocalTransformBinA);
+ v2:=Vector3Sub(v2b,v2a);
+
+ v0v1:=Vector3Sub(v1,v0);
+ v0v2:=Vector3Sub(v2,v0);
+ n:=Vector3Cross(v0v1,v0v2);
+
+ PointToV0:=Vector3Sub(v0,MinkowskiRayHit);
+
+ Count:=0;
+
+ while true do begin
+
+  v3a:=ShapeA.GetLocalFullSupport(n);
+  v3b:=Vector3TermMatrixMulBasis(ShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),LocalTransformBinA)),LocalTransformBinA);
+  v3:=Vector3Sub(v3b,v3a);
+
+  if Count>MPRMaximumIterations then begin
+   break;
+  end;
+
+  inc(Count);
+
+  v0v1:=Vector3Sub(v1,v0);
+  v0v3:=Vector3Sub(v2,v0);
+  t:=Vector3Cross(v0v1,v0v3);
+  if Vector3Dot(t,PointToV0)<0.0 then begin
+   v2:=v3;
+   v2a:=v3a;
+   v2b:=v3b;
+   n:=Vector3Cross(v0v1,v0v3);
+   continue;
+  end;
+
+  v0v2:=Vector3Sub(v2,v0);
+  t:=Vector3Cross(v0v3,v0v2);
+  if Vector3Dot(t,PointToV0)<0.0 then begin
+   v1:=v3;
+   v1a:=v3a;
+   v1b:=v3b;
+   n:=Vector3Cross(v0v2,v0v3);
+   continue;
+  end;
+
+  break;
+
+ end;
+
+ Count:=0;
+
+ while true do begin
+
+  v2v3:=Vector3Sub(v3,v2);
+  v2v1:=Vector3Sub(v1,v2);
+  n:=Vector3Cross(v2v3,v2v1);
+  
+  PointToV1:=Vector3Sub(v1,MinkowskiRayHit);
+  Dot:=Vector3Dot(PointToV1,n);
+
+  v4a:=ShapeA.GetLocalFullSupport(n);
+  v4b:=Vector3TermMatrixMulBasis(ShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),LocalTransformBinA)),LocalTransformBinA);
+  v4:=Vector3Sub(v4b,v4a);
+
+  PointToV4:=Vector3Sub(v4,MinkowskiRayHit);
+
+  Dot2:=Vector3Dot(PointToV4,n);
+
+  if ((Dot2-Dot)<MPRTolerance) or (Count>MPRMaximumIterations) then begin
+   CartesianToBarycentric(v1,v2,v3,MinkowskiRayHit,u,v,w);
+   LocalPosition:=Vector3(
+                   (u*v1a.x)+(v*v2a.x)+(w*v3a.x),
+                   (u*v1a.y)+(v*v2a.y)+(w*v3a.y),
+                   (u*v1a.z)+(v*v2a.z)+(w*v3a.z)
+                  );
+   result:=true;
+   exit;
+  end;
+
+  inc(Count);
+
+  t:=Vector3Cross(PointToV4,PointToV0);
+  Dot:=Vector3Dot(PointToV1,t);
+  if Dot>=0.0 then begin
+   PointToV2:=Vector3Sub(v2,MinkowskiRayHit);
+   Dot:=Vector3Dot(PointToV2,t);
+   if Dot>=0.0 then begin
+    v1:=v4;
+    v1a:=v4a;
+    v1b:=v4b;
+   end else begin
+    v3:=v4;
+    v3a:=v4a;
+    v3b:=v4b;
+   end;
+  end else begin
+   PointToV3:=Vector3Sub(v3,MinkowskiRayHit);
+   Dot:=Vector3Dot(PointToV3,t);
+   if Dot>=0.0 then begin
+    v2:=v4;
+    v2a:=v4a;
+    v2b:=v4b;
+   end else begin
+    v1:=v4;
+    v1a:=v4a;
+    v1b:=v4b;
+   end;
+  end;
+
+ end;
+
+end;
+
 function MPRSweepCast(const ShapeA,ShapeB:TKraftShape;const SweepA,SweepB:TKraftSweep;out HitPosition,HitNormal:TKraftVector3;out HitTime:TKraftScalar):boolean;
 var RayLengthSquared,SweepLength,MaximumRadius,t0,t1:TKraftScalar;
     VelocityWorld,LocalOrigin,LocalDirection,Sweep,VelocityA,VelocityB,
@@ -16628,12 +16904,15 @@ begin
   result:=true;
   exit;
  end;
-{
- if MPRSweepActualCast(ShapeA,ShapeB,SweepLength,RayLengthSquared,Sweep,LocalTransformBinA,HitPosition,HitNormal,HitTime) then begin
-  MinkowskiRayHit:=Vector3ScalarMul(LocalDirection,-HitTime);
 
+ if MPRSweepActualCast(ShapeA,ShapeB,SweepLength,RayLengthSquared,LocalDirection,Sweep,LocalTransformBinA,HitPosition,HitNormal,HitTime) then begin
+  MinkowskiRayHit:=Vector3ScalarMul(LocalDirection,-HitTime);
+  MPRGetLocalPosition(ShapeA,ShapeB,LocalTransformBinA,MinkowskiRayHit,HitPosition);
+  HitPosition:=Vector3Add(Vector3TermMatrixMul(HitPosition,Transforms[0,0]),Vector3ScalarMul(VelocityA,HitTime));
+  Vector3MatrixMulBasis(HitNormal,Transforms[0,0]);
+  result:=true;
  end;
- //}
+
 end;
 
 function SignedDistanceFieldClosestPoints(const ShapeA,ShapeB:TKraftShape;const TransformA,TransformB:TKraftMatrix4x4;out PositionA,PositionB,ClosestPoint:TKraftVector3;out DistanceA,DistanceB:TKraftScalar):boolean;
