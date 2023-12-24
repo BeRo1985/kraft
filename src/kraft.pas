@@ -16539,6 +16539,7 @@ begin
  Sweep:=Vector3ScalarMul(LocalDirection,SweepLength);
 
  result:=MPRAreSweptShapesIntersecting(ShapeA,ShapeB,Sweep,LocalTransformBinA,HitPosition);
+
 end;
 
 function SignedDistanceFieldClosestPoints(const ShapeA,ShapeB:TKraftShape;const TransformA,TransformB:TKraftMatrix4x4;out PositionA,PositionB,ClosestPoint:TKraftVector3;out DistanceA,DistanceB:TKraftScalar):boolean;
@@ -35117,6 +35118,7 @@ begin
  if fRigidBodyType<>ARigidBodyType then begin
 
   case fRigidBodyType of
+
    krbtStatic:begin
 
     dec(fPhysics.fStaticRigidBodyCount);
@@ -35138,6 +35140,7 @@ begin
     end;
 
    end;
+
    krbtDynamic:begin
 
     dec(fPhysics.fDynamicRigidBodyCount);
@@ -35159,6 +35162,7 @@ begin
     end;
 
    end;
+
    krbtKinematic:begin
 
     dec(fPhysics.fKinematicRigidBodyCount);
@@ -35180,11 +35184,13 @@ begin
     end;
 
    end;
+
   end;
 
   fRigidBodyType:=ARigidBodyType;
 
   case fRigidBodyType of
+
    krbtStatic:begin
 
     if assigned(fPhysics.fStaticRigidBodyLast) then begin
@@ -35201,6 +35207,7 @@ begin
     inc(fPhysics.fStaticRigidBodyCount);
 
    end;
+
    krbtDynamic:begin
 
     if assigned(fPhysics.fDynamicRigidBodyLast) then begin
@@ -35217,6 +35224,7 @@ begin
     inc(fPhysics.fDynamicRigidBodyCount);
 
    end;
+
    krbtKinematic:begin
 
     if assigned(fPhysics.fKinematicRigidBodyLast) then begin
@@ -35233,6 +35241,7 @@ begin
     inc(fPhysics.fKinematicRigidBodyCount);
 
    end;
+
   end;
 
   Shape:=fShapeFirst;
@@ -44235,7 +44244,7 @@ var Hit:boolean;
         kstPlane:begin
          CollideSphereWithPlane(TKraftShapePlane(CurrentShape));
         end;
-                kstTriangle:begin
+        kstTriangle:begin
          CollideSphereWithTriangle(TKraftShapeTriangle(CurrentShape));
         end;
         kstMesh:begin
