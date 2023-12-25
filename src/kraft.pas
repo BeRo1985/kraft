@@ -45037,7 +45037,7 @@ var Sphere:TKraftSphere;
       if AABBIntersect(Node^.AABB,AABB) then begin
        if Node^.Children[0]<0 then begin
         CurrentShape:=Node^.UserData;
-        if assigned(CurrentShape) and (assigned(CurrentShape.fRigidBody) and ((CurrentShape.fRigidBody.fCollisionGroups*CollisionGroups)<>[])) then begin
+        if assigned(CurrentShape) and (CurrentShape<>aShape) and (assigned(CurrentShape.fRigidBody) and ((CurrentShape.fRigidBody.fCollisionGroups*CollisionGroups)<>[])) then begin
          case CurrentShape.fShapeType of
           kstSignedDistanceField:begin
            // Ignore
@@ -45079,7 +45079,7 @@ var Sphere:TKraftSphere;
     if AABBIntersect(Node^.AABB,AABB) then begin
      if Node^.Children[0]<0 then begin
       CurrentShape:=Node^.UserData;
-      if assigned(CurrentShape) and (assigned(CurrentShape.fRigidBody) and ((CurrentShape.fRigidBody.fCollisionGroups*aCollisionGroups)<>[])) then begin
+      if assigned(CurrentShape) and (CurrentShape<>aShape) and (assigned(CurrentShape.fRigidBody) and ((CurrentShape.fRigidBody.fCollisionGroups*aCollisionGroups)<>[])) then begin
        case CurrentShape.fShapeType of
         kstSignedDistanceField:begin
          // Ignore
