@@ -44696,7 +44696,7 @@ var Sphere:TKraftSphere;
     TransformA:TKraftMatrix4x4;
  procedure CollideConvex(const aWithShape:TKraftShape);
  var TransformB:TKraftMatrix4x4;
-     PositionA,PositionB:TKraftVector3;
+     PositionA,PositionB,Normal:TKraftVector3;
      PenetrationDepth:TKraftScalar;
  begin
   TransformB:=aWithShape.fWorldTransform;
@@ -44832,7 +44832,7 @@ begin
 {$endif}
    for TryCounter:=1 to aTryIterations do begin
     Hit:=false;
-    TransformA:=aWithShape.fWorldTransform;
+    TransformA:=aShape.fWorldTransform;
     TransformA[3,0]:=TransformA[3,0]+aSeperation.x;
     TransformA[3,1]:=TransformA[3,1]+aSeperation.y;
     TransformA[3,2]:=TransformA[3,2]+aSeperation.z;
