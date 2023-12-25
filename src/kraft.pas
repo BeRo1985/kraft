@@ -843,6 +843,12 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      end;
      PKraftTriangle=^TKraftTriangle;
 
+     TKraftIndirectTriangle=record
+      Points:array[0..2] of PKraftVector3;
+      Normal:PKraftVector3;
+     end;
+     PKraftIndirectTriangle=^TKraftIndirectTriangle;
+
      TKraftTimeStep=record
       DeltaTime:TKraftScalar;
       InverseDeltaTime:TKraftScalar;
@@ -16046,6 +16052,36 @@ begin
 //result:=OldSphereCastTriangle(RayOrigin,Radius,RayDirection,v0,v1,v2,Normal,DoubldSided,HitNormal,Time);
 end;
 
+function MPRIndirectTriangleGetCenter(const aTriangle:PKraftIndirectTriangle;const aTransform:TKraftMatrix4x4):TKraftVector3;
+begin
+ result:=Vector3TermMatrixMul(Vector3Avg(aTriangle^.Points[0]^,aTriangle^.Points[1]^,aTriangle^.Points[2]^),aTransform);
+end;
+
+function MPRIndirectTriangleGetLocalFullSupport(const aTriangle:PKraftIndirectTriangle;const aDirection:TKraftVector3):TKraftVector3;
+var Index:TKraftInt32;
+    d0,d1,d2:TKraftScalar;
+    Normal:TKraftVector3;
+begin
+ Normal:=Vector3SafeNorm(aDirection);
+ d0:=Vector3Dot(Normal,aTriangle^.Points[0]^);
+ d1:=Vector3Dot(Normal,aTriangle^.Points[1]^);
+ d2:=Vector3Dot(Normal,aTriangle^.Points[2]^);
+ if d0>d1 then begin
+  if d2>d0 then begin
+   Index:=2;
+  end else begin
+   Index:=0;
+  end;
+ end else begin
+  if d2>d1 then begin
+   Index:=2;
+  end else begin
+   Index:=1;
+  end;
+ end;
+ result:=aTriangle^.Points[Index]^;
+end;
+
 function MPRIntersection(const ShapeA,ShapeB:TKraftShape;const TransformA,TransformB:TKraftMatrix4x4):boolean;
 var Phase1Iteration,Phase2Iterations:TKraftInt32;
     v0,v1,v2,v3,v4,t,n:TKraftVector3;
@@ -16263,6 +16299,215 @@ begin
    end;
 
    v4a:=Vector3TermMatrixMul(ShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),TransformA)),TransformA);
+   v4b:=Vector3TermMatrixMul(ShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,TransformB)),TransformB);
+   v4:=Vector3Sub(v4b,v4a);
+
+   PenetrationDepth:=Vector3Dot(v4,n);
+
+   if (Vector3Dot(Vector3Sub(v4,v3),n)<=MPRTolerance) or
+      (PenetrationDepth<=0.0) or
+      (Phase2Iterations>MPRMaximumIterations) then begin
+
+    if result then begin
+
+     Normal:=n;
+
+     b0:=Vector3Dot(Vector3Cross(v1,v2),v3);
+     b1:=Vector3Dot(Vector3Cross(v3,v2),v0);
+     b2:=Vector3Dot(Vector3Cross(v0,v1),v3);
+     b3:=Vector3Dot(Vector3Cross(v2,v1),v0);
+
+     Sum:=b0+b1+b2+b3;
+
+     if Sum<=0.0 then begin
+
+      b0:=0.0;
+      b1:=Vector3Dot(Vector3Cross(v2,v3),n);
+      b2:=Vector3Dot(Vector3Cross(v3,v1),n);
+      b3:=Vector3Dot(Vector3Cross(v1,v2),n);
+
+      Sum:=b1+b2+b3;
+
+     end;
+
+     Inv:=1.0/Sum;
+
+     PositionA.x:=((v0a.x*b0)+(v1a.x*b1)+(v2a.x*b2)+(v3a.x*b3))*Inv;
+     PositionA.y:=((v0a.y*b0)+(v1a.y*b1)+(v2a.y*b2)+(v3a.y*b3))*Inv;
+     PositionA.z:=((v0a.z*b0)+(v1a.z*b1)+(v2a.z*b2)+(v3a.z*b3))*Inv;
+{$ifdef SIMD}
+     PositionA.w:=0.0;
+{$endif}
+
+     PositionB.x:=((v0b.x*b0)+(v1b.x*b1)+(v2b.x*b2)+(v3b.x*b3))*Inv;
+     PositionB.y:=((v0b.y*b0)+(v1b.y*b1)+(v2b.y*b2)+(v3b.y*b3))*Inv;
+     PositionB.z:=((v0b.z*b0)+(v1b.z*b1)+(v2b.z*b2)+(v3b.z*b3))*Inv;
+{$ifdef SIMD}
+     PositionB.w:=0.0;
+{$endif}
+
+    end;
+
+    exit;
+
+   end;
+
+   t:=Vector3Cross(v4,v0);
+
+   if Vector3Dot(t,v1)>0.0 then begin
+
+    if Vector3Dot(t,v2)>0.0 then begin
+
+     v1:=v4;
+     v1a:=v4a;
+     v1b:=v4b;
+
+    end else begin
+
+     v3:=v4;
+     v3a:=v4a;
+     v3b:=v4b;
+
+    end;
+
+   end else begin
+
+    if Vector3Dot(t,v3)>0.0 then begin
+
+     v2:=v4;
+     v2a:=v4a;
+     v2b:=v4b;
+
+    end else begin
+
+     v1:=v4;
+     v1a:=v4a;
+     v1b:=v4b;
+
+    end;
+
+   end;
+
+  until false;
+
+ end;
+
+end;
+
+function MPRIndirectTrianglePenetration(const ShapeA:PKraftIndirectTriangle;const ShapeB:TKraftShape;const TransformA,TransformB:TKraftMatrix4x4;out PositionA,PositionB,Normal:TKraftVector3;out PenetrationDepth:TKraftScalar):boolean;
+var Phase1Iteration,Phase2Iterations:TKraftInt32;
+    b0,b1,b2,b3,Sum,Inv:TKraftScalar;
+    v0,v0a,v0b,v1,v1a,v1b,v2,v2a,v2b,v3,v3a,v3b,v4,v4a,v4b,t,n:TKraftVector3;
+begin
+ result:=false;
+
+ PositionA:=Vector3Origin;
+ PositionB:=Vector3Origin;
+ PenetrationDepth:=0.0;
+
+ v0a:=MPRIndirectTriangleGetCenter(ShapeA,TransformA);
+ v0b:=ShapeB.GetCenter(TransformB);
+ v0:=Vector3Sub(v0b,v0a);
+
+ if Vector3LengthSquared(v0)<1e-5 then begin
+  v0.x:=1e-5;
+ end;
+
+ n:=Vector3Neg(v0);
+ v1a:=Vector3TermMatrixMul(MPRIndirectTriangleGetLocalFullSupport(ShapeA,Vector3TermMatrixMulTransposedBasis(v0,TransformA)),TransformA);
+ v1b:=Vector3TermMatrixMul(ShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,TransformB)),TransformB);
+ v1:=Vector3Sub(v1b,v1a);
+ if Vector3Dot(v1,n)<=0.0 then begin
+  Normal:=n;
+  exit;
+ end;
+
+ n:=Vector3Cross(v1,v0);
+ if Vector3LengthSquared(n)<EPSILON then begin
+  PositionA:=v1a;
+  PositionB:=v1b;
+  Normal:=Vector3Norm(Vector3Sub(v1,v0));
+  PenetrationDepth:=Vector3Dot(Vector3Sub(v1b,v1a),Normal);
+  result:=true;
+  exit;
+ end;
+
+ v2a:=Vector3TermMatrixMul(MPRIndirectTriangleGetLocalFullSupport(ShapeA,Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),TransformA)),TransformA);
+ v2b:=Vector3TermMatrixMul(ShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,TransformB)),TransformB);
+ v2:=Vector3Sub(v2b,v2a);
+ if Vector3Dot(v2,n)<=0.0 then begin
+  Normal:=n;
+  exit;
+ end;
+
+ n:=Vector3Cross(Vector3Sub(v1,v0),Vector3Sub(v2,v0));
+ if Vector3Dot(n,v0)>0.0 then begin
+  t:=v1;
+  v1:=v2;
+  v2:=t;
+  t:=v1a;
+  v1a:=v2a;
+  v2a:=t;
+  t:=v1b;
+  v1b:=v2b;
+  v2b:=t;
+  n:=Vector3Neg(n);
+ end;
+
+ for Phase1Iteration:=1 to MPRMaximumIterations do begin
+
+  v3a:=Vector3TermMatrixMul(MPRIndirectTriangleGetLocalFullSupport(ShapeA,Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),TransformA)),TransformA);
+  v3b:=Vector3TermMatrixMul(ShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,TransformB)),TransformB);
+  v3:=Vector3Sub(v3b,v3a);
+  if Vector3Dot(v3,n)<=0.0 then begin
+   Normal:=n;
+   exit;
+  end;
+
+{ t:=Vector3Cross(v3,v0);
+
+  if Vector3Dot(t,v1)<0.0 then begin}
+  if Vector3Dot(v0,Vector3Cross(v3,v1))>0.0 then begin
+   v2:=v3;
+   v2a:=v3a;
+   v2b:=v3b;
+   n:=Vector3Cross(Vector3Sub(v1,v0),Vector3Sub(v3,v0));
+   continue;
+  end;
+
+//if Vector3Dot(t,v2)>0.0 then begin
+  if Vector3Dot(v0,Vector3Cross(v2,v3))>0.0 then begin
+   v1:=v3;
+   v1a:=v3a;
+   v1b:=v3b;
+   n:=Vector3Cross(Vector3Sub(v3,v0),Vector3Sub(v2,v0));
+   continue;
+  end;
+
+  Phase2Iterations:=0;
+
+  repeat
+
+   inc(Phase2Iterations);
+
+   n:=Vector3Cross(Vector3Sub(v2,v1),Vector3Sub(v3,v1));
+
+   if Vector3LengthSquared(n)<EPSILON then begin
+    PositionA:=v1a;
+    PositionB:=v1b;
+    Normal:=Vector3Norm(Vector3Sub(v1,v0));
+    PenetrationDepth:=Vector3Dot(Vector3Sub(v1b,v1a),Normal);
+    result:=true;
+    exit;
+   end;
+
+   Vector3Normalize(n);
+
+   if (Vector3Dot(v1,n)>=0.0) and not result then begin
+    result:=true;
+   end;
+
+   v4a:=Vector3TermMatrixMul(MPRIndirectTriangleGetLocalFullSupport(ShapeA,Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),TransformA)),TransformA);
    v4b:=Vector3TermMatrixMul(ShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,TransformB)),TransformB);
    v4:=Vector3Sub(v4b,v4a);
 
@@ -44703,13 +44948,74 @@ var Sphere:TKraftSphere;
   if MPRPenetration(aShape,aWithShape,TransformA,TransformB,PositionA,PositionB,Normal,PenetrationDepth) then begin
    SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Normal,-PenetrationDepth));
    inc(Count);
+   Hit:=true;
    if assigned(aOnPushShapeContactHook) then begin
     aOnPushShapeContactHook(aWithShape);
    end;
   end;
  end;
- procedure CollideMesh(const aWithShape:TKraftShape);
+ procedure CollideMesh(const aWithShape:TKraftShapeMesh);
+ var SkipListNodeIndex,TriangleIndex:TKraftInt32;
+     Radius,RadiusWithThreshold:TKraftScalar;
+     SphereCenter:TKraftVector3;
+     PositionA,PositionB,Normal:TKraftVector3;
+     PenetrationDepth:TKraftScalar;
+     SkipListNode:PKraftMeshSkipListNode;
+     Triangle:PKraftMeshTriangle;
+     IndirectTriangle:TKraftIndirectTriangle;
+     RelativeTransform:TKraftMatrix4x4;
+     AABB:TKraftAABB;
+     WasHit:boolean;
  begin
+  WasHit:=false;
+  RelativeTransform:=Matrix4x4TermMulInverted(aWithShape.fWorldTransform,TransformA);
+  SphereCenter:=Vector3TermMatrixMulInverted(Sphere.Center,aWithShape.fWorldTransform);
+  Radius:=Sphere.Radius;
+  RadiusWithThreshold:=Radius+0.1;
+  AABB.Min.x:=SphereCenter.x-RadiusWithThreshold;
+  AABB.Min.y:=SphereCenter.y-RadiusWithThreshold;
+  AABB.Min.z:=SphereCenter.z-RadiusWithThreshold;
+{$ifdef SIMD}
+  AABB.Min.w:=0.0;
+{$endif}
+  AABB.Max.x:=SphereCenter.x+RadiusWithThreshold;
+  AABB.Max.y:=SphereCenter.y+RadiusWithThreshold;
+  AABB.Max.z:=SphereCenter.z+RadiusWithThreshold;
+{$ifdef SIMD}
+  AABB.Max.w:=0.0;
+{$endif}
+  RadiusWithThreshold:=Radius+EPSILON;
+  SkipListNodeIndex:=0;
+  while SkipListNodeIndex<aWithShape.fMesh.fCountSkipListNodes do begin
+   SkipListNode:=@aWithShape.fMesh.fSkipListNodes[SkipListNodeIndex];
+   if AABBIntersect(SkipListNode^.AABB,AABB) then begin
+    if SkipListNode^.CountTriangles>0 then begin
+     for TriangleIndex:=SkipListNode^.FirstTriangleIndex to SkipListNode^.FirstTriangleIndex+(SkipListNode^.CountTriangles-1) do begin
+      Triangle:=@aWithShape.fMesh.fTriangles[TriangleIndex];
+      IndirectTriangle.Points[0]:=@aWithShape.fMesh.fVertices[Triangle^.Vertices[0]];
+      IndirectTriangle.Points[1]:=@aWithShape.fMesh.fVertices[Triangle^.Vertices[1]];
+      IndirectTriangle.Points[2]:=@aWithShape.fMesh.fVertices[Triangle^.Vertices[2]];
+      Normal:=Vector3SafeNorm(Vector3Cross(Vector3Sub(IndirectTriangle.Points[1]^,IndirectTriangle.Points[0]^),Vector3Sub(IndirectTriangle.Points[2]^,IndirectTriangle.Points[0]^)));
+      IndirectTriangle.Normal:=@Normal;
+      if MPRIndirectTrianglePenetration(@IndirectTriangle,aShape,Matrix4x4Identity,RelativeTransform,PositionA,PositionB,Normal,PenetrationDepth) then begin
+       Normal:=Vector3TermMatrixMulBasis(Normal,aWithShape.fWorldTransform);
+       SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Normal,PenetrationDepth));
+       inc(Count);
+       Hit:=true;
+       WasHit:=true;
+      end;
+     end;
+    end;
+    inc(SkipListNodeIndex);
+   end else begin
+    SkipListNodeIndex:=SkipListNode^.SkipToNodeIndex;
+   end;
+  end;
+  if WasHit then begin
+   if assigned(aOnPushShapeContactHook) then begin
+    aOnPushShapeContactHook(aWithShape);
+   end;
+  end;
  end;
 {$ifdef KraftSingleThreadedUsage}
  procedure QueryTree(aAABBTree:TKraftDynamicAABBTree);
