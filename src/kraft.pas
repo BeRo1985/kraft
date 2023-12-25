@@ -44998,7 +44998,7 @@ var Sphere:TKraftSphere;
       Normal:=Vector3SafeNorm(Vector3Cross(Vector3Sub(IndirectTriangle.Points[1]^,IndirectTriangle.Points[0]^),Vector3Sub(IndirectTriangle.Points[2]^,IndirectTriangle.Points[0]^)));
       IndirectTriangle.Normal:=@Normal;
       if MPRIndirectTrianglePenetration(@IndirectTriangle,aShape,Matrix4x4Identity,RelativeTransform,PositionA,PositionB,Normal,PenetrationDepth) then begin
-       Normal:=Vector3TermMatrixMulBasis(Normal,aWithShape.fWorldTransform);
+       Normal:=Vector3Norm(Vector3TermMatrixMulBasis(Normal,aWithShape.fWorldTransform));
        SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Normal,PenetrationDepth));
        inc(Count);
        Hit:=true;
