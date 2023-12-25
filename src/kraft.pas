@@ -44940,13 +44940,11 @@ var Sphere:TKraftSphere;
     Count:TKraftInt32;
     TransformA:TKraftMatrix4x4;
  procedure CollideConvex(const aWithShape:TKraftShape);
- var TransformB:TKraftMatrix4x4;
-     PositionA,PositionB,Normal:TKraftVector3;
+ var PositionA,PositionB,Normal:TKraftVector3;
      PenetrationDepth:TKraftScalar;
  begin
-  TransformB:=aWithShape.fWorldTransform;
-  if MPRPenetration(aShape,aWithShape,TransformA,TransformB,PositionA,PositionB,Normal,PenetrationDepth) then begin
-   SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Normal,-PenetrationDepth));
+  if MPRPenetration(aShape,aWithShape,TransformA,aWithShape.fWorldTransform,PositionA,PositionB,Normal,PenetrationDepth) then begin
+   SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Normal,PenetrationDepth));
    inc(Count);
    Hit:=true;
    if assigned(aOnPushShapeContactHook) then begin
@@ -44968,7 +44966,6 @@ var Sphere:TKraftSphere;
      WasHit:boolean;
  begin
   WasHit:=false;
-  RelativeTransform:=Matrix4x4TermMulInverted(aWithShape.fWorldTransform,TransformA);
   SphereCenter:=Vector3TermMatrixMulInverted(Sphere.Center,aWithShape.fWorldTransform);
   Radius:=Sphere.Radius;
   RadiusWithThreshold:=Radius+0.1;
@@ -44985,6 +44982,7 @@ var Sphere:TKraftSphere;
   AABB.Max.w:=0.0;
 {$endif}
   RadiusWithThreshold:=Radius+EPSILON;
+  RelativeTransform:=Matrix4x4TermMulInverted(TransformA,aWithShape.fWorldTransform);
   SkipListNodeIndex:=0;
   while SkipListNodeIndex<aWithShape.fMesh.fCountSkipListNodes do begin
    SkipListNode:=@aWithShape.fMesh.fSkipListNodes[SkipListNodeIndex];
@@ -44999,7 +44997,7 @@ var Sphere:TKraftSphere;
       IndirectTriangle.Normal:=@Normal;
       if MPRIndirectTrianglePenetration(@IndirectTriangle,aShape,Matrix4x4Identity,RelativeTransform,PositionA,PositionB,Normal,PenetrationDepth) then begin
        Normal:=Vector3Norm(Vector3TermMatrixMulBasis(Normal,aWithShape.fWorldTransform));
-       SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Normal,PenetrationDepth));
+       SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Normal,-PenetrationDepth));
        inc(Count);
        Hit:=true;
        WasHit:=true;
@@ -45127,7 +45125,7 @@ begin
   end;   
   else begin
    OriginalCenter:=TKraftVector3(Pointer(@aShape.fWorldTransform[3,0])^);
-   Sphere.Center:=Center;
+   Sphere.Center:=OriginalCenter;
    Sphere.Radius:=SphereFromAABB(aShape.fWorldAABB).Radius;
    aSeperation.x:=0;
    aSeperation.y:=0;
@@ -45142,16 +45140,16 @@ begin
     TransformA[3,0]:=TransformA[3,0]+aSeperation.x;
     TransformA[3,1]:=TransformA[3,1]+aSeperation.y;
     TransformA[3,2]:=TransformA[3,2]+aSeperation.z;
-    Center:=Vector3Add(OriginalCenter,aSeperation);
-    AABB.Min.x:=Center.x-Sphere.Radius;
-    AABB.Min.y:=Center.y-Sphere.Radius;
-    AABB.Min.z:=Center.z-Sphere.Radius;
+    Sphere.Center:=Vector3Add(OriginalCenter,aSeperation);
+    AABB.Min.x:=Sphere.Center.x-Sphere.Radius;
+    AABB.Min.y:=Sphere.Center.y-Sphere.Radius;
+    AABB.Min.z:=Sphere.Center.z-Sphere.Radius;
 {$ifdef SIMD}
     AABB.Min.w:=0.0;
 {$endif}
-    AABB.Max.x:=Center.x+Sphere.Radius;
-    AABB.Max.y:=Center.y+Sphere.Radius;
-    AABB.Max.z:=Center.z+Sphere.Radius;
+    AABB.Max.x:=Sphere.Center.x+Sphere.Radius;
+    AABB.Max.y:=Sphere.Center.y+Sphere.Radius;
+    AABB.Max.z:=Sphere.Center.z+Sphere.Radius;
 {$ifdef SIMD}
     AABB.Max.w:=0.0;
 {$endif}
