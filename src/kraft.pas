@@ -3932,7 +3932,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      end;
 {$endif}
 
-     TKraftOnPushShapeContactHook=procedure(const WithShape:TKraftShape) of object;
+     TKraftOnPushShapeContactHook=procedure(const aWithShape:TKraftShape) of object;
 
      TKraftOnRayCastFilterHook=function(const aPoint,aNormal:TKraftVector3;const aTime:TKraftScalar;const aShape:TKraftShape):boolean of object;
 
@@ -44686,8 +44686,16 @@ begin
 end;
 
 function TKraft.PushShape(const aShape:TKraftShape;out aSeperation:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aTryIterations:TKraftInt32;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook):boolean;
+var OriginalCenter,Center:TKraftVector3;
 begin
- result:=false;
+ if aShape is TKraftShapeSphere then begin
+  OriginalCenter:=TKraftVector3(Pointer(@aShape.fWorldTransform[3,0])^);
+  Center:=OriginalCenter;
+  result:=PushSphere(Center,TKraftShapeSphere(aShape).fRadius,aCollisionGroups,aTryIterations,aOnPushShapeContactHook);
+  aSeperation:=Vector3Sub(Center,OriginalCenter);
+ end else begin
+  result:=false;
+ end;
 end;
 
 function TKraft.GetDistance(const aShapeA,aShapeB:TKraftShape):TKraftScalar;
