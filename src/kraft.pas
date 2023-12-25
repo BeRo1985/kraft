@@ -467,15 +467,17 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      EKraft=class(Exception);
 
-     EKraftInvalidSignature=class(Exception);
+     EKraftInvalidSignature=class(EKraft);
 
-     EKraftInvalidFileFormatVersion=class(Exception);
+     EKraftInvalidFileFormatVersion=class(EKraft);
 
      EKraftShapeTypeOnlyForStaticRigidBody=class(EKraft);
 
      EKraftCorruptMeshData=class(EKraft);
 
      EKraftDegeneratedConvexHull=class(EKraft);
+
+     EKraftShapeTypeNotSupported=class(EKraft);
 
      TKraft=class;
 
@@ -44686,16 +44688,187 @@ begin
 end;
 
 function TKraft.PushShape(const aShape:TKraftShape;out aSeperation:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aTryIterations:TKraftInt32;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook):boolean;
-var OriginalCenter,Center:TKraftVector3;
-begin
- if aShape is TKraftShapeSphere then begin
-  OriginalCenter:=TKraftVector3(Pointer(@aShape.fWorldTransform[3,0])^);
-  Center:=OriginalCenter;
-  result:=PushSphere(Center,TKraftShapeSphere(aShape).fRadius,aCollisionGroups,aTryIterations,aOnPushShapeContactHook);
-  aSeperation:=Vector3Sub(Center,OriginalCenter);
- end else begin
-  result:=false;
+var Sphere:TKraftSphere;
+    AABB:TKraftAABB;
+    Hit:Boolean;
+    SumMinimumTranslationVector:TKraftVector3;
+    Count:TKraftInt32;
+    TransformA:TKraftMatrix4x4;
+ procedure CollideConvex(const aWithShape:TKraftShape);
+ var TransformB:TKraftMatrix4x4;
+     PositionA,PositionB:TKraftVector3;
+     PenetrationDepth:TKraftScalar;
+ begin
+  TransformB:=aWithShape.fWorldTransform;
+  if MPRPenetration(aShape,aWithShape,TransformA,TransformB,PositionA,PositionB,Normal,PenetrationDepth) then begin
+   SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Normal,-PenetrationDepth));
+   inc(Count);
+   if assigned(aOnPushShapeContactHook) then begin
+    aOnPushShapeContactHook(aWithShape);
+   end;
+  end;
  end;
+ procedure CollideMesh(const aWithShape:TKraftShape);
+ begin
+ end;
+{$ifdef KraftSingleThreadedUsage}
+ procedure QueryTree(aAABBTree:TKraftDynamicAABBTree);
+ var LocalStack:PKraftDynamicAABBTreeLongintArray;
+     LocalStackPointer,NodeID:TKraftInt32;
+     Node:PKraftDynamicAABBTreeNode;
+     CurrentShape:TKraftShape;
+ begin
+  if assigned(aAABBTree) then begin
+   if aAABBTree.fRoot>=0 then begin
+    LocalStack:=aAABBTree.fStack;
+    LocalStack^[0]:=aAABBTree.fRoot;
+    LocalStackPointer:=1;
+    while LocalStackPointer>0 do begin
+     dec(LocalStackPointer);
+     NodeID:=LocalStack^[LocalStackPointer];
+     if NodeID>=0 then begin
+      Node:=@aAABBTree.fNodes[NodeID];
+      if AABBIntersect(Node^.AABB,AABB) then begin
+       if Node^.Children[0]<0 then begin
+        CurrentShape:=Node^.UserData;
+        if assigned(CurrentShape) and (assigned(CurrentShape.fRigidBody) and ((CurrentShape.fRigidBody.fCollisionGroups*CollisionGroups)<>[])) then begin
+         case CurrentShape.fShapeType of
+          kstSignedDistanceField:begin
+           // Ignore
+          end;
+          kstSphere,kstCapsule,kstConvexHull,kstBox,kstPlane,kstTriangle:begin
+           CollideConvex(CurrentShape);
+          end;
+          kstMesh:begin
+           CollideMesh(TKraftShapeMesh(CurrentShape));
+          end;
+          else begin
+          end;
+         end;
+        end;
+       end else begin
+        if aAABBTree.fStackCapacity<=(LocalStackPointer+2) then begin
+         aAABBTree.fStackCapacity:=RoundUpToPowerOfTwo(LocalStackPointer+2);
+         ReallocMem(aAABBTree.fStack,aAABBTree.fStackCapacity*SizeOf(TKraftInt32));
+         LocalStack:=aAABBTree.fStack;
+        end;
+        LocalStack^[LocalStackPointer+0]:=Node^.Children[0];
+        LocalStack^[LocalStackPointer+1]:=Node^.Children[1];
+        inc(LocalStackPointer,2);
+       end;
+      end;
+     end;
+    end;
+   end;
+  end;
+ end;
+{$else}
+ procedure QueryTree(aAABBTree:TKraftDynamicAABBTree);
+  procedure ProcessNode(aNodeID:TKraftInt32);
+  var Node:PKraftDynamicAABBTreeNode;
+      CurrentShape:TKraftShape;
+  begin
+   while aNodeID>=0 do begin
+    Node:=@aAABBTree.fNodes[aNodeID];
+    if AABBIntersect(Node^.AABB,AABB) then begin
+     if Node^.Children[0]<0 then begin
+      CurrentShape:=Node^.UserData;
+      if assigned(CurrentShape) and (assigned(CurrentShape.fRigidBody) and ((CurrentShape.fRigidBody.fCollisionGroups*aCollisionGroups)<>[])) then begin
+       case CurrentShape.fShapeType of
+        kstSignedDistanceField:begin
+         // Ignore
+        end;
+        kstSphere,kstCapsule,kstConvexHull,kstBox,kstPlane,kstTriangle:begin
+         CollideConvex(CurrentShape);
+        end;
+        kstMesh:begin
+         CollideMesh(TKraftShapeMesh(CurrentShape));
+        end;
+        else begin
+        end;
+       end;
+      end;
+     end else begin
+      ProcessNode(Node^.Children[0]);
+      aNodeID:=Node^.Children[1];
+      continue;
+     end;
+    end;
+    break;
+   end;
+  end;
+ begin
+  ProcessNode(aAABBTree.fRoot);
+ end;
+{$endif}
+var TryCounter:TKraftInt32;
+    OriginalCenter,Center:TKraftVector3;
+begin
+ case aShape.fShapeType of
+  kstSphere:begin
+   OriginalCenter:=TKraftVector3(Pointer(@aShape.fWorldTransform[3,0])^);
+   Center:=OriginalCenter;
+   result:=PushSphere(Center,TKraftShapeSphere(aShape).fRadius,aCollisionGroups,aTryIterations,aOnPushShapeContactHook);
+   aSeperation:=Vector3Sub(Center,OriginalCenter);
+  end;
+  kstSignedDistanceField:begin
+   raise EKraftShapeTypeNotSupported.Create('Signed distance field shype type isn''t supported for PushShape'); 
+   result:=false;
+  end;   
+  kstMesh:begin
+   raise EKraftShapeTypeNotSupported.Create('Mesh shype type isn''t supported for PushShape'); 
+   result:=false;
+  end;   
+  else begin
+   OriginalCenter:=TKraftVector3(Pointer(@aShape.fWorldTransform[3,0])^);
+   Sphere.Center:=Center;
+   Sphere.Radius:=SphereFromAABB(aShape.fWorldAABB).Radius;
+   aSeperation.x:=0;
+   aSeperation.y:=0;
+   aSeperation.z:=0;
+   aSeperation.w:=0;
+{$ifdef SIMD}
+   result:=false;
+{$endif}
+   for TryCounter:=1 to aTryIterations do begin
+    Hit:=false;
+    TransformA:=aWithShape.fWorldTransform;
+    TransformA[3,0]:=TransformA[3,0]+aSeperation.x;
+    TransformA[3,1]:=TransformA[3,1]+aSeperation.y;
+    TransformA[3,2]:=TransformA[3,2]+aSeperation.z;
+    Center:=Vector3Add(OriginalCenter,aSeperation);
+    AABB.Min.x:=Center.x-Sphere.Radius;
+    AABB.Min.y:=Center.y-Sphere.Radius;
+    AABB.Min.z:=Center.z-Sphere.Radius;
+{$ifdef SIMD}
+    AABB.Min.w:=0.0;
+{$endif}
+    AABB.Max.x:=Center.x+Sphere.Radius;
+    AABB.Max.y:=Center.y+Sphere.Radius;
+    AABB.Max.z:=Center.z+Sphere.Radius;
+{$ifdef SIMD}
+    AABB.Max.w:=0.0;
+{$endif}
+    SumMinimumTranslationVector:=Vector3Origin;
+    Count:=0;
+    QueryTree(fStaticAABBTree);
+    QueryTree(fSleepingAABBTree);
+    QueryTree(fDynamicAABBTree);
+    QueryTree(fKinematicAABBTree);
+    result:=result or Hit;
+    if (Count>0) and not IsZero(Vector3LengthSquared(SumMinimumTranslationVector)) then begin
+     aSeperation.x:=aSeperation.x+(SumMinimumTranslationVector.x/Count);
+     aSeperation.y:=aSeperation.y+(SumMinimumTranslationVector.y/Count);
+     aSeperation.z:=aSeperation.z+(SumMinimumTranslationVector.z/Count);
+{$ifdef SIMD}
+     aSeperation.w:=0.0;
+{$endif}
+    end else begin
+     break;
+    end;
+   end;
+  end;
+ end; 
 end;
 
 function TKraft.GetDistance(const aShapeA,aShapeB:TKraftShape):TKraftScalar;
