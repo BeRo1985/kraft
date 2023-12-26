@@ -4177,17 +4177,17 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        function TestPoint(const aPoint:TKraftVector3):TKraftShape;
 
-       function RayCast(const aOrigin,aDirection:TKraftVector3;const aMaxTime:TKraftScalar;var aShape:TKraftShape;var aTime:TKraftScalar;var aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnRayCastFilterHook:TKraftOnRayCastFilterHook=nil):boolean; overload;
+       function RayCast(const aOrigin,aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnRayCastFilterHook:TKraftOnRayCastFilterHook=nil):boolean; overload;
 
-       function RayCast(const aSource,aTarget:TKraftVector3;var aShape:TKraftShape;var aTime:TKraftScalar;var aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnRayCastFilterHook:TKraftOnRayCastFilterHook=nil):boolean; overload;
+       function RayCast(const aSource,aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnRayCastFilterHook:TKraftOnRayCastFilterHook=nil):boolean; overload;
 
-       function SphereCast(const aOrigin:TKraftVector3;const aRadius:TKraftScalar;const aDirection:TKraftVector3;const aMaxTime:TKraftScalar;var aShape:TKraftShape;var aTime:TKraftScalar;var aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook=nil):boolean; overload;
+       function SphereCast(const aOrigin:TKraftVector3;const aRadius:TKraftScalar;const aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook=nil):boolean; overload;
 
-       function SphereCast(const aOrigin:TKraftVector3;const aRadius:TKraftScalar;const aDirection:TKraftVector3;const aMaxTime:TKraftScalar;var aShape:TKraftShape;var aTime:TKraftScalar;var aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook=nil):boolean; overload;
+       function SphereCast(const aOrigin:TKraftVector3;const aRadius:TKraftScalar;const aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook=nil):boolean; overload;
 
-       function SphereCast(const aSource:TKraftVector3;const aRadius:TKraftScalar;const aTarget:TKraftVector3;var aShape:TKraftShape;var aTime:TKraftScalar;var aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook=nil):boolean; overload;
+       function SphereCast(const aSource:TKraftVector3;const aRadius:TKraftScalar;const aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook=nil):boolean; overload;
 
-       function SphereCast(const aSource:TKraftVector3;const aRadius:TKraftScalar;const aTarget:TKraftVector3;var aShape:TKraftShape;var aTime:TKraftScalar;var aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook=nil):boolean; overload;
+       function SphereCast(const aSource:TKraftVector3;const aRadius:TKraftScalar;const aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook=nil):boolean; overload;
 
        function PushSphere(var aCenter:TKraftVector3;const aRadius:TKraftScalar;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aTryIterations:TKraftInt32=4;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook=nil;const aKraftOnPushShapeFilterHook:TKraftOnPushShapeFilterHook=nil;const aAvoidShape:TKraftShape=nil):boolean;
 
@@ -43995,7 +43995,7 @@ end;
 
 {$endif}
 
-function TKraft.RayCast(const aOrigin,aDirection:TKraftVector3;const aMaxTime:TKraftScalar;var aShape:TKraftShape;var aTime:TKraftScalar;var aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnRayCastFilterHook:TKraftOnRayCastFilterHook=nil):boolean;
+function TKraft.RayCast(const aOrigin,aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnRayCastFilterHook:TKraftOnRayCastFilterHook=nil):boolean;
 {$ifdef KraftSingleThreadedUsage}
 var Hit:boolean;
  procedure QueryTree(aAABBTree:TKraftDynamicAABBTree);
@@ -44097,7 +44097,7 @@ begin
 end;
 {$endif}
 
-function TKraft.RayCast(const aSource,aTarget:TKraftVector3;var aShape:TKraftShape;var aTime:TKraftScalar;var aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnRayCastFilterHook:TKraftOnRayCastFilterHook):boolean;
+function TKraft.RayCast(const aSource,aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnRayCastFilterHook:TKraftOnRayCastFilterHook):boolean;
 var Len:TKraftScalar;
 begin
  Len:=Vector3Dist(aSource,aTarget);
@@ -44157,7 +44157,7 @@ end;
 
 {$endif}
 
-function TKraft.SphereCast(const aOrigin:TKraftVector3;const aRadius:TKraftScalar;const aDirection:TKraftVector3;const aMaxTime:TKraftScalar;var aShape:TKraftShape;var aTime:TKraftScalar;var aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook):boolean;
+function TKraft.SphereCast(const aOrigin:TKraftVector3;const aRadius:TKraftScalar;const aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook):boolean;
 {$ifdef KraftSingleThreadedUsage}
 var Hit:boolean;
  procedure QueryTree(aAABBTree:TKraftDynamicAABBTree);
@@ -44261,7 +44261,7 @@ begin
 end;
 {$endif}
 
-function TKraft.SphereCast(const aOrigin:TKraftVector3;const aRadius:TKraftScalar;const aDirection:TKraftVector3;const aMaxTime:TKraftScalar;var aShape:TKraftShape;var aTime:TKraftScalar;var aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook):boolean;
+function TKraft.SphereCast(const aOrigin:TKraftVector3;const aRadius:TKraftScalar;const aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook):boolean;
 {$ifdef KraftSingleThreadedUsage}
 var Hit:boolean;
  procedure QueryTree(aAABBTree:TKraftDynamicAABBTree);
@@ -44367,7 +44367,7 @@ begin
 end;
 {$endif}
 
-function TKraft.SphereCast(const aSource:TKraftVector3;const aRadius:TKraftScalar;const aTarget:TKraftVector3;var aShape:TKraftShape;var aTime:TKraftScalar;var aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook):boolean;
+function TKraft.SphereCast(const aSource:TKraftVector3;const aRadius:TKraftScalar;const aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook):boolean;
 var Len:TKraftScalar;
 begin
  Len:=Vector3Dist(aSource,aTarget);
@@ -44377,7 +44377,7 @@ begin
  end;
 end;
 
-function TKraft.SphereCast(const aSource:TKraftVector3;const aRadius:TKraftScalar;const aTarget:TKraftVector3;var aShape:TKraftShape;var aTime:TKraftScalar;var aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook):boolean;
+function TKraft.SphereCast(const aSource:TKraftVector3;const aRadius:TKraftScalar;const aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook):boolean;
 var Len:TKraftScalar;
 begin
  Len:=Vector3Dist(aSource,aTarget);
