@@ -3962,6 +3962,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftOnPushShapeContactHook=procedure(const aWithShape:TKraftShape) of object;
 
+     TKraftOnPushShapeFilterHook=function(const aWithShape:TKraftShape):boolean of object;
+
      TKraftOnRayCastFilterHook=function(const aPoint,aNormal:TKraftVector3;const aTime:TKraftScalar;const aShape:TKraftShape):boolean of object;
 
      TKraftOnSphereCastFilterHook=function(const aPoint,aNormal:TKraftVector3;const aTime:TKraftScalar;const aShape:TKraftShape):boolean of object;
@@ -4187,9 +4189,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        function SphereCast(const aSource:TKraftVector3;const aRadius:TKraftScalar;const aTarget:TKraftVector3;var aShape:TKraftShape;var aTime:TKraftScalar;var aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook=nil):boolean; overload;
 
-       function PushSphere(var aCenter:TKraftVector3;const aRadius:TKraftScalar;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aTryIterations:TKraftInt32=4;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook=nil;const aAvoidShape:TKraftShape=nil):boolean;
+       function PushSphere(var aCenter:TKraftVector3;const aRadius:TKraftScalar;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aTryIterations:TKraftInt32=4;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook=nil;const aKraftOnPushShapeFilterHook:TKraftOnPushShapeFilterHook=nil;const aAvoidShape:TKraftShape=nil):boolean;
 
-       function PushShape(const aShape:TKraftShape;out aSeperation:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aTryIterations:TKraftInt32=4;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook=nil):boolean;
+       function PushShape(const aShape:TKraftShape;out aSeperation:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aTryIterations:TKraftInt32=4;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook=nil;const aKraftOnPushShapeFilterHook:TKraftOnPushShapeFilterHook=nil):boolean;
 
        function GetDistance(const aShapeA,aShapeB:TKraftShape):TKraftScalar;
 
@@ -44385,7 +44387,7 @@ begin
  end;
 end;
 
-function TKraft.PushSphere(var aCenter:TKraftVector3;const aRadius:TKraftScalar;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aTryIterations:TKraftInt32;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook;const aAvoidShape:TKraftShape):boolean;
+function TKraft.PushSphere(var aCenter:TKraftVector3;const aRadius:TKraftScalar;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aTryIterations:TKraftInt32;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook;const aKraftOnPushShapeFilterHook:TKraftOnPushShapeFilterHook;const aAvoidShape:TKraftShape):boolean;
 var Hit:boolean;
     AABB:TKraftAABB;
     Sphere:TKraftSphere;
@@ -44813,7 +44815,12 @@ var Hit:boolean;
       if AABBIntersect(Node^.AABB,AABB) then begin
        if Node^.Children[0]<0 then begin
         CurrentShape:=Node^.UserData;
-        if assigned(CurrentShape) and (CurrentShape<>aAvoidShape) and (assigned(CurrentShape.fRigidBody) and ((CurrentShape.fRigidBody.fCollisionGroups*CollisionGroups)<>[])) then begin
+        if assigned(CurrentShape) and
+           (CurrentShape<>aAvoidShape) and
+           (assigned(CurrentShape.fRigidBody) and
+            ((CurrentShape.fRigidBody.fCollisionGroups*CollisionGroups)<>[])) and
+           ((not assigned(aKraftOnPushShapeFilterHook)) or
+            aKraftOnPushShapeFilterHook(CurrentShape)) then begin
          case CurrentShape.fShapeType of
           kstSignedDistanceField:begin
            CollideSphereWithSignedDistanceField(TKraftShapeSignedDistanceField(CurrentShape));
@@ -44870,7 +44877,12 @@ var Hit:boolean;
     if AABBIntersect(Node^.AABB,AABB) then begin
      if Node^.Children[0]<0 then begin
       CurrentShape:=Node^.UserData;
-      if assigned(CurrentShape) and (CurrentShape<>aAvoidShape) and (assigned(CurrentShape.fRigidBody) and ((CurrentShape.fRigidBody.fCollisionGroups*aCollisionGroups)<>[])) then begin
+      if assigned(CurrentShape) and
+         (CurrentShape<>aAvoidShape) and
+         (assigned(CurrentShape.fRigidBody) and
+          ((CurrentShape.fRigidBody.fCollisionGroups*aCollisionGroups)<>[])) and
+         ((not assigned(aKraftOnPushShapeFilterHook)) or
+          aKraftOnPushShapeFilterHook(CurrentShape)) then begin
        case CurrentShape.fShapeType of
         kstSignedDistanceField:begin
          CollideSphereWithSignedDistanceField(TKraftShapeSignedDistanceField(CurrentShape));
@@ -44952,7 +44964,7 @@ begin
  end;
 end;
 
-function TKraft.PushShape(const aShape:TKraftShape;out aSeperation:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aTryIterations:TKraftInt32;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook):boolean;
+function TKraft.PushShape(const aShape:TKraftShape;out aSeperation:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aTryIterations:TKraftInt32;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook;const aKraftOnPushShapeFilterHook:TKraftOnPushShapeFilterHook):boolean;
 var Sphere:TKraftSphere;
     AABB:TKraftAABB;
     Hit:Boolean;
@@ -45062,7 +45074,12 @@ var Sphere:TKraftSphere;
       if AABBIntersect(Node^.AABB,AABB) then begin
        if Node^.Children[0]<0 then begin
         CurrentShape:=Node^.UserData;
-        if assigned(CurrentShape) and (CurrentShape<>aShape) and (assigned(CurrentShape.fRigidBody) and ((CurrentShape.fRigidBody.fCollisionGroups*CollisionGroups)<>[])) then begin
+        if assigned(CurrentShape) and
+           (CurrentShape<>aShape) and
+           (assigned(CurrentShape.fRigidBody) and
+            ((CurrentShape.fRigidBody.fCollisionGroups*CollisionGroups)<>[])) and
+           ((not assigned(aKraftOnPushShapeFilterHook)) or
+            aKraftOnPushShapeFilterHook(CurrentShape)) then begin
          case CurrentShape.fShapeType of
           kstSignedDistanceField:begin
            // Ignore
@@ -45104,7 +45121,12 @@ var Sphere:TKraftSphere;
     if AABBIntersect(Node^.AABB,AABB) then begin
      if Node^.Children[0]<0 then begin
       CurrentShape:=Node^.UserData;
-      if assigned(CurrentShape) and (CurrentShape<>aShape) and (assigned(CurrentShape.fRigidBody) and ((CurrentShape.fRigidBody.fCollisionGroups*aCollisionGroups)<>[])) then begin
+      if assigned(CurrentShape) and
+         (CurrentShape<>aShape) and
+         (assigned(CurrentShape.fRigidBody) and
+          ((CurrentShape.fRigidBody.fCollisionGroups*aCollisionGroups)<>[])) and
+         ((not assigned(aKraftOnPushShapeFilterHook)) or
+          aKraftOnPushShapeFilterHook(CurrentShape)) then begin
        case CurrentShape.fShapeType of
         kstSignedDistanceField:begin
          // Ignore
@@ -45139,7 +45161,7 @@ begin
   kstSphere:begin
    OriginalCenter:=TKraftVector3(Pointer(@aShape.fWorldTransform[3,0])^);
    Center:=OriginalCenter;
-   result:=PushSphere(Center,TKraftShapeSphere(aShape).fRadius,aCollisionGroups,aTryIterations,aOnPushShapeContactHook,aShape);
+   result:=PushSphere(Center,TKraftShapeSphere(aShape).fRadius,aCollisionGroups,aTryIterations,aOnPushShapeContactHook,aKraftOnPushShapeFilterHook,aShape);
    aSeperation:=Vector3Sub(Center,OriginalCenter);
   end;
   kstSignedDistanceField:begin
