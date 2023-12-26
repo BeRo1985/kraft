@@ -45159,16 +45159,19 @@ var TryCounter:TKraftInt32;
 begin
  case aShape.fShapeType of
   kstSphere:begin
+   // Use more optimized sphere vs other-shape-types collision detection in this case, even if the MPR-based variant would work too, but maybe a bit slower. 
    OriginalCenter:=TKraftVector3(Pointer(@aShape.fWorldTransform[3,0])^);
    Center:=OriginalCenter;
    result:=PushSphere(Center,TKraftShapeSphere(aShape).fRadius,aCollisionGroups,aTryIterations,aOnPushShapeContactHook,aKraftOnPushShapeFilterHook,aShape);
    aSeperation:=Vector3Sub(Center,OriginalCenter);
   end;
   kstSignedDistanceField:begin
+   // Signed distance field shype type isn't supported for PushShape, since it's not a convex shape.
    raise EKraftShapeTypeNotSupported.Create('Signed distance field shype type isn''t supported for PushShape'); 
    result:=false;
   end;   
   kstMesh:begin
+   // Meshes are also not supported for PushShape, since they are not convex shapes as well.
    raise EKraftShapeTypeNotSupported.Create('Mesh shype type isn''t supported for PushShape'); 
    result:=false;
   end;   
