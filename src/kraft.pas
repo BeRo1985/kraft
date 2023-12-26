@@ -344,7 +344,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
                       ksfMass,
                       ksfSensor,
                       ksfRayCastable,
-                      ksfSphereCastable);
+                      ksfSphereCastable,
+                      ksfShapeCastable);
      PKraftShapeFlag=^TKraftShapeFlag;
 
      TKraftShapeFlags=set of TKraftShapeFlag;
@@ -879,7 +880,6 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property z:TKraftScalar read GetZ write SetZ;
      end;
 
-     PKraftDynamicAABBTreeNode=^TKraftDynamicAABBTreeNode;
      TKraftDynamicAABBTreeNode=record
       AABB:TKraftAABB;
       UserData:pointer;
@@ -894,9 +894,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
         Next:TKraftInt32;
        );
      end;
+     PKraftDynamicAABBTreeNode=^TKraftDynamicAABBTreeNode;
 
-     PKraftDynamicAABBTreeNodes=^TKraftDynamicAABBTreeNodes;
      TKraftDynamicAABBTreeNodes=array[0..0] of TKraftDynamicAABBTreeNode;
+     PKraftDynamicAABBTreeNodes=^TKraftDynamicAABBTreeNodes;
 
      PKraftDynamicAABBTreeLongintArray=^TKraftDynamicAABBTreeLongintArray;
      TKraftDynamicAABBTreeLongintArray=array[0..65535] of TKraftInt32;
@@ -942,24 +943,23 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property InsertionCount:TKraftInt32 read fInsertionCount;
      end;
 
-     PKraftSweep=^TKraftSweep;
      TKraftSweep=record
       LocalCenter:TKraftVector3; // Center of mass in local space
       c0,c:TKraftVector3;        // Center of mass in world space
       q0,q:TKraftQuaternion;     // Rotation/Orientation
       Alpha0:TKraftScalar;       // Fraction of timestep from [0, 1]; c0, and q0 are at Alpha0
      end;
+     PKraftSweep=^TKraftSweep;
 
-     PKraftMassData=^TKraftMassData;
      TKraftMassData=record
       Inertia:TKraftMatrix3x3;
       Center:TKraftVector3;
       Mass:TKraftScalar;
       Volume:TKraftScalar;
      end;
+     PKraftMassData=^TKraftMassData;
 
      // 64-bit contact feature ID
-     PKraftContactFeatureID=^TKraftContactFeatureID;
      TKraftContactFeatureID=record
       case TKraftInt32 of
        0:(
@@ -973,12 +973,13 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
         Key:TKraftInt64;
        );
      end;
+     PKraftContactFeatureID=^TKraftContactFeatureID;
 
-     PKraftClipVertex=^TKraftClipVertex;
      TKraftClipVertex=record
       Position:TKraftVector3;
       FeatureID:TKraftContactFeatureID;
      end;
+     PKraftClipVertex=^TKraftClipVertex;
 
      TKraftClipVertices=array of TKraftClipVertex;
 
@@ -1000,16 +1001,6 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property Color:TKraftColor read fColor write fColor;
      end;
 
-     PKraftSphereCastResult=^TKraftSphereCastResult;
-     TKraftSphereCastResult=record
-      Valid:boolean;
-      Point:TKraftVector3;
-      Normal:TKraftVector3;
-      Time:TKraftScalar;
-      Shape:TKraftShape;
-     end;
-
-     PKraftRayCastData=^TKraftRayCastData;
      TKraftRayCastData=record
       Origin:TKraftVector3;
       Direction:TKraftVector3;
@@ -1018,8 +1009,17 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
       Point:TKraftVector3;
       Normal:TKraftVector3;
      end;
+     PKraftRayCastData=^TKraftRayCastData;
 
-     PKraftSphereCastData=^TKraftSphereCastData;
+     TKraftSphereCastResult=record
+      Valid:boolean;
+      Point:TKraftVector3;
+      Normal:TKraftVector3;
+      Time:TKraftScalar;
+      Shape:TKraftShape;
+     end;
+     PKraftSphereCastResult=^TKraftSphereCastResult;
+
      TKraftSphereCastData=record
       Origin:TKraftVector3;
       Radius:TKraftScalar;
@@ -1030,6 +1030,26 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
       Normal:TKraftVector3;
       SurfaceNormal:TKraftVector3;
      end;
+     PKraftSphereCastData=^TKraftSphereCastData;
+
+     TKraftShapeCastResult=record
+      Valid:boolean;
+      Point:TKraftVector3;
+      Normal:TKraftVector3;
+      Time:TKraftScalar;
+      Shape:TKraftShape;
+     end;
+     PKraftShapeCastResult=^TKraftShapeCastResult;
+
+     TKraftShapeCastData=record
+      Shape:TKraftShape;
+      Direction:TKraftVector3;
+      MaxTime:TKraftScalar;
+      TimeOfImpact:TKraftScalar;
+      Point:TKraftVector3;
+      Normal:TKraftVector3;
+     end;
+     PKraftShapeCastData=^TKraftShapeCastData;
 
      EKraftQuickHull=class(Exception);
 
@@ -1069,7 +1089,6 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftQuickHull=class;
 
-     PKraftQuickHullVector3D=^TKraftQuickHullVector3D;
      TKraftQuickHullVector3D=object
       public
        x:double;
@@ -1094,6 +1113,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure SetRandom(Lower,Upper:double);
        function Equals(const v:TKraftQuickHullVector3D):boolean;
      end;
+     PKraftQuickHullVector3D=^TKraftQuickHullVector3D;
 
      TKraftQuickHullVector3DArray=array of TKraftQuickHullVector3D;
 
@@ -1126,10 +1146,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property HashNext:TKraftQuickHullVertex read fHashNext write fHashNext;
      end;
 
-     PKraftQuickHullThreeVertices=^TKraftQuickHullThreeVertices;
      TKraftQuickHullThreeVertices=array[0..2] of TKraftQuickHullVertex;
+     PKraftQuickHullThreeVertices=^TKraftQuickHullThreeVertices;
 
-     PKraftQuickHullVertexList=^TKraftQuickHullVertexList;
      TKraftQuickHullVertexList=object
       public
        Head:TKraftQuickHullVertex;
@@ -1143,8 +1162,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        function First:TKraftQuickHullVertex;
        function IsEmpty:boolean;
      end;
+     PKraftQuickHullVertexList=^TKraftQuickHullVertexList;
 
-     PKraftQuickHullFaceList=^TKraftQuickHullFaceList;
      TKraftQuickHullFaceList=object
       public
        Head:TKraftQuickHullFace;
@@ -1154,6 +1173,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        function First:TKraftQuickHullFace;
        function IsEmpty:boolean;
      end;
+     PKraftQuickHullFaceList=^TKraftQuickHullFaceList;
 
      TKraftQuickHullFace=class
       private
@@ -1225,8 +1245,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property Opposite:TKraftQuickHullHalfEdge read fOpposite write fOpposite;
      end;
 
-     PKraftQuickHullVertexHashTable=^TKraftQuickHullVertexHashTable;
      TKraftQuickHullVertexHashTable=array[0..KRAFT_QUICKHULL_HASHSIZE-1] of TKraftQuickHullVertex;
+     PKraftQuickHullVertexHashTable=^TKraftQuickHullVertexHashTable;
 
      TKraftQuickHull=class
       private
@@ -1297,33 +1317,33 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property CharLength:double read fCharLength write fCharLength;
      end;
 
-     PKraftConvexHullVertex=^TKraftConvexHullVertex;
      TKraftConvexHullVertex=record
       Position:TKraftVector3;
       CountAdjacencies:TKraftInt32;
       Adjacencies:TKraftInt32Array;
      end;
+     PKraftConvexHullVertex=^TKraftConvexHullVertex;
 
-     PPKraftConvexHullVertices=^TPKraftConvexHullVertices;
      TPKraftConvexHullVertices=array[0..65535] of TKraftConvexHullVertex;
+     PPKraftConvexHullVertices=^TPKraftConvexHullVertices;
 
      TKraftConvexHullVertices=array of TKraftConvexHullVertex;
 
-     PKraftConvexHullFace=^TKraftConvexHullFace;
      TKraftConvexHullFace=record
       Plane:TKraftPlane;
       Vertices:TKraftInt32Array;
       CountVertices:TKraftInt32;
       EdgeVertexOffset:TKraftInt32;
      end;
+     PKraftConvexHullFace=^TKraftConvexHullFace;
 
      TKraftConvexHullFaces=array of TKraftConvexHullFace;
 
-     PKraftConvexHullEdge=^TKraftConvexHullEdge;
      TKraftConvexHullEdge=record
       Vertices:array[0..1] of TKraftInt32;
       Faces:array[0..1] of TKraftInt32;
      end;
+     PKraftConvexHullEdge=^TKraftConvexHullEdge;
 
      TKraftConvexHullEdges=array of TKraftConvexHullEdge;
 
