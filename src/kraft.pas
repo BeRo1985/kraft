@@ -4150,6 +4150,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        procedure SolveContinuousMotionClamping(const aTimeStep:TKraftTimeStep);
 
+       function GetGJKDistance(const aShapeA,aShapeB:TKraftShape):TKraftScalar;
+
+       function GetMPRDistance(const aShapeA,aShapeB:TKraftShape):TKraftScalar;
+
       protected
 
        property IsSolving:boolean read fIsSolving;
@@ -4193,7 +4197,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        function PushShape(const aShape:TKraftShape;out aSeperation:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aTryIterations:TKraftInt32=4;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook=nil;const aKraftOnPushShapeFilterHook:TKraftOnPushShapeFilterHook=nil):boolean;
 
-       function GetDistance(const aShapeA,aShapeB:TKraftShape):TKraftScalar;
+       function GetDistance(const aShapeA,aShapeB:TKraftShape;const aUseMPR:Boolean=false):TKraftScalar;
 
        property HighResolutionTimer:TKraftHighResolutionTimer read fHighResolutionTimer;
 
@@ -16104,21 +16108,23 @@ begin
  result:=aTriangle^.Points[Index]^;
 end;
 
-function MPRIntersection(const ShapeA,ShapeB:TKraftShape;const TransformA,TransformB:TKraftMatrix4x4):boolean;
+function MPRIntersection(const aShapeA,aShapeB:TKraftShape;const aTransformA,aTransformB:TKraftMatrix4x4):boolean;
+const EPSILON=1e-6;
 var Phase1Iteration,Phase2Iterations:TKraftInt32;
     v0,v1,v2,v3,v4,t,n:TKraftVector3;
 begin
+
  result:=false;
 
- v0:=Vector3Sub(ShapeB.GetCenter(TransformB),ShapeA.GetCenter(TransformA));
+ v0:=Vector3Sub(aShapeB.GetCenter(aTransformB),aShapeA.GetCenter(aTransformA));
 
  if Vector3LengthSquared(v0)<1e-5 then begin
   v0.x:=1e-5;
  end;
 
  n:=Vector3Neg(v0);
- v1:=Vector3Sub(Vector3TermMatrixMul(ShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,TransformB)),TransformB),
-                Vector3TermMatrixMul(ShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(v0,TransformA)),TransformA));
+ v1:=Vector3Sub(Vector3TermMatrixMul(aShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,aTransformB)),aTransformB),
+                Vector3TermMatrixMul(aShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(v0,aTransformA)),aTransformA));
  if Vector3Dot(v1,n)<=0.0 then begin
   exit;
  end;
@@ -16129,8 +16135,8 @@ begin
   exit;
  end;
 
- v2:=Vector3Sub(Vector3TermMatrixMul(ShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,TransformB)),TransformB),
-                Vector3TermMatrixMul(ShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),TransformA)),TransformA));
+ v2:=Vector3Sub(Vector3TermMatrixMul(aShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,aTransformB)),aTransformB),
+                Vector3TermMatrixMul(aShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),aTransformA)),aTransformA));
  if Vector3Dot(v2,n)<=0.0 then begin
   exit;
  end;
@@ -16145,8 +16151,8 @@ begin
 
  for Phase1Iteration:=1 to MPRMaximumIterations do begin
 
-  v3:=Vector3Sub(Vector3TermMatrixMul(ShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,TransformB)),TransformB),
-                 Vector3TermMatrixMul(ShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),TransformA)),TransformA));
+  v3:=Vector3Sub(Vector3TermMatrixMul(aShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,aTransformB)),aTransformB),
+                 Vector3TermMatrixMul(aShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),aTransformA)),aTransformA));
   if Vector3Dot(v3,n)<=0.0 then begin
    exit;
   end;
@@ -16180,8 +16186,8 @@ begin
    if (Vector3Dot(v1,n)>=0.0) and not result then begin
     result:=true;
    end;
-   v4:=Vector3Sub(Vector3TermMatrixMul(ShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,TransformB)),TransformB),
-                  Vector3TermMatrixMul(ShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),TransformA)),TransformA));
+   v4:=Vector3Sub(Vector3TermMatrixMul(aShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,aTransformB)),aTransformB),
+                  Vector3TermMatrixMul(aShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),aTransformA)),aTransformA));
    if (Vector3Dot(Vector3Sub(v4,v3),n)<=MPRTolerance) or
       (Vector3Dot(v4,n)<=0.0) or
       (Phase2Iterations>MPRMaximumIterations) then begin
@@ -16207,19 +16213,21 @@ begin
 
 end;
 
-function MPRPenetration(const ShapeA,ShapeB:TKraftShape;const TransformA,TransformB:TKraftMatrix4x4;out PositionA,PositionB,Normal:TKraftVector3;out PenetrationDepth:TKraftScalar):boolean;
+function MPRPenetration(const aShapeA,aShapeB:TKraftShape;const aTransformA,aTransformB:TKraftMatrix4x4;out aPositionA,aPositionB,aNormal:TKraftVector3;out aPenetrationDepth:TKraftScalar):boolean;
+const EPSILON=1e-6;
 var Phase1Iteration,Phase2Iterations:TKraftInt32;
     b0,b1,b2,b3,Sum,Inv:TKraftScalar;
     v0,v0a,v0b,v1,v1a,v1b,v2,v2a,v2b,v3,v3a,v3b,v4,v4a,v4b,t,n:TKraftVector3;
 begin
+
  result:=false;
 
- PositionA:=Vector3Origin;
- PositionB:=Vector3Origin;
- PenetrationDepth:=0.0;
+ aPositionA:=Vector3Origin;
+ aPositionB:=Vector3Origin;
+ aPenetrationDepth:=0.0;
 
- v0a:=ShapeA.GetCenter(TransformA);
- v0b:=ShapeB.GetCenter(TransformB);
+ v0a:=aShapeA.GetCenter(aTransformA);
+ v0b:=aShapeB.GetCenter(aTransformB);
  v0:=Vector3Sub(v0b,v0a);
 
  if Vector3LengthSquared(v0)<1e-5 then begin
@@ -16227,29 +16235,29 @@ begin
  end;
 
  n:=Vector3Neg(v0);
- v1a:=Vector3TermMatrixMul(ShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(v0,TransformA)),TransformA);
- v1b:=Vector3TermMatrixMul(ShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,TransformB)),TransformB);
+ v1a:=Vector3TermMatrixMul(aShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(v0,aTransformA)),aTransformA);
+ v1b:=Vector3TermMatrixMul(aShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,aTransformB)),aTransformB);
  v1:=Vector3Sub(v1b,v1a);
  if Vector3Dot(v1,n)<=0.0 then begin
-  Normal:=n;
+  aNormal:=n;
   exit;
  end;
 
  n:=Vector3Cross(v1,v0);
  if Vector3LengthSquared(n)<EPSILON then begin
-  PositionA:=v1a;
-  PositionB:=v1b;
-  Normal:=Vector3Norm(Vector3Sub(v1,v0));
-  PenetrationDepth:=Vector3Dot(Vector3Sub(v1b,v1a),Normal);
+  aPositionA:=v1a;
+  aPositionB:=v1b;
+  aNormal:=Vector3Norm(Vector3Sub(v1,v0));
+  aPenetrationDepth:=Vector3Dot(Vector3Sub(v1b,v1a),aNormal);
   result:=true;
   exit;
  end;
 
- v2a:=Vector3TermMatrixMul(ShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),TransformA)),TransformA);
- v2b:=Vector3TermMatrixMul(ShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,TransformB)),TransformB);
+ v2a:=Vector3TermMatrixMul(aShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),aTransformA)),aTransformA);
+ v2b:=Vector3TermMatrixMul(aShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,aTransformB)),aTransformB);
  v2:=Vector3Sub(v2b,v2a);
  if Vector3Dot(v2,n)<=0.0 then begin
-  Normal:=n;
+  aNormal:=n;
   exit;
  end;
 
@@ -16269,11 +16277,11 @@ begin
 
  for Phase1Iteration:=1 to MPRMaximumIterations do begin
 
-  v3a:=Vector3TermMatrixMul(ShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),TransformA)),TransformA);
-  v3b:=Vector3TermMatrixMul(ShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,TransformB)),TransformB);
+  v3a:=Vector3TermMatrixMul(aShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),aTransformA)),aTransformA);
+  v3b:=Vector3TermMatrixMul(aShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,aTransformB)),aTransformB);
   v3:=Vector3Sub(v3b,v3a);
   if Vector3Dot(v3,n)<=0.0 then begin
-   Normal:=n;
+   aNormal:=n;
    exit;
   end;
 
@@ -16306,10 +16314,10 @@ begin
    n:=Vector3Cross(Vector3Sub(v2,v1),Vector3Sub(v3,v1));
 
    if Vector3LengthSquared(n)<EPSILON then begin
-    PositionA:=v1a;
-    PositionB:=v1b;
-    Normal:=Vector3Norm(Vector3Sub(v1,v0));
-    PenetrationDepth:=Vector3Dot(Vector3Sub(v1b,v1a),Normal);
+    aPositionA:=v1a;
+    aPositionB:=v1b;
+    aNormal:=Vector3Norm(Vector3Sub(v1,v0));
+    aPenetrationDepth:=Vector3Dot(Vector3Sub(v1b,v1a),aNormal);
     result:=true;
     exit;
    end;
@@ -16320,19 +16328,19 @@ begin
     result:=true;
    end;
 
-   v4a:=Vector3TermMatrixMul(ShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),TransformA)),TransformA);
-   v4b:=Vector3TermMatrixMul(ShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,TransformB)),TransformB);
+   v4a:=Vector3TermMatrixMul(aShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),aTransformA)),aTransformA);
+   v4b:=Vector3TermMatrixMul(aShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,aTransformB)),aTransformB);
    v4:=Vector3Sub(v4b,v4a);
 
-   PenetrationDepth:=Vector3Dot(v4,n);
+   aPenetrationDepth:=Vector3Dot(v4,n);
 
    if (Vector3Dot(Vector3Sub(v4,v3),n)<=MPRTolerance) or
-      (PenetrationDepth<=0.0) or
+      (aPenetrationDepth<=0.0) or
       (Phase2Iterations>MPRMaximumIterations) then begin
 
     if result then begin
 
-     Normal:=n;
+     aNormal:=n;
 
      b0:=Vector3Dot(Vector3Cross(v1,v2),v3);
      b1:=Vector3Dot(Vector3Cross(v3,v2),v0);
@@ -16354,18 +16362,18 @@ begin
 
      Inv:=1.0/Sum;
 
-     PositionA.x:=((v0a.x*b0)+(v1a.x*b1)+(v2a.x*b2)+(v3a.x*b3))*Inv;
-     PositionA.y:=((v0a.y*b0)+(v1a.y*b1)+(v2a.y*b2)+(v3a.y*b3))*Inv;
-     PositionA.z:=((v0a.z*b0)+(v1a.z*b1)+(v2a.z*b2)+(v3a.z*b3))*Inv;
+     aPositionA.x:=((v0a.x*b0)+(v1a.x*b1)+(v2a.x*b2)+(v3a.x*b3))*Inv;
+     aPositionA.y:=((v0a.y*b0)+(v1a.y*b1)+(v2a.y*b2)+(v3a.y*b3))*Inv;
+     aPositionA.z:=((v0a.z*b0)+(v1a.z*b1)+(v2a.z*b2)+(v3a.z*b3))*Inv;
 {$ifdef SIMD}
-     PositionA.w:=0.0;
+     aPositionA.w:=0.0;
 {$endif}
 
-     PositionB.x:=((v0b.x*b0)+(v1b.x*b1)+(v2b.x*b2)+(v3b.x*b3))*Inv;
-     PositionB.y:=((v0b.y*b0)+(v1b.y*b1)+(v2b.y*b2)+(v3b.y*b3))*Inv;
-     PositionB.z:=((v0b.z*b0)+(v1b.z*b1)+(v2b.z*b2)+(v3b.z*b3))*Inv;
+     aPositionB.x:=((v0b.x*b0)+(v1b.x*b1)+(v2b.x*b2)+(v3b.x*b3))*Inv;
+     aPositionB.y:=((v0b.y*b0)+(v1b.y*b1)+(v2b.y*b2)+(v3b.y*b3))*Inv;
+     aPositionB.z:=((v0b.z*b0)+(v1b.z*b1)+(v2b.z*b2)+(v3b.z*b3))*Inv;
 {$ifdef SIMD}
-     PositionB.w:=0.0;
+     aPositionB.w:=0.0;
 {$endif}
 
     end;
@@ -16416,19 +16424,21 @@ begin
 
 end;
 
-function MPRIndirectTrianglePenetration(const ShapeA:PKraftIndirectTriangle;const ShapeB:TKraftShape;const TransformA,TransformB:TKraftMatrix4x4;out PositionA,PositionB,Normal:TKraftVector3;out PenetrationDepth:TKraftScalar):boolean;
+function MPRIndirectTrianglePenetration(const aShapeA:PKraftIndirectTriangle;const aShapeB:TKraftShape;const aTransformA,aTransformB:TKraftMatrix4x4;out aPositionA,aPositionB,aNormal:TKraftVector3;out aPenetrationDepth:TKraftScalar):boolean;
+const EPSILON=1e-6;
 var Phase1Iteration,Phase2Iterations:TKraftInt32;
     b0,b1,b2,b3,Sum,Inv:TKraftScalar;
     v0,v0a,v0b,v1,v1a,v1b,v2,v2a,v2b,v3,v3a,v3b,v4,v4a,v4b,t,n:TKraftVector3;
 begin
+
  result:=false;
 
- PositionA:=Vector3Origin;
- PositionB:=Vector3Origin;
- PenetrationDepth:=0.0;
+ aPositionA:=Vector3Origin;
+ aPositionB:=Vector3Origin;
+ aPenetrationDepth:=0.0;
 
- v0a:=MPRIndirectTriangleGetCenter(ShapeA,TransformA);
- v0b:=ShapeB.GetCenter(TransformB);
+ v0a:=MPRIndirectTriangleGetCenter(aShapeA,aTransformA);
+ v0b:=aShapeB.GetCenter(aTransformB);
  v0:=Vector3Sub(v0b,v0a);
 
  if Vector3LengthSquared(v0)<1e-5 then begin
@@ -16436,29 +16446,29 @@ begin
  end;
 
  n:=Vector3Neg(v0);
- v1a:=Vector3TermMatrixMul(MPRIndirectTriangleGetLocalFullSupport(ShapeA,Vector3TermMatrixMulTransposedBasis(v0,TransformA)),TransformA);
- v1b:=Vector3TermMatrixMul(ShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,TransformB)),TransformB);
+ v1a:=Vector3TermMatrixMul(MPRIndirectTriangleGetLocalFullSupport(aShapeA,Vector3TermMatrixMulTransposedBasis(v0,aTransformA)),aTransformA);
+ v1b:=Vector3TermMatrixMul(aShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,aTransformB)),aTransformB);
  v1:=Vector3Sub(v1b,v1a);
  if Vector3Dot(v1,n)<=0.0 then begin
-  Normal:=n;
+  aNormal:=n;
   exit;
  end;
 
  n:=Vector3Cross(v1,v0);
  if Vector3LengthSquared(n)<EPSILON then begin
-  PositionA:=v1a;
-  PositionB:=v1b;
-  Normal:=Vector3Norm(Vector3Sub(v1,v0));
-  PenetrationDepth:=Vector3Dot(Vector3Sub(v1b,v1a),Normal);
+  aPositionA:=v1a;
+  aPositionB:=v1b;
+  aNormal:=Vector3Norm(Vector3Sub(v1,v0));
+  aPenetrationDepth:=Vector3Dot(Vector3Sub(v1b,v1a),aNormal);
   result:=true;
   exit;
  end;
 
- v2a:=Vector3TermMatrixMul(MPRIndirectTriangleGetLocalFullSupport(ShapeA,Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),TransformA)),TransformA);
- v2b:=Vector3TermMatrixMul(ShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,TransformB)),TransformB);
+ v2a:=Vector3TermMatrixMul(MPRIndirectTriangleGetLocalFullSupport(aShapeA,Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),aTransformA)),aTransformA);
+ v2b:=Vector3TermMatrixMul(aShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,aTransformB)),aTransformB);
  v2:=Vector3Sub(v2b,v2a);
  if Vector3Dot(v2,n)<=0.0 then begin
-  Normal:=n;
+  aNormal:=n;
   exit;
  end;
 
@@ -16478,11 +16488,11 @@ begin
 
  for Phase1Iteration:=1 to MPRMaximumIterations do begin
 
-  v3a:=Vector3TermMatrixMul(MPRIndirectTriangleGetLocalFullSupport(ShapeA,Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),TransformA)),TransformA);
-  v3b:=Vector3TermMatrixMul(ShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,TransformB)),TransformB);
+  v3a:=Vector3TermMatrixMul(MPRIndirectTriangleGetLocalFullSupport(aShapeA,Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),aTransformA)),aTransformA);
+  v3b:=Vector3TermMatrixMul(aShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,aTransformB)),aTransformB);
   v3:=Vector3Sub(v3b,v3a);
   if Vector3Dot(v3,n)<=0.0 then begin
-   Normal:=n;
+   aNormal:=n;
    exit;
   end;
 
@@ -16515,10 +16525,10 @@ begin
    n:=Vector3Cross(Vector3Sub(v2,v1),Vector3Sub(v3,v1));
 
    if Vector3LengthSquared(n)<EPSILON then begin
-    PositionA:=v1a;
-    PositionB:=v1b;
-    Normal:=Vector3Norm(Vector3Sub(v1,v0));
-    PenetrationDepth:=Vector3Dot(Vector3Sub(v1b,v1a),Normal);
+    aPositionA:=v1a;
+    aPositionB:=v1b;
+    aNormal:=Vector3Norm(Vector3Sub(v1,v0));
+    aPenetrationDepth:=Vector3Dot(Vector3Sub(v1b,v1a),aNormal);
     result:=true;
     exit;
    end;
@@ -16529,19 +16539,19 @@ begin
     result:=true;
    end;
 
-   v4a:=Vector3TermMatrixMul(MPRIndirectTriangleGetLocalFullSupport(ShapeA,Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),TransformA)),TransformA);
-   v4b:=Vector3TermMatrixMul(ShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,TransformB)),TransformB);
+   v4a:=Vector3TermMatrixMul(MPRIndirectTriangleGetLocalFullSupport(aShapeA,Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),aTransformA)),aTransformA);
+   v4b:=Vector3TermMatrixMul(aShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,aTransformB)),aTransformB);
    v4:=Vector3Sub(v4b,v4a);
 
-   PenetrationDepth:=Vector3Dot(v4,n);
+   aPenetrationDepth:=Vector3Dot(v4,n);
 
    if (Vector3Dot(Vector3Sub(v4,v3),n)<=MPRTolerance) or
-      (PenetrationDepth<=0.0) or
+      (aPenetrationDepth<=0.0) or
       (Phase2Iterations>MPRMaximumIterations) then begin
 
     if result then begin
 
-     Normal:=n;
+     aNormal:=n;
 
      b0:=Vector3Dot(Vector3Cross(v1,v2),v3);
      b1:=Vector3Dot(Vector3Cross(v3,v2),v0);
@@ -16563,18 +16573,18 @@ begin
 
      Inv:=1.0/Sum;
 
-     PositionA.x:=((v0a.x*b0)+(v1a.x*b1)+(v2a.x*b2)+(v3a.x*b3))*Inv;
-     PositionA.y:=((v0a.y*b0)+(v1a.y*b1)+(v2a.y*b2)+(v3a.y*b3))*Inv;
-     PositionA.z:=((v0a.z*b0)+(v1a.z*b1)+(v2a.z*b2)+(v3a.z*b3))*Inv;
+     aPositionA.x:=((v0a.x*b0)+(v1a.x*b1)+(v2a.x*b2)+(v3a.x*b3))*Inv;
+     aPositionA.y:=((v0a.y*b0)+(v1a.y*b1)+(v2a.y*b2)+(v3a.y*b3))*Inv;
+     aPositionA.z:=((v0a.z*b0)+(v1a.z*b1)+(v2a.z*b2)+(v3a.z*b3))*Inv;
 {$ifdef SIMD}
-     PositionA.w:=0.0;
+     aPositionA.w:=0.0;
 {$endif}
 
-     PositionB.x:=((v0b.x*b0)+(v1b.x*b1)+(v2b.x*b2)+(v3b.x*b3))*Inv;
-     PositionB.y:=((v0b.y*b0)+(v1b.y*b1)+(v2b.y*b2)+(v3b.y*b3))*Inv;
-     PositionB.z:=((v0b.z*b0)+(v1b.z*b1)+(v2b.z*b2)+(v3b.z*b3))*Inv;
+     aPositionB.x:=((v0b.x*b0)+(v1b.x*b1)+(v2b.x*b2)+(v3b.x*b3))*Inv;
+     aPositionB.y:=((v0b.y*b0)+(v1b.y*b1)+(v2b.y*b2)+(v3b.y*b3))*Inv;
+     aPositionB.z:=((v0b.z*b0)+(v1b.z*b1)+(v2b.z*b2)+(v3b.z*b3))*Inv;
 {$ifdef SIMD}
-     PositionB.w:=0.0;
+     aPositionB.w:=0.0;
 {$endif}
 
     end;
@@ -16625,39 +16635,41 @@ begin
 
 end;
 
-function MPRGetSweptExtremePoint(const ShapeA,ShapeB:TKraftShape;const Sweep:TKraftVector3;const TransformB:TKraftMatrix4x4;const Direction:TKraftVector3;out ExtremePointA:TKraftVector3):TKraftVector3;
+function MPRGetSweptExtremePoint(const aShapeA,aShapeB:TKraftShape;const aSweep:TKraftVector3;const aTransformB:TKraftMatrix4x4;const aDirection:TKraftVector3;out aExtremePointA:TKraftVector3):TKraftVector3;
 var ExtremePointB:TKraftVector3;
 begin
- ExtremePointA:=ShapeA.GetLocalFullSupport(Direction);
+ aExtremePointA:=aShapeA.GetLocalFullSupport(aDirection);
  ExtremePointB:=Vector3TermMatrixMul(
-                 ShapeB.GetLocalFullSupport(
-                  Vector3TermMatrixMulTransposedBasis(Vector3Neg(Direction),TransformB)
+                 aShapeB.GetLocalFullSupport(
+                  Vector3TermMatrixMulTransposedBasis(Vector3Neg(aDirection),aTransformB)
                  ),
-                 TransformB
+                 aTransformB
                 );
- result:=Vector3Sub(ExtremePointA,ExtremePointB);
- if Vector3Dot(Direction,Sweep)>0.0 then begin
-  result:=Vector3Add(result,Sweep);
+ result:=Vector3Sub(aExtremePointA,ExtremePointB);
+ if Vector3Dot(aDirection,aSweep)>0.0 then begin
+  result:=Vector3Add(result,aSweep);
  end;
 end;
 
-function MPRAreSweptShapesIntersecting(const ShapeA,ShapeB:TKraftShape;const Sweep:TKraftVector3;const TransformB:TKraftMatrix4x4;var HitPosition:TKraftVector3):boolean;
+function MPRAreSweptShapesIntersecting(const aShapeA,aShapeB:TKraftShape;const aSweep:TKraftVector3;const aTransformB:TKraftMatrix4x4;var aHitPosition:TKraftVector3):boolean;
+const EPSILON=1e-6;
 var Count:TKraftInt32;
     LocalPointB,v0,v1,v1a,v2,v2a,v3,v3a,v4,v4a,v1v0,v2v0,v3v0,t,n:TKraftVector3;
     Dot,DotV0,BarycentricCoordinate,v0v1v2v3Volume,v1v2v3Volume,v0v2v3Volume,v0v1v3Volume,
     InverseTotalVolume,v0Weight,v1Weight,v2Weight,v3Weight,Dot2:TKraftScalar;
 begin
+
  result:=false;
 
- LocalPointB.x:=TransformB[3,0];
- LocalPointB.y:=TransformB[3,1];
- LocalPointB.z:=TransformB[3,2];
+ LocalPointB.x:=aTransformB[3,0];
+ LocalPointB.y:=aTransformB[3,1];
+ LocalPointB.z:=aTransformB[3,2];
 {$ifdef SIMD}
  LocalPointB.w:=0.0;
 {$endif}
 
  if Vector3LengthSquared(LocalPointB)<EPSILON then begin
-  HitPosition:=LocalPointB;
+  aHitPosition:=LocalPointB;
   result:=true;
   exit;
  end;
@@ -16665,7 +16677,7 @@ begin
  v0:=Vector3Neg(LocalPointB);
 
  n:=LocalPointB;
- v1:=MPRGetSweptExtremePoint(ShapeA,ShapeB,Sweep,TransformB,n,v1a);
+ v1:=MPRGetSweptExtremePoint(aShapeA,aShapeB,aSweep,aTransformB,n,v1a);
 
  n:=Vector3Cross(v1,v0);
  if Vector3LengthSquared(n)<EPSILON then begin
@@ -16675,18 +16687,18 @@ begin
   end else begin
    DotV0:=Vector3Dot(v0,LocalPointB);
    BarycentricCoordinate:=(-DotV0)/(Dot-DotV0);
-   HitPosition:=Vector3ScalarMul(v1a,BarycentricCoordinate);
+   aHitPosition:=Vector3ScalarMul(v1a,BarycentricCoordinate);
    result:=true;
   end;
   exit;
  end;
 
- v2:=MPRGetSweptExtremePoint(ShapeA,ShapeB,Sweep,TransformB,n,v2a);
+ v2:=MPRGetSweptExtremePoint(aShapeA,aShapeB,aSweep,aTransformB,n,v2a);
 
  n:=Vector3Cross(Vector3Sub(v1,v0),Vector3Sub(v2,v0));
 
  for Count:=1 to MPRMaximumIterations do begin
-  v3:=MPRGetSweptExtremePoint(ShapeA,ShapeB,Sweep,TransformB,n,v3a);
+  v3:=MPRGetSweptExtremePoint(aShapeA,aShapeB,aSweep,aTransformB,n,v3a);
   if Vector3Dot(v0,Vector3Cross(v1,v3))<0.0 then begin
    v2:=v3;
    v2a:=v3a;
@@ -16722,23 +16734,26 @@ begin
    v1Weight:=v0v2v3volume*InverseTotalVolume;
    v2Weight:=v0v1v3volume*InverseTotalVolume;
    v3Weight:=1.0-(v0Weight+v1Weight+v2Weight);
-   HitPosition:=Vector3Add(
+   aHitPosition:=Vector3Add(
                  Vector3Add(
                   Vector3ScalarMul(v1a,v1Weight),
                   Vector3ScalarMul(v2a,v2Weight)
                  ),
                  Vector3ScalarMul(v3a,v3Weight)
                 );
+
    result:=true;
+
    exit;
+
   end;
 
-  v4:=MPRGetSweptExtremePoint(ShapeA,ShapeB,Sweep,TransformB,n,v4a);
+  v4:=MPRGetSweptExtremePoint(aShapeA,aShapeB,aSweep,aTransformB,n,v4a);
   Dot2:=Vector3Dot(v4,n);
   if (Dot2<0.0) or
      ((Dot2-Dot)<MPRTolerance) or
      (Count>MPRSweepCastMaximumIterations) then begin
-   HitPosition:=LocalPointB;
+   aHitPosition:=LocalPointB;
    exit;
   end;
 
@@ -16765,7 +16780,8 @@ begin
 
 end;
 
-function MPRSweepTest(const ShapeA,ShapeB:TKraftShape;const SweepA,SweepB:TKraftSweep):boolean;
+function MPRSweepTest(const aShapeA,aShapeB:TKraftShape;const aSweepA,aSweepB:TKraftSweep):boolean;
+const EPSILON=1e-6;
 var RayLengthSquared,SweepLength,MaximumRadius,t0,t1:TKraftScalar;
     VelocityWorld,LocalOrigin,LocalDirection,Sweep,HitPosition,VelocityA,VelocityB:TKraftVector3;
     NegativeSweepLength:boolean;
@@ -16773,19 +16789,20 @@ var RayLengthSquared,SweepLength,MaximumRadius,t0,t1:TKraftScalar;
     Positions:array[0..1,0..1] of TKraftVector3;
     Transforms:array[0..1,0..1] of TKraftMatrix4x4;
 begin
+
  result:=false;
 
- Transforms[0,0]:=Matrix4x4TermMul(ShapeA.fLocalTransform,SweepTransform(SweepA,0.0));
- Transforms[0,1]:=Matrix4x4TermMul(ShapeA.fLocalTransform,SweepTransform(SweepA,1.0));
- Transforms[1,0]:=Matrix4x4TermMul(ShapeB.fLocalTransform,SweepTransform(SweepB,0.0));
- Transforms[1,1]:=Matrix4x4TermMul(ShapeB.fLocalTransform,SweepTransform(SweepB,1.0));
+ Transforms[0,0]:=Matrix4x4TermMul(aShapeA.fLocalTransform,SweepTransform(aSweepA,0.0));
+ Transforms[0,1]:=Matrix4x4TermMul(aShapeA.fLocalTransform,SweepTransform(aSweepA,1.0));
+ Transforms[1,0]:=Matrix4x4TermMul(aShapeB.fLocalTransform,SweepTransform(aSweepB,0.0));
+ Transforms[1,1]:=Matrix4x4TermMul(aShapeB.fLocalTransform,SweepTransform(aSweepB,1.0));
 
- Positions[0,0]:=Vector3TermMatrixMul(ShapeA.fLocalCenterOfMass,Transforms[0,0]);
- Positions[0,1]:=Vector3TermMatrixMul(ShapeA.fLocalCenterOfMass,Transforms[0,1]);
- Positions[1,0]:=Vector3TermMatrixMul(ShapeB.fLocalCenterOfMass,Transforms[1,0]);
- Positions[1,1]:=Vector3TermMatrixMul(ShapeB.fLocalCenterOfMass,Transforms[1,1]);
+ Positions[0,0]:=Vector3TermMatrixMul(aShapeA.fLocalCenterOfMass,Transforms[0,0]);
+ Positions[0,1]:=Vector3TermMatrixMul(aShapeA.fLocalCenterOfMass,Transforms[0,1]);
+ Positions[1,0]:=Vector3TermMatrixMul(aShapeB.fLocalCenterOfMass,Transforms[1,0]);
+ Positions[1,1]:=Vector3TermMatrixMul(aShapeB.fLocalCenterOfMass,Transforms[1,1]);
 
- if not SweepSphereSphere(Positions[0,0],Positions[0,1],ShapeA.fShapeSphere.Radius,Positions[1,0],Positions[1,1],ShapeB.fShapeSphere.Radius,t0,t1) then begin
+ if not SweepSphereSphere(Positions[0,0],Positions[0,1],aShapeA.fShapeSphere.Radius,Positions[1,0],Positions[1,1],aShapeB.fShapeSphere.Radius,t0,t1) then begin
   exit;
  end;
 
@@ -16798,7 +16815,7 @@ begin
 
  LocalTransformBinA:=Matrix4x4TermMulInverted(Transforms[1,0],Transforms[0,0]);
 
- MaximumRadius:=ShapeA.fShapeSphere.Radius+ShapeB.fShapeSphere.Radius;
+ MaximumRadius:=aShapeA.fShapeSphere.Radius+aShapeB.fShapeSphere.Radius;
 
  LocalOrigin.x:=LocalTransformBinA[3,0];
  LocalOrigin.y:=LocalTransformBinA[3,1];
@@ -16824,11 +16841,12 @@ begin
 
  Sweep:=Vector3ScalarMul(LocalDirection,SweepLength);
 
- result:=MPRAreSweptShapesIntersecting(ShapeA,ShapeB,Sweep,LocalTransformBinA,HitPosition);
+ result:=MPRAreSweptShapesIntersecting(aShapeA,aShapeB,Sweep,LocalTransformBinA,HitPosition);
 
 end;
 
-function MPRSweepActualCast(const ShapeA,ShapeB:TKraftShape;const SweepLength,RayLengthSquared:TKraftScalar;const LocalDirection,Sweep:TKraftVector3;const LocalTransformBinA:TKraftMatrix4x4;out HitPosition,HitNormal:TKraftVector3;out HitTime:TKraftScalar):boolean;
+function MPRSweepActualCast(const aShapeA,aShapeB:TKraftShape;const aSweepLength,aRayLengthSquared:TKraftScalar;const aLocalDirection,aSweep:TKraftVector3;const aLocalTransformBinA:TKraftMatrix4x4;out aHitPosition,aHitNormal:TKraftVector3;out aHitTime:TKraftScalar):boolean;
+const EPSILON=1e-6;
 var n,v1,v1a,v2,v2a,v3,v3a,v4,v4a,t:TKraftVector3;
     Rate,Distance,Dot,SupportDot:TKraftScalar;
     Count:TKraftInt32;
@@ -16836,39 +16854,39 @@ begin
 
  result:=false;
 
- HitPosition:=Vector3Origin;
- HitNormal:=Vector3Origin;
- HitTime:=0.0;
+ aHitPosition:=Vector3Origin;
+ aHitNormal:=Vector3Origin;
+ aHitTime:=0.0;
 
- n:=LocalDirection;
- v1:=MPRGetSweptExtremePoint(ShapeA,ShapeB,Sweep,LocalTransformBinA,n,v1a);
+ n:=aLocalDirection;
+ v1:=MPRGetSweptExtremePoint(aShapeA,aShapeB,aSweep,aLocalTransformBinA,n,v1a);
  
- n:=Vector3Cross(v1,LocalDirection);
+ n:=Vector3Cross(v1,aLocalDirection);
  if Vector3LengthSquared(n)<EPSILON then begin
-  if RayLengthSquared>EPSILON then begin
-   HitNormal:=Vector3Norm(Vector3ScalarMul(LocalDirection,1.0/sqrt(RayLengthSquared)));
+  if aRayLengthSquared>EPSILON then begin
+   aHitNormal:=Vector3Norm(Vector3ScalarMul(aLocalDirection,1.0/sqrt(aRayLengthSquared)));
   end else begin
-   HitNormal:=Vector3Origin;
+   aHitNormal:=Vector3Origin;
   end;
-  Rate:=Vector3Dot(HitNormal,LocalDirection);
-  Distance:=Vector3Dot(HitNormal,v1);
+  Rate:=Vector3Dot(aHitNormal,aLocalDirection);
+  Distance:=Vector3Dot(aHitNormal,v1);
   if Rate>0.0 then begin
-   HitTime:=SweepLength-(Distance/Rate);
+   aHitTime:=aSweepLength-(Distance/Rate);
   end else begin
-   HitTime:=SweepLength;
+   aHitTime:=aSweepLength;
   end;
-  if HitTime<0.0 then begin
-   HitTime:=0.0;
+  if aHitTime<0.0 then begin
+   aHitTime:=0.0;
   end;
-  result:=HitTime<=1.0;
+  result:=aHitTime<=1.0;
   exit;
  end;
 
- v2:=MPRGetSweptExtremePoint(ShapeA,ShapeB,Sweep,LocalTransformBinA,n,v2a);
+ v2:=MPRGetSweptExtremePoint(aShapeA,aShapeB,aSweep,aLocalTransformBinA,n,v2a);
 
  n:=Vector3Cross(v1,v2);
 
- Dot:=Vector3Dot(n,LocalDirection);
+ Dot:=Vector3Dot(n,aLocalDirection);
  if Dot>0.0 then begin
   t:=v1;
   v1:=v2;
@@ -16881,14 +16899,14 @@ begin
 
  for Count:=1 to MPRMaximumIterations do begin
 
-  v3:=MPRGetSweptExtremePoint(ShapeA,ShapeB,Sweep,LocalTransformBinA,n,v3a);
+  v3:=MPRGetSweptExtremePoint(aShapeA,aShapeB,aSweep,aLocalTransformBinA,n,v3a);
 
-  if Vector3Dot(Vector3Cross(v1,v3),LocalDirection)<0.0 then begin
+  if Vector3Dot(Vector3Cross(v1,v3),aLocalDirection)<0.0 then begin
    v2:=v3;
    v2a:=v3a;
    n:=Vector3Cross(v1,v2);
    continue;
-  end else if Vector3Dot(Vector3Cross(v3,v2),LocalDirection)<0.0 then begin
+  end else if Vector3Dot(Vector3Cross(v3,v2),aLocalDirection)<0.0 then begin
    v1:=v3;
    v1a:=v3a;
    n:=Vector3Cross(v2,v3);
@@ -16908,29 +16926,29 @@ begin
 
   n:=Vector3Cross(Vector3Sub(v1,v2),Vector3Sub(v3,v2));
 
-  v4:=MPRGetSweptExtremePoint(ShapeA,ShapeB,Sweep,LocalTransformBinA,n,v4a);
+  v4:=MPRGetSweptExtremePoint(aShapeA,aShapeB,aSweep,aLocalTransformBinA,n,v4a);
 
   Dot:=Vector3Dot(n,v1);  
   SupportDot:=Vector3Dot(n,v4);
 
   if ((SupportDot-Dot)<MPRTolerance) or (Count>MPRMaximumIterations) then begin
    if Vector3LengthSquared(n)>EPSILON then begin
-    HitNormal:=Vector3Norm(n);
-    Dot:=Vector3Dot(HitNormal,LocalDirection);
-    SupportDot:=Vector3Dot(HitNormal,v1);
-    HitTime:=SweepLength-(SupportDot/Dot);
+    aHitNormal:=Vector3Norm(n);
+    Dot:=Vector3Dot(aHitNormal,aLocalDirection);
+    SupportDot:=Vector3Dot(aHitNormal,v1);
+    aHitTime:=aSweepLength-(SupportDot/Dot);
    end else begin
-    HitNormal:=LocalDirection;
-    HitTime:=SweepLength;
+    aHitNormal:=aLocalDirection;
+    aHitTime:=aSweepLength;
    end;
-   if HitTime<0.0 then begin
-    HitTime:=0.0;
+   if aHitTime<0.0 then begin
+    aHitTime:=0.0;
    end;
-   result:=HitTime<=1.0;
+   result:=aHitTime<=1.0;
    exit;
   end;
 
-  t:=Vector3Cross(v4,LocalDirection);
+  t:=Vector3Cross(v4,aLocalDirection);
   
   if Vector3Dot(v1,t)>=0.0 then begin
    if Vector3Dot(v2,t)>=0.0 then begin
@@ -16956,7 +16974,8 @@ begin
 
 end;
 
-function MPRGetLocalPosition(const ShapeA,ShapeB:TKraftShape;const LocalTransformBinA:TKraftMatrix4x4;const MinkowskiRayHit:TKraftVector3;out LocalPosition:TKraftVector3):boolean;
+function MPRGetLocalPosition(const aShapeA,aShapeB:TKraftShape;const aLocalTransformBinA:TKraftMatrix4x4;const aMinkowskiRayHit:TKraftVector3;out aLocalPosition:TKraftVector3):boolean;
+const EPSILON=1e-6;
 var Count:TKraftInt32;
     RayDirection,v0,v1,v1a,v1b,v2,v2a,v2b,v3,v3a,v3b,v4,v4a,v4b,t,n,v0v1,v0v2,v0v3,v2v3,v2v1,
     PointToV0,PointToV1,PointToV2,PointToV3,PointToV4:TKraftVector3;
@@ -16965,48 +16984,48 @@ begin
 
  result:=false;
 
- RayDirection:=Vector3Add(MinkowskiRayHit,Vector3(LocalTransformBinA[3,0],LocalTransformBinA[3,1],LocalTransformBinA[3,2]));
+ RayDirection:=Vector3Add(aMinkowskiRayHit,Vector3(aLocalTransformBinA[3,0],aLocalTransformBinA[3,1],aLocalTransformBinA[3,2]));
  
  if Vector3LengthSquared(RayDirection)<EPSILON then begin
-  LocalPosition:=Vector3Origin;
+  aLocalPosition:=Vector3Origin;
   result:=true;
   exit;
  end;
 
- v0:=Vector3Neg(Vector3(LocalTransformBinA[3,0],LocalTransformBinA[3,1],LocalTransformBinA[3,2]));
+ v0:=Vector3Neg(Vector3(aLocalTransformBinA[3,0],aLocalTransformBinA[3,1],aLocalTransformBinA[3,2]));
 
  n:=RayDirection;
 
- v1a:=ShapeA.GetLocalFullSupport(n);
- v1b:=Vector3TermMatrixMulBasis(ShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),LocalTransformBinA)),LocalTransformBinA);
+ v1a:=aShapeA.GetLocalFullSupport(n);
+ v1b:=Vector3TermMatrixMulBasis(aShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),aLocalTransformBinA)),aLocalTransformBinA);
  v1:=Vector3Sub(v1b,v1a);
 
  n:=Vector3Cross(v1,v0);
  if Vector3LengthSquared(n)<EPSILON then begin
-  Dot:=Vector3Dot(Vector3Sub(v1,MinkowskiRayHit),RayDirection);
-  DotV0:=Vector3Dot(Vector3Sub(v0,MinkowskiRayHit),RayDirection);
+  Dot:=Vector3Dot(Vector3Sub(v1,aMinkowskiRayHit),RayDirection);
+  DotV0:=Vector3Dot(Vector3Sub(v0,aMinkowskiRayHit),RayDirection);
   BarycentricCoordinate:=(-DotV0)/(Dot-DotV0);
-  LocalPosition:=Vector3ScalarMul(v1a,BarycentricCoordinate);
+  aLocalPosition:=Vector3ScalarMul(v1a,BarycentricCoordinate);
   result:=true;
   exit;
  end;
 
- v2a:=ShapeA.GetLocalFullSupport(n);
- v2b:=Vector3TermMatrixMulBasis(ShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),LocalTransformBinA)),LocalTransformBinA);
+ v2a:=aShapeA.GetLocalFullSupport(n);
+ v2b:=Vector3TermMatrixMulBasis(aShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),aLocalTransformBinA)),aLocalTransformBinA);
  v2:=Vector3Sub(v2b,v2a);
 
  v0v1:=Vector3Sub(v1,v0);
  v0v2:=Vector3Sub(v2,v0);
  n:=Vector3Cross(v0v1,v0v2);
 
- PointToV0:=Vector3Sub(v0,MinkowskiRayHit);
+ PointToV0:=Vector3Sub(v0,aMinkowskiRayHit);
 
  Count:=0;
 
  while true do begin
 
-  v3a:=ShapeA.GetLocalFullSupport(n);
-  v3b:=Vector3TermMatrixMulBasis(ShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),LocalTransformBinA)),LocalTransformBinA);
+  v3a:=aShapeA.GetLocalFullSupport(n);
+  v3b:=Vector3TermMatrixMulBasis(aShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),aLocalTransformBinA)),aLocalTransformBinA);
   v3:=Vector3Sub(v3b,v3a);
 
   if Count>MPRMaximumIterations then begin
@@ -17048,20 +17067,20 @@ begin
   v2v1:=Vector3Sub(v1,v2);
   n:=Vector3Cross(v2v3,v2v1);
   
-  PointToV1:=Vector3Sub(v1,MinkowskiRayHit);
+  PointToV1:=Vector3Sub(v1,aMinkowskiRayHit);
   Dot:=Vector3Dot(PointToV1,n);
 
-  v4a:=ShapeA.GetLocalFullSupport(n);
-  v4b:=Vector3TermMatrixMulBasis(ShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),LocalTransformBinA)),LocalTransformBinA);
+  v4a:=aShapeA.GetLocalFullSupport(n);
+  v4b:=Vector3TermMatrixMulBasis(aShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),aLocalTransformBinA)),aLocalTransformBinA);
   v4:=Vector3Sub(v4b,v4a);
 
-  PointToV4:=Vector3Sub(v4,MinkowskiRayHit);
+  PointToV4:=Vector3Sub(v4,aMinkowskiRayHit);
 
   Dot2:=Vector3Dot(PointToV4,n);
 
   if ((Dot2-Dot)<MPRTolerance) or (Count>MPRMaximumIterations) then begin
-   CartesianToBarycentric(v1,v2,v3,MinkowskiRayHit,u,v,w);
-   LocalPosition:=Vector3(
+   CartesianToBarycentric(v1,v2,v3,aMinkowskiRayHit,u,v,w);
+   aLocalPosition:=Vector3(
                    (u*v1a.x)+(v*v2a.x)+(w*v3a.x),
                    (u*v1a.y)+(v*v2a.y)+(w*v3a.y),
                    (u*v1a.z)+(v*v2a.z)+(w*v3a.z)
@@ -17075,7 +17094,7 @@ begin
   t:=Vector3Cross(PointToV4,PointToV0);
   Dot:=Vector3Dot(PointToV1,t);
   if Dot>=0.0 then begin
-   PointToV2:=Vector3Sub(v2,MinkowskiRayHit);
+   PointToV2:=Vector3Sub(v2,aMinkowskiRayHit);
    Dot:=Vector3Dot(PointToV2,t);
    if Dot>=0.0 then begin
     v1:=v4;
@@ -17087,7 +17106,7 @@ begin
     v3b:=v4b;
    end;
   end else begin
-   PointToV3:=Vector3Sub(v3,MinkowskiRayHit);
+   PointToV3:=Vector3Sub(v3,aMinkowskiRayHit);
    Dot:=Vector3Dot(PointToV3,t);
    if Dot>=0.0 then begin
     v2:=v4;
@@ -17104,7 +17123,8 @@ begin
 
 end;
 
-function MPRSweepCast(const ShapeA,ShapeB:TKraftShape;const SweepA,SweepB:TKraftSweep;out HitPosition,HitNormal:TKraftVector3;out HitTime:TKraftScalar):boolean;
+function MPRSweepCast(const aShapeA,aShapeB:TKraftShape;const aSweepA,aSweepB:TKraftSweep;out aHitPosition,aHitNormal:TKraftVector3;out aHitTime:TKraftScalar):boolean;
+const EPSILON=1e-6;
 var RayLengthSquared,SweepLength,MaximumRadius,t0,t1:TKraftScalar;
     VelocityWorld,LocalOrigin,LocalDirection,Sweep,VelocityA,VelocityB,
     MinkowskiRayHit:TKraftVector3;
@@ -17113,19 +17133,20 @@ var RayLengthSquared,SweepLength,MaximumRadius,t0,t1:TKraftScalar;
     Positions:array[0..1,0..1] of TKraftVector3;
     Transforms:array[0..1,0..1] of TKraftMatrix4x4;
 begin
+
  result:=false;
 
- Transforms[0,0]:=Matrix4x4TermMul(ShapeA.fLocalTransform,SweepTransform(SweepA,0.0));
- Transforms[0,1]:=Matrix4x4TermMul(ShapeA.fLocalTransform,SweepTransform(SweepA,1.0));
- Transforms[1,0]:=Matrix4x4TermMul(ShapeB.fLocalTransform,SweepTransform(SweepB,0.0));
- Transforms[1,1]:=Matrix4x4TermMul(ShapeB.fLocalTransform,SweepTransform(SweepB,1.0));
+ Transforms[0,0]:=Matrix4x4TermMul(aShapeA.fLocalTransform,SweepTransform(aSweepA,0.0));
+ Transforms[0,1]:=Matrix4x4TermMul(aShapeA.fLocalTransform,SweepTransform(aSweepA,1.0));
+ Transforms[1,0]:=Matrix4x4TermMul(aShapeB.fLocalTransform,SweepTransform(aSweepB,0.0));
+ Transforms[1,1]:=Matrix4x4TermMul(aShapeB.fLocalTransform,SweepTransform(aSweepB,1.0));
 
- Positions[0,0]:=Vector3TermMatrixMul(ShapeA.fLocalCenterOfMass,Transforms[0,0]);
- Positions[0,1]:=Vector3TermMatrixMul(ShapeA.fLocalCenterOfMass,Transforms[0,1]);
- Positions[1,0]:=Vector3TermMatrixMul(ShapeB.fLocalCenterOfMass,Transforms[1,0]);
- Positions[1,1]:=Vector3TermMatrixMul(ShapeB.fLocalCenterOfMass,Transforms[1,1]);
+ Positions[0,0]:=Vector3TermMatrixMul(aShapeA.fLocalCenterOfMass,Transforms[0,0]);
+ Positions[0,1]:=Vector3TermMatrixMul(aShapeA.fLocalCenterOfMass,Transforms[0,1]);
+ Positions[1,0]:=Vector3TermMatrixMul(aShapeB.fLocalCenterOfMass,Transforms[1,0]);
+ Positions[1,1]:=Vector3TermMatrixMul(aShapeB.fLocalCenterOfMass,Transforms[1,1]);
 
- if not SweepSphereSphere(Positions[0,0],Positions[0,1],ShapeA.fShapeSphere.Radius,Positions[1,0],Positions[1,1],ShapeB.fShapeSphere.Radius,t0,t1) then begin
+ if not SweepSphereSphere(Positions[0,0],Positions[0,1],aShapeA.fShapeSphere.Radius,Positions[1,0],Positions[1,1],aShapeB.fShapeSphere.Radius,t0,t1) then begin
   exit;
  end;
 
@@ -17138,7 +17159,7 @@ begin
 
  LocalTransformBinA:=Matrix4x4TermMulInverted(Transforms[1,0],Transforms[0,0]);
 
- MaximumRadius:=ShapeA.fShapeSphere.Radius+ShapeB.fShapeSphere.Radius;
+ MaximumRadius:=aShapeA.fShapeSphere.Radius+aShapeB.fShapeSphere.Radius;
 
  LocalOrigin.x:=LocalTransformBinA[3,0];
  LocalOrigin.y:=LocalTransformBinA[3,1];
@@ -17164,25 +17185,330 @@ begin
 
  Sweep:=Vector3ScalarMul(LocalDirection,SweepLength);
 
- result:=MPRAreSweptShapesIntersecting(ShapeA,ShapeB,Sweep,LocalTransformBinA,HitPosition);
+ result:=MPRAreSweptShapesIntersecting(aShapeA,aShapeB,Sweep,LocalTransformBinA,aHitPosition);
  if not result then begin
   exit;
  end;
 
  if NegativeSweepLength then begin
-  HitPosition:=Vector3TermMatrixMulBasis(HitPosition,Transforms[0,0]);
-  HitNormal:=Vector3Norm(Vector3TermMatrixMulBasis(LocalDirection,Transforms[0,0]));
-  HitTime:=0.0;
+  aHitPosition:=Vector3TermMatrixMulBasis(aHitPosition,Transforms[0,0]);
+  aHitNormal:=Vector3Norm(Vector3TermMatrixMulBasis(LocalDirection,Transforms[0,0]));
+  aHitTime:=0.0;
   result:=true;
   exit;
  end;
 
- if MPRSweepActualCast(ShapeA,ShapeB,SweepLength,RayLengthSquared,LocalDirection,Sweep,LocalTransformBinA,HitPosition,HitNormal,HitTime) then begin
-  MinkowskiRayHit:=Vector3ScalarMul(LocalDirection,-HitTime);
-  MPRGetLocalPosition(ShapeA,ShapeB,LocalTransformBinA,MinkowskiRayHit,HitPosition);
-  HitPosition:=Vector3Add(Vector3TermMatrixMul(HitPosition,Transforms[0,0]),Vector3ScalarMul(VelocityA,HitTime));
-  Vector3MatrixMulBasis(HitNormal,Transforms[0,0]);
+ if MPRSweepActualCast(aShapeA,aShapeB,SweepLength,RayLengthSquared,LocalDirection,Sweep,LocalTransformBinA,aHitPosition,aHitNormal,aHitTime) then begin
+  MinkowskiRayHit:=Vector3ScalarMul(LocalDirection,-aHitTime);
+  MPRGetLocalPosition(aShapeA,aShapeB,LocalTransformBinA,MinkowskiRayHit,aHitPosition);
+  aHitPosition:=Vector3Add(Vector3TermMatrixMul(aHitPosition,Transforms[0,0]),Vector3ScalarMul(VelocityA,aHitTime));
+  Vector3MatrixMulBasis(aHitNormal,Transforms[0,0]);
   result:=true;
+ end;
+
+end;
+
+function MPRShapeCast(const aShapeA,aShapeB:TKraftShape;const aDirection:TKraftVector3;const aTransformA,aTransformB:TKraftMatrix4x4;out aHitPosition,aHitNormal:TKraftVector3;out aHitTime:TKraftScalar):boolean;
+const EPSILON=1e-6;
+var IterationIndex,OtherIterationIndex:TKraftInt32;
+    n,v0,v1,v1a,v1b,v2,v2a,v2b,v3,v3a,v3b,v4,v4a,v4b,t,v:TKraftVector3;
+    a,b,c,vMin,b1,b2,b3,Sum,Inv:TKraftScalar;
+begin
+
+ result:=false;
+
+ v0:=aDirection;
+
+ n:=Vector3Norm(v0);
+ if Vector3LengthSquared(n)<EPSILON then begin
+  aHitPosition:=Vector3Origin;
+  aHitNormal:=Vector3Origin;
+  aHitTime:=0.0;
+  result:=false;
+  exit;
+ end;
+
+ v1a:=Vector3TermMatrixMul(aShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,aTransformA)),aTransformA);
+ v1b:=Vector3TermMatrixMul(aShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),aTransformB)),aTransformB);
+ v1:=Vector3Sub(v1b,v1a);
+
+ n:=Vector3Cross(v1,v0);
+
+ v2a:=Vector3TermMatrixMul(aShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,aTransformA)),aTransformA);
+ v2b:=Vector3TermMatrixMul(aShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),aTransformB)),aTransformB);
+ v2:=Vector3Sub(v2b,v2a);
+
+ n:=Vector3Cross(Vector3Sub(v1,v0),Vector3Sub(v2,v0));
+
+ if Vector3Dot(n,v1)>0.0 then begin
+  t:=v1;
+  v1:=v2;
+  v2:=t;
+  t:=v1a;
+  v1a:=v2a;
+  v2a:=t;
+  t:=v1b;
+  v1b:=v2b;
+  v2b:=t;
+  n:=Vector3Neg(n);
+ end;
+
+ // Discover the portal
+
+ v3:=Vector3Origin;
+
+ for IterationIndex:=1 to MPRMaximumIterations do begin
+
+  v3a:=Vector3TermMatrixMul(aShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,aTransformA)),aTransformA);
+  v3b:=Vector3TermMatrixMul(aShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),aTransformB)),aTransformB);
+  v3:=Vector3Sub(v3b,v3a);
+
+  if Vector3Dot(v3,n)<=0 then begin
+   // No collision
+   exit;
+  end;
+
+  t:=Vector3Cross(v3,v0);
+
+  if Vector3Dot(t,v1)<0.0 then begin
+   v2:=v3;
+   v2a:=v3a;
+   v2b:=v3b;
+  end else if Vector3Dot(t,v2)>0.0 then begin
+   v1:=v3;
+   v1a:=v3a;
+   v1b:=v3b;
+  end else begin
+   break;
+  end;
+
+ end;
+
+ // Refine the portal
+
+ v4:=Vector3Origin;
+
+ for OtherIterationIndex:=1 to MPRMaximumIterations do begin
+
+  n:=Vector3Norm(Vector3Cross(Vector3Sub(v3,v1),Vector3Sub(v2,v1)));
+ {if Vector3Dot(n,v1)>=0.0 then begin
+   // The shapes are touching their original positions or just the direction is in the back of aShapeB
+   exit;
+  end;//}
+
+  v4a:=Vector3TermMatrixMul(aShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,aTransformA)),aTransformA);
+  v4b:=Vector3TermMatrixMul(aShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),aTransformB)),aTransformB);
+  v4:=Vector3Sub(v4b,v4a);
+
+  a:=Vector3Dot(Vector3Sub(v4,v1),n);
+  b:=Vector3Dot(Vector3Sub(v4,v2),n);
+  c:=Vector3Dot(Vector3Sub(v4,v3),n);
+
+  if a<b then begin
+   if a<c then begin
+    vMin:=a;
+    v:=v1;
+   end else begin
+    vMin:=c;
+    v:=v3;
+   end;
+  end else begin
+   if b<c then begin
+    vMin:=b;
+    v:=v2;
+   end else begin
+    vMin:=c;
+    v:=v3;
+   end;
+  end;
+
+  if vMin<EPSILON then begin
+
+   a:=Vector3Dot(v0,n);
+
+   if abs(a)>0.0 then begin
+
+    b1:=Vector3Dot(Vector3Cross(v2,v3),n);
+    b2:=Vector3Dot(Vector3Cross(v3,v1),n);
+    b3:=Vector3Dot(Vector3Cross(v1,v2),n);
+
+    Sum:=b1+b2+b3;
+
+    Inv:=1.0/Sum;
+
+    aHitPosition.x:=((v1b.x*b1)+(v2b.x*b2)+(v3b.x*b3))*Inv;
+    aHitPosition.y:=((v1b.y*b1)+(v2b.y*b2)+(v3b.y*b3))*Inv;
+    aHitPosition.z:=((v1b.z*b1)+(v2b.z*b2)+(v3b.z*b3))*Inv;
+{$ifdef SIMD}
+    aHitPosition.w:=0.0;
+{$endif}
+
+    aHitTime:=(-Vector3Dot(v,n))/a;
+
+    aHitNormal:=Vector3Neg(n);
+
+    result:=true;
+
+   end;
+
+   exit;
+
+  end;
+
+  t:=Vector3Cross(v4,v0);
+  if Vector3Dot(t,v1)<0.0 then begin
+   if Vector3Dot(t,v3)<0.0 then begin
+    v1:=v4;
+    v1a:=v4a;
+    v1b:=v4b;
+   end else begin
+    v2:=v4;
+    v2a:=v4a;
+    v2b:=v4b;
+   end;
+  end else begin
+   if Vector3Dot(t,v2)<0.0 then begin
+    v3:=v4;
+    v3a:=v4a;
+    v3b:=v4b;
+   end else begin
+    v1:=v4;
+    v1a:=v4a;
+    v1b:=v4b;
+   end;
+  end;
+
+ end;
+
+end;
+
+function MPRDistance(const aShapeA,aShapeB:TKraftShape;const aTransformA,aTransformB:TKraftMatrix4x4;out aDistance:TKraftScalar):boolean;
+const EPSILON=1e-6;
+var IterationIndex,OtherIterationIndex:TKraftInt32;
+    n,v0,v1,v2,v3,v4,t,v:TKraftVector3;
+    a,b,c,vMin,b1,b2,b3,Sum,Inv:TKraftScalar;
+begin
+
+ result:=false;
+
+ v0:=Vector3Sub(aShapeB.GetCenter(aTransformB),aShapeA.GetCenter(aTransformA));
+
+ n:=Vector3Norm(v0);
+ if Vector3LengthSquared(n)<EPSILON then begin
+  exit;
+ end;
+
+ v1:=Vector3Sub(Vector3TermMatrixMul(aShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),aTransformB)),aTransformB),
+                Vector3TermMatrixMul(aShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,aTransformA)),aTransformA));
+
+ n:=Vector3Cross(v1,v0);
+
+ v2:=Vector3Sub(Vector3TermMatrixMul(aShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),aTransformB)),aTransformB),
+                Vector3TermMatrixMul(aShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,aTransformA)),aTransformA));
+
+ n:=Vector3Cross(Vector3Sub(v1,v0),Vector3Sub(v2,v0));
+
+ if Vector3Dot(n,v1)>0.0 then begin
+  t:=v1;
+  v1:=v2;
+  v2:=t;
+  n:=Vector3Neg(n);
+ end;
+
+ // Discover the portal
+
+ v3:=Vector3Origin;
+
+ for IterationIndex:=1 to MPRMaximumIterations do begin
+
+  v3:=Vector3Sub(Vector3TermMatrixMul(aShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),aTransformB)),aTransformB),
+                 Vector3TermMatrixMul(aShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,aTransformA)),aTransformA));
+
+  if Vector3Dot(v3,n)<=0 then begin
+   // No collision
+   exit;
+  end;
+
+  t:=Vector3Cross(v3,v0);
+
+  if Vector3Dot(t,v1)<0.0 then begin
+   v2:=v3;
+  end else if Vector3Dot(t,v2)>0.0 then begin
+   v1:=v3;
+  end else begin
+   break;
+  end;
+
+ end;
+
+ // Refine the portal
+
+ v4:=Vector3Origin;
+
+ for OtherIterationIndex:=1 to MPRMaximumIterations do begin
+
+  n:=Vector3Norm(Vector3Cross(Vector3Sub(v3,v1),Vector3Sub(v2,v1)));
+ {if Vector3Dot(n,v1)>=0.0 then begin
+   // The shapes are touching their original positions or just the direction is in the back of aShapeB
+   exit;
+  end;//}
+
+  v4:=Vector3Sub(Vector3TermMatrixMul(aShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),aTransformB)),aTransformB),
+                 Vector3TermMatrixMul(aShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,aTransformA)),aTransformA));
+
+  a:=Vector3Dot(Vector3Sub(v4,v1),n);
+  b:=Vector3Dot(Vector3Sub(v4,v2),n);
+  c:=Vector3Dot(Vector3Sub(v4,v3),n);
+
+  if a<b then begin
+   if a<c then begin
+    vMin:=a;
+    v:=v1;
+   end else begin
+    vMin:=c;
+    v:=v3;
+   end;
+  end else begin
+   if b<c then begin
+    vMin:=b;
+    v:=v2;
+   end else begin
+    vMin:=c;
+    v:=v3;
+   end;
+  end;
+
+  if vMin<EPSILON then begin
+
+   a:=Vector3Dot(v0,n);
+
+   if abs(a)>0.0 then begin
+
+    aDistance:=(-Vector3Dot(v,n))/a;
+
+    result:=true;
+
+   end;
+
+   exit;
+
+  end;
+
+  t:=Vector3Cross(v4,v0);
+  if Vector3Dot(t,v1)<0.0 then begin
+   if Vector3Dot(t,v3)<0.0 then begin
+    v1:=v4;
+   end else begin
+    v2:=v4;
+   end;
+  end else begin
+   if Vector3Dot(t,v2)<0.0 then begin
+    v3:=v4;
+   end else begin
+    v1:=v4;
+   end;
+  end;
+
  end;
 
 end;
@@ -45227,7 +45553,7 @@ begin
  end; 
 end;
 
-function TKraft.GetDistance(const aShapeA,aShapeB:TKraftShape):TKraftScalar;
+function TKraft.GetGJKDistance(const aShapeA,aShapeB:TKraftShape):TKraftScalar;
 var GJK:TKraftGJK;
 begin
  GJK.CachedSimplex:=nil;
@@ -45238,7 +45564,29 @@ begin
  GJK.Transforms[1]:=@aShapeB.fWorldTransform;
  GJK.UseRadii:=false;
  GJK.Run;
- result:=GJK.Distance;
+ if GJK.Failed then begin
+  result:=-1.0;
+ end else begin
+  result:=GJK.Distance;
+ end;
+end;
+
+function TKraft.GetMPRDistance(const aShapeA,aShapeB:TKraftShape):TKraftScalar;
+begin
+ if MPRIntersection(aShapeA,aShapeB,aShapeA.fWorldTransform,aShapeB.fWorldTransform) then begin
+  result:=0.0;
+ end else if not MPRDistance(aShapeA,aShapeB,aShapeA.fWorldTransform,aShapeB.fWorldTransform,result) then begin
+  result:=-1.0;
+ end;
+end;
+
+function TKraft.GetDistance(const aShapeA,aShapeB:TKraftShape;const aUseMPR:Boolean):TKraftScalar;
+begin
+ if aUseMPR then begin
+  result:=GetMPRDistance(aShapeA,aShapeB);
+ end else begin
+  result:=GetGJKDistance(aShapeA,aShapeB);
+ end;
 end;
 
 initialization
