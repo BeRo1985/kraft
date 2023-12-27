@@ -4150,10 +4150,6 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        procedure SolveContinuousMotionClamping(const aTimeStep:TKraftTimeStep);
 
-       function GetGJKDistance(const aShapeA,aShapeB:TKraftShape):TKraftScalar;
-
-       function GetMPRDistance(const aShapeA,aShapeB:TKraftShape):TKraftScalar;
-
       protected
 
        property IsSolving:boolean read fIsSolving;
@@ -4197,7 +4193,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        function PushShape(const aShape:TKraftShape;out aSeperation:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aTryIterations:TKraftInt32=4;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook=nil;const aKraftOnPushShapeFilterHook:TKraftOnPushShapeFilterHook=nil):boolean;
 
-       function GetDistance(const aShapeA,aShapeB:TKraftShape;const aUseMPR:Boolean=false):TKraftScalar;
+       function GetDistance(const aShapeA,aShapeB:TKraftShape):TKraftScalar;
 
        property HighResolutionTimer:TKraftHighResolutionTimer read fHighResolutionTimer;
 
@@ -17232,13 +17228,13 @@ begin
  v1b:=Vector3TermMatrixMul(aShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),aTransformB)),aTransformB);
  v1:=Vector3Sub(v1b,v1a);
 
- n:=Vector3Cross(v1,v0);
+ n:=Vector3Norm(Vector3Cross(v1,v0));
 
  v2a:=Vector3TermMatrixMul(aShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,aTransformA)),aTransformA);
  v2b:=Vector3TermMatrixMul(aShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),aTransformB)),aTransformB);
  v2:=Vector3Sub(v2b,v2a);
 
- n:=Vector3Cross(Vector3Sub(v1,v0),Vector3Sub(v2,v0));
+ n:=Vector3Norm(Vector3Cross(Vector3Sub(v1,v0),Vector3Sub(v2,v0)));
 
  if Vector3Dot(n,v1)>0.0 then begin
   t:=v1;
@@ -17281,6 +17277,8 @@ begin
   end else begin
    break;
   end;
+
+  n:=Vector3Norm(Vector3Cross(Vector3Sub(v1,v0),Vector3Sub(v2,v0)));
 
  end;
 
@@ -17385,7 +17383,7 @@ end;
 function MPRDistance(const aShapeA,aShapeB:TKraftShape;const aTransformA,aTransformB:TKraftMatrix4x4;out aDistance:TKraftScalar):boolean;
 const EPSILON=1e-6;
 var IterationIndex,OtherIterationIndex:TKraftInt32;
-    n,v0,v1,v2,v3,v4,t,v:TKraftVector3;
+    n,v0,v1,v1a,v1b,v2,v3,v4,t,v:TKraftVector3;
     a,b,c,vMin,b1,b2,b3,Sum,Inv:TKraftScalar;
 begin
 
@@ -17398,15 +17396,22 @@ begin
   exit;
  end;
 
- v1:=Vector3Sub(Vector3TermMatrixMul(aShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),aTransformB)),aTransformB),
-                Vector3TermMatrixMul(aShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,aTransformA)),aTransformA));
+ v1a:=Vector3TermMatrixMul(aShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,aTransformA)),aTransformA);
+ v1b:=Vector3TermMatrixMul(aShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),aTransformB)),aTransformB);
+ v1:=Vector3Sub(v1b,v1a);
 
  n:=Vector3Cross(v1,v0);
+ if Vector3LengthSquared(n)<EPSILON then begin
+  aDistance:=abs(Vector3Dot(Vector3Sub(v1b,v1a),Vector3Norm(Vector3Sub(v1,v0))));
+  result:=true;
+  exit;
+ end;
+ Vector3Normalize(n);
 
  v2:=Vector3Sub(Vector3TermMatrixMul(aShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),aTransformB)),aTransformB),
                 Vector3TermMatrixMul(aShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,aTransformA)),aTransformA));
 
- n:=Vector3Cross(Vector3Sub(v1,v0),Vector3Sub(v2,v0));
+ n:=Vector3Norm(Vector3Cross(Vector3Sub(v1,v0),Vector3Sub(v2,v0)));
 
  if Vector3Dot(n,v1)>0.0 then begin
   t:=v1;
@@ -17426,10 +17431,10 @@ begin
 
   if Vector3Dot(v3,n)<=0 then begin
    // No collision
-   exit;
+//  exit;
   end;
 
-  t:=Vector3Cross(v3,v0);
+  t:=Vector3Norm(Vector3Cross(v3,v0));
 
   if Vector3Dot(t,v1)<0.0 then begin
    v2:=v3;
@@ -17438,6 +17443,8 @@ begin
   end else begin
    break;
   end;
+
+  n:=Vector3Norm(Vector3Cross(Vector3Sub(v1,v0),Vector3Sub(v2,v0)));
 
  end;
 
@@ -45553,39 +45560,25 @@ begin
  end; 
 end;
 
-function TKraft.GetGJKDistance(const aShapeA,aShapeB:TKraftShape):TKraftScalar;
+function TKraft.GetDistance(const aShapeA,aShapeB:TKraftShape):TKraftScalar;
 var GJK:TKraftGJK;
-begin
- GJK.CachedSimplex:=nil;
- GJK.Simplex.Count:=0;
- GJK.Shapes[0]:=aShapeA;
- GJK.Shapes[1]:=aShapeB;
- GJK.Transforms[0]:=@aShapeA.fWorldTransform;
- GJK.Transforms[1]:=@aShapeB.fWorldTransform;
- GJK.UseRadii:=false;
- GJK.Run;
- if GJK.Failed then begin
-  result:=-1.0;
- end else begin
-  result:=GJK.Distance;
- end;
-end;
-
-function TKraft.GetMPRDistance(const aShapeA,aShapeB:TKraftShape):TKraftScalar;
 begin
  if MPRIntersection(aShapeA,aShapeB,aShapeA.fWorldTransform,aShapeB.fWorldTransform) then begin
   result:=0.0;
- end else if not MPRDistance(aShapeA,aShapeB,aShapeA.fWorldTransform,aShapeB.fWorldTransform,result) then begin
-  result:=-1.0;
- end;
-end;
-
-function TKraft.GetDistance(const aShapeA,aShapeB:TKraftShape;const aUseMPR:Boolean):TKraftScalar;
-begin
- if aUseMPR then begin
-  result:=GetMPRDistance(aShapeA,aShapeB);
  end else begin
-  result:=GetGJKDistance(aShapeA,aShapeB);
+  GJK.CachedSimplex:=nil;
+  GJK.Simplex.Count:=0;
+  GJK.Shapes[0]:=aShapeA;
+  GJK.Shapes[1]:=aShapeB;
+  GJK.Transforms[0]:=@aShapeA.fWorldTransform;
+  GJK.Transforms[1]:=@aShapeB.fWorldTransform;
+  GJK.UseRadii:=false;
+  GJK.Run;
+  if GJK.Failed then begin
+   result:=-1.0;
+  end else begin
+   result:=GJK.Distance;
+  end;
  end;
 end;
 
