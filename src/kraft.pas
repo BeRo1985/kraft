@@ -3960,6 +3960,23 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      end;
 {$endif}
 
+     TKraftShapeCollisionContact=record
+      ShapeA:TKraftShape;
+      ShapeB:TKraftShape;
+      ShapeBTriangleIndex:TKraftInt32;
+      PositionA:TKraftVector3;
+      PositionB:TKraftVector3;
+      Normal:TKraftVector3;
+      PenetrationDepth:TKraftScalar;
+     end;
+     PKraftShapeCollisionContact=^TKraftShapeCollisionContact;
+
+     TKraftShapeCollisionContacts=array of TKraftShapeCollisionContact;
+
+     TKraftOnCollideShapeContactHook=function(var aContact:TKraftShapeCollisionContact):boolean of object;
+
+     TKraftOnCollideShapeFilterHook=function(const aShape,aWithShape:TKraftShape):boolean of object;
+
      TKraftOnPushShapeContactHook=procedure(const aWithShape:TKraftShape) of object;
 
      TKraftOnPushShapeFilterHook=function(const aWithShape:TKraftShape):boolean of object;
@@ -4192,6 +4209,13 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        function PushSphere(var aCenter:TKraftVector3;const aRadius:TKraftScalar;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aTryIterations:TKraftInt32=4;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook=nil;const aKraftOnPushShapeFilterHook:TKraftOnPushShapeFilterHook=nil;const aAvoidShape:TKraftShape=nil):boolean;
 
        function PushShape(const aShape:TKraftShape;out aSeperation:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aTryIterations:TKraftInt32=4;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook=nil;const aKraftOnPushShapeFilterHook:TKraftOnPushShapeFilterHook=nil;const aSingleDeepest:Boolean=false):boolean;
+
+       function CollideShape(const aShape:TKraftShape;
+                             var aContacts:TKraftShapeCollisionContacts;
+                             out aCountContacts:TKraftInt32;
+                             const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];
+                             const aOnCollideShapeContactHook:TKraftOnCollideShapeContactHook=nil;
+                             const aOnCollideShapeFilterHook:TKraftOnCollideShapeFilterHook=nil):boolean;
 
        function GetDistance(const aShapeA,aShapeB:TKraftShape):TKraftScalar;
 
@@ -4738,9 +4762,8 @@ begin
  result:=(((TKraftUInt32(aX)*73856093) xor (TKraftUInt32(aY)*{19349663}19349669)) xor (TKraftUInt32(aZ)*83492791)) {xor (TKraftUInt32(aW)*67867979)};
 end;
 
-{$if defined(fpc) and (defined(cpu386) or defined(cpux64) or defined(cpuamd64))}
 // For to avoid "Fatal: Internal error 200604201" at the FreePascal compiler, when >= -O2 is used
-function Sign(const aValue:single):TKraftInt32;
+function FloatSign(const aValue:single):TKraftInt32;
 begin
  if aValue<0.0 then begin
   result:=-1;
@@ -4750,7 +4773,28 @@ begin
   result:=0;
  end;
 end;
-{$ifend}
+
+function Int32Sign(const aValue:TKraftInt32):TKraftInt32;
+begin
+ if aValue<0 then begin
+  result:=-1;
+ end else if aValue>0 then begin
+  result:=1;
+ end else begin
+  result:=0;
+ end;
+end;
+
+function PtrIntSign(const aValue:TKraftPtrInt):TKraftInt32;
+begin
+ if aValue<0 then begin
+  result:=-1;
+ end else if aValue>0 then begin
+  result:=1;
+ end else begin
+  result:=0;
+ end;
+end;
 
 function SignNonZero(const aValue:TKraftScalar):TKraftInt32; overload; {$ifdef caninline}inline;{$endif}
 begin
@@ -9652,8 +9696,8 @@ function Matrix4x4ProjectionMatrixClip({$ifdef USE_CONSTREF_EX}constref{$else}co
 var q,c:TKraftVector4;
 begin
  result:=ProjectionMatrix;
- q.x:=(Sign(ClipPlane.Normal.x)+result[2,0])/result[0,0];
- q.y:=(Sign(ClipPlane.Normal.y)+result[2,1])/result[1,1];
+ q.x:=(FloatSign(ClipPlane.Normal.x)+result[2,0])/result[0,0];
+ q.y:=(FloatSign(ClipPlane.Normal.y)+result[2,1])/result[1,1];
  q.z:=-1.0;
  q.w:=(1.0+result[2,2])/result[3,2];
  c.x:=ClipPlane.Normal.x;
@@ -14259,7 +14303,7 @@ begin
      inc(iB);
     end;
    end else begin
-    if (Depth=0) or (ptruint(pointer(StackItem))>=ptruint(pointer(@Stack[high(Stack)-1]))) then begin
+    if (Depth=0) or (TKraftPtrUInt(pointer(StackItem))>=TKraftPtrUInt(pointer(@Stack[high(Stack)-1]))) then begin
      // Heap sort
      i:=Size div 2;
      repeat
@@ -14384,7 +14428,7 @@ begin
      end;
     end;
    end else begin
-    if (Depth=0) or (ptruint(pointer(StackItem))>=ptruint(pointer(@Stack[high(Stack)-1]))) then begin
+    if (Depth=0) or (TKraftPtrUInt(pointer(StackItem))>=TKraftPtrUInt(pointer(@Stack[high(Stack)-1]))) then begin
      // Heap sort
      i:=Size div 2;
      Temp:=nil;
@@ -29871,13 +29915,13 @@ begin
 
   case abs(Axis) of
    1:begin
-    ClosestPoint:=Vector3(Extents.x*Sign(Axis),Position.y,Position.z);
+    ClosestPoint:=Vector3(Extents.x*Int32Sign(Axis),Position.y,Position.z);
    end;
    2:begin
-    ClosestPoint:=Vector3(Position.x,Extents.y*Sign(Axis),Position.z);
+    ClosestPoint:=Vector3(Position.x,Extents.y*Int32Sign(Axis),Position.z);
    end;
    3:begin
-    ClosestPoint:=Vector3(Position.x,Position.y,Extents.z*Sign(Axis));
+    ClosestPoint:=Vector3(Position.x,Position.y,Extents.z*Int32Sign(Axis));
    end;
    else begin
    end;
@@ -29949,13 +29993,13 @@ begin
 
   case abs(Axis) of
    1:begin
-    ClosestPoint:=Vector3(Extents.x*Sign(Axis),Position.y,Position.z);
+    ClosestPoint:=Vector3(Extents.x*Int32Sign(Axis),Position.y,Position.z);
    end;
    2:begin
-    ClosestPoint:=Vector3(Position.x,Extents.y*Sign(Axis),Position.z);
+    ClosestPoint:=Vector3(Position.x,Extents.y*Int32Sign(Axis),Position.z);
    end;
    3:begin
-    ClosestPoint:=Vector3(Position.x,Position.y,Extents.z*Sign(Axis));
+    ClosestPoint:=Vector3(Position.x,Position.y,Extents.z*Int32Sign(Axis));
    end;
    else begin
    end;
@@ -30023,13 +30067,13 @@ begin
 
   case abs(Axis) of
    1:begin
-    ClosestPoint:=Vector3(Extents.x*Sign(Axis),Position.y,Position.z);
+    ClosestPoint:=Vector3(Extents.x*Int32Sign(Axis),Position.y,Position.z);
    end;
    2:begin
-    ClosestPoint:=Vector3(Position.x,Extents.y*Sign(Axis),Position.z);
+    ClosestPoint:=Vector3(Position.x,Extents.y*Int32Sign(Axis),Position.z);
    end;
    3:begin
-    ClosestPoint:=Vector3(Position.x,Position.y,Extents.z*Sign(Axis));
+    ClosestPoint:=Vector3(Position.x,Position.y,Extents.z*Int32Sign(Axis));
    end;
    else begin
    end;
@@ -30096,13 +30140,13 @@ begin
 
   case abs(Axis) of
    1:begin
-    result:=Vector3(Extents.x*Sign(Axis),Position.y,Position.z);
+    result:=Vector3(Extents.x*Int32Sign(Axis),Position.y,Position.z);
    end;
    2:begin
-    result:=Vector3(Position.x,Extents.y*Sign(Axis),Position.z);
+    result:=Vector3(Position.x,Extents.y*Int32Sign(Axis),Position.z);
    end;
    3:begin
-    result:=Vector3(Position.x,Position.y,Extents.z*Sign(Axis));
+    result:=Vector3(Position.x,Position.y,Extents.z*Int32Sign(Axis));
    end;
    else begin
    end;
@@ -45618,10 +45662,10 @@ begin
    aSeperation.x:=0;
    aSeperation.y:=0;
    aSeperation.z:=0;
-   aSeperation.w:=0;
 {$ifdef SIMD}
-   result:=false;
+   aSeperation.w:=0;
 {$endif}
+   result:=false;
    for TryCounter:=1 to aTryIterations do begin
     Hit:=false;
     TransformA:=aShape.fWorldTransform;
@@ -45679,6 +45723,237 @@ begin
    end;
   end;
  end; 
+end;
+
+function TKraftShapeCollisionContactCompare(const a,b:pointer):TKraftInt32;
+begin
+ result:=FloatSign(PKraftShapeCollisionContact(b)^.PenetrationDepth-PKraftShapeCollisionContact(a)^.PenetrationDepth);
+ if result=0 then begin
+  result:=PtrIntSign(TKraftPtrInt(a)-TKraftPtrInt(b));
+ end;
+end;
+
+function TKraft.CollideShape(const aShape:TKraftShape;
+                             var aContacts:TKraftShapeCollisionContacts;
+                             out aCountContacts:TKraftInt32;
+                             const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];
+                             const aOnCollideShapeContactHook:TKraftOnCollideShapeContactHook=nil;
+                             const aOnCollideShapeFilterHook:TKraftOnCollideShapeFilterHook=nil):boolean;
+var Sphere:TKraftSphere;
+    AABB:TKraftAABB;
+    Hit:Boolean;
+ procedure CollideConvex(const aWithShape:TKraftShape);
+ var ContactIndex:TKraftInt32;
+     Contact:PKraftShapeCollisionContact;
+     PositionA,PositionB,Normal:TKraftVector3;
+     PenetrationDepth:TKraftScalar;
+ begin
+  if MPRPenetration(aShape,aWithShape,aShape.fWorldTransform,aWithShape.fWorldTransform,PositionA,PositionB,Normal,PenetrationDepth) then begin
+   ContactIndex:=aCountContacts;
+   inc(aCountContacts);
+   if length(aContacts)<aCountContacts then begin
+    SetLength(aContacts,aCountContacts+((aCountContacts+1) shr 1));
+   end;
+   Contact:=@aContacts[ContactIndex];
+   Contact^.ShapeA:=aShape;
+   Contact^.ShapeB:=aWithShape;
+   Contact^.ShapeBTriangleIndex:=-1;
+   Contact^.PositionA:=PositionA;
+   Contact^.PositionB:=PositionB;
+   Contact^.Normal:=Normal;
+   Contact^.PenetrationDepth:=PenetrationDepth;
+   if not ((not assigned(aOnCollideShapeContactHook)) or aOnCollideShapeContactHook(Contact^)) then begin
+    dec(aCountContacts);
+   end;
+  end;
+ end;
+ procedure CollideMesh(const aWithShape:TKraftShapeMesh);
+ var ContactIndex,SkipListNodeIndex,TriangleIndex:TKraftInt32;
+     Contact:PKraftShapeCollisionContact;
+     Radius,RadiusWithThreshold:TKraftScalar;
+     SphereCenter:TKraftVector3;
+     PositionA,PositionB,Normal:TKraftVector3;
+     PenetrationDepth:TKraftScalar;
+     SkipListNode:PKraftMeshSkipListNode;
+     Triangle:PKraftMeshTriangle;
+     IndirectTriangle:TKraftIndirectTriangle;
+     RelativeTransform:TKraftMatrix4x4;
+     AABB:TKraftAABB;
+ begin
+  SphereCenter:=Vector3TermMatrixMulInverted(Sphere.Center,aWithShape.fWorldTransform);
+  Radius:=Sphere.Radius;
+  RadiusWithThreshold:=Radius+0.1;
+  AABB.Min.x:=SphereCenter.x-RadiusWithThreshold;
+  AABB.Min.y:=SphereCenter.y-RadiusWithThreshold;
+  AABB.Min.z:=SphereCenter.z-RadiusWithThreshold;
+{$ifdef SIMD}
+  AABB.Min.w:=0.0;
+{$endif}
+  AABB.Max.x:=SphereCenter.x+RadiusWithThreshold;
+  AABB.Max.y:=SphereCenter.y+RadiusWithThreshold;
+  AABB.Max.z:=SphereCenter.z+RadiusWithThreshold;
+{$ifdef SIMD}
+  AABB.Max.w:=0.0;
+{$endif}
+  RadiusWithThreshold:=Radius+EPSILON;
+  RelativeTransform:=Matrix4x4TermMulInverted(aShape.fWorldTransform,aWithShape.fWorldTransform);
+  SkipListNodeIndex:=0;
+  while SkipListNodeIndex<aWithShape.fMesh.fCountSkipListNodes do begin
+   SkipListNode:=@aWithShape.fMesh.fSkipListNodes[SkipListNodeIndex];
+   if AABBIntersect(SkipListNode^.AABB,AABB) then begin
+    if SkipListNode^.CountTriangles>0 then begin
+     for TriangleIndex:=SkipListNode^.FirstTriangleIndex to SkipListNode^.FirstTriangleIndex+(SkipListNode^.CountTriangles-1) do begin
+      Triangle:=@aWithShape.fMesh.fTriangles[TriangleIndex];
+      IndirectTriangle.Points[0]:=@aWithShape.fMesh.fVertices[Triangle^.Vertices[0]];
+      IndirectTriangle.Points[1]:=@aWithShape.fMesh.fVertices[Triangle^.Vertices[1]];
+      IndirectTriangle.Points[2]:=@aWithShape.fMesh.fVertices[Triangle^.Vertices[2]];
+      Normal:=Vector3SafeNorm(Vector3Cross(Vector3Sub(IndirectTriangle.Points[1]^,IndirectTriangle.Points[0]^),Vector3Sub(IndirectTriangle.Points[2]^,IndirectTriangle.Points[0]^)));
+      IndirectTriangle.Normal:=@Normal;
+      if MPRIndirectTrianglePenetration(@IndirectTriangle,
+                                        aShape,
+                                        Matrix4x4Identity,
+                                        RelativeTransform,
+                                        PositionA,
+                                        PositionB,
+                                        Normal,
+                                        PenetrationDepth) then begin
+       Normal:=Vector3Neg(Vector3Norm(Vector3TermMatrixMulBasis(Normal,aWithShape.fWorldTransform)));
+       ContactIndex:=aCountContacts;
+       inc(aCountContacts);
+       if length(aContacts)<aCountContacts then begin
+        SetLength(aContacts,aCountContacts+((aCountContacts+1) shr 1));
+       end;
+       Contact:=@aContacts[ContactIndex];
+       Contact^.ShapeA:=aShape;
+       Contact^.ShapeB:=aWithShape;
+       Contact^.ShapeBTriangleIndex:=TriangleIndex;
+       Contact^.PositionA:=PositionA;
+       Contact^.PositionB:=PositionB;
+       Contact^.Normal:=Normal;
+       Contact^.PenetrationDepth:=PenetrationDepth;
+       if not ((not assigned(aOnCollideShapeContactHook)) or aOnCollideShapeContactHook(Contact^)) then begin
+        dec(aCountContacts);
+       end;
+       Hit:=true;
+      end;
+     end;
+    end;
+    inc(SkipListNodeIndex);
+   end else begin
+    SkipListNodeIndex:=SkipListNode^.SkipToNodeIndex;
+   end;
+  end;
+ end;
+ procedure CollideShape(const aWithShape:TKraftShapeMesh);
+ begin
+  if assigned(aWithShape) and
+     (aWithShape<>aShape) and
+     (assigned(aWithShape.fRigidBody) and
+      ((aWithShape.fRigidBody.fCollisionGroups*aCollisionGroups)<>[])) and
+     ((not assigned(aOnCollideShapeFilterHook)) or
+      aOnCollideShapeFilterHook(aShape,aWithShape)) then begin
+   case aWithShape.fShapeType of
+    kstSignedDistanceField:begin
+     // Ignore
+    end;
+    kstSphere,kstCapsule,kstConvexHull,kstBox,kstPlane,kstTriangle:begin
+     CollideConvex(aWithShape);
+    end;
+    kstMesh:begin
+     CollideMesh(TKraftShapeMesh(aWithShape));
+    end;
+    else begin
+    end;
+   end;
+  end;
+ end;
+{$ifdef KraftSingleThreadedUsage}
+ procedure QueryTree(aAABBTree:TKraftDynamicAABBTree);
+ var LocalStack:PKraftDynamicAABBTreeLongintArray;
+     LocalStackPointer,NodeID:TKraftInt32;
+     Node:PKraftDynamicAABBTreeNode;
+ begin
+  if assigned(aAABBTree) then begin
+   if aAABBTree.fRoot>=0 then begin
+    LocalStack:=aAABBTree.fStack;
+    LocalStack^[0]:=aAABBTree.fRoot;
+    LocalStackPointer:=1;
+    while LocalStackPointer>0 do begin
+     dec(LocalStackPointer);
+     NodeID:=LocalStack^[LocalStackPointer];
+     if NodeID>=0 then begin
+      Node:=@aAABBTree.fNodes[NodeID];
+      if AABBIntersect(Node^.AABB,AABB) then begin
+       if Node^.Children[0]<0 then begin
+        CollideShape(Node^.UserData);
+       end else begin
+        if aAABBTree.fStackCapacity<=(LocalStackPointer+2) then begin
+         aAABBTree.fStackCapacity:=RoundUpToPowerOfTwo(LocalStackPointer+2);
+         ReallocMem(aAABBTree.fStack,aAABBTree.fStackCapacity*SizeOf(TKraftInt32));
+         LocalStack:=aAABBTree.fStack;
+        end;
+        LocalStack^[LocalStackPointer+0]:=Node^.Children[0];
+        LocalStack^[LocalStackPointer+1]:=Node^.Children[1];
+        inc(LocalStackPointer,2);
+       end;
+      end;
+     end;
+    end;
+   end;
+  end;
+ end;
+{$else}
+ procedure QueryTree(aAABBTree:TKraftDynamicAABBTree);
+  procedure ProcessNode(aNodeID:TKraftInt32);
+  var Node:PKraftDynamicAABBTreeNode;
+  begin
+   while aNodeID>=0 do begin
+    Node:=@aAABBTree.fNodes[aNodeID];
+    if AABBIntersect(Node^.AABB,AABB) then begin
+     if Node^.Children[0]<0 then begin
+      CollideShape(Node^.UserData);
+     end else begin
+      ProcessNode(Node^.Children[0]);
+      aNodeID:=Node^.Children[1];
+      continue;
+     end;
+    end;
+    break;
+   end;
+  end;
+ begin
+  ProcessNode(aAABBTree.fRoot);
+ end;
+{$endif}
+ procedure SortContactsByDescendingPenetrationDepth;
+ begin
+  if aCountContacts>1 then begin
+   DirectIntroSort(@aContacts[0],0,aCountContacts-1,SizeOf(TKraftShapeCollisionContact),TKraftShapeCollisionContactCompare);
+  end;
+ end;
+begin
+ HIt:=false;
+ aCountContacts:=0;
+ Sphere.Center:=TKraftVector3(Pointer(@aShape.fWorldTransform[3,0])^);
+ Sphere.Radius:=SphereFromAABB(aShape.fWorldAABB).Radius;
+ AABB.Min.x:=Sphere.Center.x-Sphere.Radius;
+ AABB.Min.y:=Sphere.Center.y-Sphere.Radius;
+ AABB.Min.z:=Sphere.Center.z-Sphere.Radius;
+{$ifdef SIMD}
+ AABB.Min.w:=0.0;
+{$endif}
+ AABB.Max.x:=Sphere.Center.x+Sphere.Radius;
+ AABB.Max.y:=Sphere.Center.y+Sphere.Radius;
+ AABB.Max.z:=Sphere.Center.z+Sphere.Radius;
+{$ifdef SIMD}
+ AABB.Max.w:=0.0;
+{$endif}
+ QueryTree(fStaticAABBTree);
+ QueryTree(fSleepingAABBTree);
+ QueryTree(fDynamicAABBTree);
+ QueryTree(fKinematicAABBTree);
+ SortContactsByDescendingPenetrationDepth;
+ result:=Hit;
 end;
 
 function TKraft.GetDistance(const aShapeA,aShapeB:TKraftShape):TKraftScalar;
