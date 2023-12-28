@@ -46389,10 +46389,10 @@ var Hit:Boolean;
    kstSphere:begin
     CollideSphereWithMesh(aWithShape);
    end;
-   kstCapsule:begin
+{  kstCapsule:begin
     CollideCapsuleWithMesh(aWithShape);
-   end;
-   kstConvexHull,kstBox,kstPlane,kstTriangle:begin
+   end;}
+   kstCapsule,kstConvexHull,kstBox,kstPlane,kstTriangle:begin
     RelativeTransform:=Matrix4x4TermMulInverted(aShape.fWorldTransform,aWithShape.fWorldTransform);
     SkipListNodeIndex:=0;
     while SkipListNodeIndex<aWithShape.fMesh.fCountSkipListNodes do begin
@@ -46514,7 +46514,7 @@ var Hit:Boolean;
   end;
  end;
 begin
- HIt:=false;
+ Hit:=false;
  aCountContacts:=0;
  QueryTree(fStaticAABBTree);
  QueryTree(fSleepingAABBTree);
