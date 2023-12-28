@@ -14907,7 +14907,52 @@ begin
  end;
 end;
 
-function SolveQuadraticRoots(const a,b,c:TKraftScalar;out t1,t2:TKraftScalar):boolean;
+// The SolveQuadraticRoots function offers a significant improvement over the OldSolveQuadraticRoots
+// function in terms of numerical stability and accuracy. In computing, especially for floating-point
+// numbers, the representation and precision of real numbers are limited, which can lead to issues
+// like loss of significance and catastrophic cancellation. This problem is particularly acute when
+// dealing with values that are very close in magnitude but have opposite signs.
+// The OldSolveQuadraticRoots function uses a direct approach to calculate the roots of the quadratic
+// equation, which suffers from these numerical stability issues. Specifically, when 'b' and the
+// square root of the discriminant ('d') in the quadratic formula have values close to each other
+// but opposite in sign, it can lead to significant errors due to rounding and cancellation.
+// The SolveQuadraticRoots function addresses this by using an alternative formulation:
+// q = -0.5 * (b + sign(b) * sqrt(b^2 - 4ac))
+// t0 = q / a
+// t1 = c / q
+// This approach ensures that the terms added to compute 'q' always have the same sign, thus avoiding
+// the catastrophic cancellation that can occur in the OldSolveQuadraticRoots function. By doing so,
+// SolveQuadraticRoots provides more reliable and accurate results, particularly in edge cases where
+// precision is crucial.
+function SolveQuadraticRoots(const a,b,c:TKraftScalar;out t0,t1:TKraftScalar):boolean;
+var d,q,t:TKraftScalar;
+begin
+ d:=sqr(b)-(4.0*(a*c));
+ if d<0.0 then begin
+  result:=false;
+ end else begin
+  if d=0.0 then begin
+   t0:=((-0.5)*b)/a;
+   t1:=t0;
+  end else begin
+   if b>0 then begin
+    q:=(-0.5)*(b+sqrt(d));
+   end else begin
+    q:=(-0.5)*(b-sqrt(d));
+   end;
+   t0:=q/a;
+   t1:=c/q;
+   if t0>t1 then begin
+    t:=t0;
+    t0:=t1;
+    t1:=t;
+   end;
+  end;
+  result:=true;
+ end;
+end;
+
+function OldSolveQuadraticRoots(const a,b,c:TKraftScalar;out t1,t2:TKraftScalar):boolean;
 var d,InverseDenominator:TKraftScalar;
 begin
  result:=false;
@@ -14926,7 +14971,44 @@ begin
  end;
 end;
 
+function SphereRayIntersection(const aCenter:TKraftVector3;const aRadius:TKraftScalar;const aOrigin,aDirection:TKraftVector3;out aT0,aT1:TKraftScalar):boolean;
+var SphereCenterToRayOrigin:TKraftVector3;
+    a,b,c,t0,t1,t:TKraftScalar;
+begin
+ SphereCenterToRayOrigin:=Vector3Sub(aOrigin,aCenter);
+ a:=Vector3LengthSquared(aDirection);
+ b:=2.0*Vector3Dot(SphereCenterToRayOrigin,aDirection);
+ c:=Vector3LengthSquared(SphereCenterToRayOrigin)-sqr(aRadius);
+ if SolveQuadraticRoots(a,b,c,t0,t1) then begin
+  if t0>t1 then begin
+   t:=t0;
+   t0:=t1;
+   t1:=t;
+  end;
+  if t0<0.0 then begin
+   t0:=t1;
+   if t0<0.0 then begin
+    result:=false;
+    exit;
+   end;
+  end;
+  aT0:=t0;
+  aT1:=t1;
+  result:=aT0>0.0;
+ end else begin
+  result:=false;
+ end;
+end;
+
 function SweepSphereSphere(const pa0,pa1:TKraftVector3;const ra:TKraftScalar;const pb0,pb1:TKraftVector3;const rb:TKraftScalar;out t0,t1:TKraftScalar):boolean; overload;
+{var va,vb,ab,vab:TKraftVector3;
+begin
+ va:=Vector3Sub(pa1,pa0);
+ vb:=Vector3Sub(pb1,pb0);
+ ab:=Vector3Sub(pb0,pa0);
+ vab:=Vector3Sub(vb,va);
+ result:=SphereRayIntersection(Vector3Origin,ra+rb,ab,vab,t0,t1);
+end;}
 var va,vb,ab,vab:TKraftVector3;
     rab,a,b,c:TKraftScalar;
 begin
@@ -14944,7 +15026,7 @@ begin
  end else begin
   b:=2.0*Vector3Dot(vab,ab);
   if SolveQuadraticRoots(a,b,c,t0,t1) then begin
-   if t1>t0 then begin
+   if t0>t1 then begin
     a:=t0;
     t0:=t1;
     t1:=a;
@@ -16779,7 +16861,8 @@ end;
 function MPRSweepTest(const aShapeA,aShapeB:TKraftShape;const aSweepA,aSweepB:TKraftSweep):boolean;
 const EPSILON=1e-6;
 var RayLengthSquared,SweepLength,MaximumRadius,t0,t1:TKraftScalar;
-    VelocityWorld,LocalOrigin,LocalDirection,Sweep,HitPosition,VelocityA,VelocityB:TKraftVector3;
+    VelocityWorld,LocalOrigin,LocalDirection,Sweep,VelocityA,VelocityB,
+    HitPosition:TKraftVector3;
     NegativeSweepLength:boolean;
     LocalTransformBinA:TKraftMatrix4x4;
     Positions:array[0..1,0..1] of TKraftVector3;
@@ -16805,9 +16888,9 @@ begin
  VelocityA:=Vector3Sub(Positions[0,1],Positions[0,0]);
  VelocityB:=Vector3Sub(Positions[1,1],Positions[1,0]);
 
- VelocityWorld:=Vector3Sub(VelocityB,VelocityA);
+ VelocityWorld:=Vector3Sub(VelocityA,VelocityB);
 
- LocalDirection:=Vector3SafeNorm(Vector3TermMatrixMulTransposedBasis(VelocityWorld,Transforms[0,0]));
+ LocalDirection:=Vector3TermMatrixMulTransposedBasis(VelocityWorld,Transforms[0,0]);
 
  LocalTransformBinA:=Matrix4x4TermMulInverted(Transforms[1,0],Transforms[0,0]);
 
@@ -16824,8 +16907,9 @@ begin
  RayLengthSquared:=Vector3LengthSquared(LocalDirection);
  if RayLengthSquared>EPSILON then begin
   // Scale the sweep length by the margins. Divide by the length to pull the margin into terms of the length of the ray.
-  SweepLength:=(Vector3Dot(LocalOrigin,LocalDirection)+MaximumRadius)/sqrt(RayLengthSquared);
+  SweepLength:=(Vector3Dot(LocalOrigin,LocalDirection)/RayLengthSquared)+(MaximumRadius/sqrt(RayLengthSquared));
  end else begin
+  RayLengthSquared:=0.0;
   SweepLength:=0.0;
  end;
 
@@ -17149,9 +17233,9 @@ begin
  VelocityA:=Vector3Sub(Positions[0,1],Positions[0,0]);
  VelocityB:=Vector3Sub(Positions[1,1],Positions[1,0]);
 
- VelocityWorld:=Vector3Sub(VelocityB,VelocityA);
+ VelocityWorld:=Vector3Sub(VelocityA,VelocityB);
 
- LocalDirection:=Vector3SafeNorm(Vector3TermMatrixMulTransposedBasis(VelocityWorld,Transforms[0,0]));
+ LocalDirection:=Vector3TermMatrixMulTransposedBasis(VelocityWorld,Transforms[0,0]);
 
  LocalTransformBinA:=Matrix4x4TermMulInverted(Transforms[1,0],Transforms[0,0]);
 
@@ -17168,8 +17252,9 @@ begin
  RayLengthSquared:=Vector3LengthSquared(LocalDirection);
  if RayLengthSquared>EPSILON then begin
   // Scale the sweep length by the margins. Divide by the length to pull the margin into terms of the length of the ray.
-  SweepLength:=(Vector3Dot(LocalOrigin,LocalDirection)+MaximumRadius)/sqrt(RayLengthSquared);
+  SweepLength:=(Vector3Dot(LocalOrigin,LocalDirection)/RayLengthSquared)+(MaximumRadius/sqrt(RayLengthSquared));
  end else begin
+  RayLengthSquared:=0.0;
   SweepLength:=0.0;
  end;
 
@@ -45563,9 +45648,9 @@ end;
 function TKraft.GetDistance(const aShapeA,aShapeB:TKraftShape):TKraftScalar;
 var GJK:TKraftGJK;
 begin
- if MPRIntersection(aShapeA,aShapeB,aShapeA.fWorldTransform,aShapeB.fWorldTransform) then begin
+{if MPRIntersection(aShapeA,aShapeB,aShapeA.fWorldTransform,aShapeB.fWorldTransform) then begin
   result:=0.0;
- end else begin
+ end else}begin
   GJK.CachedSimplex:=nil;
   GJK.Simplex.Count:=0;
   GJK.Shapes[0]:=aShapeA;
