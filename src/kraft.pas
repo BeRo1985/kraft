@@ -4191,7 +4191,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        function PushSphere(var aCenter:TKraftVector3;const aRadius:TKraftScalar;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aTryIterations:TKraftInt32=4;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook=nil;const aKraftOnPushShapeFilterHook:TKraftOnPushShapeFilterHook=nil;const aAvoidShape:TKraftShape=nil):boolean;
 
-       function PushShape(const aShape:TKraftShape;out aSeperation:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aTryIterations:TKraftInt32=4;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook=nil;const aKraftOnPushShapeFilterHook:TKraftOnPushShapeFilterHook=nil):boolean;
+       function PushShape(const aShape:TKraftShape;out aSeperation:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aTryIterations:TKraftInt32=4;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook=nil;const aKraftOnPushShapeFilterHook:TKraftOnPushShapeFilterHook=nil;const aSingleDeepest:Boolean=false):boolean;
 
        function GetDistance(const aShapeA,aShapeB:TKraftShape):TKraftScalar;
 
@@ -45382,11 +45382,13 @@ begin
  end;
 end;
 
-function TKraft.PushShape(const aShape:TKraftShape;out aSeperation:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aTryIterations:TKraftInt32;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook;const aKraftOnPushShapeFilterHook:TKraftOnPushShapeFilterHook):boolean;
+function TKraft.PushShape(const aShape:TKraftShape;out aSeperation:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aTryIterations:TKraftInt32;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook;const aKraftOnPushShapeFilterHook:TKraftOnPushShapeFilterHook;const aSingleDeepest:Boolean):boolean;
 var Sphere:TKraftSphere;
     AABB:TKraftAABB;
     Hit:Boolean;
     SumMinimumTranslationVector:TKraftVector3;
+    BestMinimumTranslationVector:TKraftVector3;
+    BestPenetrationDepth:TKraftScalar;
     Count:TKraftInt32;
     TransformA:TKraftMatrix4x4;
  procedure CollideConvex(const aWithShape:TKraftShape);
@@ -45394,8 +45396,16 @@ var Sphere:TKraftSphere;
      PenetrationDepth:TKraftScalar;
  begin
   if MPRPenetration(aShape,aWithShape,TransformA,aWithShape.fWorldTransform,PositionA,PositionB,Normal,PenetrationDepth) then begin
-   SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Normal,PenetrationDepth));
-   inc(Count);
+   if aSingleDeepest then begin
+    if (Count=0) or (BestPenetrationDepth<=PenetrationDepth) then begin
+     Count:=1;
+     BestMinimumTranslationVector:=Vector3ScalarMul(Normal,PenetrationDepth);
+     BestPenetrationDepth:=PenetrationDepth;
+    end;
+   end else begin
+    SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Normal,PenetrationDepth));
+    inc(Count);
+   end;
    Hit:=true;
    if assigned(aOnPushShapeContactHook) then begin
     aOnPushShapeContactHook(aWithShape);
@@ -45453,9 +45463,17 @@ var Sphere:TKraftSphere;
                                         PositionB,
                                         Normal,
                                         PenetrationDepth) then begin
-       Normal:=Vector3Norm(Vector3TermMatrixMulBasis(Normal,aWithShape.fWorldTransform));
-       SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Normal,-PenetrationDepth));
-       inc(Count);
+       Normal:=Vector3Neg(Vector3Norm(Vector3TermMatrixMulBasis(Normal,aWithShape.fWorldTransform)));
+       if aSingleDeepest then begin
+        if (Count=0) or (BestPenetrationDepth<=PenetrationDepth) then begin
+         Count:=1;
+         BestMinimumTranslationVector:=Vector3ScalarMul(Normal,PenetrationDepth);
+         BestPenetrationDepth:=PenetrationDepth;
+        end;
+       end else begin
+        SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Normal,PenetrationDepth));
+        inc(Count);
+       end;
        Hit:=true;
        WasHit:=true;
       end;
@@ -45624,21 +45642,39 @@ begin
     AABB.Max.w:=0.0;
 {$endif}
     SumMinimumTranslationVector:=Vector3Origin;
+    BestMinimumTranslationVector:=Vector3Origin;
+    BestPenetrationDepth:=0.0;
     Count:=0;
     QueryTree(fStaticAABBTree);
     QueryTree(fSleepingAABBTree);
     QueryTree(fDynamicAABBTree);
     QueryTree(fKinematicAABBTree);
     result:=result or Hit;
-    if (Count>0) and not IsZero(Vector3LengthSquared(SumMinimumTranslationVector)) then begin
-     aSeperation.x:=aSeperation.x+(SumMinimumTranslationVector.x/Count);
-     aSeperation.y:=aSeperation.y+(SumMinimumTranslationVector.y/Count);
-     aSeperation.z:=aSeperation.z+(SumMinimumTranslationVector.z/Count);
+    if aSingleDeepest then begin
+     if Count>0 then begin
+      aSeperation.x:=aSeperation.x+BestMinimumTranslationVector.x;
+      aSeperation.y:=aSeperation.y+BestMinimumTranslationVector.y;
+      aSeperation.z:=aSeperation.z+BestMinimumTranslationVector.z;
 {$ifdef SIMD}
-     aSeperation.w:=0.0;
+      aSeperation.w:=0.0;
 {$endif}
+     end else begin
+{$ifdef SIMD}
+      aSeperation.w:=0.0;
+{$endif}
+      break;
+     end;
     end else begin
-     break;
+     if (Count>0) and not IsZero(Vector3LengthSquared(SumMinimumTranslationVector)) then begin
+      aSeperation.x:=aSeperation.x+(SumMinimumTranslationVector.x/Count);
+      aSeperation.y:=aSeperation.y+(SumMinimumTranslationVector.y/Count);
+      aSeperation.z:=aSeperation.z+(SumMinimumTranslationVector.z/Count);
+{$ifdef SIMD}
+      aSeperation.w:=0.0;
+{$endif}
+     end else begin
+      break;
+     end;
     end;
    end;
   end;
