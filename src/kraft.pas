@@ -32774,7 +32774,6 @@ var OldManifoldCountContacts:TKraftInt32;
 
   end;
 
-
  end;
  procedure CollideCapsuleWithConvexHull(ShapeA:TKraftShapeCapsule;ShapeB:TKraftShapeConvexHull);
  const Tolerance=0.005;
@@ -45729,7 +45728,7 @@ function TKraftShapeCollisionContactCompare(const a,b:pointer):TKraftInt32;
 begin
  result:=FloatSign(PKraftShapeCollisionContact(b)^.PenetrationDepth-PKraftShapeCollisionContact(a)^.PenetrationDepth);
  if result=0 then begin
-  result:=PtrIntSign(TKraftPtrInt(a)-TKraftPtrInt(b));
+  result:=PtrIntSign({%H-}TKraftPtrInt(a)-{%H-}TKraftPtrInt(b));
  end;
 end;
 
@@ -45742,43 +45741,453 @@ function TKraft.CollideShape(const aShape:TKraftShape;
 var Sphere:TKraftSphere;
     AABB:TKraftAABB;
     Hit:Boolean;
- procedure CollideConvex(const aWithShape:TKraftShape);
+ procedure AddContact(const aWithShape:TKraftShape;
+                      const aWithShapeTriangleIndex:TKraftInt32;
+                      const aPositionA:TKraftVector3;
+                      const aPositionB:TKraftVector3;
+                      const aNormal:TKraftVector3;
+                      const aPenetrationDepth:TKraftScalar);
  var ContactIndex:TKraftInt32;
      Contact:PKraftShapeCollisionContact;
-     PositionA,PositionB,Normal:TKraftVector3;
-     PenetrationDepth:TKraftScalar;
  begin
-  if MPRPenetration(aShape,aWithShape,aShape.fWorldTransform,aWithShape.fWorldTransform,PositionA,PositionB,Normal,PenetrationDepth) then begin
-   ContactIndex:=aCountContacts;
-   inc(aCountContacts);
-   if length(aContacts)<aCountContacts then begin
-    SetLength(aContacts,aCountContacts+((aCountContacts+1) shr 1));
+  ContactIndex:=aCountContacts;
+  inc(aCountContacts);
+  if length(aContacts)<aCountContacts then begin
+   SetLength(aContacts,aCountContacts+((aCountContacts+1) shr 1));
+  end;
+  Contact:=@aContacts[ContactIndex];
+  Contact^.ShapeA:=aShape;
+  Contact^.ShapeB:=aWithShape;
+  Contact^.ShapeBTriangleIndex:=aWithShapeTriangleIndex;
+  Contact^.PositionA:=aPositionA;
+  Contact^.PositionB:=aPositionB;
+  Contact^.Normal:=aNormal;
+  Contact^.PenetrationDepth:=aPenetrationDepth;
+  if (not assigned(aOnCollideShapeContactHook)) or aOnCollideShapeContactHook(Contact^) then begin
+   Hit:=true;
+  end else begin
+   dec(aCountContacts);
+  end;
+ end;
+ procedure AddImplicitContact(const aWithShape:TKraftShape;
+                              const aWithShapeTriangleIndex:TKraftInt32;
+                              const aPositionA:TKraftVector3;
+                              const aPositionB:TKraftVector3;
+                              const aRadiusA:TKraftScalar;
+                              const aRadiusB:TKraftScalar;
+                              const aSwap:boolean);
+ var Vector,Normal:TKraftVector3;
+ begin
+  if aSwap then begin
+   Vector:=Vector3Sub(aPositionB,aPositionA);
+   if Vector3LengthSquared(Vector)<EPSILON then begin
+    Normal:=Vector3YAxis;
+   end else begin
+    Normal:=Vector3NormEx(Vector);
    end;
-   Contact:=@aContacts[ContactIndex];
-   Contact^.ShapeA:=aShape;
-   Contact^.ShapeB:=aWithShape;
-   Contact^.ShapeBTriangleIndex:=-1;
-   Contact^.PositionA:=PositionA;
-   Contact^.PositionB:=PositionB;
-   Contact^.Normal:=Normal;
-   Contact^.PenetrationDepth:=PenetrationDepth;
-   if not ((not assigned(aOnCollideShapeContactHook)) or aOnCollideShapeContactHook(Contact^)) then begin
-    dec(aCountContacts);
+   AddContact(aWithShape,
+              aWithShapeTriangleIndex,
+              Vector3Add(aPositionB,Vector3ScalarMul(Normal,aRadiusB)),
+              Vector3Add(aPositionA,Vector3ScalarMul(Normal,-aRadiusA)),
+              Normal,
+              (aRadiusA+aRadiusB)-Vector3Length(Vector));
+  end else begin
+   Vector:=Vector3Sub(aPositionA,aPositionB);
+   if Vector3LengthSquared(Vector)<EPSILON then begin
+    Normal:=Vector3YAxis;
+   end else begin
+    Normal:=Vector3NormEx(Vector);
+   end;
+   AddContact(aWithShape,
+              aWithShapeTriangleIndex,
+              Vector3Add(aPositionA,Vector3ScalarMul(Normal,-aRadiusA)),
+              Vector3Add(aPositionB,Vector3ScalarMul(Normal,aRadiusB)),
+              Normal,
+              (aRadiusA+aRadiusB)-Vector3Length(Vector));
+  end;
+ end;
+ procedure AddImplicitNormalContact(const aWithShape:TKraftShape;
+                                    const aWithShapeTriangleIndex:TKraftInt32;
+                                    const aNormal:TKraftVector3;
+                                    const aPositionA:TKraftVector3;
+                                    const aPositionB:TKraftVector3;
+                                    const aRadiusA:TKraftScalar;
+                                    const aRadiusB:TKraftScalar;
+                                    const aSwap:boolean);
+ var Vector,Normal:TKraftVector3;
+ begin
+  if aSwap then begin
+   Vector:=Vector3Sub(aPositionB,aPositionA);
+   Normal:=Vector3Norm(Vector3Neg(Vector3TermMatrixMulBasis(aNormal,aShape.WorldTransform)));
+   AddContact(aWithShape,
+              aWithShapeTriangleIndex,
+              Vector3Add(aPositionB,Vector3ScalarMul(Normal,aRadiusB)),
+              Vector3Add(aPositionA,Vector3ScalarMul(Normal,-aRadiusA)),
+              Normal,
+              (aRadiusA+aRadiusB)-Vector3Length(Vector));
+  end else begin
+   Vector:=Vector3Sub(aPositionA,aPositionB);
+   Normal:=Vector3Norm(Vector3TermMatrixMulBasis(aNormal,aWithShape.WorldTransform));
+   AddContact(aWithShape,
+              aWithShapeTriangleIndex,
+              Vector3Add(aPositionA,Vector3ScalarMul(Normal,-aRadiusA)),
+              Vector3Add(aPositionB,Vector3ScalarMul(Normal,aRadiusB)),
+              Normal,
+              (aRadiusA+aRadiusB)-Vector3Length(Vector));
+  end;
+ end;
+ procedure AddFaceBContact(const aWithShape:TKraftShape;
+                           const aWithShapeTriangleIndex:TKraftInt32;
+                           const aNormal:TKraftVector3;
+                           const aPositionA:TKraftVector3;
+                           const aPositionB:TKraftVector3;
+                           const aRadiusA:TKraftScalar;
+                           const aRadiusB:TKraftScalar;
+                           const aSwap:boolean);
+ var Position,Normal:TKraftVector3;
+ begin
+  Position:=Vector3Avg(aPositionA,aPositionB);
+  if aSwap then begin
+   Normal:=Vector3Norm(Vector3Neg(Vector3TermMatrixMulBasis(aNormal,aShape.WorldTransform)));
+   AddContact(aWithShape,
+              aWithShapeTriangleIndex,
+              Position,
+              Position,
+              Normal,
+              Vector3Dot(Vector3Sub(aPositionB,aPositionA),Normal)-(aRadiusA+aRadiusB));
+  end else begin
+   Normal:=Vector3Norm(Vector3TermMatrixMulBasis(aNormal,aWithShape.WorldTransform));
+   AddContact(aWithShape,
+              aWithShapeTriangleIndex,
+              Position,
+              Position,
+              Normal,
+              Vector3Dot(Vector3Sub(aPositionA,aPositionB),Normal)-(aRadiusA+aRadiusB));
+  end;
+ end;
+ procedure CollideSphereWithSphere(const aWithShape:TKraftShape;const aShapeA,aShapeB:TKraftShapeSphere);
+ var Distance:TKraftScalar;
+     CenterA,CenterB:TKraftVector3;
+ begin
+  CenterA:=Vector3TermMatrixMul(aShapeA.fLocalCentroid,aShapeA.fWorldTransform);
+  CenterB:=Vector3TermMatrixMul(aShapeB.fLocalCentroid,aShapeB.fWorldTransform);
+  Distance:=Vector3Length(Vector3Sub(CenterB,CenterA));
+  if Distance<(aShapeA.fRadius+aShapeB.fRadius) then begin
+   AddImplicitContact(aWithShape,-1,CenterA,CenterB,aShapeA.fRadius,aShapeB.fRadius,aShapeA<>aShape);
+  end;
+ end;
+ procedure CollideSphereWithCapsule(const aWithShape:TKraftShape;const aShapeA:TKraftShapeSphere;const aShapeB:TKraftShapeCapsule);
+ var Alpha,HalfLength,Distance:TKraftScalar;
+     CenterA,CenterB,Position,GeometryDirection:TKraftVector3;
+ begin
+  GeometryDirection:=Vector3(PKraftRawVector3(pointer(@aShapeB.fWorldTransform[1,0]))^);
+  CenterA:=Vector3TermMatrixMul(aShapeA.fLocalCentroid,aShapeA.fWorldTransform);
+  CenterB:=Vector3TermMatrixMul(aShapeB.fLocalCentroid,aShapeB.fWorldTransform);
+  Alpha:=(GeometryDirection.x*(CenterA.x-CenterB.x))+(GeometryDirection.y*(Centera.y-CenterB.y))+(GeometryDirection.z*(CenterA.z-CenterB.z));
+  HalfLength:=aShapeB.fHeight*0.5;
+  if Alpha>HalfLength then begin
+   Alpha:=HalfLength;
+  end else if alpha<-HalfLength then begin
+   Alpha:=-HalfLength;
+  end;
+  Position:=Vector3Add(CenterB,Vector3ScalarMul(GeometryDirection,Alpha));
+  Distance:=Vector3DistSquared(Position,CenterA);
+  if Distance<=sqr(aShapeA.fRadius+aShapeB.fRadius) then begin
+   AddImplicitContact(aWithShape,-1,CenterA,Position,aShapeA.fRadius,aShapeB.fRadius,aShapeA<>aShape);
+  end;
+ end;
+ procedure CollideSphereWithBox(const aWithShape:TKraftShape;const aShapeA:TKraftShapeSphere;const aShapeB:TKraftShapeBox);
+ //const ModuloThree:array[0..5] of TKraftInt32=(0,1,2,0,1,2);
+ var IntersectionDist,ContactDist,DistSqr,FaceDist,MinDist:TKraftScalar;
+     Center,SphereRelativePosition,ClosestPoint,Normal:TKraftVector3;
+     Axis,AxisSign,BestFaceIndex:TKraftInt32;
+ begin
+  Center:=Vector3TermMatrixMul(aShapeA.fLocalCentroid,aShapeA.fWorldTransform);
+  SphereRelativePosition:=Vector3TermMatrixMulInverted(Center,aShapeB.fWorldTransform);
+  ClosestPoint.x:=Min(Max(SphereRelativePosition.x,-aShapeB.fExtents.x),aShapeB.fExtents.x);
+  ClosestPoint.y:=Min(Max(SphereRelativePosition.y,-aShapeB.fExtents.y),aShapeB.fExtents.y);
+  ClosestPoint.z:=Min(Max(SphereRelativePosition.z,-aShapeB.fExtents.z),aShapeB.fExtents.z);
+{$ifdef SIMD}
+  ClosestPoint.w:=0.0;
+{$endif}
+  Normal:=Vector3Sub(SphereRelativePosition,ClosestPoint);
+  DistSqr:=Vector3LengthSquared(Normal);
+  IntersectionDist:=aShapeA.fRadius;
+  ContactDist:=IntersectionDist+EPSILON;
+  BestFaceIndex:=0;
+  if DistSqr<=sqr(ContactDist) then begin
+   if DistSqr<=EPSILON then begin
+    begin
+     FaceDist:=aShapeB.fExtents.x-SphereRelativePosition.x;
+     MinDist:=FaceDist;
+     Axis:=0;
+     AxisSign:=1;
+     BestFaceIndex:=1;
+    end;
+    begin
+     FaceDist:=aShapeB.fExtents.x+SphereRelativePosition.x;
+     if FaceDist<MinDist then begin
+      MinDist:=FaceDist;
+      Axis:=0;
+      AxisSign:=-1;
+      BestFaceIndex:=2;
+     end;
+    end;
+    begin
+     FaceDist:=aShapeB.fExtents.y-SphereRelativePosition.y;
+     if FaceDist<MinDist then begin
+      MinDist:=FaceDist;
+      Axis:=1;
+      AxisSign:=1;
+      BestFaceIndex:=3;
+     end;
+    end;
+    begin
+     FaceDist:=aShapeB.fExtents.y+SphereRelativePosition.y;
+     if FaceDist<MinDist then begin
+      MinDist:=FaceDist;
+      Axis:=1;
+      AxisSign:=-1;
+      BestFaceIndex:=4;
+     end;
+    end;
+    begin
+     FaceDist:=aShapeB.fExtents.z-SphereRelativePosition.z;
+     if FaceDist<MinDist then begin
+      MinDist:=FaceDist;
+      Axis:=2;
+      AxisSign:=1;
+      BestFaceIndex:=5;
+     end;
+    end;
+    begin
+     FaceDist:=aShapeB.fExtents.z+SphereRelativePosition.z;
+     if FaceDist<MinDist then begin
+//    MinDist:=FaceDist;
+      Axis:=2;
+      AxisSign:=-1;
+      BestFaceIndex:=6;
+     end;
+    end;
+    ClosestPoint:=SphereRelativePosition;
+    ClosestPoint.xyz[Axis]:=aShapeB.fExtents.xyz[Axis]*AxisSign;
+    Normal:=Vector3Origin;
+    Normal.xyz[Axis]:=AxisSign;
+//  Distance:=-MinDist;
+   end else begin
+    {Distance:=}Vector3NormalizeEx(Normal);
+   end;
+   if BestFaceIndex<>0 then begin
+   end;
+   AddFaceBContact(aWithShape,-1,Normal,Center,Vector3TermMatrixMul(ClosestPoint,aShapeB.fWorldTransform),aShapeA.fRadius,0.0,aShapeA<>aShape);
+  end;
+ end;
+ procedure CollideSphereWithPlane(const aWithShape:TKraftShape;const aShapeA:TKraftShapeSphere;const aShapeB:TKraftShapePlane);
+ var Distance:TKraftScalar;
+     Center,SphereCenter,Normal:TKraftVector3;
+ begin
+  Center:=Vector3TermMatrixMul(aShapeA.fLocalCentroid,aShapeA.fWorldTransform);
+  SphereCenter:=Vector3TermMatrixMulInverted(Center,aShapeB.fWorldTransform);
+  Distance:=PlaneVectorDistance(aShapeB.fPlane,SphereCenter);
+  if Distance<=aShapeA.fRadius then begin
+   Normal:=aShapeB.fPlane.Normal;
+   AddFaceBContact(aWithShape,-1,Normal,Center,Vector3TermMatrixMul(Vector3Sub(SphereCenter,Vector3ScalarMul(Normal,Distance)),aShapeB.fWorldTransform),aShapeA.fRadius,0.0,aShapeA<>aShape);
+  end;
+ end;
+ procedure CollideSphereWithTriangle(const aWithShape:TKraftShape;const aShapeA:TKraftShapeSphere;const aShapeB:TKraftShapeTriangle);
+ const ModuloThree:array[0..5] of TKraftInt32=(0,1,2,0,1,2);
+ var i:TKraftInt32;
+     Radius,RadiusWithThreshold,DistanceFromPlane,ContactRadiusSqr,DistanceSqr:TKraftScalar;
+     Center,SphereCenter,Normal,P0ToCenter,ContactPointOnTriangle,NearestOnEdge,ContactToCenter:TKraftVector3;
+     IsInsideContactPlane,HasContact,IsEdge:boolean;
+     v:array[0..2] of PKraftVector3;
+ begin
+  v[0]:=@aShapeB.fConvexHull.fVertices[0].Position;
+  v[1]:=@aShapeB.fConvexHull.fVertices[1].Position;
+  v[2]:=@aShapeB.fConvexHull.fVertices[2].Position;
+  Center:=Vector3TermMatrixMul(aShapeA.fLocalCentroid,aShapeA.fWorldTransform);
+  SphereCenter:=Vector3TermMatrixMulInverted(Center,aShapeB.fWorldTransform);
+  Radius:=aShapeA.fRadius;
+  RadiusWithThreshold:=Radius+EPSILON;
+  Normal:=Vector3SafeNorm(Vector3Cross(Vector3Sub(v[1]^,v[0]^),Vector3Sub(v[2]^,v[0]^)));
+  P0ToCenter:=Vector3Sub(SphereCenter,v[0]^);
+  DistanceFromPlane:=Vector3Dot(P0ToCenter,Normal);
+  if DistanceFromPlane<0.0 then begin
+   DistanceFromPlane:=-DistanceFromPlane;
+   Normal:=Vector3Neg(Normal);
+  end;
+  IsInsideContactPlane:=DistanceFromPlane<RadiusWithThreshold;
+  HasContact:=false;
+  IsEdge:=false;
+  ContactPointOnTriangle:=Vector3Origin;
+  ContactRadiusSqr:=sqr(RadiusWithThreshold);
+  if IsInsideContactPlane then begin
+   if PointInTriangle(v[0]^,v[1]^,v[2]^,Normal,SphereCenter) then begin
+    HasContact:=true;
+    ContactPointOnTriangle:=Vector3Sub(SphereCenter,Vector3ScalarMul(Normal,DistanceFromPlane));
+   end else begin
+    for i:=0 to 2 do begin
+     DistanceSqr:=SegmentSqrDistance(v[i]^,v[ModuloThree[i+1]]^,SphereCenter,@NearestOnEdge);
+     if DistanceSqr<ContactRadiusSqr then begin
+      HasContact:=true;
+      IsEdge:=true;
+      ContactPointOnTriangle:=NearestOnEdge;
+     end;
+    end;
+   end;
+  end;
+  if HasContact then begin
+   ContactToCenter:=Vector3Sub(SphereCenter,ContactPointOnTriangle);
+   DistanceSqr:=Vector3LengthSquared(ContactToCenter);
+   if DistanceSqr<ContactRadiusSqr then begin
+    if DistanceSqr>EPSILON then begin
+     if IsEdge then begin
+      AddImplicitNormalContact(aWithShape,-1,Vector3Neg(Vector3Norm(ContactToCenter)),Center,Vector3TermMatrixMul(ContactPointOnTriangle,aShapeB.fWorldTransform),aShapeA.fRadius,0.0,aShapeA<>aShape);
+     end else begin
+      AddImplicitContact(aWithShape,-1,Center,Vector3TermMatrixMul(ContactPointOnTriangle,aShapeB.fWorldTransform),aShapeA.fRadius,0.0,aShapeA<>aShape);
+     end;
+    end else begin
+     AddFaceBContact(aWithShape,-1,Normal,Center,Vector3TermMatrixMul(ContactPointOnTriangle,aShapeB.fWorldTransform),aShapeA.fRadius,0.0,aShapeA<>aShape);
+    end;
    end;
   end;
  end;
- procedure CollideMesh(const aWithShape:TKraftShapeMesh);
- var ContactIndex,SkipListNodeIndex,TriangleIndex:TKraftInt32;
-     Contact:PKraftShapeCollisionContact;
-     Radius,RadiusWithThreshold:TKraftScalar;
-     SphereCenter:TKraftVector3;
-     PositionA,PositionB,Normal:TKraftVector3;
+ procedure CollideCapsuleWithCapsule(const aWithShape:TKraftShape;const aShapeA,aShapeB:TKraftShapeCapsule);
+ const Tolerance=0.005;
+ var RadiusA,RadiusB,SquaredRadiiWithTolerance,HalfLengthA,HalfLengthB,TimeA,TimeB,SquaredDistance:TKraftScalar;
+     CenterA,CenterB,GeometryDirectionA,GeometryDirectionB,HalfAxis,ClosestPointA,ClosestPointB:TKraftVector3;
+     SegmentA,SegmentB:TKraftSegment;
+ begin
+
+  CenterA:=Vector3TermMatrixMul(aShapeA.fLocalCenterOfMass,aShapeA.fWorldTransform);
+  CenterB:=Vector3TermMatrixMul(aShapeB.fLocalCenterOfMass,aShapeB.fWorldTransform);
+
+{$ifdef SIMD}
+  GeometryDirectionA:=Vector3(PKraftRawVector3(pointer(@aShapeA.fWorldTransform[1,0]))^);
+  GeometryDirectionB:=Vector3(PKraftRawVector3(pointer(@aShapeB.fWorldTransform[1,0]))^);
+{$else}
+  GeometryDirectionA:=PKraftVector3(pointer(@ShapeA.fWorldTransform[1,0]))^;
+  GeometryDirectionB:=PKraftVector3(pointer(@ShapeB.fWorldTransform[1,0]))^;
+{$endif}
+
+  RadiusA:=aShapeA.fRadius;
+  RadiusB:=aShapeB.fRadius;
+
+  SquaredRadiiWithTolerance:=sqr((RadiusA+RadiusB)+EPSILON);
+
+  HalfLengthA:=aShapeA.fHeight*0.5;
+  HalfLengthB:=aShapeB.fHeight*0.5;
+
+  HalfAxis:=Vector3ScalarMul(GeometryDirectionA,HalfLengthA);
+  SegmentA.Points[0]:=Vector3Sub(CenterA,HalfAxis);
+  SegmentA.Points[1]:=Vector3Add(CenterA,HalfAxis);
+
+  HalfAxis:=Vector3ScalarMul(GeometryDirectionB,HalfLengthB);
+  SegmentB.Points[0]:=Vector3Sub(CenterB,HalfAxis);
+  SegmentB.Points[1]:=Vector3Add(CenterB,HalfAxis);
+
+  // Find the closest points between the two capsules
+  SIMDSegmentClosestPoints(SegmentA,SegmentB,TimeA,ClosestPointA,TimeB,ClosestPointB);
+
+  SquaredDistance:=Vector3DistSquared(ClosestPointA,ClosestPointB);
+
+  if SquaredDistance<SquaredRadiiWithTolerance then begin
+
+   AddImplicitContact(aWithShape,-1,ClosestPointA,ClosestPointB,RadiusA,RadiusB,aShapeA<>aShape);
+
+   // If the two capsules are nearly parallel, an additional support point provides stability
+   {if (Vector3Length(Vector3Cross(GeometryDirectionA,GeometryDirectionB))<(sqrt(Vector3LengthSquared(GeometryDirectionA)*Vector3LengthSquared(GeometryDirectionB))*Tolerance)) then{}begin
+
+    if abs(TimeA)<EPSILON then begin
+     ClosestPointA:=SegmentA.Points[1];
+     SIMDSegmentClosestPointTo(SegmentB,ClosestPointA,TimeB,ClosestPointB);
+    end else if abs(1.0-TimeA)<EPSILON then begin
+     ClosestPointA:=SegmentA.Points[0];
+     SIMDSegmentClosestPointTo(SegmentB,ClosestPointA,TimeB,ClosestPointB);
+    end else if abs(TimeB)<EPSILON then begin
+     ClosestPointB:=SegmentB.Points[1];
+     SIMDSegmentClosestPointTo(SegmentA,ClosestPointB,TimeA,ClosestPointA);
+    end else if abs(1.0-TimeB)<EPSILON then begin
+     ClosestPointB:=SegmentB.Points[0];
+     SIMDSegmentClosestPointTo(SegmentA,ClosestPointB,TimeA,ClosestPointA);
+    end else begin
+     exit;
+    end;
+
+    SquaredDistance:=Vector3DistSquared(ClosestPointA,ClosestPointB);
+    if SquaredDistance<SquaredRadiiWithTolerance then begin
+     AddImplicitContact(aWithShape,-1,ClosestPointA,ClosestPointB,RadiusA,RadiusB,aShapeA<>aShape);
+    end;
+
+   end;
+
+  end;
+
+ end;
+ procedure CollideGeneral(const aWithShape:TKraftShape);
+ var PositionA,PositionB,Normal:TKraftVector3;
      PenetrationDepth:TKraftScalar;
+ begin
+  if ((aShape.fShapeType=kstSignedDistanceField) or (aWithShape.fShapeType=kstSignedDistanceField)) and
+     SignedDistanceFieldPenetration(aShape,aWithShape,aShape.fWorldTransform,aWithShape.fWorldTransform,PositionA,PositionB,Normal,PenetrationDepth) then begin
+   AddContact(aWithShape,-1,PositionA,PositionB,Normal,PenetrationDepth);
+  end else if MPRPenetration(aShape,aWithShape,aShape.fWorldTransform,aWithShape.fWorldTransform,PositionA,PositionB,Normal,PenetrationDepth) then begin
+   AddContact(aWithShape,-1,PositionA,PositionB,Normal,PenetrationDepth);
+  end;
+ end;
+ procedure CollideConvex(const aWithShape:TKraftShape);
+ begin
+  case aShape.fShapeType of
+   kstSphere:begin
+    case aWithShape.fShapeType of
+     kstSphere:begin
+      CollideSphereWithSphere(aWithShape,TKraftShapeSphere(aShape),TKraftShapeSphere(aWithShape));
+     end;
+     kstCapsule:begin
+      CollideSphereWithCapsule(aWithShape,TKraftShapeSphere(aShape),TKraftShapeCapsule(aWithShape));
+     end;
+     kstBox:begin
+      CollideSphereWithBox(aWithShape,TKraftShapeSphere(aShape),TKraftShapeBox(aWithShape));
+     end;
+     kstPlane:begin
+      CollideSphereWithPlane(aWithShape,TKraftShapeSphere(aShape),TKraftShapePlane(aWithShape));
+     end;
+     kstTriangle:begin
+      CollideSphereWithTriangle(aWithShape,TKraftShapeSphere(aShape),TKraftShapeTriangle(aWithShape));
+     end;
+     else begin
+      CollideGeneral(aWithShape);
+     end;
+    end;
+   end;
+   kstCapsule:begin
+    case aWithShape.fShapeType of
+     kstSphere:begin
+      CollideSphereWithCapsule(aWithShape,TKraftShapeSphere(aWithShape),TKraftShapeCapsule(aShape));
+     end;
+     kstCapsule:begin
+      CollideCapsuleWithCapsule(aWithShape,TKraftShapeCapsule(aShape),TKraftShapeCapsule(aWithShape));
+     end;
+     else begin
+      CollideGeneral(aWithShape);
+     end;
+    end;
+   end;
+   else begin
+    CollideGeneral(aWithShape);
+   end;
+  end;
+ end;
+ procedure CollideSphereWithMesh(const aWithShape:TKraftShapeMesh);
+ const ModuloThree:array[0..5] of TKraftInt32=(0,1,2,0,1,2);
+ var i,SkipListNodeIndex,TriangleIndex:TKraftInt32;
+     Radius,RadiusWithThreshold,DistanceFromPlane,ContactRadiusSqr,DistanceSqr:TKraftScalar;
+     SphereCenter,Normal,P0ToCenter,ContactPoint,NearestOnEdge,ContactToCenter:TKraftVector3;
+     IsInsideContactPlane,HasContact:boolean;
      SkipListNode:PKraftMeshSkipListNode;
      Triangle:PKraftMeshTriangle;
-     IndirectTriangle:TKraftIndirectTriangle;
-     RelativeTransform:TKraftMatrix4x4;
      AABB:TKraftAABB;
+     Vertices:array[0..2] of PKraftVector3;
  begin
   SphereCenter:=Vector3TermMatrixMulInverted(Sphere.Center,aWithShape.fWorldTransform);
   Radius:=Sphere.Radius;
@@ -45796,7 +46205,6 @@ var Sphere:TKraftSphere;
   AABB.Max.w:=0.0;
 {$endif}
   RadiusWithThreshold:=Radius+EPSILON;
-  RelativeTransform:=Matrix4x4TermMulInverted(aShape.fWorldTransform,aWithShape.fWorldTransform);
   SkipListNodeIndex:=0;
   while SkipListNodeIndex<aWithShape.fMesh.fCountSkipListNodes do begin
    SkipListNode:=@aWithShape.fMesh.fSkipListNodes[SkipListNodeIndex];
@@ -45804,43 +46212,130 @@ var Sphere:TKraftSphere;
     if SkipListNode^.CountTriangles>0 then begin
      for TriangleIndex:=SkipListNode^.FirstTriangleIndex to SkipListNode^.FirstTriangleIndex+(SkipListNode^.CountTriangles-1) do begin
       Triangle:=@aWithShape.fMesh.fTriangles[TriangleIndex];
-      IndirectTriangle.Points[0]:=@aWithShape.fMesh.fVertices[Triangle^.Vertices[0]];
-      IndirectTriangle.Points[1]:=@aWithShape.fMesh.fVertices[Triangle^.Vertices[1]];
-      IndirectTriangle.Points[2]:=@aWithShape.fMesh.fVertices[Triangle^.Vertices[2]];
-      Normal:=Vector3SafeNorm(Vector3Cross(Vector3Sub(IndirectTriangle.Points[1]^,IndirectTriangle.Points[0]^),Vector3Sub(IndirectTriangle.Points[2]^,IndirectTriangle.Points[0]^)));
-      IndirectTriangle.Normal:=@Normal;
-      if MPRIndirectTrianglePenetration(@IndirectTriangle,
-                                        aShape,
-                                        Matrix4x4Identity,
-                                        RelativeTransform,
-                                        PositionA,
-                                        PositionB,
-                                        Normal,
-                                        PenetrationDepth) then begin
-       Normal:=Vector3Neg(Vector3Norm(Vector3TermMatrixMulBasis(Normal,aWithShape.fWorldTransform)));
-       ContactIndex:=aCountContacts;
-       inc(aCountContacts);
-       if length(aContacts)<aCountContacts then begin
-        SetLength(aContacts,aCountContacts+((aCountContacts+1) shr 1));
+      Vertices[0]:=@aWithShape.fMesh.fVertices[Triangle^.Vertices[0]];
+      Vertices[1]:=@aWithShape.fMesh.fVertices[Triangle^.Vertices[1]];
+      Vertices[2]:=@aWithShape.fMesh.fVertices[Triangle^.Vertices[2]];
+      Normal:=Vector3SafeNorm(Vector3Cross(Vector3Sub(Vertices[1]^,Vertices[0]^),Vector3Sub(Vertices[2]^,Vertices[0]^)));
+      P0ToCenter:=Vector3Sub(SphereCenter,Vertices[0]^);
+      DistanceFromPlane:=Vector3Dot(P0ToCenter,Normal);
+      if DistanceFromPlane<0.0 then begin
+       DistanceFromPlane:=-DistanceFromPlane;
+       Normal:=Vector3Neg(Normal);
+      end;
+      IsInsideContactPlane:=DistanceFromPlane<RadiusWithThreshold;
+      HasContact:=false;
+      ContactPoint:=Vector3Origin;
+      ContactRadiusSqr:=sqr(RadiusWithThreshold);
+      if IsInsideContactPlane then begin
+       if PointInTriangle(Vertices[0]^,Vertices[1]^,Vertices[2]^,Normal,SphereCenter) then begin
+        HasContact:=true;
+        ContactPoint:=Vector3Sub(SphereCenter,Vector3ScalarMul(Normal,DistanceFromPlane));
+       end else begin
+        for i:=0 to 2 do begin
+         DistanceSqr:=SegmentSqrDistance(Vertices[i]^,Vertices[ModuloThree[i+1]]^,SphereCenter,@NearestOnEdge);
+         if DistanceSqr<ContactRadiusSqr then begin
+          HasContact:=true;
+          ContactPoint:=NearestOnEdge;
+         end;
+        end;
        end;
-       Contact:=@aContacts[ContactIndex];
-       Contact^.ShapeA:=aShape;
-       Contact^.ShapeB:=aWithShape;
-       Contact^.ShapeBTriangleIndex:=TriangleIndex;
-       Contact^.PositionA:=PositionA;
-       Contact^.PositionB:=PositionB;
-       Contact^.Normal:=Normal;
-       Contact^.PenetrationDepth:=PenetrationDepth;
-       if not ((not assigned(aOnCollideShapeContactHook)) or aOnCollideShapeContactHook(Contact^)) then begin
-        dec(aCountContacts);
+      end;
+      if HasContact then begin
+       ContactToCenter:=Vector3Sub(SphereCenter,ContactPoint);
+       DistanceSqr:=Vector3LengthSquared(ContactToCenter);
+       if DistanceSqr<ContactRadiusSqr then begin
+        if DistanceSqr>EPSILON then begin
+         Normal:=Vector3SafeNorm(Vector3TermMatrixMulBasis(ContactToCenter,aWithShape.fWorldTransform));
+         AddContact(aWithShape,
+                    TriangleIndex,
+                    Vector3Add(Vector3TermMatrixMul(SphereCenter,aShape.fWorldTransform),Vector3ScalarMul(Normal,TKraftShapeSphere(aShape).fRadius)),
+                    Vector3TermMatrixMul(ContactPoint,aWithShape.fWorldTransform),
+                    Normal,
+                    Radius-sqrt(DistanceSqr));
+        end else begin
+         AddContact(aWithShape,
+                    TriangleIndex,
+                    Vector3Add(Vector3TermMatrixMul(SphereCenter,aShape.fWorldTransform),Vector3ScalarMul(Normal,TKraftShapeSphere(aShape).fRadius)),
+                    Vector3TermMatrixMul(ContactPoint,aWithShape.fWorldTransform),
+                    Normal,
+                    Radius);
+        end;
        end;
-       Hit:=true;
       end;
      end;
     end;
     inc(SkipListNodeIndex);
    end else begin
     SkipListNodeIndex:=SkipListNode^.SkipToNodeIndex;
+   end;
+  end;
+ end;
+ procedure CollideMesh(const aWithShape:TKraftShapeMesh);
+ var SkipListNodeIndex,TriangleIndex:TKraftInt32;
+     Radius,RadiusWithThreshold:TKraftScalar;
+     SphereCenter:TKraftVector3;
+     PositionA,PositionB,Normal:TKraftVector3;
+     PenetrationDepth:TKraftScalar;
+     SkipListNode:PKraftMeshSkipListNode;
+     Triangle:PKraftMeshTriangle;
+     IndirectTriangle:TKraftIndirectTriangle;
+     RelativeTransform:TKraftMatrix4x4;
+     AABB:TKraftAABB;
+ begin
+  case aShape.fShapeType of
+   kstSphere:begin
+    CollideSphereWithMesh(aWithShape);
+   end;
+   kstCapsule,kstConvexHull,kstBox,kstPlane,kstTriangle:begin
+    SphereCenter:=Vector3TermMatrixMulInverted(Sphere.Center,aWithShape.fWorldTransform);
+    Radius:=Sphere.Radius;
+    RadiusWithThreshold:=Radius+0.1;
+    AABB.Min.x:=SphereCenter.x-RadiusWithThreshold;
+    AABB.Min.y:=SphereCenter.y-RadiusWithThreshold;
+    AABB.Min.z:=SphereCenter.z-RadiusWithThreshold;
+{$ifdef SIMD}
+    AABB.Min.w:=0.0;
+{$endif}
+    AABB.Max.x:=SphereCenter.x+RadiusWithThreshold;
+    AABB.Max.y:=SphereCenter.y+RadiusWithThreshold;
+    AABB.Max.z:=SphereCenter.z+RadiusWithThreshold;
+{$ifdef SIMD}
+    AABB.Max.w:=0.0;
+{$endif}
+    RadiusWithThreshold:=Radius+EPSILON;
+    RelativeTransform:=Matrix4x4TermMulInverted(aShape.fWorldTransform,aWithShape.fWorldTransform);
+    SkipListNodeIndex:=0;
+    while SkipListNodeIndex<aWithShape.fMesh.fCountSkipListNodes do begin
+     SkipListNode:=@aWithShape.fMesh.fSkipListNodes[SkipListNodeIndex];
+     if AABBIntersect(SkipListNode^.AABB,AABB) then begin
+      if SkipListNode^.CountTriangles>0 then begin
+       for TriangleIndex:=SkipListNode^.FirstTriangleIndex to SkipListNode^.FirstTriangleIndex+(SkipListNode^.CountTriangles-1) do begin
+        Triangle:=@aWithShape.fMesh.fTriangles[TriangleIndex];
+        IndirectTriangle.Points[0]:=@aWithShape.fMesh.fVertices[Triangle^.Vertices[0]];
+        IndirectTriangle.Points[1]:=@aWithShape.fMesh.fVertices[Triangle^.Vertices[1]];
+        IndirectTriangle.Points[2]:=@aWithShape.fMesh.fVertices[Triangle^.Vertices[2]];
+        Normal:=Vector3SafeNorm(Vector3Cross(Vector3Sub(IndirectTriangle.Points[1]^,IndirectTriangle.Points[0]^),Vector3Sub(IndirectTriangle.Points[2]^,IndirectTriangle.Points[0]^)));
+        IndirectTriangle.Normal:=@Normal;
+        if MPRIndirectTrianglePenetration(@IndirectTriangle,
+                                          aShape,
+                                          Matrix4x4Identity,
+                                          RelativeTransform,
+                                          PositionA,
+                                          PositionB,
+                                          Normal,
+                                          PenetrationDepth) then begin
+         Normal:=Vector3Neg(Vector3Norm(Vector3TermMatrixMulBasis(Normal,aWithShape.fWorldTransform)));
+         AddContact(aWithShape,TriangleIndex,PositionB,PositionA,Normal,PenetrationDepth);
+        end;
+       end;
+      end;
+      inc(SkipListNodeIndex);
+     end else begin
+      SkipListNodeIndex:=SkipListNode^.SkipToNodeIndex;
+     end;
+    end;
+   end;
+   else begin
    end;
   end;
  end;
@@ -45853,10 +46348,7 @@ var Sphere:TKraftSphere;
      ((not assigned(aOnCollideShapeFilterHook)) or
       aOnCollideShapeFilterHook(aShape,aWithShape)) then begin
    case aWithShape.fShapeType of
-    kstSignedDistanceField:begin
-     // Ignore
-    end;
-    kstSphere,kstCapsule,kstConvexHull,kstBox,kstPlane,kstTriangle:begin
+    kstSignedDistanceField,kstSphere,kstCapsule,kstConvexHull,kstBox,kstPlane,kstTriangle:begin
      CollideConvex(aWithShape);
     end;
     kstMesh:begin
@@ -45959,22 +46451,22 @@ end;
 function TKraft.GetDistance(const aShapeA,aShapeB:TKraftShape):TKraftScalar;
 var GJK:TKraftGJK;
 begin
-{if MPRIntersection(aShapeA,aShapeB,aShapeA.fWorldTransform,aShapeB.fWorldTransform) then begin
-  result:=0.0;
- end else}begin
-  GJK.CachedSimplex:=nil;
-  GJK.Simplex.Count:=0;
-  GJK.Shapes[0]:=aShapeA;
-  GJK.Shapes[1]:=aShapeB;
-  GJK.Transforms[0]:=@aShapeA.fWorldTransform;
-  GJK.Transforms[1]:=@aShapeB.fWorldTransform;
-  GJK.UseRadii:=false;
-  GJK.Run;
-  if GJK.Failed then begin
-   result:=-1.0;
+ GJK.CachedSimplex:=nil;
+ GJK.Simplex.Count:=0;
+ GJK.Shapes[0]:=aShapeA;
+ GJK.Shapes[1]:=aShapeB;
+ GJK.Transforms[0]:=@aShapeA.fWorldTransform;
+ GJK.Transforms[1]:=@aShapeB.fWorldTransform;
+ GJK.UseRadii:=false;
+ GJK.Run;
+ if GJK.Failed then begin
+  if MPRIntersection(aShapeA,aShapeB,aShapeA.fWorldTransform,aShapeB.fWorldTransform) then begin
+   result:=0.0;
   end else begin
-   result:=GJK.Distance;
+   result:=-1.0;
   end;
+ end else begin
+  result:=GJK.Distance;
  end;
 end;
 
