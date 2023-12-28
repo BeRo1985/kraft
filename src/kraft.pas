@@ -4216,6 +4216,13 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
                              const aOnCollideShapeContactHook:TKraftOnCollideShapeContactHook=nil;
                              const aOnCollideShapeFilterHook:TKraftOnCollideShapeFilterHook=nil):boolean;
 
+       procedure ResolveShapeCollisionContacts(const aContacts:TKraftShapeCollisionContacts;
+                                               const aCountContacts:TKraftInt32;
+                                               var aPosition:TKraftVector3;
+                                               var aVelocity:TKraftVector3;
+                                               const aSingle:boolean=true;
+                                               const aAverage:boolean=false);
+
        function GetDistance(const aShapeA,aShapeB:TKraftShape):TKraftScalar;
 
        property HighResolutionTimer:TKraftHighResolutionTimer read fHighResolutionTimer;
@@ -46515,6 +46522,45 @@ begin
  QueryTree(fKinematicAABBTree);
  SortContactsByDescendingPenetrationDepth;
  result:=Hit;
+end;
+
+procedure TKraft.ResolveShapeCollisionContacts(const aContacts:TKraftShapeCollisionContacts;
+                                               const aCountContacts:TKraftInt32;
+                                               var aPosition:TKraftVector3;
+                                               var aVelocity:TKraftVector3;
+                                               const aSingle:boolean;
+                                               const aAverage:boolean);
+var ContactIndex,Count:TKraftInt32;
+    Contact:PKraftShapeCollisionContact;
+    CombinedPenetrationVector,CombinedNormal,
+    NormalizedVelocity,UndesiredMotion,DesiredMotion:TKraftVector3;
+    CombinedPenetrationDepth,VelocityLength:TKraftScalar;
+begin
+ CombinedPenetrationVector:=Vector3Origin;
+ Count:=0;
+ for ContactIndex:=0 to aCountContacts-1 do begin
+  Contact:=@aContacts[ContactIndex];
+  if abs(Contact^.PenetrationDepth)>0.0 then begin
+   CombinedPenetrationVector:=Vector3Add(CombinedPenetrationVector,Vector3ScalarMul(Contact^.Normal,Contact^.PenetrationDepth));
+   inc(Count);
+   if aSingle then begin
+    break;
+   end;
+  end;
+ end;
+ CombinedNormal:=CombinedPenetrationVector;
+ CombinedPenetrationDepth:=Vector3LengthNormalize(CombinedNormal);
+ if aAverage and (Count>0) then begin
+  CombinedPenetrationDepth:=CombinedPenetrationDepth/Count;
+ end;
+ if CombinedPenetrationDepth>0.0 then begin
+  NormalizedVelocity:=aVelocity;
+  VelocityLength:=Vector3LengthNormalize(NormalizedVelocity);
+  UndesiredMotion:=Vector3ScalarMul(CombinedNormal,Vector3Dot(NormalizedVelocity,CombinedNormal));
+  DesiredMotion:=Vector3Sub(NormalizedVelocity,UndesiredMotion);
+  aVelocity:=Vector3ScalarMul(DesiredMotion,VelocityLength);
+  Vector3DirectAdd(aPosition,Vector3ScalarMul(CombinedNormal,CombinedPenetrationDepth+1e-5));
+ end;
 end;
 
 function TKraft.GetDistance(const aShapeA,aShapeB:TKraftShape):TKraftScalar;
