@@ -11334,6 +11334,22 @@ begin
 
 end;
 
+function GetClosestPointOnLineSegment(const p0,p1,p:TKraftVector3):TKraftVector3;
+var u,v:TKraftVector3;
+    Time:TKraftScalar;
+begin
+ u:=Vector3Sub(p1,p0);
+ v:=Vector3Sub(p,p0);
+ Time:=Vector3Dot(u,v)/Vector3LengthSquared(u);
+ if Time<=0.0 then begin
+  result:=p0;
+ end else if Time>=1.0 then begin
+  result:=p1;
+ end else begin
+  result:=Vector3Add(Vector3ScalarMul(p0,1.0-Time),Vector3ScalarMul(p1,Time));
+ end;
+end;
+
 function SquaredDistanceFromPointToTriangle(const p,a,b,c:TKraftVector3):TKraftScalar; overload;
 var ab,ac,bc,pa,pb,pc,ap,bp,cp,n:TKraftVector3;
     snom,sdenom,tnom,tdenom,unom,udenom,vc,vb,va,u,v,w:TKraftScalar;
@@ -46179,7 +46195,169 @@ var Hit:Boolean;
   end;
  end;
  procedure CollideCapsuleWithMeshTriangle(const aWithShape:TKraftShapeMesh;const aWithShapeTriangleIndex:TKraftInt32);
- var Index,Count:TKraftInt32;
+ var CapsuleCenter,CapsuleGeometryDirection,CapsuleHalfLengthAxis,CapsuleHalfLengthRadiusAxis,
+     CapsuleNormal,CapsuleBase{,CapsuleTip},CapsuleA,CapsuleB,
+     TriangleP0,TriangleP1,TriangleP2,TriangleNormal,
+     ReferencePoint,LinePlaneIntersection,
+     Center,c0,c1,c2,Point0,Point1,Point2,Point3,
+     Normal,IntersectionVector,BestPoint,d:TKraftVector3;
+     CapsuleRadius,CapsuleSquaredRadius,CapsuleHalfLength,CapsuleHalfLengthRadius,
+     t,Distance,PenetrationDepth,BestDistance,IntersectionVectorLength:TKraftScalar;
+     Mesh:TKraftMesh;
+     Inside,Intersects,BackSide:boolean;
+ begin
+
+  CapsuleCenter:=Vector3TermMatrixMul(aShape.fLocalCentroid,aShape.fWorldTransform);
+
+  CapsuleGeometryDirection:=Vector3(PKraftRawVector3(pointer(@aShape.fWorldTransform[1,0]))^);
+
+  CapsuleNormal:=Vector3Norm(CapsuleGeometryDirection);
+
+  CapsuleRadius:=TKraftShapeCapsule(aShape).fRadius;
+
+  CapsuleSquaredRadius:=sqr(CapsuleRadius);
+
+  CapsuleHalfLength:=TKraftShapeCapsule(aShape).fHeight*0.5;
+
+  CapsuleHalfLengthRadius:=CapsuleHalfLength+CapsuleRadius;
+
+  CapsuleHalfLengthAxis:=Vector3ScalarMul(CapsuleGeometryDirection,CapsuleHalfLength);
+
+  CapsuleHalfLengthRadiusAxis:=Vector3ScalarMul(CapsuleGeometryDirection,CapsuleHalfLengthRadius);
+
+  CapsuleBase:=Vector3Sub(CapsuleCenter,CapsuleHalfLengthRadiusAxis);
+//CapsuleTip:=Vector3Add(CapsuleCenter,CapsuleHalfLengthRadiusAxis);
+
+  CapsuleA:=Vector3Sub(CapsuleCenter,CapsuleHalfLengthAxis);
+  CapsuleB:=Vector3Add(CapsuleCenter,CapsuleHalfLengthAxis);
+
+  Mesh:=TKraftShapeMesh(aWithShape).fMesh;
+
+  TriangleP0:=Vector3TermMatrixMul(Mesh.fVertices[Mesh.fTriangles[aWithShapeTriangleIndex].Vertices[0]],aWithShape.fWorldTransform);
+  TriangleP1:=Vector3TermMatrixMul(Mesh.fVertices[Mesh.fTriangles[aWithShapeTriangleIndex].Vertices[1]],aWithShape.fWorldTransform);
+  TriangleP2:=Vector3TermMatrixMul(Mesh.fVertices[Mesh.fTriangles[aWithShapeTriangleIndex].Vertices[2]],aWithShape.fWorldTransform);
+
+  TriangleNormal:=Vector3Norm(Vector3Cross(Vector3Sub(TriangleP1,TriangleP0),Vector3Sub(TriangleP2,TriangleP0)));
+
+  if abs(Vector3LengthSquared(TriangleNormal))<1e-6 then begin
+   exit;
+  end;
+
+  if Vector3Dot(TriangleNormal,Vector3TermMatrixMulBasis(Mesh.fTriangles[aWithShapeTriangleIndex].Plane.Normal,aWithShape.fWorldTransform))<0.0 then begin
+   TriangleNormal:=Vector3Neg(TriangleNormal);
+  end;
+
+{ if abs(1.0-Vector3Dot(TriangleNormal,Vector3Norm(Vector3TermMatrixMulBasis(Mesh.fTriangles[aWithShapeTriangleIndex].Plane.Normal,aWithShape.fWorldTransform))))>1e-5 then begin
+   TriangleNormal:=Vector3Norm(TriangleNormal);
+  end;//}
+
+  ReferencePoint:=TriangleP0;
+
+  t:=abs(Vector3Dot(CapsuleNormal,TriangleNormal));
+  if t>1e-6 then begin
+   t:=Vector3Dot(TriangleNormal,Vector3ScalarMul(Vector3Sub(TriangleP0,CapsuleBase),t));
+   LinePlaneIntersection:=Vector3Add(CapsuleBase,Vector3ScalarMul(CapsuleNormal,t));
+   SIMDTriangleClosestPointTo(TriangleP0,TriangleP1,TriangleP2,LinePlaneIntersection,ReferencePoint);
+  end;
+
+  Center:=GetClosestPointOnLineSegment(CapsuleA,CapsuleB,ReferencePoint);
+
+  Distance:=Vector3Dot(Vector3Sub(Center,TriangleP0),TriangleNormal);
+  if abs(Distance)>CapsuleRadius then begin
+   exit;
+  end;
+
+  BackSide:=Distance<0.0;
+  if BackSide and not Mesh.fDoubleSided then begin
+   exit;
+  end;
+
+  Point0:=Vector3Sub(Center,Vector3ScalarMul(TriangleNormal,Distance));
+
+  c0:=Vector3Cross(Vector3Sub(Point0,TriangleP0),Vector3Sub(TriangleP1,TriangleP0));
+  c1:=Vector3Cross(Vector3Sub(Point0,TriangleP1),Vector3Sub(TriangleP2,TriangleP1));
+  c2:=Vector3Cross(Vector3Sub(Point0,TriangleP2),Vector3Sub(TriangleP0,TriangleP2));
+
+  Inside:=(Vector3Dot(c0,TriangleNormal)<=0.0) and (Vector3Dot(c1,TriangleNormal)<=0.0) and (Vector3Dot(c2,TriangleNormal)<=0.0);
+
+  Point1:=GetClosestPointOnLineSegment(TriangleP0,TriangleP1,Center);
+  Point2:=GetClosestPointOnLineSegment(TriangleP1,TriangleP2,Center);
+  Point3:=GetClosestPointOnLineSegment(TriangleP2,TriangleP0,Center);
+
+  Intersects:=(Vector3DistSquared(Center,Point1)<CapsuleSquaredRadius) or
+              (Vector3DistSquared(Center,Point2)<CapsuleSquaredRadius) or
+              (Vector3DistSquared(Center,Point3)<CapsuleSquaredRadius);
+
+  Normal:=Vector3Origin;
+  PenetrationDepth:=1.0;
+
+  if Intersects or Inside then begin
+
+   if Inside then begin
+
+    IntersectionVector:=Vector3Sub(Center,Point0);
+
+   end else begin
+
+    BestPoint:=Point1;
+    IntersectionVector:=Vector3Sub(Center,Point1);
+    BestDistance:=Vector3LengthSquared(IntersectionVector);
+
+    d:=Vector3Sub(Center,Point2);
+    Distance:=Vector3LengthSquared(d);
+    if BestDistance>Distance then begin
+     BestDistance:=Distance;
+     BestPoint:=Point2;
+     IntersectionVector:=d;
+    end;
+
+    d:=Vector3Sub(Center,Point2);
+    Distance:=Vector3LengthSquared(d);
+    if BestDistance>Distance then begin
+     BestDistance:=Distance;
+     BestPoint:=Point2;
+     IntersectionVector:=d;
+    end;
+
+    d:=Vector3Sub(Center,Point2);
+    Distance:=Vector3LengthSquared(d);
+    if BestDistance>Distance then begin
+     BestDistance:=Distance;
+     BestPoint:=Point2;
+     IntersectionVector:=d;
+    end;
+
+   end;
+
+   IntersectionVectorLength:=Vector3LengthNormalize(IntersectionVector);
+
+   if IntersectionVectorLength>=1e-6 then begin
+    Normal:=IntersectionVector;
+    PenetrationDepth:=CapsuleRadius-IntersectionVectorLength;
+   end else begin
+    if BackSide then begin
+     Normal:=IntersectionVector;
+    end else begin
+     Normal:=Vector3Neg(IntersectionVector);
+    end;
+    if Vector3DistSquared(Center,CapsuleA)<Vector3DistSquared(Center,CapsuleB) then begin
+     BestPoint:=Vector3Sub(CapsuleA,Center);
+    end else begin
+     BestPoint:=Vector3Sub(CapsuleB,Center);
+    end;
+    PenetrationDepth:=(CapsuleRadius-IntersectionVectorLength)+Vector3Length(Vector3ScalarMul(BestPoint,Vector3Dot(BestPoint,IntersectionVector)));
+   end;
+
+   AddContact(aWithShape,
+              aWithShapeTriangleIndex,
+              BestPoint,
+              Normal,
+              PenetrationDepth);
+
+  end;
+
+ end;
+{var Index,Count:TKraftInt32;
      Radius,HalfLength,SquaredDistance,SquaredRadius,d:TKraftScalar;
      Center,GeometryDirection,HalfAxis,pa,pb,Normal:TKraftVector3;
      Segment:TKraftSegment;
@@ -46254,11 +46432,11 @@ var Hit:Boolean;
      Vector3NormalizeEx(Normal);
     end;
 //  Normal:=Vector3TermMatrixMulBasis(Normal,ShapeB.fWorldTransform);
-    AddFaceBContact(aWithShape,
-                    aWithShapeTriangleIndex,
-                    Normal,
-                    Vector3TermMatrixMul(pa,aWithShape.fWorldTransform),
-                    Vector3TermMatrixMul(pb,aWithShape.fWorldTransform),
+    AddContact(aWithShape,
+               aWithShapeTriangleIndex,
+               Vector3Avg(Vector3TermMatrixMul(pa,aWithShape.fWorldTransform),
+                          Vector3TermMatrixMul(pb,aWithShape.fWorldTransform)),
+                Normal,
                     Radius,
                     0.0,
                     false);
@@ -46266,7 +46444,7 @@ var Hit:Boolean;
 
   end;
 
- end;
+ end;//}
  procedure CollideSphereWithMesh(const aWithShape:TKraftShapeMesh);
  const ModuloThree:array[0..5] of TKraftInt32=(0,1,2,0,1,2);
  var i,SkipListNodeIndex,TriangleIndex:TKraftInt32;
@@ -46389,10 +46567,10 @@ var Hit:Boolean;
    kstSphere:begin
     CollideSphereWithMesh(aWithShape);
    end;
-{  kstCapsule:begin
+   kstCapsule:begin
     CollideCapsuleWithMesh(aWithShape);
-   end;}
-   kstCapsule,kstConvexHull,kstBox,kstPlane,kstTriangle:begin
+   end;
+   kstConvexHull,kstBox,kstPlane,kstTriangle:begin
     RelativeTransform:=Matrix4x4TermMulInverted(aShape.fWorldTransform,aWithShape.fWorldTransform);
     SkipListNodeIndex:=0;
     while SkipListNodeIndex<aWithShape.fMesh.fCountSkipListNodes do begin
