@@ -3964,8 +3964,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
       ShapeA:TKraftShape;
       ShapeB:TKraftShape;
       ShapeBTriangleIndex:TKraftInt32;
-      PositionA:TKraftVector3;
-      PositionB:TKraftVector3;
+      Position:TKraftVector3;
       Normal:TKraftVector3;
       PenetrationDepth:TKraftScalar;
      end;
@@ -45743,8 +45742,7 @@ var Sphere:TKraftSphere;
     Hit:Boolean;
  procedure AddContact(const aWithShape:TKraftShape;
                       const aWithShapeTriangleIndex:TKraftInt32;
-                      const aPositionA:TKraftVector3;
-                      const aPositionB:TKraftVector3;
+                      const aPosition:TKraftVector3;
                       const aNormal:TKraftVector3;
                       const aPenetrationDepth:TKraftScalar);
  var ContactIndex:TKraftInt32;
@@ -45759,8 +45757,7 @@ var Sphere:TKraftSphere;
   Contact^.ShapeA:=aShape;
   Contact^.ShapeB:=aWithShape;
   Contact^.ShapeBTriangleIndex:=aWithShapeTriangleIndex;
-  Contact^.PositionA:=aPositionA;
-  Contact^.PositionB:=aPositionB;
+  Contact^.Position:=aPosition;
   Contact^.Normal:=aNormal;
   Contact^.PenetrationDepth:=aPenetrationDepth;
   if (not assigned(aOnCollideShapeContactHook)) or aOnCollideShapeContactHook(Contact^) then begin
@@ -45787,8 +45784,8 @@ var Sphere:TKraftSphere;
    end;
    AddContact(aWithShape,
               aWithShapeTriangleIndex,
-              Vector3Add(aPositionB,Vector3ScalarMul(Normal,aRadiusB)),
-              Vector3Add(aPositionA,Vector3ScalarMul(Normal,-aRadiusA)),
+              Vector3Avg(Vector3Add(aPositionB,Vector3ScalarMul(Normal,aRadiusB)),
+                         Vector3Add(aPositionA,Vector3ScalarMul(Normal,-aRadiusA))),
               Normal,
               (aRadiusA+aRadiusB)-Vector3Length(Vector));
   end else begin
@@ -45800,8 +45797,8 @@ var Sphere:TKraftSphere;
    end;
    AddContact(aWithShape,
               aWithShapeTriangleIndex,
-              Vector3Add(aPositionA,Vector3ScalarMul(Normal,-aRadiusA)),
-              Vector3Add(aPositionB,Vector3ScalarMul(Normal,aRadiusB)),
+              Vector3Avg(Vector3Add(aPositionA,Vector3ScalarMul(Normal,-aRadiusA)),
+                         Vector3Add(aPositionB,Vector3ScalarMul(Normal,aRadiusB))),
               Normal,
               (aRadiusA+aRadiusB)-Vector3Length(Vector));
   end;
@@ -45821,8 +45818,8 @@ var Sphere:TKraftSphere;
    Normal:=Vector3Norm(Vector3Neg(Vector3TermMatrixMulBasis(aNormal,aShape.WorldTransform)));
    AddContact(aWithShape,
               aWithShapeTriangleIndex,
-              Vector3Add(aPositionB,Vector3ScalarMul(Normal,aRadiusB)),
-              Vector3Add(aPositionA,Vector3ScalarMul(Normal,-aRadiusA)),
+              Vector3Avg(Vector3Add(aPositionB,Vector3ScalarMul(Normal,aRadiusB)),
+                         Vector3Add(aPositionA,Vector3ScalarMul(Normal,-aRadiusA))),
               Normal,
               (aRadiusA+aRadiusB)-Vector3Length(Vector));
   end else begin
@@ -45830,8 +45827,8 @@ var Sphere:TKraftSphere;
    Normal:=Vector3Norm(Vector3TermMatrixMulBasis(aNormal,aWithShape.WorldTransform));
    AddContact(aWithShape,
               aWithShapeTriangleIndex,
-              Vector3Add(aPositionA,Vector3ScalarMul(Normal,-aRadiusA)),
-              Vector3Add(aPositionB,Vector3ScalarMul(Normal,aRadiusB)),
+              Vector3Avg(Vector3Add(aPositionA,Vector3ScalarMul(Normal,-aRadiusA)),
+                         Vector3Add(aPositionB,Vector3ScalarMul(Normal,aRadiusB))),
               Normal,
               (aRadiusA+aRadiusB)-Vector3Length(Vector));
   end;
@@ -45852,14 +45849,12 @@ var Sphere:TKraftSphere;
    AddContact(aWithShape,
               aWithShapeTriangleIndex,
               Position,
-              Position,
               Normal,
               Vector3Dot(Vector3Sub(aPositionB,aPositionA),Normal)-(aRadiusA+aRadiusB));
   end else begin
    Normal:=Vector3Norm(Vector3TermMatrixMulBasis(aNormal,aWithShape.WorldTransform));
    AddContact(aWithShape,
               aWithShapeTriangleIndex,
-              Position,
               Position,
               Normal,
               Vector3Dot(Vector3Sub(aPositionA,aPositionB),Normal)-(aRadiusA+aRadiusB));
@@ -46130,9 +46125,9 @@ var Sphere:TKraftSphere;
  begin
   if ((aShape.fShapeType=kstSignedDistanceField) or (aWithShape.fShapeType=kstSignedDistanceField)) and
      SignedDistanceFieldPenetration(aShape,aWithShape,aShape.fWorldTransform,aWithShape.fWorldTransform,PositionA,PositionB,Normal,PenetrationDepth) then begin
-   AddContact(aWithShape,-1,PositionA,PositionB,Normal,PenetrationDepth);
+   AddContact(aWithShape,-1,Vector3Avg(PositionA,PositionB),Normal,PenetrationDepth);
   end else if MPRPenetration(aShape,aWithShape,aShape.fWorldTransform,aWithShape.fWorldTransform,PositionA,PositionB,Normal,PenetrationDepth) then begin
-   AddContact(aWithShape,-1,PositionA,PositionB,Normal,PenetrationDepth);
+   AddContact(aWithShape,-1,Vector3Avg(PositionA,PositionB),Normal,PenetrationDepth);
   end;
  end;
  procedure CollideConvex(const aWithShape:TKraftShape);
@@ -46248,14 +46243,12 @@ var Sphere:TKraftSphere;
          Normal:=Vector3SafeNorm(Vector3TermMatrixMulBasis(ContactToCenter,aWithShape.fWorldTransform));
          AddContact(aWithShape,
                     TriangleIndex,
-                    Vector3Add(Vector3TermMatrixMul(SphereCenter,aShape.fWorldTransform),Vector3ScalarMul(Normal,TKraftShapeSphere(aShape).fRadius)),
                     Vector3TermMatrixMul(ContactPoint,aWithShape.fWorldTransform),
                     Normal,
                     Radius-sqrt(DistanceSqr));
         end else begin
          AddContact(aWithShape,
                     TriangleIndex,
-                    Vector3Add(Vector3TermMatrixMul(SphereCenter,aShape.fWorldTransform),Vector3ScalarMul(Normal,TKraftShapeSphere(aShape).fRadius)),
                     Vector3TermMatrixMul(ContactPoint,aWithShape.fWorldTransform),
                     Normal,
                     Radius);
@@ -46325,7 +46318,7 @@ var Sphere:TKraftSphere;
                                           Normal,
                                           PenetrationDepth) then begin
          Normal:=Vector3Neg(Vector3Norm(Vector3TermMatrixMulBasis(Normal,aWithShape.fWorldTransform)));
-         AddContact(aWithShape,TriangleIndex,PositionB,PositionA,Normal,PenetrationDepth);
+         AddContact(aWithShape,TriangleIndex,Vector3Avg(PositionB,PositionA),Normal,PenetrationDepth);
         end;
        end;
       end;
