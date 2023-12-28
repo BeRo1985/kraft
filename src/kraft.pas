@@ -33054,7 +33054,7 @@ var OldManifoldCountContacts:TKraftInt32;
      end;
      Vector3NormalizeEx(Normal);
     end;
-    Normal:=Vector3TermMatrixMulBasis(Normal,ShapeB.fWorldTransform);
+    //Normal:=Vector3TermMatrixMulBasis(Normal,ShapeB.fWorldTransform);
     AddFaceBContact(Normal,
                     Vector3TermMatrixMul(pa,ShapeB.fWorldTransform),
                     Vector3TermMatrixMul(pb,ShapeB.fWorldTransform),
@@ -33081,7 +33081,7 @@ var OldManifoldCountContacts:TKraftInt32;
      end;
      Vector3NormalizeEx(Normal);
     end;
-    Normal:=Vector3TermMatrixMulBasis(Normal,ShapeB.fWorldTransform);
+    //Normal:=Vector3TermMatrixMulBasis(Normal,ShapeB.fWorldTransform);
     AddFaceBContact(Normal,
                     Vector3TermMatrixMul(pa,ShapeB.fWorldTransform),
                     Vector3TermMatrixMul(pb,ShapeB.fWorldTransform),
@@ -46173,6 +46173,95 @@ var Sphere:TKraftSphere;
    end;
   end;
  end;
+ procedure CollideCapsuleWithMeshTriangle(const aWithShape:TKraftShapeMesh;const aWithShapeTriangleIndex:TKraftInt32);
+ var Index,Count:TKraftInt32;
+     Radius,HalfLength,SquaredDistance,SquaredRadius,d:TKraftScalar;
+     Center,GeometryDirection,HalfAxis,pa,pb,Normal:TKraftVector3;
+     Segment:TKraftSegment;
+     Triangle:TKraftTriangle;
+     UseTriangleNormal:boolean;
+     Mesh:TKraftMesh;
+ begin
+
+  Center:=Vector3TermMatrixMulInverted(Vector3TermMatrixMul(aShape.fLocalCentroid,aShape.fWorldTransform),aWithShape.fWorldTransform);
+
+  GeometryDirection:=Vector3TermMatrixMulTransposedBasis(Vector3(PKraftRawVector3(pointer(@aShape.fWorldTransform[1,0]))^),aWithShape.fWorldTransform);
+
+  Mesh:=TKraftShapeMesh(aWithShape).fMesh;
+
+  Triangle.Points[0]:=Mesh.fVertices[Mesh.fTriangles[aWithShapeTriangleIndex].Vertices[0]];
+  Triangle.Points[1]:=Mesh.fVertices[Mesh.fTriangles[aWithShapeTriangleIndex].Vertices[1]];
+  Triangle.Points[2]:=Mesh.fVertices[Mesh.fTriangles[aWithShapeTriangleIndex].Vertices[2]];
+  Triangle.Normal:=Mesh.fTriangles[aWithShapeTriangleIndex].Plane.Normal;
+
+  Radius:=TKraftShapeCapsule(aShape).fRadius;
+
+  SquaredRadius:=sqr(Radius);
+
+  HalfLength:=TKraftShapeCapsule(aShape).fHeight*0.5;
+
+  HalfAxis:=Vector3ScalarMul(GeometryDirection,HalfLength);
+  Segment.Points[0]:=Vector3Sub(Center,HalfAxis);
+  Segment.Points[1]:=Vector3Add(Center,HalfAxis);
+
+  Count:=0;
+  for Index:=0 to 1 do begin
+   pa:=Segment.Points[Index];
+   UseTriangleNormal:=SIMDTriangleClosestPointTo(Triangle,pa,pb);
+   SquaredDistance:=Vector3DistSquared(pa,pb);
+   if SquaredDistance<(SquaredRadius+EPSILON) then begin
+    if UseTriangleNormal then begin
+     Normal:=Triangle.Normal;
+    end else begin
+     Normal:=Vector3Sub(pa,pb);
+     d:=Vector3Dot(Normal,Triangle.Normal);
+     if d<-EPSILON then begin
+      Normal:=Vector3Sub(pa,Vector3ScalarMul(Triangle.Normal,2.0*d));
+     end;
+     Vector3NormalizeEx(Normal);
+    end;
+//  Normal:=Vector3TermMatrixMulBasis(Normal,aWithShape.fWorldTransform);
+    AddFaceBContact(aWithShape,
+                    aWithShapeTriangleIndex,
+                    Normal,
+                    Vector3TermMatrixMul(pa,aWithShape.fWorldTransform),
+                    Vector3TermMatrixMul(pb,aWithShape.fWorldTransform),
+                    Radius,
+                    0.0,
+                    false);
+    inc(Count);
+   end;
+  end;
+
+  if Count<2 then begin
+
+   UseTriangleNormal:=SIMDTriangleClosestPointTo(Triangle,Segment,d,pa,pb);
+   SquaredDistance:=Vector3DistSquared(pa,pb);
+   if ((d>=EPSILON) and (d<=(1.0-EPSILON))) and (SquaredDistance<(SquaredRadius+EPSILON)) then begin
+    if UseTriangleNormal then begin
+     Normal:=Triangle.Normal;
+    end else begin
+     Normal:=Vector3Sub(pa,pb);
+     d:=Vector3Dot(Normal,Triangle.Normal);
+     if d<-EPSILON then begin
+      Normal:=Vector3Sub(pa,Vector3ScalarMul(Triangle.Normal,2.0*d));
+     end;
+     Vector3NormalizeEx(Normal);
+    end;
+//  Normal:=Vector3TermMatrixMulBasis(Normal,ShapeB.fWorldTransform);
+    AddFaceBContact(aWithShape,
+                    aWithShapeTriangleIndex,
+                    Normal,
+                    Vector3TermMatrixMul(pa,aWithShape.fWorldTransform),
+                    Vector3TermMatrixMul(pb,aWithShape.fWorldTransform),
+                    Radius,
+                    0.0,
+                    false);
+   end;
+
+  end;
+
+ end;
  procedure CollideSphereWithMesh(const aWithShape:TKraftShapeMesh);
  const ModuloThree:array[0..5] of TKraftInt32=(0,1,2,0,1,2);
  var i,SkipListNodeIndex,TriangleIndex:TKraftInt32;
@@ -46263,6 +46352,44 @@ var Sphere:TKraftSphere;
    end;
   end;
  end;
+ procedure CollideCapsuleWithMesh(const aWithShape:TKraftShapeMesh);
+ var SkipListNodeIndex,TriangleIndex:TKraftInt32;
+     Radius,RadiusWithThreshold:TKraftScalar;
+     SphereCenter:TKraftVector3;
+     SkipListNode:PKraftMeshSkipListNode;
+     AABB:TKraftAABB;
+ begin
+  SphereCenter:=Vector3TermMatrixMulInverted(Sphere.Center,aWithShape.fWorldTransform);
+  Radius:=Sphere.Radius;
+  RadiusWithThreshold:=Radius+0.1;
+  AABB.Min.x:=SphereCenter.x-RadiusWithThreshold;
+  AABB.Min.y:=SphereCenter.y-RadiusWithThreshold;
+  AABB.Min.z:=SphereCenter.z-RadiusWithThreshold;
+{$ifdef SIMD}
+  AABB.Min.w:=0.0;
+{$endif}
+  AABB.Max.x:=SphereCenter.x+RadiusWithThreshold;
+  AABB.Max.y:=SphereCenter.y+RadiusWithThreshold;
+  AABB.Max.z:=SphereCenter.z+RadiusWithThreshold;
+{$ifdef SIMD}
+  AABB.Max.w:=0.0;
+{$endif}
+  RadiusWithThreshold:=Radius+EPSILON;
+  SkipListNodeIndex:=0;
+  while SkipListNodeIndex<aWithShape.fMesh.fCountSkipListNodes do begin
+   SkipListNode:=@aWithShape.fMesh.fSkipListNodes[SkipListNodeIndex];
+   if AABBIntersect(SkipListNode^.AABB,AABB) then begin
+    if SkipListNode^.CountTriangles>0 then begin
+     for TriangleIndex:=SkipListNode^.FirstTriangleIndex to SkipListNode^.FirstTriangleIndex+(SkipListNode^.CountTriangles-1) do begin
+      CollideCapsuleWithMeshTriangle(aWithShape,TriangleIndex);
+     end;
+    end;
+    inc(SkipListNodeIndex);
+   end else begin
+    SkipListNodeIndex:=SkipListNode^.SkipToNodeIndex;
+   end;
+  end;
+ end;
  procedure CollideMesh(const aWithShape:TKraftShapeMesh);
  var SkipListNodeIndex,TriangleIndex:TKraftInt32;
      Radius,RadiusWithThreshold:TKraftScalar;
@@ -46279,7 +46406,10 @@ var Sphere:TKraftSphere;
    kstSphere:begin
     CollideSphereWithMesh(aWithShape);
    end;
-   kstCapsule,kstConvexHull,kstBox,kstPlane,kstTriangle:begin
+   kstCapsule:begin
+    CollideCapsuleWithMesh(aWithShape);
+   end;
+   kstConvexHull,kstBox,kstPlane,kstTriangle:begin
     SphereCenter:=Vector3TermMatrixMulInverted(Sphere.Center,aWithShape.fWorldTransform);
     Radius:=Sphere.Radius;
     RadiusWithThreshold:=Radius+0.1;
