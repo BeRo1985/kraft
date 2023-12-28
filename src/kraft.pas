@@ -46336,9 +46336,9 @@ var Hit:Boolean;
     PenetrationDepth:=CapsuleRadius-IntersectionVectorLength;
    end else begin
     if BackSide then begin
-     Normal:=IntersectionVector;
-    end else begin
      Normal:=Vector3Neg(IntersectionVector);
+    end else begin
+     Normal:=IntersectionVector;
     end;
     if Vector3DistSquared(Center,CapsuleA)<Vector3DistSquared(Center,CapsuleB) then begin
      BestPoint:=Vector3Sub(CapsuleA,Center);
