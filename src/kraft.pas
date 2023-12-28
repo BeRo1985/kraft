@@ -45737,9 +45737,7 @@ function TKraft.CollideShape(const aShape:TKraftShape;
                              const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];
                              const aOnCollideShapeContactHook:TKraftOnCollideShapeContactHook=nil;
                              const aOnCollideShapeFilterHook:TKraftOnCollideShapeFilterHook=nil):boolean;
-var Sphere:TKraftSphere;
-    AABB:TKraftAABB;
-    Hit:Boolean;
+var Hit:Boolean;
  procedure AddContact(const aWithShape:TKraftShape;
                       const aWithShapeTriangleIndex:TKraftInt32;
                       const aPosition:TKraftVector3;
@@ -46273,8 +46271,8 @@ var Sphere:TKraftSphere;
      AABB:TKraftAABB;
      Vertices:array[0..2] of PKraftVector3;
  begin
-  SphereCenter:=Vector3TermMatrixMulInverted(Sphere.Center,aWithShape.fWorldTransform);
-  Radius:=Sphere.Radius;
+  SphereCenter:=Vector3TermMatrixMulInverted(TKraftVector3(Pointer(@aShape.fWorldTransform[3,0])^),aWithShape.fWorldTransform);
+  Radius:=SphereFromAABB(aShape.fWorldAABB).Radius;
   RadiusWithThreshold:=Radius+0.1;
   AABB.Min.x:=SphereCenter.x-RadiusWithThreshold;
   AABB.Min.y:=SphereCenter.y-RadiusWithThreshold;
@@ -46354,31 +46352,12 @@ var Sphere:TKraftSphere;
  end;
  procedure CollideCapsuleWithMesh(const aWithShape:TKraftShapeMesh);
  var SkipListNodeIndex,TriangleIndex:TKraftInt32;
-     Radius,RadiusWithThreshold:TKraftScalar;
-     SphereCenter:TKraftVector3;
      SkipListNode:PKraftMeshSkipListNode;
-     AABB:TKraftAABB;
  begin
-  SphereCenter:=Vector3TermMatrixMulInverted(Sphere.Center,aWithShape.fWorldTransform);
-  Radius:=Sphere.Radius;
-  RadiusWithThreshold:=Radius+0.1;
-  AABB.Min.x:=SphereCenter.x-RadiusWithThreshold;
-  AABB.Min.y:=SphereCenter.y-RadiusWithThreshold;
-  AABB.Min.z:=SphereCenter.z-RadiusWithThreshold;
-{$ifdef SIMD}
-  AABB.Min.w:=0.0;
-{$endif}
-  AABB.Max.x:=SphereCenter.x+RadiusWithThreshold;
-  AABB.Max.y:=SphereCenter.y+RadiusWithThreshold;
-  AABB.Max.z:=SphereCenter.z+RadiusWithThreshold;
-{$ifdef SIMD}
-  AABB.Max.w:=0.0;
-{$endif}
-  RadiusWithThreshold:=Radius+EPSILON;
   SkipListNodeIndex:=0;
   while SkipListNodeIndex<aWithShape.fMesh.fCountSkipListNodes do begin
    SkipListNode:=@aWithShape.fMesh.fSkipListNodes[SkipListNodeIndex];
-   if AABBIntersect(SkipListNode^.AABB,AABB) then begin
+   if AABBIntersect(SkipListNode^.AABB,aShape.fWorldAABB) then begin
     if SkipListNode^.CountTriangles>0 then begin
      for TriangleIndex:=SkipListNode^.FirstTriangleIndex to SkipListNode^.FirstTriangleIndex+(SkipListNode^.CountTriangles-1) do begin
       CollideCapsuleWithMeshTriangle(aWithShape,TriangleIndex);
@@ -46392,15 +46371,12 @@ var Sphere:TKraftSphere;
  end;
  procedure CollideMesh(const aWithShape:TKraftShapeMesh);
  var SkipListNodeIndex,TriangleIndex:TKraftInt32;
-     Radius,RadiusWithThreshold:TKraftScalar;
-     SphereCenter:TKraftVector3;
      PositionA,PositionB,Normal:TKraftVector3;
      PenetrationDepth:TKraftScalar;
      SkipListNode:PKraftMeshSkipListNode;
      Triangle:PKraftMeshTriangle;
      IndirectTriangle:TKraftIndirectTriangle;
      RelativeTransform:TKraftMatrix4x4;
-     AABB:TKraftAABB;
  begin
   case aShape.fShapeType of
    kstSphere:begin
@@ -46410,27 +46386,11 @@ var Sphere:TKraftSphere;
     CollideCapsuleWithMesh(aWithShape);
    end;
    kstConvexHull,kstBox,kstPlane,kstTriangle:begin
-    SphereCenter:=Vector3TermMatrixMulInverted(Sphere.Center,aWithShape.fWorldTransform);
-    Radius:=Sphere.Radius;
-    RadiusWithThreshold:=Radius+0.1;
-    AABB.Min.x:=SphereCenter.x-RadiusWithThreshold;
-    AABB.Min.y:=SphereCenter.y-RadiusWithThreshold;
-    AABB.Min.z:=SphereCenter.z-RadiusWithThreshold;
-{$ifdef SIMD}
-    AABB.Min.w:=0.0;
-{$endif}
-    AABB.Max.x:=SphereCenter.x+RadiusWithThreshold;
-    AABB.Max.y:=SphereCenter.y+RadiusWithThreshold;
-    AABB.Max.z:=SphereCenter.z+RadiusWithThreshold;
-{$ifdef SIMD}
-    AABB.Max.w:=0.0;
-{$endif}
-    RadiusWithThreshold:=Radius+EPSILON;
     RelativeTransform:=Matrix4x4TermMulInverted(aShape.fWorldTransform,aWithShape.fWorldTransform);
     SkipListNodeIndex:=0;
     while SkipListNodeIndex<aWithShape.fMesh.fCountSkipListNodes do begin
      SkipListNode:=@aWithShape.fMesh.fSkipListNodes[SkipListNodeIndex];
-     if AABBIntersect(SkipListNode^.AABB,AABB) then begin
+     if AABBIntersect(SkipListNode^.AABB,aShape.fWorldAABB) then begin
       if SkipListNode^.CountTriangles>0 then begin
        for TriangleIndex:=SkipListNode^.FirstTriangleIndex to SkipListNode^.FirstTriangleIndex+(SkipListNode^.CountTriangles-1) do begin
         Triangle:=@aWithShape.fMesh.fTriangles[TriangleIndex];
@@ -46498,7 +46458,7 @@ var Sphere:TKraftSphere;
      NodeID:=LocalStack^[LocalStackPointer];
      if NodeID>=0 then begin
       Node:=@aAABBTree.fNodes[NodeID];
-      if AABBIntersect(Node^.AABB,AABB) then begin
+      if AABBIntersect(Node^.AABB,aShape.fWorldAABB) then begin
        if Node^.Children[0]<0 then begin
         CollideShape(Node^.UserData);
        end else begin
@@ -46524,7 +46484,7 @@ var Sphere:TKraftSphere;
   begin
    while aNodeID>=0 do begin
     Node:=@aAABBTree.fNodes[aNodeID];
-    if AABBIntersect(Node^.AABB,AABB) then begin
+    if AABBIntersect(Node^.AABB,aShape.fWorldAABB) then begin
      if Node^.Children[0]<0 then begin
       CollideShape(Node^.UserData);
      end else begin
@@ -46549,20 +46509,6 @@ var Sphere:TKraftSphere;
 begin
  HIt:=false;
  aCountContacts:=0;
- Sphere.Center:=TKraftVector3(Pointer(@aShape.fWorldTransform[3,0])^);
- Sphere.Radius:=SphereFromAABB(aShape.fWorldAABB).Radius;
- AABB.Min.x:=Sphere.Center.x-Sphere.Radius;
- AABB.Min.y:=Sphere.Center.y-Sphere.Radius;
- AABB.Min.z:=Sphere.Center.z-Sphere.Radius;
-{$ifdef SIMD}
- AABB.Min.w:=0.0;
-{$endif}
- AABB.Max.x:=Sphere.Center.x+Sphere.Radius;
- AABB.Max.y:=Sphere.Center.y+Sphere.Radius;
- AABB.Max.z:=Sphere.Center.z+Sphere.Radius;
-{$ifdef SIMD}
- AABB.Max.w:=0.0;
-{$endif}
  QueryTree(fStaticAABBTree);
  QueryTree(fSleepingAABBTree);
  QueryTree(fDynamicAABBTree);
