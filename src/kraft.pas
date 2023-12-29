@@ -3964,7 +3964,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
       ShapeA:TKraftShape;
       ShapeB:TKraftShape;
       ShapeBTriangleIndex:TKraftInt32;
-      Position:TKraftVector3;
+      PositionA:TKraftVector3;
+      PositionB:TKraftVector3;
       Normal:TKraftVector3;
       PenetrationDepth:TKraftScalar;
      end;
@@ -3985,14 +3986,6 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      TKraftOnSphereCastFilterHook=function(const aPoint,aNormal:TKraftVector3;const aTime:TKraftScalar;const aShape:TKraftShape):boolean of object;
 
      TKraftDebugDrawLine=procedure(const aP0,aP1:TKraftVector3;const aColor:TKraftVector4) of object;
-
-     TKraftResolveShapeCollisionContactsMode=
-      (
-       krsccmSingle,
-       krsccmComplete,
-       krsccmCompleteAverage,
-       krsccmConvergenceSolver
-      );
 
      TKraft=class(TPersistent)
       private
@@ -4224,11 +4217,12 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
                              const aOnCollideShapeContactHook:TKraftOnCollideShapeContactHook=nil;
                              const aOnCollideShapeFilterHook:TKraftOnCollideShapeFilterHook=nil):boolean;
 
-       function ResolveShapeCollisionContacts(const aContacts:TKraftShapeCollisionContacts;
-                                              const aCountContacts:TKraftInt32;
-                                              var aPosition:TKraftVector3;
-                                              var aVelocity:TKraftVector3;
-                                              const aMode:TKraftResolveShapeCollisionContactsMode=krsccmSingle):Boolean;
+       function SolveShapeCollisionContacts(const aContacts:TKraftShapeCollisionContacts;
+                                            const aCountContacts:TKraftInt32;
+                                            var aPosition:TKraftVector3;
+                                            var aVelocity:TKraftVector3;
+                                            const aCountPositionIterations:TKraftInt32=32;
+                                            const aCountVelocityIterations:TKraftInt32=32):Boolean;
 
        function GetDistance(const aShapeA,aShapeB:TKraftShape):TKraftScalar;
 
@@ -45770,7 +45764,8 @@ function TKraft.CollideShape(const aShape:TKraftShape;
 var Hit:Boolean;
  procedure AddContact(const aWithShape:TKraftShape;
                       const aWithShapeTriangleIndex:TKraftInt32;
-                      const aPosition:TKraftVector3;
+                      const aPositionA:TKraftVector3;
+                      const aPositionB:TKraftVector3;
                       const aNormal:TKraftVector3;
                       const aPenetrationDepth:TKraftScalar);
  var ContactIndex:TKraftInt32;
@@ -45785,7 +45780,8 @@ var Hit:Boolean;
   Contact^.ShapeA:=aShape;
   Contact^.ShapeB:=aWithShape;
   Contact^.ShapeBTriangleIndex:=aWithShapeTriangleIndex;
-  Contact^.Position:=aPosition;
+  Contact^.PositionA:=aPositionA;
+  Contact^.PositionB:=aPositionB;
   Contact^.Normal:=aNormal;
   Contact^.PenetrationDepth:=aPenetrationDepth;
   if (not assigned(aOnCollideShapeContactHook)) or aOnCollideShapeContactHook(Contact^) then begin
@@ -45812,8 +45808,8 @@ var Hit:Boolean;
    end;
    AddContact(aWithShape,
               aWithShapeTriangleIndex,
-              Vector3Avg(Vector3Add(aPositionB,Vector3ScalarMul(Normal,aRadiusB)),
-                         Vector3Add(aPositionA,Vector3ScalarMul(Normal,-aRadiusA))),
+              Vector3Add(aPositionB,Vector3ScalarMul(Normal,aRadiusB)),
+              Vector3Add(aPositionA,Vector3ScalarMul(Normal,-aRadiusA)),
               Normal,
               (aRadiusA+aRadiusB)-Vector3Length(Vector));
   end else begin
@@ -45825,8 +45821,8 @@ var Hit:Boolean;
    end;
    AddContact(aWithShape,
               aWithShapeTriangleIndex,
-              Vector3Avg(Vector3Add(aPositionA,Vector3ScalarMul(Normal,-aRadiusA)),
-                         Vector3Add(aPositionB,Vector3ScalarMul(Normal,aRadiusB))),
+              Vector3Add(aPositionA,Vector3ScalarMul(Normal,-aRadiusA)),
+              Vector3Add(aPositionB,Vector3ScalarMul(Normal,aRadiusB)),
               Normal,
               (aRadiusA+aRadiusB)-Vector3Length(Vector));
   end;
@@ -45846,8 +45842,8 @@ var Hit:Boolean;
    Normal:=Vector3Norm(Vector3Neg(Vector3TermMatrixMulBasis(aNormal,aShape.WorldTransform)));
    AddContact(aWithShape,
               aWithShapeTriangleIndex,
-              Vector3Avg(Vector3Add(aPositionB,Vector3ScalarMul(Normal,aRadiusB)),
-                         Vector3Add(aPositionA,Vector3ScalarMul(Normal,-aRadiusA))),
+              Vector3Add(aPositionB,Vector3ScalarMul(Normal,aRadiusB)),
+              Vector3Add(aPositionA,Vector3ScalarMul(Normal,-aRadiusA)),
               Normal,
               (aRadiusA+aRadiusB)-Vector3Length(Vector));
   end else begin
@@ -45855,8 +45851,8 @@ var Hit:Boolean;
    Normal:=Vector3Norm(Vector3TermMatrixMulBasis(aNormal,aWithShape.WorldTransform));
    AddContact(aWithShape,
               aWithShapeTriangleIndex,
-              Vector3Avg(Vector3Add(aPositionA,Vector3ScalarMul(Normal,-aRadiusA)),
-                         Vector3Add(aPositionB,Vector3ScalarMul(Normal,aRadiusB))),
+              Vector3Add(aPositionA,Vector3ScalarMul(Normal,-aRadiusA)),
+              Vector3Add(aPositionB,Vector3ScalarMul(Normal,aRadiusB)),
               Normal,
               (aRadiusA+aRadiusB)-Vector3Length(Vector));
   end;
@@ -45869,21 +45865,22 @@ var Hit:Boolean;
                            const aRadiusA:TKraftScalar;
                            const aRadiusB:TKraftScalar;
                            const aSwap:boolean);
- var Position,Normal:TKraftVector3;
+ var Normal:TKraftVector3;
  begin
-  Position:=Vector3Avg(aPositionA,aPositionB);
   if aSwap then begin
    Normal:=Vector3Norm(Vector3Neg(Vector3TermMatrixMulBasis(aNormal,aShape.WorldTransform)));
    AddContact(aWithShape,
               aWithShapeTriangleIndex,
-              Position,
+              aPositionB,
+              aPositionA,
               Normal,
               Vector3Dot(Vector3Sub(aPositionB,aPositionA),Normal)-(aRadiusA+aRadiusB));
   end else begin
    Normal:=Vector3Norm(Vector3TermMatrixMulBasis(aNormal,aWithShape.WorldTransform));
    AddContact(aWithShape,
               aWithShapeTriangleIndex,
-              Position,
+              aPositionA,
+              aPositionB,
               Normal,
               Vector3Dot(Vector3Sub(aPositionA,aPositionB),Normal)-(aRadiusA+aRadiusB));
   end;
@@ -46153,9 +46150,9 @@ var Hit:Boolean;
  begin
   if ((aShape.fShapeType=kstSignedDistanceField) or (aWithShape.fShapeType=kstSignedDistanceField)) and
      SignedDistanceFieldPenetration(aShape,aWithShape,aShape.fWorldTransform,aWithShape.fWorldTransform,PositionA,PositionB,Normal,PenetrationDepth) then begin
-   AddContact(aWithShape,-1,Vector3Avg(PositionA,PositionB),Normal,PenetrationDepth);
+   AddContact(aWithShape,-1,PositionA,PositionB,Normal,PenetrationDepth);
   end else if MPRPenetration(aShape,aWithShape,aShape.fWorldTransform,aWithShape.fWorldTransform,PositionA,PositionB,Normal,PenetrationDepth) then begin
-   AddContact(aWithShape,-1,Vector3Avg(PositionA,PositionB),Normal,PenetrationDepth);
+   AddContact(aWithShape,-1,PositionA,PositionB,Normal,PenetrationDepth);
   end;
  end;
  procedure CollideConvex(const aWithShape:TKraftShape);
@@ -46355,9 +46352,12 @@ var Hit:Boolean;
     PenetrationDepth:=(CapsuleRadius-IntersectionVectorLength)+Vector3Length(Vector3ScalarMul(BestPoint,Vector3Dot(BestPoint,IntersectionVector)));
    end;
 
+   SIMDTriangleClosestPointTo(TriangleP0,TriangleP1,TriangleP2,BestPoint,Point2);
+
    AddContact(aWithShape,
               aWithShapeTriangleIndex,
               BestPoint,
+              Point2,
               Normal,
               PenetrationDepth);
 
@@ -46518,17 +46518,20 @@ var Hit:Boolean;
        ContactToCenter:=Vector3Sub(SphereCenter,ContactPoint);
        DistanceSqr:=Vector3LengthSquared(ContactToCenter);
        if DistanceSqr<ContactRadiusSqr then begin
+        ContactPoint:=Vector3TermMatrixMul(ContactPoint,aWithShape.fWorldTransform);
         if DistanceSqr>EPSILON then begin
          Normal:=Vector3SafeNorm(Vector3TermMatrixMulBasis(ContactToCenter,aWithShape.fWorldTransform));
          AddContact(aWithShape,
                     TriangleIndex,
-                    Vector3TermMatrixMul(ContactPoint,aWithShape.fWorldTransform),
+                    ContactPoint,
+                    ContactPoint,
                     Normal,
                     Radius-sqrt(DistanceSqr));
         end else begin
          AddContact(aWithShape,
                     TriangleIndex,
-                    Vector3TermMatrixMul(ContactPoint,aWithShape.fWorldTransform),
+                    ContactPoint,
+                    ContactPoint,
                     Normal,
                     Radius);
         end;
@@ -46600,7 +46603,7 @@ var Hit:Boolean;
                                           Normal,
                                           PenetrationDepth) then begin
          Normal:=Vector3Neg(Vector3Norm(Vector3TermMatrixMulBasis(Normal,aWithShape.fWorldTransform)));
-         AddContact(aWithShape,TriangleIndex,Vector3Avg(PositionB,PositionA),Normal,PenetrationDepth);
+         AddContact(aWithShape,TriangleIndex,PositionB,PositionA,Normal,PenetrationDepth);
         end;
        end;
       end;
@@ -46709,43 +46712,94 @@ begin
  result:=Hit;
 end;
 
-function TKraft.ResolveShapeCollisionContacts(const aContacts:TKraftShapeCollisionContacts;
-                                              const aCountContacts:TKraftInt32;
-                                              var aPosition:TKraftVector3;
-                                              var aVelocity:TKraftVector3;
-                                              const aMode:TKraftResolveShapeCollisionContactsMode):Boolean;
-var ContactIndex,Count:TKraftInt32;
+function TKraft.SolveShapeCollisionContacts(const aContacts:TKraftShapeCollisionContacts;
+                                            const aCountContacts:TKraftInt32;
+                                            var aPosition:TKraftVector3;
+                                            var aVelocity:TKraftVector3;
+                                            const aCountPositionIterations:TKraftInt32;
+                                            const aCountVelocityIterations:TKraftInt32):Boolean;
+var ContactIndex,Count,IterationIndex:TKraftInt32;
     Contact:PKraftShapeCollisionContact;
     CombinedPenetrationVector,CombinedNormal,
-    NormalizedVelocity,UndesiredMotion,DesiredMotion:TKraftVector3;
-    CombinedPenetrationDepth,VelocityLength:TKraftScalar;
+    TargetPosition,OriginalPosition,
+    TargetVelocity,OriginalVelocity,NormalizedOriginalVelocity,VelocityNormal:TKraftVector3;
+    OriginalVelocityLength,Dot:TKraftScalar;
+    OK:boolean;
 begin
- CombinedPenetrationVector:=Vector3Origin;
- Count:=0;
- for ContactIndex:=0 to aCountContacts-1 do begin
-  Contact:=@aContacts[ContactIndex];
-  if abs(Contact^.PenetrationDepth)>1e-6 then begin
-   CombinedPenetrationVector:=Vector3Add(CombinedPenetrationVector,Vector3ScalarMul(Contact^.Normal,Contact^.PenetrationDepth));
-   inc(Count);
-   if aMode=krsccmSingle then begin
+
+ result:=false;
+
+ // Position solver
+ if aCountPositionIterations>0 then begin
+  OriginalPosition:=aPosition;
+  for IterationIndex:=0 to aCountPositionIterations-1 do begin
+   OK:=false;
+   for ContactIndex:=0 to aCountContacts-1 do begin
+    Contact:=@aContacts[ContactIndex];
+    TargetPosition:=Vector3Add(OriginalPosition,Vector3ScalarMul(Contact^.Normal,Contact^.PenetrationDepth));
+    Dot:=Vector3Dot(Contact^.Normal,Vector3Sub(aPosition,TargetPosition));
+    if Dot<0.0 then begin
+     Vector3DirectSub(aPosition,Vector3ScalarMul(Contact^.Normal,Dot));
+     OK:=true;
+    end;
+   end;
+   if OK then begin
+    result:=true;
+   end else begin
     break;
    end;
   end;
+ end else begin
+  CombinedPenetrationVector:=Vector3Origin;
+  for ContactIndex:=0 to aCountContacts-1 do begin
+   Contact:=@aContacts[ContactIndex];
+   CombinedPenetrationVector:=Vector3Add(CombinedPenetrationVector,Vector3ScalarMul(Contact^.Normal,Contact^.PenetrationDepth));
+  end;
+  if Vector3LengthSquared(CombinedPenetrationVector)>0.0 then begin
+   Vector3DirectSub(aPosition,Vector3ScalarMul(CombinedPenetrationVector,1.0/aCountContacts));
+   result:=true;
+  end;
  end;
- CombinedNormal:=CombinedPenetrationVector;
- CombinedPenetrationDepth:=Vector3LengthNormalize(CombinedNormal);
- if (aMode=krsccmCompleteAverage) and (Count>0) then begin
-  CombinedPenetrationDepth:=CombinedPenetrationDepth/Count;
+
+ // Velocity solver
+ if aCountVelocityIterations>0 then begin
+  OriginalVelocity:=aVelocity;
+  NormalizedOriginalVelocity:=OriginalVelocity;
+  OriginalVelocityLength:=Vector3LengthNormalize(NormalizedOriginalVelocity);
+  for IterationIndex:=0 to aCountVelocityIterations-1 do begin
+   OK:=false;
+   for ContactIndex:=0 to aCountContacts-1 do begin
+    TargetVelocity:=Vector3ScalarMul(Vector3Sub(NormalizedOriginalVelocity,Vector3ScalarMul(Contact^.Normal,Vector3Dot(NormalizedOriginalVelocity,Contact^.Normal))),OriginalVelocityLength);
+    VelocityNormal:=Vector3Norm(Vector3Sub(TargetVelocity,OriginalVelocity));
+    Dot:=Vector3Dot(VelocityNormal,Vector3Sub(aVelocity,TargetVelocity));
+    if Dot<0.0 then begin
+     Vector3DirectSub(aVelocity,Vector3ScalarMul(VelocityNormal,Dot));
+     OK:=true;
+    end;
+   end;
+   if OK then begin
+    result:=true;
+   end else begin
+    break;
+   end;
+  end;
+ end else begin
+  CombinedNormal:=Vector3Origin;
+  Count:=0;
+  for ContactIndex:=0 to aCountContacts-1 do begin
+   Contact:=@aContacts[ContactIndex];
+   if abs(Contact^.PenetrationDepth)>0.0 then begin
+    CombinedNormal:=Vector3Add(CombinedNormal,Vector3ScalarMul(Contact^.Normal,Contact^.PenetrationDepth));
+    inc(Count);
+   end;
+  end;
+  if Vector3LengthNormalize(CombinedNormal)>0.0 then begin
+   OriginalVelocityLength:=Vector3LengthNormalize(aVelocity);
+   aVelocity:=Vector3ScalarMul(Vector3Sub(aVelocity,Vector3ScalarMul(CombinedNormal,Vector3Dot(aVelocity,CombinedNormal))),OriginalVelocityLength);
+   result:=true;
+  end;
  end;
- result:=abs(CombinedPenetrationDepth)>1e-6;
- if result then begin
-  NormalizedVelocity:=aVelocity;
-  VelocityLength:=Vector3LengthNormalize(NormalizedVelocity);
-  UndesiredMotion:=Vector3ScalarMul(CombinedNormal,Vector3Dot(NormalizedVelocity,CombinedNormal));
-  DesiredMotion:=Vector3Sub(NormalizedVelocity,UndesiredMotion);
-  aVelocity:=Vector3ScalarMul(DesiredMotion,VelocityLength);
-  Vector3DirectAdd(aPosition,Vector3ScalarMul(CombinedNormal,CombinedPenetrationDepth+1e-5));
- end;
+
 end;
 
 function TKraft.GetDistance(const aShapeA,aShapeB:TKraftShape):TKraftScalar;
