@@ -3986,6 +3986,14 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftDebugDrawLine=procedure(const aP0,aP1:TKraftVector3;const aColor:TKraftVector4) of object;
 
+     TKraftResolveShapeCollisionContactsMode=
+      (
+       krsccmSingle,
+       krsccmComplete,
+       krsccmCompleteAverage,
+       krsccmConvergenceSolver
+      );
+
      TKraft=class(TPersistent)
       private
 
@@ -4220,8 +4228,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
                                               const aCountContacts:TKraftInt32;
                                               var aPosition:TKraftVector3;
                                               var aVelocity:TKraftVector3;
-                                              const aSingle:Boolean=true;
-                                              const aAverage:Boolean=false):Boolean;
+                                              const aMode:TKraftResolveShapeCollisionContactsMode=krsccmSingle):Boolean;
 
        function GetDistance(const aShapeA,aShapeB:TKraftShape):TKraftScalar;
 
@@ -46706,8 +46713,7 @@ function TKraft.ResolveShapeCollisionContacts(const aContacts:TKraftShapeCollisi
                                               const aCountContacts:TKraftInt32;
                                               var aPosition:TKraftVector3;
                                               var aVelocity:TKraftVector3;
-                                              const aSingle:Boolean;
-                                              const aAverage:Boolean):Boolean;
+                                              const aMode:TKraftResolveShapeCollisionContactsMode):Boolean;
 var ContactIndex,Count:TKraftInt32;
     Contact:PKraftShapeCollisionContact;
     CombinedPenetrationVector,CombinedNormal,
@@ -46721,14 +46727,14 @@ begin
   if abs(Contact^.PenetrationDepth)>1e-6 then begin
    CombinedPenetrationVector:=Vector3Add(CombinedPenetrationVector,Vector3ScalarMul(Contact^.Normal,Contact^.PenetrationDepth));
    inc(Count);
-   if aSingle then begin
+   if aMode=krsccmSingle then begin
     break;
    end;
   end;
  end;
  CombinedNormal:=CombinedPenetrationVector;
  CombinedPenetrationDepth:=Vector3LengthNormalize(CombinedNormal);
- if aAverage and (Count>0) then begin
+ if (aMode=krsccmCompleteAverage) and (Count>0) then begin
   CombinedPenetrationDepth:=CombinedPenetrationDepth/Count;
  end;
  result:=abs(CombinedPenetrationDepth)>1e-6;
