@@ -4167,6 +4167,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        procedure SolveContinuousMotionClamping(const aTimeStep:TKraftTimeStep);
 
+       // Don't use, because WIP
+       function PushShape(const aShape:TKraftShape;out aSeperation:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aTryIterations:TKraftInt32=4;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook=nil;const aKraftOnPushShapeFilterHook:TKraftOnPushShapeFilterHook=nil;const aSingleDeepest:Boolean=false):boolean;
+
       protected
 
        property IsSolving:boolean read fIsSolving;
@@ -4207,8 +4210,6 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        function SphereCast(const aSource:TKraftVector3;const aRadius:TKraftScalar;const aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook=nil):boolean; overload;
 
        function PushSphere(var aCenter:TKraftVector3;const aRadius:TKraftScalar;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aTryIterations:TKraftInt32=4;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook=nil;const aKraftOnPushShapeFilterHook:TKraftOnPushShapeFilterHook=nil;const aAvoidShape:TKraftShape=nil):boolean;
-
-       function PushShape(const aShape:TKraftShape;out aSeperation:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aTryIterations:TKraftInt32=4;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook=nil;const aKraftOnPushShapeFilterHook:TKraftOnPushShapeFilterHook=nil;const aSingleDeepest:Boolean=false):boolean;
 
        function CollideShape(const aShape:TKraftShape;
                              var aContacts:TKraftShapeCollisionContacts;
@@ -46729,75 +46730,87 @@ begin
 
  result:=false;
 
- // Position solver
- if aCountPositionIterations>0 then begin
-  OriginalPosition:=aPosition;
-  for IterationIndex:=0 to aCountPositionIterations-1 do begin
-   OK:=false;
+ if aCountContacts>0 then begin
+
+  // Position solver
+  if aCountPositionIterations>0 then begin
+
+   OriginalPosition:=aPosition;
+   for IterationIndex:=0 to aCountPositionIterations-1 do begin
+    OK:=false;
+    for ContactIndex:=0 to aCountContacts-1 do begin
+     Contact:=@aContacts[ContactIndex];
+     TargetPosition:=Vector3Add(OriginalPosition,Vector3ScalarMul(Contact^.Normal,Contact^.PenetrationDepth));
+     Dot:=Vector3Dot(Contact^.Normal,Vector3Sub(aPosition,TargetPosition));
+     if Dot<0.0 then begin
+      Vector3DirectSub(aPosition,Vector3ScalarMul(Contact^.Normal,Dot));
+      OK:=true;
+     end;
+    end;
+    if OK then begin
+     result:=true;
+    end else begin
+     break;
+    end;
+   end;
+
+  end else begin
+
+   CombinedPenetrationVector:=Vector3Origin;
    for ContactIndex:=0 to aCountContacts-1 do begin
     Contact:=@aContacts[ContactIndex];
-    TargetPosition:=Vector3Add(OriginalPosition,Vector3ScalarMul(Contact^.Normal,Contact^.PenetrationDepth));
-    Dot:=Vector3Dot(Contact^.Normal,Vector3Sub(aPosition,TargetPosition));
-    if Dot<0.0 then begin
-     Vector3DirectSub(aPosition,Vector3ScalarMul(Contact^.Normal,Dot));
-     OK:=true;
-    end;
+    CombinedPenetrationVector:=Vector3Add(CombinedPenetrationVector,Vector3ScalarMul(Contact^.Normal,Contact^.PenetrationDepth));
    end;
-   if OK then begin
+   if Vector3LengthSquared(CombinedPenetrationVector)>0.0 then begin
+    Vector3DirectSub(aPosition,Vector3ScalarMul(CombinedPenetrationVector,1.0/aCountContacts));
     result:=true;
-   end else begin
-    break;
    end;
-  end;
- end else begin
-  CombinedPenetrationVector:=Vector3Origin;
-  for ContactIndex:=0 to aCountContacts-1 do begin
-   Contact:=@aContacts[ContactIndex];
-   CombinedPenetrationVector:=Vector3Add(CombinedPenetrationVector,Vector3ScalarMul(Contact^.Normal,Contact^.PenetrationDepth));
-  end;
-  if Vector3LengthSquared(CombinedPenetrationVector)>0.0 then begin
-   Vector3DirectSub(aPosition,Vector3ScalarMul(CombinedPenetrationVector,1.0/aCountContacts));
-   result:=true;
-  end;
- end;
 
- // Velocity solver
- if aCountVelocityIterations>0 then begin
-  OriginalVelocity:=aVelocity;
-  NormalizedOriginalVelocity:=OriginalVelocity;
-  OriginalVelocityLength:=Vector3LengthNormalize(NormalizedOriginalVelocity);
-  for IterationIndex:=0 to aCountVelocityIterations-1 do begin
-   OK:=false;
-   for ContactIndex:=0 to aCountContacts-1 do begin
-    TargetVelocity:=Vector3ScalarMul(Vector3Sub(NormalizedOriginalVelocity,Vector3ScalarMul(Contact^.Normal,Vector3Dot(NormalizedOriginalVelocity,Contact^.Normal))),OriginalVelocityLength);
-    VelocityNormal:=Vector3Norm(Vector3Sub(TargetVelocity,OriginalVelocity));
-    Dot:=Vector3Dot(VelocityNormal,Vector3Sub(aVelocity,TargetVelocity));
-    if Dot<0.0 then begin
-     Vector3DirectSub(aVelocity,Vector3ScalarMul(VelocityNormal,Dot));
-     OK:=true;
+  end;
+
+  // Velocity solver
+  if aCountVelocityIterations>0 then begin
+
+   OriginalVelocity:=aVelocity;
+   NormalizedOriginalVelocity:=OriginalVelocity;
+   OriginalVelocityLength:=Vector3LengthNormalize(NormalizedOriginalVelocity);
+   for IterationIndex:=0 to aCountVelocityIterations-1 do begin
+    OK:=false;
+    for ContactIndex:=0 to aCountContacts-1 do begin
+     TargetVelocity:=Vector3ScalarMul(Vector3Sub(NormalizedOriginalVelocity,Vector3ScalarMul(Contact^.Normal,Vector3Dot(NormalizedOriginalVelocity,Contact^.Normal))),OriginalVelocityLength);
+     VelocityNormal:=Vector3Norm(Vector3Sub(TargetVelocity,OriginalVelocity));
+     Dot:=Vector3Dot(VelocityNormal,Vector3Sub(aVelocity,TargetVelocity));
+     if Dot<0.0 then begin
+      Vector3DirectSub(aVelocity,Vector3ScalarMul(VelocityNormal,Dot));
+      OK:=true;
+     end;
+    end;
+    if OK then begin
+     result:=true;
+    end else begin
+     break;
     end;
    end;
-   if OK then begin
+
+  end else begin
+
+   CombinedNormal:=Vector3Origin;
+   Count:=0;
+   for ContactIndex:=0 to aCountContacts-1 do begin
+    Contact:=@aContacts[ContactIndex];
+    if abs(Contact^.PenetrationDepth)>0.0 then begin
+     CombinedNormal:=Vector3Add(CombinedNormal,Vector3ScalarMul(Contact^.Normal,Contact^.PenetrationDepth));
+     inc(Count);
+    end;
+   end;
+   if Vector3LengthNormalize(CombinedNormal)>0.0 then begin
+    OriginalVelocityLength:=Vector3LengthNormalize(aVelocity);
+    aVelocity:=Vector3ScalarMul(Vector3Sub(aVelocity,Vector3ScalarMul(CombinedNormal,Vector3Dot(aVelocity,CombinedNormal))),OriginalVelocityLength);
     result:=true;
-   end else begin
-    break;
    end;
+
   end;
- end else begin
-  CombinedNormal:=Vector3Origin;
-  Count:=0;
-  for ContactIndex:=0 to aCountContacts-1 do begin
-   Contact:=@aContacts[ContactIndex];
-   if abs(Contact^.PenetrationDepth)>0.0 then begin
-    CombinedNormal:=Vector3Add(CombinedNormal,Vector3ScalarMul(Contact^.Normal,Contact^.PenetrationDepth));
-    inc(Count);
-   end;
-  end;
-  if Vector3LengthNormalize(CombinedNormal)>0.0 then begin
-   OriginalVelocityLength:=Vector3LengthNormalize(aVelocity);
-   aVelocity:=Vector3ScalarMul(Vector3Sub(aVelocity,Vector3ScalarMul(CombinedNormal,Vector3Dot(aVelocity,CombinedNormal))),OriginalVelocityLength);
-   result:=true;
-  end;
+
  end;
 
 end;
