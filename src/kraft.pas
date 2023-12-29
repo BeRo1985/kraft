@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2023-12-29-19-14-0000                       *
+ *                        Version 2023-12-29-19-23-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -46724,7 +46724,7 @@ var ContactIndex,Count,IterationIndex:TKraftInt32;
     CombinedPenetrationVector,CombinedNormal,
     TargetPosition,OriginalPosition,
     TargetVelocity,OriginalVelocity,NormalizedOriginalVelocity,VelocityNormal:TKraftVector3;
-    OriginalVelocityLength,Dot:TKraftScalar;
+    OriginalVelocityLength,Dot,Len:TKraftScalar;
     OK:boolean;
 begin
 
@@ -46761,8 +46761,9 @@ begin
     Contact:=@aContacts[ContactIndex];
     CombinedPenetrationVector:=Vector3Add(CombinedPenetrationVector,Vector3ScalarMul(Contact^.Normal,Contact^.PenetrationDepth));
    end;
-   if Vector3LengthSquared(CombinedPenetrationVector)>0.0 then begin
-    Vector3DirectSub(aPosition,Vector3ScalarMul(CombinedPenetrationVector,1.0/aCountContacts));
+   Len:=Vector3LengthNormalize(CombinedPenetrationVector);
+   if Len>0.0 then begin
+    Vector3DirectAdd(aPosition,Vector3ScalarMul(CombinedPenetrationVector,(Len/aCountContacts)+1e-5));
     result:=true;
    end;
 
