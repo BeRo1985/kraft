@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2024-01-19-02-48-0000                       *
+ *                        Version 2024-01-20-00-25-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -535,9 +535,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
       public
        type TEntity=record
              public
-              const Empty=0;
-                    Used=1;
-                    Deleted=2;
+              const Empty=1 shl 0;
+                    Deleted=1 shl 1;
+                    Used=1 shl 2;
              public
               State:TKraftUInt32;
               Key:TKraftHashMapKey;
@@ -593,8 +593,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
             TValuesObject=class
              private
               fOwner:TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>;
-              function GetValue(const Key:TKraftHashMapKey):TKraftHashMapValue; inline;
-              procedure SetValue(const Key:TKraftHashMapKey;const aValue:TKraftHashMapValue); inline;
+              function GetValue(const aKey:TKraftHashMapKey):TKraftHashMapValue; inline;
+              procedure SetValue(const aKey:TKraftHashMapKey;const aValue:TKraftHashMapValue); inline;
              public
               constructor Create(const aOwner:TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>);
               function GetEnumerator:TValueEnumerator;
@@ -610,23 +610,23 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fEntitiesObject:TEntitiesObject;
        fKeysObject:TKeysObject;
        fValuesObject:TValuesObject;
-       function HashData(const Data:Pointer;const DataLength:TKraftUInt32):TKraftUInt32;
-       function HashKey(const Key:TKraftHashMapKey):TKraftUInt32;
-       function CompareKey(const KeyA,KeyB:TKraftHashMapKey):boolean;
-       function FindEntity(const Key:TKraftHashMapKey):PEntity;
+       function HashData(const aData:Pointer;const aDataLength:TKraftUInt32):TKraftUInt32;
+       function HashKey(const aKey:TKraftHashMapKey):TKraftUInt32;
+       function CompareKey(const aKeyA,aKeyB:TKraftHashMapKey):boolean;
+       function FindEntity(const aKey:TKraftHashMapKey;const aTerminateStateMask:TKraftUInt32):PEntity;
        procedure Resize;
       protected
-       function GetValue(const Key:TKraftHashMapKey):TKraftHashMapValue;
-       procedure SetValue(const Key:TKraftHashMapKey;const Value:TKraftHashMapValue);
+       function GetValue(const aKey:TKraftHashMapKey):TKraftHashMapValue;
+       procedure SetValue(const aKey:TKraftHashMapKey;const aValue:TKraftHashMapValue);
       public
-       constructor Create(const DefaultValue:TKraftHashMapValue);
+       constructor Create(const aDefaultValue:TKraftHashMapValue);
        destructor Destroy; override;
        procedure Clear;
-       function Add(const Key:TKraftHashMapKey;const Value:TKraftHashMapValue):PEntity;
-       function Get(const Key:TKraftHashMapKey;const CreateIfNotExist:boolean=false):PEntity;
-       function TryGet(const Key:TKraftHashMapKey;out Value:TKraftHashMapValue):boolean;
-       function ExistKey(const Key:TKraftHashMapKey):boolean;
-       function Delete(const Key:TKraftHashMapKey):boolean;
+       function Add(const aKey:TKraftHashMapKey;const aValue:TKraftHashMapValue):PEntity;
+       function Get(const aKey:TKraftHashMapKey;const aCreateIfNotExist:boolean=false):PEntity;
+       function TryGet(const aKey:TKraftHashMapKey;out aValue:TKraftHashMapValue):boolean;
+       function ExistKey(const aKey:TKraftHashMapKey):boolean;
+       function Delete(const aKey:TKraftHashMapKey):boolean;
        property EntityValues[const Key:TKraftHashMapKey]:TKraftHashMapValue read GetValue write SetValue; default;
        property Entities:TEntitiesObject read fEntitiesObject;
        property Keys:TKeysObject read fKeysObject;
@@ -645,22 +645,22 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fQuarterSecondInterval:TKraftInt64;
        fHourInterval:TKraftInt64;
       public
-       constructor Create(FrameRate:TKraftInt32=60);
+       constructor Create(aFrameRate:TKraftInt32=60);
        destructor Destroy; override;
-       procedure SetFrameRate(FrameRate:TKraftInt32);
+       procedure SetFrameRate(aFrameRate:TKraftInt32);
        function GetTime:TKraftInt64;
        function GetEventTime:TKraftInt64;
-       procedure Sleep(Delay:TKraftInt64);
-       function ToFixedPointSeconds(Time:TKraftInt64):TKraftInt64;
-       function ToFixedPointFrames(Time:TKraftInt64):TKraftInt64;
-       function ToFloatSeconds(Time:TKraftInt64):double;
-       function FromFloatSeconds(Time:double):TKraftInt64;
-       function ToMilliseconds(Time:TKraftInt64):TKraftInt64;
-       function FromMilliseconds(Time:TKraftInt64):TKraftInt64;
-       function ToMicroseconds(Time:TKraftInt64):TKraftInt64;
-       function FromMicroseconds(Time:TKraftInt64):TKraftInt64;
-       function ToNanoseconds(Time:TKraftInt64):TKraftInt64;
-       function FromNanoseconds(Time:TKraftInt64):TKraftInt64;
+       procedure Sleep(aDelay:TKraftInt64);
+       function ToFixedPointSeconds(aTime:TKraftInt64):TKraftInt64;
+       function ToFixedPointFrames(aTime:TKraftInt64):TKraftInt64;
+       function ToFloatSeconds(aTime:TKraftInt64):double;
+       function FromFloatSeconds(aTime:double):TKraftInt64;
+       function ToMilliseconds(aTime:TKraftInt64):TKraftInt64;
+       function FromMilliseconds(aTime:TKraftInt64):TKraftInt64;
+       function ToMicroseconds(aTime:TKraftInt64):TKraftInt64;
+       function FromMicroseconds(aTime:TKraftInt64):TKraftInt64;
+       function ToNanoseconds(aTime:TKraftInt64):TKraftInt64;
+       function FromNanoseconds(aTime:TKraftInt64):TKraftInt64;
        property SecondInterval:TKraftInt64 read fFrequency;
        property Frequency:TKraftInt64 read fFrequency;
        property FrequencyShift:TKraftInt32 read fFrequencyShift;
@@ -12889,24 +12889,24 @@ begin
  result:=TValueEnumerator.Create(fOwner);
 end;
 
-function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TValuesObject.GetValue(const Key:TKraftHashMapKey):TKraftHashMapValue;
+function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TValuesObject.GetValue(const aKey:TKraftHashMapKey):TKraftHashMapValue;
 begin
- result:=fOwner.GetValue(Key);
+ result:=fOwner.GetValue(aKey);
 end;
 
-procedure TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TValuesObject.SetValue(const Key:TKraftHashMapKey;const aValue:TKraftHashMapValue);
+procedure TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TValuesObject.SetValue(const aKey:TKraftHashMapKey;const aValue:TKraftHashMapValue);
 begin
- fOwner.SetValue(Key,aValue);
+ fOwner.SetValue(aKey,aValue);
 end;
 
-constructor TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.Create(const DefaultValue:TKraftHashMapValue);
+constructor TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.Create(const aDefaultValue:TKraftHashMapValue);
 begin
  inherited Create;
  fSize:=0;
  fLogSize:=0;
  fCountNonEmptyEntites:=0;
  fEntities:=nil;
- fDefaultValue:=DefaultValue;
+ fDefaultValue:=aDefaultValue;
  fCanShrink:=true;
  fEntitiesObject:=TEntitiesObject.Create(self);
  fKeysObject:=TKeysObject.Create(self);
@@ -12949,7 +12949,7 @@ begin
  end;
 end;
 
-function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.HashData(const Data:Pointer;const DataLength:TKraftUInt32):TKraftUInt32;
+function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.HashData(const aData:Pointer;const aDataLength:TKraftUInt32):TKraftUInt32;
 // xxHash32
 const PRIME32_1=TKraftUInt32(2654435761);
       PRIME32_2=TKraftUInt32(2246822519);
@@ -12965,14 +12965,14 @@ const PRIME32_1=TKraftUInt32(2654435761);
 var v1,v2,v3,v4:TKraftUInt32;
     p,e,Limit:PKraftUInt8;
 begin
- p:=Data;
- if DataLength>=16 then begin
+ p:=aData;
+ if aDataLength>=16 then begin
   v1:=v1Initialization;
   v2:=v2Initialization;
   v3:=v3Initialization;
   v4:=v4Initialization;
-  e:=Data;
-  inc(e,DataLength-16);
+  e:=aData;
+  inc(e,aDataLength-16);
   repeat
 {$if defined(fpc) or declared(ROLDWord)}
    v1:=ROLDWord(v1+(TKraftUInt32(Pointer(p)^)*TKraftUInt32(PRIME32_2)),13)*TKraftUInt32(PRIME32_1);
@@ -13014,9 +13014,9 @@ begin
  end else begin
   result:=HashInitialization;
  end;
- inc(result,DataLength);
- e:=Data;
- inc(e,DataLength);
+ inc(result,aDataLength);
+ e:=aData;
+ inc(e,aDataLength);
  while ({%H-}TKraftPtrUInt(p)+SizeOf(TKraftUInt32))<={%H-}TKraftPtrUInt(e) do begin
 {$if defined(fpc) or declared(ROLDWord)}
   result:=ROLDWord(result+(TKraftUInt32(Pointer(p)^)*TKraftUInt32(PRIME32_3)),17)*TKraftUInt32(PRIME32_4);
@@ -13040,7 +13040,7 @@ begin
  result:=result xor (result shr 16);
 end;
 
-function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.HashKey(const Key:TKraftHashMapKey):TKraftUInt32;
+function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.HashKey(const aKey:TKraftHashMapKey):TKraftUInt32;
 var p:TKraftUInt64;
 begin
  // We're hoping here that the compiler is here so smart, so that the compiler optimizes the
@@ -13048,44 +13048,44 @@ begin
 {$ifndef ExtraStringHashMap}
  if (SizeOf(TKraftHashMapKey)=SizeOf(AnsiString)) and
     (TypeInfo(TKraftHashMapKey)=TypeInfo(AnsiString)) then begin
-  result:=HashData(PKraftUInt8(@AnsiString(Pointer(@Key)^)[1]),length(AnsiString(Pointer(@Key)^))*SizeOf(AnsiChar));
+  result:=HashData(PKraftUInt8(@AnsiString(Pointer(@aKey)^)[1]),length(AnsiString(Pointer(@aKey)^))*SizeOf(AnsiChar));
  end else if (SizeOf(TKraftHashMapKey)=SizeOf(UTF8String)) and
              (TypeInfo(TKraftHashMapKey)=TypeInfo(UTF8String)) then begin
-  result:=HashData(PKraftUInt8(@UTF8String(Pointer(@Key)^)[1]),length(UTF8String(Pointer(@Key)^))*SizeOf(AnsiChar));
+  result:=HashData(PKraftUInt8(@UTF8String(Pointer(@aKey)^)[1]),length(UTF8String(Pointer(@aKey)^))*SizeOf(AnsiChar));
  end else if (SizeOf(TKraftHashMapKey)=SizeOf(RawByteString)) and
              (TypeInfo(TKraftHashMapKey)=TypeInfo(RawByteString)) then begin
-  result:=HashData(PKraftUInt8(@RawByteString(Pointer(@Key)^)[1]),length(RawByteString(Pointer(@Key)^))*SizeOf(AnsiChar));
+  result:=HashData(PKraftUInt8(@RawByteString(Pointer(@aKey)^)[1]),length(RawByteString(Pointer(@aKey)^))*SizeOf(AnsiChar));
  end else if (SizeOf(TKraftHashMapKey)=SizeOf(WideString)) and
              (TypeInfo(TKraftHashMapKey)=TypeInfo(WideString)) then begin
-  result:=HashData(PKraftUInt8(@WideString(Pointer(@Key)^)[1]),length(WideString(Pointer(@Key)^))*SizeOf(WideChar));
+  result:=HashData(PKraftUInt8(@WideString(Pointer(@aKey)^)[1]),length(WideString(Pointer(@aKey)^))*SizeOf(WideChar));
  end else if (SizeOf(TKraftHashMapKey)=SizeOf(UnicodeString)) and
              (TypeInfo(TKraftHashMapKey)=TypeInfo(UnicodeString)) then begin
-  result:=HashData(PKraftUInt8(@UnicodeString(Pointer(@Key)^)[1]),length(UnicodeString(Pointer(@Key)^))*SizeOf({$ifdef fpc}UnicodeChar{$else}WideChar{$endif}));
+  result:=HashData(PKraftUInt8(@UnicodeString(Pointer(@aKey)^)[1]),length(UnicodeString(Pointer(@aKey)^))*SizeOf({$ifdef fpc}UnicodeChar{$else}WideChar{$endif}));
  end else if (SizeOf(TKraftHashMapKey)=SizeOf(String)) and
              (TypeInfo(TKraftHashMapKey)=TypeInfo(String)) then begin
-  result:=HashData(PKraftUInt8(@String(Pointer(@Key)^)[1]),length(String(Pointer(@Key)^))*SizeOf(Char));
+  result:=HashData(PKraftUInt8(@String(Pointer(@aKey)^)[1]),length(String(Pointer(@aKey)^))*SizeOf(Char));
  end else{$endif}if (SizeOf(TKraftHashMapKey)=SizeOf(TKraftVector3)) and
                     (TypeInfo(TKraftHashMapKey)=TypeInfo(TKraftVector3)) then begin
- {if (abs(PKraftVector3(@Key)^.x)<=1.0) and
-     (abs(PKraftVector3(@Key)^.y)<=1.0) and
-     (abs(PKraftVector3(@Key)^.z)<=1.0) then begin}
-  if (((PKraftUInt32(Pointer(@PKraftVector3(@Key)^.x))^ or
-        PKraftUInt32(Pointer(@PKraftVector3(@Key)^.y))^ or
-        PKraftUInt32(Pointer(@PKraftVector3(@Key)^.z))^) and TKraftUInt32($7fffffff))<=TKraftUInt32($3f800000)) then begin
+ {if (abs(PKraftVector3(@aKey)^.x)<=1.0) and
+     (abs(PKraftVector3(@aKey)^.y)<=1.0) and
+     (abs(PKraftVector3(@aKey)^.z)<=1.0) then begin}
+  if (((PKraftUInt32(Pointer(@PKraftVector3(@aKey)^.x))^ or
+        PKraftUInt32(Pointer(@PKraftVector3(@aKey)^.y))^ or
+        PKraftUInt32(Pointer(@PKraftVector3(@aKey)^.z))^) and TKraftUInt32($7fffffff))<=TKraftUInt32($3f800000)) then begin
    // Possibly a normal => Different hashing scale, since normals are -1.0 .. 1.0 scaled
-   result:=(round(PKraftVector3(@Key)^.x*65536.0)*73856093) xor
-           (round(PKraftVector3(@Key)^.y*65536.0)*19349663) xor
-           (round(PKraftVector3(@Key)^.z*65536.0)*83492791);
+   result:=(round(PKraftVector3(@aKey)^.x*65536.0)*73856093) xor
+           (round(PKraftVector3(@aKey)^.y*65536.0)*19349663) xor
+           (round(PKraftVector3(@aKey)^.z*65536.0)*83492791);
   end else begin
-   result:=(round(PKraftVector3(@Key)^.x*1024.0)*73856093) xor
-           (round(PKraftVector3(@Key)^.y*1024.0)*19349663) xor
-           (round(PKraftVector3(@Key)^.z*1024.0)*83492791);
+   result:=(round(PKraftVector3(@aKey)^.x*1024.0)*73856093) xor
+           (round(PKraftVector3(@aKey)^.y*1024.0)*19349663) xor
+           (round(PKraftVector3(@aKey)^.z*1024.0)*83492791);
   end;
  end else begin
   case SizeOf(TKraftHashMapKey) of
    SizeOf(UInt16):begin
     // 16-bit big => use 16-bit integer-rehashing
-    result:=TKraftUInt16(Pointer(@Key)^);
+    result:=TKraftUInt16(Pointer(@aKey)^);
     result:=(result or (((not result) and $ffff) shl 16));
     dec(result,result shl 6);
     result:=result xor (result shr 17);
@@ -13097,7 +13097,7 @@ begin
    end;
    SizeOf(TKraftUInt32):begin
     // 32-bit big => use 32-bit integer-rehashing
-    result:=TKraftUInt32(Pointer(@Key)^);
+    result:=TKraftUInt32(Pointer(@aKey)^);
     dec(result,result shl 6);
     result:=result xor (result shr 17);
     dec(result,result shl 9);
@@ -13108,7 +13108,7 @@ begin
    end;
    SizeOf(TKraftUInt64):begin
     // 64-bit big => use 64-bit to 32-bit integer-rehashing
-    p:=TKraftUInt64(Pointer(@Key)^);
+    p:=TKraftUInt64(Pointer(@aKey)^);
     p:=(not p)+(p shl 18); // p:=((p shl 18)-p-)1;
     p:=p xor (p shr 31);
     p:=p*21; // p:=(p+(p shl 2))+(p shl 4);
@@ -13117,7 +13117,7 @@ begin
     result:=TKraftUInt32(TKraftPtrUInt(p xor (p shr 22)));
    end;
    else begin
-    result:=HashData(PKraftUInt8(Pointer(@Key)),SizeOf(TKraftHashMapKey));
+    result:=HashData(PKraftUInt8(Pointer(@aKey)),SizeOf(TKraftHashMapKey));
    end;
   end;
  end;
@@ -13132,7 +13132,7 @@ begin
 {$ifend}
 end;
 
-function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.CompareKey(const KeyA,KeyB:TKraftHashMapKey):boolean;
+function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.CompareKey(const aKeyA,aKeyB:TKraftHashMapKey):boolean;
 var Index:TKraftInt32;
     pA,pB:PKraftUInt8;
 begin
@@ -13140,49 +13140,51 @@ begin
  // unused if-branches away
  if (SizeOf(TKraftHashMapKey)=SizeOf(AnsiString)) and
     (TypeInfo(TKraftHashMapKey)=TypeInfo(AnsiString)) then begin
-  result:=AnsiString(Pointer(@KeyA)^)=AnsiString(Pointer(@KeyB)^);
+  result:=AnsiString(Pointer(@aKeyA)^)=AnsiString(Pointer(@aKeyB)^);
  end else if (SizeOf(TKraftHashMapKey)=SizeOf(UTF8String)) and
              (TypeInfo(TKraftHashMapKey)=TypeInfo(UTF8String)) then begin
-  result:=UTF8String(Pointer(@KeyA)^)=UTF8String(Pointer(@KeyB)^);
+  result:=UTF8String(Pointer(@aKeyA)^)=UTF8String(Pointer(@aKeyB)^);
  end else if (SizeOf(TKraftHashMapKey)=SizeOf(RawByteString)) and
              (TypeInfo(TKraftHashMapKey)=TypeInfo(RawByteString)) then begin
-  result:=RawByteString(Pointer(@KeyA)^)=RawByteString(Pointer(@KeyB)^);
+  result:=RawByteString(Pointer(@aKeyA)^)=RawByteString(Pointer(@aKeyB)^);
  end else if (SizeOf(TKraftHashMapKey)=SizeOf(WideString)) and
              (TypeInfo(TKraftHashMapKey)=TypeInfo(WideString)) then begin
-  result:=WideString(Pointer(@KeyA)^)=WideString(Pointer(@KeyB)^);
+  result:=WideString(Pointer(@aKeyA)^)=WideString(Pointer(@aKeyB)^);
  end else if (SizeOf(TKraftHashMapKey)=SizeOf(UnicodeString)) and
              (TypeInfo(TKraftHashMapKey)=TypeInfo(UnicodeString)) then begin
-  result:=UnicodeString(Pointer(@KeyA)^)=UnicodeString(Pointer(@KeyB)^);
+  result:=UnicodeString(Pointer(@aKeyA)^)=UnicodeString(Pointer(@aKeyB)^);
  end else if (SizeOf(TKraftHashMapKey)=SizeOf(String)) and
              (TypeInfo(TKraftHashMapKey)=TypeInfo(String)) then begin
-  result:=String(Pointer(@KeyA)^)=String(Pointer(@KeyB)^);
+  result:=String(Pointer(@aKeyA)^)=String(Pointer(@aKeyB)^);
  end else if (SizeOf(TKraftHashMapKey)=SizeOf(TKraftVector3)) and
              (TypeInfo(TKraftHashMapKey)=TypeInfo(TKraftVector3)) then begin
-  result:=Vector3CompareEx(PKraftVector3(@KeyA)^,PKraftVector3(@KeyB)^);
+  result:=(PKraftVector3(@aKeyA)^.x=PKraftVector3(@aKeyB)^.x) and
+          (PKraftVector3(@aKeyA)^.y=PKraftVector3(@aKeyB)^.y) and
+          (PKraftVector3(@aKeyA)^.z=PKraftVector3(@aKeyB)^.z);
  end else begin
   case SizeOf(TKraftHashMapKey) of
    SizeOf(TKraftUInt8):begin
-    result:=UInt8(Pointer(@KeyA)^)=UInt8(Pointer(@KeyB)^);
+    result:=UInt8(Pointer(@aKeyA)^)=UInt8(Pointer(@aKeyB)^);
    end;
    SizeOf(TKraftUInt16):begin
-    result:=UInt16(Pointer(@KeyA)^)=UInt16(Pointer(@KeyB)^);
+    result:=UInt16(Pointer(@aKeyA)^)=UInt16(Pointer(@aKeyB)^);
    end;
    SizeOf(TKraftUInt32):begin
-    result:=TKraftUInt32(Pointer(@KeyA)^)=TKraftUInt32(Pointer(@KeyB)^);
+    result:=TKraftUInt32(Pointer(@aKeyA)^)=TKraftUInt32(Pointer(@aKeyB)^);
    end;
    SizeOf(TKraftUInt64):begin
-    result:=TKraftUInt64(Pointer(@KeyA)^)=TKraftUInt64(Pointer(@KeyB)^);
+    result:=TKraftUInt64(Pointer(@aKeyA)^)=TKraftUInt64(Pointer(@aKeyB)^);
    end;
 {$ifdef fpc}
    SizeOf(TKraftHashMapUInt128):begin
-    result:=(TKraftHashMapUInt128(Pointer(@KeyA)^)[0]=TKraftHashMapUInt128(Pointer(@KeyB)^)[0]) and
-           (TKraftHashMapUInt128(Pointer(@KeyA)^)[1]=TKraftHashMapUInt128(Pointer(@KeyB)^)[1]);
+    result:=(TKraftHashMapUInt128(Pointer(@aKeyA)^)[0]=TKraftHashMapUInt128(Pointer(@aKeyB)^)[0]) and
+            (TKraftHashMapUInt128(Pointer(@aKeyA)^)[1]=TKraftHashMapUInt128(Pointer(@aKeyB)^)[1]);
    end;
 {$endif}
    else begin
     Index:=0;
-    pA:=@KeyA;
-    pB:=@KeyB;
+    pA:=@aKeyA;
+    pB:=@aKeyB;
     while (Index+SizeOf(TKraftUInt32))<SizeOf(TKraftHashMapKey) do begin
      if TKraftUInt32(Pointer(pA)^)<>TKraftUInt32(Pointer(pB)^) then begin
       result:=false;
@@ -13207,16 +13209,16 @@ begin
  end;
 end;
 
-function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.FindEntity(const Key:TKraftHashMapKey):PEntity;
+function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.FindEntity(const aKey:TKraftHashMapKey;const aTerminateStateMask:TKraftUInt32):PEntity;
 var Index,HashCode,Mask,Step:TKraftSizeUInt;
 begin
- HashCode:=HashKey(Key);
+ HashCode:=HashKey(aKey);
  Mask:=(2 shl fLogSize)-1;
  Step:=((HashCode shl 1)+1) and Mask;
  Index:=HashCode shr (32-fLogSize);
  repeat
   result:=@fEntities[Index];
-  if (result^.State=TEntity.Empty) or ((result^.State=TEntity.Used) and CompareKey(result^.Key,Key)) then begin
+  if ((result^.State and aTerminateStateMask)<>0) or ((result^.State=TEntity.Used) and CompareKey(result^.Key,aKey)) then begin
    exit;
   end;
   Index:=(Index+Step) and Mask;
@@ -13261,31 +13263,31 @@ begin
 
 end;
 
-function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.Add(const Key:TKraftHashMapKey;const Value:TKraftHashMapValue):PEntity;
+function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.Add(const aKey:TKraftHashMapKey;const aValue:TKraftHashMapValue):PEntity;
 begin
  while fCountNonEmptyEntites>=(1 shl fLogSize) do begin
   Resize;
  end;
- result:=FindEntity(Key);
+ result:=FindEntity(aKey,TEntity.Empty or TEntity.Deleted);
  if result^.State=TEntity.Empty then begin
   inc(fCountNonEmptyEntites);
  end;
  result^.State:=TEntity.Used;
- result^.Key:=Key;
- result^.Value:=Value;
+ result^.Key:=aKey;
+ result^.Value:=aValue;
 end;
 
-function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.Get(const Key:TKraftHashMapKey;const CreateIfNotExist:boolean=false):PEntity;
+function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.Get(const aKey:TKraftHashMapKey;const aCreateIfNotExist:boolean=false):PEntity;
 var Value:TKraftHashMapValue;
 begin
- result:=FindEntity(Key);
+ result:=FindEntity(aKey,TEntity.Empty);
  case result^.State of
   TEntity.Used:begin
   end;
   else {TEntity.Empty,TEntity.Deleted:}begin
-   if CreateIfNotExist then begin
+   if aCreateIfNotExist then begin
     Initialize(Value);
-    result:=Add(Key,Value);
+    result:=Add(aKey,Value);
    end else begin
     result:=nil;
    end;
@@ -13293,27 +13295,27 @@ begin
  end;
 end;
 
-function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TryGet(const Key:TKraftHashMapKey;out Value:TKraftHashMapValue):boolean;
+function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TryGet(const aKey:TKraftHashMapKey;out aValue:TKraftHashMapValue):boolean;
 var Entity:PEntity;
 begin
- Entity:=FindEntity(Key);
+ Entity:=FindEntity(aKey,TEntity.Empty);
  result:=Entity^.State=TEntity.Used;
  if result then begin
-  Value:=Entity^.Value;
+  aValue:=Entity^.Value;
  end else begin
-  Initialize(Value);
+  Initialize(aValue);
  end;
 end;
 
-function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.ExistKey(const Key:TKraftHashMapKey):boolean;
+function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.ExistKey(const aKey:TKraftHashMapKey):boolean;
 begin
- result:=FindEntity(Key)^.State=TEntity.Used;
+ result:=FindEntity(aKey,TEntity.Empty)^.State=TEntity.Used;
 end;
 
-function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.Delete(const Key:TKraftHashMapKey):boolean;
+function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.Delete(const aKey:TKraftHashMapKey):boolean;
 var Entity:PEntity;
 begin
- Entity:=FindEntity(Key);
+ Entity:=FindEntity(aKey,TEntity.Empty);
  result:=Entity^.State=TEntity.Used;
  if result then begin
   Entity^.State:=TEntity.Deleted;
@@ -13322,10 +13324,10 @@ begin
  end;
 end;
 
-function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.GetValue(const Key:TKraftHashMapKey):TKraftHashMapValue;
+function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.GetValue(const aKey:TKraftHashMapKey):TKraftHashMapValue;
 var Entity:PEntity;
 begin
- Entity:=FindEntity(Key);
+ Entity:=FindEntity(aKey,TEntity.Empty);
  if Entity^.State=TEntity.Used then begin
   result:=Entity^.Value;
  end else begin
@@ -13333,12 +13335,12 @@ begin
  end;
 end;
 
-procedure TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.SetValue(const Key:TKraftHashMapKey;const Value:TKraftHashMapValue);
+procedure TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.SetValue(const aKey:TKraftHashMapKey;const aValue:TKraftHashMapValue);
 begin
- Add(Key,Value);
+ Add(aKey,aValue);
 end;
 
-constructor TKraftHighResolutionTimer.Create(FrameRate:TKraftInt32=60);
+constructor TKraftHighResolutionTimer.Create(aFrameRate:TKraftInt32=60);
 begin
  inherited Create;
  fFrequencyShift:=0;
@@ -13358,7 +13360,7 @@ begin
 {$else}
   fFrequency:=1000;
 {$ifend}
- fFrameInterval:=(fFrequency+((abs(FrameRate)+1) shr 1)) div abs(FrameRate);
+ fFrameInterval:=(fFrequency+((abs(aFrameRate)+1) shr 1)) div abs(aFrameRate);
  fMillisecondInterval:=(fFrequency+500) div 1000;
  fTwoMillisecondsInterval:=(fFrequency+250) div 500;
  fFourMillisecondsInterval:=(fFrequency+125) div 250;
@@ -13371,9 +13373,9 @@ begin
  inherited Destroy;
 end;
 
-procedure TKraftHighResolutionTimer.SetFrameRate(FrameRate:TKraftInt32);
+procedure TKraftHighResolutionTimer.SetFrameRate(aFrameRate:TKraftInt32);
 begin
- fFrameInterval:=(fFrequency+((abs(FrameRate)+1) shr 1)) div abs(FrameRate);
+ fFrameInterval:=(fFrequency+((abs(aFrameRate)+1) shr 1)) div abs(aFrameRate);
 end;
 
 function TKraftHighResolutionTimer.GetTime:TKraftInt64;
@@ -13413,16 +13415,16 @@ begin
  result:=ToNanoseconds(GetTime);
 end;
 
-procedure TKraftHighResolutionTimer.Sleep(Delay:TKraftInt64);
+procedure TKraftHighResolutionTimer.Sleep(aDelay:TKraftInt64);
 var EndTime,NowTime{$ifdef unix},SleepTime{$endif}:TKraftInt64;
 {$ifdef unix}
     req,rem:timespec;
 {$endif}
 begin
- if Delay>0 then begin
+ if aDelay>0 then begin
 {$if defined(windows)}
   NowTime:=GetTime;
-  EndTime:=NowTime+Delay;
+  EndTime:=NowTime+aDelay;
   while (NowTime+fTwoMillisecondsInterval)<EndTime do begin
    Sleep(1);
    NowTime:=GetTime;
@@ -13436,7 +13438,7 @@ begin
   end;
 {$elseif defined(linux) or defined(android)}
   NowTime:=GetTime;
-  EndTime:=NowTime+Delay;
+  EndTime:=NowTime+aDelay;
   while (NowTime+fFourMillisecondsInterval)<EndTime do begin
    SleepTime:=((EndTime-NowTime)+2) shr 2;
    if SleepTime>0 then begin
@@ -13457,7 +13459,7 @@ begin
   end;
 {$elseif defined(unix)}
   NowTime:=GetTime;
-  EndTime:=NowTime+Delay;
+  EndTime:=NowTime+aDelay;
   while (NowTime+fFourMillisecondsInterval)<EndTime do begin
    SleepTime:=((EndTime-NowTime)+2) shr 2;
    if SleepTime>0 then begin
@@ -13478,7 +13480,7 @@ begin
   end;
 {$else}
   NowTime:=GetTime;
-  EndTime:=NowTime+Delay;
+  EndTime:=NowTime+aDelay;
   while (NowTime+4)<EndTime then begin
    SDL_Delay(1);
    NowTime:=GetTime;
@@ -13494,14 +13496,14 @@ begin
  end;
 end;
 
-function TKraftHighResolutionTimer.ToFixedPointSeconds(Time:TKraftInt64):TKraftInt64;
+function TKraftHighResolutionTimer.ToFixedPointSeconds(aTime:TKraftInt64):TKraftInt64;
 var a,b:TUInt128;
 begin
  if fFrequency<>0 then begin
-  if ((fFrequency or Time) and TKraftInt64($ffffffff00000000))=0 then begin
-   result:=TKraftInt64(TKraftUInt64(TKraftUInt64(Time)*TKraftUInt64($100000000)) div TKraftUInt64(fFrequency));
+  if ((fFrequency or aTime) and TKraftInt64($ffffffff00000000))=0 then begin
+   result:=TKraftInt64(TKraftUInt64(TKraftUInt64(aTime)*TKraftUInt64($100000000)) div TKraftUInt64(fFrequency));
   end else begin
-   UInt128Mul64(a,Time,TKraftUInt64($100000000));
+   UInt128Mul64(a,aTime,TKraftUInt64($100000000));
    UInt128Div64(b,a,fFrequency);
    result:=b.Lo;
   end;
@@ -13510,14 +13512,14 @@ begin
  end;
 end;
 
-function TKraftHighResolutionTimer.ToFixedPointFrames(Time:TKraftInt64):TKraftInt64;
+function TKraftHighResolutionTimer.ToFixedPointFrames(aTime:TKraftInt64):TKraftInt64;
 var a,b:TUInt128;
 begin
  if fFrameInterval<>0 then begin
-  if ((fFrameInterval or Time) and TKraftInt64($ffffffff00000000))=0 then begin
-   result:=TKraftInt64(TKraftUInt64(TKraftUInt64(Time)*TKraftUInt64($100000000)) div TKraftUInt64(fFrameInterval));
+  if ((fFrameInterval or aTime) and TKraftInt64($ffffffff00000000))=0 then begin
+   result:=TKraftInt64(TKraftUInt64(TKraftUInt64(aTime)*TKraftUInt64($100000000)) div TKraftUInt64(fFrameInterval));
   end else begin
-   UInt128Mul64(a,Time,TKraftUInt64($100000000));
+   UInt128Mul64(a,aTime,TKraftUInt64($100000000));
    UInt128Div64(b,a,fFrameInterval);
    result:=b.Lo;
   end;
@@ -13526,69 +13528,69 @@ begin
  end;
 end;
 
-function TKraftHighResolutionTimer.ToFloatSeconds(Time:TKraftInt64):double;
+function TKraftHighResolutionTimer.ToFloatSeconds(aTime:TKraftInt64):double;
 begin
  if fFrequency<>0 then begin
-  result:=Time/fFrequency;
+  result:=aTime/fFrequency;
  end else begin
   result:=0;
  end;
 end;
 
-function TKraftHighResolutionTimer.FromFloatSeconds(Time:double):TKraftInt64;
+function TKraftHighResolutionTimer.FromFloatSeconds(aTime:double):TKraftInt64;
 begin
  if fFrequency<>0 then begin
-  result:=trunc(Time*fFrequency);
+  result:=trunc(aTime*fFrequency);
  end else begin
   result:=0;
  end;
 end;
 
-function TKraftHighResolutionTimer.ToMilliseconds(Time:TKraftInt64):TKraftInt64;
+function TKraftHighResolutionTimer.ToMilliseconds(aTime:TKraftInt64):TKraftInt64;
 begin
- result:=Time;
+ result:=aTime;
  if fFrequency<>1000 then begin
-  result:=((Time*1000)+((fFrequency+1) shr 1)) div fFrequency;
+  result:=((aTime*1000)+((fFrequency+1) shr 1)) div fFrequency;
  end;
 end;
 
-function TKraftHighResolutionTimer.FromMilliseconds(Time:TKraftInt64):TKraftInt64;
+function TKraftHighResolutionTimer.FromMilliseconds(aTime:TKraftInt64):TKraftInt64;
 begin
- result:=Time;
+ result:=aTime;
  if fFrequency<>1000 then begin
-  result:=((Time*fFrequency)+500) div 1000;
+  result:=((aTime*fFrequency)+500) div 1000;
  end;
 end;
 
-function TKraftHighResolutionTimer.ToMicroseconds(Time:TKraftInt64):TKraftInt64;
+function TKraftHighResolutionTimer.ToMicroseconds(aTime:TKraftInt64):TKraftInt64;
 begin
- result:=Time;
+ result:=aTime;
  if fFrequency<>1000000 then begin
-  result:=((Time*1000000)+((fFrequency+1) shr 1)) div fFrequency;
+  result:=((aTime*1000000)+((fFrequency+1) shr 1)) div fFrequency;
  end;
 end;
 
-function TKraftHighResolutionTimer.FromMicroseconds(Time:TKraftInt64):TKraftInt64;
+function TKraftHighResolutionTimer.FromMicroseconds(aTime:TKraftInt64):TKraftInt64;
 begin
- result:=Time;
+ result:=aTime;
  if fFrequency<>1000000 then begin
-  result:=((Time*fFrequency)+500000) div 1000000;
+  result:=((aTime*fFrequency)+500000) div 1000000;
  end;
 end;
 
-function TKraftHighResolutionTimer.ToNanoseconds(Time:TKraftInt64):TKraftInt64;
+function TKraftHighResolutionTimer.ToNanoseconds(aTime:TKraftInt64):TKraftInt64;
 begin
- result:=Time;
+ result:=aTime;
  if fFrequency<>1000000000 then begin
-  result:=((Time*1000000000)+((fFrequency+1) shr 1)) div fFrequency;
+  result:=((aTime*1000000000)+((fFrequency+1) shr 1)) div fFrequency;
  end;
 end;
 
-function TKraftHighResolutionTimer.FromNanoseconds(Time:TKraftInt64):TKraftInt64;
+function TKraftHighResolutionTimer.FromNanoseconds(aTime:TKraftInt64):TKraftInt64;
 begin
- result:=Time;
+ result:=aTime;
  if fFrequency<>1000000000 then begin
-  result:=((Time*fFrequency)+500000000) div 1000000000;
+  result:=((aTime*fFrequency)+500000000) div 1000000000;
  end;
 end;
 
@@ -13615,20 +13617,20 @@ type TKraftShapeTriangle=class(TKraftShapeConvexHull)
        destructor Destroy; override;
        procedure UpdateShapeAABB; override;
        procedure CalculateMassData; override;
-       function GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar; override;
-       function GetLocalSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar; override;
-       function GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3; override;
-       function GetLocalSignedDistanceNormal(const Position:TKraftVector3):TKraftVector3; override;
-       function GetLocalClosestPointTo(const Position:TKraftVector3):TKraftVector3; override;
-       function GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3; override;
-       function GetLocalFeatureSupportVertex(const Index:TKraftInt32):TKraftVector3; override;
-       function GetLocalFeatureSupportIndex(const Direction:TKraftVector3):TKraftInt32; override;
-       function GetCenter(const Transform:TKraftMatrix4x4):TKraftVector3; override;
-       function TestPoint(const p:TKraftVector3):boolean; override;
-       function RayCast(var RayCastData:TKraftRayCastData):boolean; override;
-       function SphereCast(var SphereCastData:TKraftSphereCastData):boolean; override;
+       function GetLocalSignedDistance(const aPosition:TKraftVector3):TKraftScalar; override;
+       function GetLocalSignedDistanceAndDirection(const aPosition:TKraftVector3;out aDirection:TKraftVector3):TKraftScalar; override;
+       function GetLocalSignedDistanceGradient(const aPosition:TKraftVector3):TKraftVector3; override;
+       function GetLocalSignedDistanceNormal(const aPosition:TKraftVector3):TKraftVector3; override;
+       function GetLocalClosestPointTo(const aPosition:TKraftVector3):TKraftVector3; override;
+       function GetLocalFullSupport(const aDirection:TKraftVector3):TKraftVector3; override;
+       function GetLocalFeatureSupportVertex(const aIndex:TKraftInt32):TKraftVector3; override;
+       function GetLocalFeatureSupportIndex(const aDirection:TKraftVector3):TKraftInt32; override;
+       function GetCenter(const aTransform:TKraftMatrix4x4):TKraftVector3; override;
+       function TestPoint(const aPoint:TKraftVector3):boolean; override;
+       function RayCast(var aRayCastData:TKraftRayCastData):boolean; override;
+       function SphereCast(var aSphereCastData:TKraftSphereCastData):boolean; override;
 {$ifdef DebugDraw}
-       procedure Draw(const CameraMatrix:TKraftMatrix4x4); override;
+       procedure Draw(const aCameraMatrix:TKraftMatrix4x4); override;
 {$endif}
      end;
 
@@ -31012,78 +31014,78 @@ begin
  fFeatureRadius:=0.0;
 end;
 
-function TKraftShapeTriangle.GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
+function TKraftShapeTriangle.GetLocalSignedDistance(const aPosition:TKraftVector3):TKraftScalar;
 begin
- result:=(sqrt(SquaredDistanceFromPointToTriangle(Position,
+ result:=(sqrt(SquaredDistanceFromPointToTriangle(aPosition,
                                                   fConvexHull.fVertices[0].Position,
                                                   fConvexHull.fVertices[1].Position,
                                                   fConvexHull.fVertices[2].Position)){-(2.0*Physics.fLinearSlop)})*
-          SignNonZero(PlaneVectorDistance(fConvexHull.fFaces[0].Plane,Position));
+          SignNonZero(PlaneVectorDistance(fConvexHull.fFaces[0].Plane,aPosition));
 end;
 
-function TKraftShapeTriangle.GetLocalSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar;
+function TKraftShapeTriangle.GetLocalSignedDistanceAndDirection(const aPosition:TKraftVector3;out aDirection:TKraftVector3):TKraftScalar;
 var ClosestPoint:TKraftVector3;
     SignDirection:TKraftScalar;
 begin
  if SIMDTriangleClosestPointTo(fConvexHull.fVertices[0].Position,
                                fConvexHull.fVertices[1].Position,
                                fConvexHull.fVertices[2].Position,
-                               Position,
+                               aPosition,
                                ClosestPoint) then begin
-  SignDirection:=SignNonZero(PlaneVectorDistance(fConvexHull.fFaces[0].Plane,Position));
-  Direction:=Vector3ScalarMul(Vector3Sub(Position,ClosestPoint),SignDirection);
-  result:=(Vector3LengthNormalize(Direction){-(2.0*Physics.fLinearSlop)})*SignDirection;
+  SignDirection:=SignNonZero(PlaneVectorDistance(fConvexHull.fFaces[0].Plane,aPosition));
+  aDirection:=Vector3ScalarMul(Vector3Sub(aPosition,ClosestPoint),SignDirection);
+  result:=(Vector3LengthNormalize(aDirection){-(2.0*Physics.fLinearSlop)})*SignDirection;
  end else begin
-  Direction:=Vector3Origin;
+  aDirection:=Vector3Origin;
   result:=MAX_SCALAR;
  end;
 end;
 
-function TKraftShapeTriangle.GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3;
+function TKraftShapeTriangle.GetLocalSignedDistanceGradient(const aPosition:TKraftVector3):TKraftVector3;
 begin
  if SIMDTriangleClosestPointTo(fConvexHull.fVertices[0].Position,
                                fConvexHull.fVertices[1].Position,
                                fConvexHull.fVertices[2].Position,
-                               Position,
+                               aPosition,
                                result) then begin
-  result:=Vector3Norm(Vector3Sub(Position,result));
+  result:=Vector3Norm(Vector3Sub(aPosition,result));
  end else begin
   result:=Vector3(MAX_SCALAR,MAX_SCALAR,MAX_SCALAR);
  end;
 end;
 
-function TKraftShapeTriangle.GetLocalSignedDistanceNormal(const Position:TKraftVector3):TKraftVector3;
+function TKraftShapeTriangle.GetLocalSignedDistanceNormal(const aPosition:TKraftVector3):TKraftVector3;
 begin
  if SIMDTriangleClosestPointTo(fConvexHull.fVertices[0].Position,
                                fConvexHull.fVertices[1].Position,
                                fConvexHull.fVertices[2].Position,
-                               Position,
+                               aPosition,
                                result) then begin
-  result:=Vector3ScalarMul(fConvexHull.fFaces[0].Plane.Normal,SignNonZero(PlaneVectorDistance(fConvexHull.fFaces[0].Plane,Position)));
+  result:=Vector3ScalarMul(fConvexHull.fFaces[0].Plane.Normal,SignNonZero(PlaneVectorDistance(fConvexHull.fFaces[0].Plane,aPosition)));
  end else begin
   result:=Vector3Origin;
  end;
 end;
 
-function TKraftShapeTriangle.GetLocalClosestPointTo(const Position:TKraftVector3):TKraftVector3;
+function TKraftShapeTriangle.GetLocalClosestPointTo(const aPosition:TKraftVector3):TKraftVector3;
 begin
  if not SIMDTriangleClosestPointTo(fConvexHull.fVertices[0].Position,
                                    fConvexHull.fVertices[1].Position,
                                    fConvexHull.fVertices[2].Position,
-                                   Position,
+                                   aPosition,
                                    result) then begin
   result:=Vector3Origin;
  end;
 end;
 
-function TKraftShapeTriangle.GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3;
+function TKraftShapeTriangle.GetLocalFullSupport(const aDirection:TKraftVector3):TKraftVector3;
 var i:TKraftInt32;
     Vertices:PPKraftConvexHullVertices;
     d0,d1,d2:TKraftScalar;
     Normal:TKraftVector3;
 begin
  Vertices:=@fConvexHull.fVertices[0];
- Normal:=Vector3SafeNorm(Direction);
+ Normal:=Vector3SafeNorm(aDirection);
  d0:=Vector3Dot(Normal,Vertices^[0].Position);
  d1:=Vector3Dot(Normal,Vertices^[1].Position);
  d2:=Vector3Dot(Normal,Vertices^[2].Position);
@@ -31103,22 +31105,22 @@ begin
  result:=Vertices^[i].Position;
 end;
 
-function TKraftShapeTriangle.GetLocalFeatureSupportVertex(const Index:TKraftInt32):TKraftVector3;
+function TKraftShapeTriangle.GetLocalFeatureSupportVertex(const aIndex:TKraftInt32):TKraftVector3;
 begin
- if (Index>=0) and (Index<3) then begin
-  result:=fConvexHull.fVertices[Index].Position;
+ if (aIndex>=0) and (aIndex<3) then begin
+  result:=fConvexHull.fVertices[aIndex].Position;
  end else begin
   result:=Vector3Origin;
  end;
 end;
 
-function TKraftShapeTriangle.GetLocalFeatureSupportIndex(const Direction:TKraftVector3):TKraftInt32;
+function TKraftShapeTriangle.GetLocalFeatureSupportIndex(const aDirection:TKraftVector3):TKraftInt32;
 var Vertices:PPKraftConvexHullVertices;
     d0,d1,d2:TKraftScalar;
     Normal:TKraftVector3;
 begin
  Vertices:=@fConvexHull.fVertices[0];
- Normal:=Vector3SafeNorm(Direction);
+ Normal:=Vector3SafeNorm(aDirection);
  d0:=Vector3Dot(Normal,Vertices^[0].Position);
  d1:=Vector3Dot(Normal,Vertices^[1].Position);
  d2:=Vector3Dot(Normal,Vertices^[2].Position);
@@ -31137,39 +31139,39 @@ begin
  end;
 end;
 
-function TKraftShapeTriangle.GetCenter(const Transform:TKraftMatrix4x4):TKraftVector3;
+function TKraftShapeTriangle.GetCenter(const aTransform:TKraftMatrix4x4):TKraftVector3;
 begin
- result:=Vector3TermMatrixMul(fShapeSphere.Center,Transform);
+ result:=Vector3TermMatrixMul(fShapeSphere.Center,aTransform);
 end;
 
-function TKraftShapeTriangle.TestPoint(const p:TKraftVector3):boolean;
+function TKraftShapeTriangle.TestPoint(const aPoint:TKraftVector3):boolean;
 begin
  result:=false;
 end;
 
-function TKraftShapeTriangle.RayCast(var RayCastData:TKraftRayCastData):boolean;
+function TKraftShapeTriangle.RayCast(var aRayCastData:TKraftRayCastData):boolean;
 var Origin,Direction:TKraftVector3;
     Vertices:PPKraftConvexHullVertices;
     Time,u,v,w:TKraftScalar;
 begin
  result:=false;
  if ksfRayCastable in fFlags then begin
-  Origin:=Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform);
-  Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform));
+  Origin:=Vector3TermMatrixMulInverted(aRayCastData.Origin,fWorldTransform);
+  Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(aRayCastData.Direction,fWorldTransform));
   if Vector3LengthSquared(Direction)>EPSILON then begin
    Vertices:=@fConvexHull.fVertices[0];
    if RayIntersectTriangle(Origin,Direction,Vertices^[0].Position,Vertices^[1].Position,Vertices^[2].Position,Time,u,v,w) then begin
-    if (Time>=0.0) and (Time<=RayCastData.MaxTime) then begin
-     RayCastData.TimeOfImpact:=Time;
-     RayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
-     RayCastData.Normal:=Vector3TermMatrixMulBasis(Vector3NormEx(Vector3Cross(Vector3Sub(Vertices^[1].Position,Vertices^[0].Position),Vector3Sub(Vertices^[2].Position,Vertices^[0].Position))),fWorldTransform);
+    if (Time>=0.0) and (Time<=aRayCastData.MaxTime) then begin
+     aRayCastData.TimeOfImpact:=Time;
+     aRayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
+     aRayCastData.Normal:=Vector3TermMatrixMulBasis(Vector3NormEx(Vector3Cross(Vector3Sub(Vertices^[1].Position,Vertices^[0].Position),Vector3Sub(Vertices^[2].Position,Vertices^[0].Position))),fWorldTransform);
      result:=true;
     end;
    end else if RayIntersectTriangle(Origin,Direction,Vertices^[2].Position,Vertices^[1].Position,Vertices^[0].Position,Time,u,v,w) then begin
-    if (Time>=0.0) and (Time<=RayCastData.MaxTime) then begin
-     RayCastData.TimeOfImpact:=Time;
-     RayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
-     RayCastData.Normal:=Vector3TermMatrixMulBasis(Vector3NormEx(Vector3Cross(Vector3Sub(Vertices^[1].Position,Vertices^[2].Position),Vector3Sub(Vertices^[0].Position,Vertices^[2].Position))),fWorldTransform);
+    if (Time>=0.0) and (Time<=aRayCastData.MaxTime) then begin
+     aRayCastData.TimeOfImpact:=Time;
+     aRayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
+     aRayCastData.Normal:=Vector3TermMatrixMulBasis(Vector3NormEx(Vector3Cross(Vector3Sub(Vertices^[1].Position,Vertices^[2].Position),Vector3Sub(Vertices^[0].Position,Vertices^[2].Position))),fWorldTransform);
      result:=true;
     end;
    end;
@@ -31177,19 +31179,19 @@ begin
  end;
 end;
 
-function TKraftShapeTriangle.SphereCast(var SphereCastData:TKraftSphereCastData):boolean;
+function TKraftShapeTriangle.SphereCast(var aSphereCastData:TKraftSphereCastData):boolean;
 var Origin,Direction,Normal:TKraftVector3;
     Vertices:PPKraftConvexHullVertices;
     Time:TKraftScalar;
 begin
  result:=false;
  if ksfSphereCastable in fFlags then begin
-  Origin:=Vector3TermMatrixMulInverted(SphereCastData.Origin,fWorldTransform);
-  Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,fWorldTransform));
+  Origin:=Vector3TermMatrixMulInverted(aSphereCastData.Origin,fWorldTransform);
+  Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(aSphereCastData.Direction,fWorldTransform));
   if Vector3LengthSquared(Direction)>EPSILON then begin
    Vertices:=@fConvexHull.fVertices[0];
    if SphereCastTriangle(Origin,
-                         SphereCastData.Radius,
+                         aSphereCastData.Radius,
                          Direction,
                          Vertices^[0].Position,
                          Vertices^[1].Position,
@@ -31198,14 +31200,14 @@ begin
                          true,
                          Normal,
                          Time) then begin
-    if (Time>=0.0) and (Time<=SphereCastData.MaxTime) then begin
-     SphereCastData.TimeOfImpact:=Time;
-     SphereCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
-     SphereCastData.Normal:=Vector3TermMatrixMulBasis(Normal,fWorldTransform);
+    if (Time>=0.0) and (Time<=aSphereCastData.MaxTime) then begin
+     aSphereCastData.TimeOfImpact:=Time;
+     aSphereCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
+     aSphereCastData.Normal:=Vector3TermMatrixMulBasis(Normal,fWorldTransform);
      if Vector3Dot(fShapeConvexHull.fFaces[0].Plane.Normal,Direction)>=0 then begin
-      SphereCastData.SurfaceNormal:=Vector3TermMatrixMulBasis(Vector3Neg(fShapeConvexHull.fFaces[0].Plane.Normal),fWorldTransform);
+      aSphereCastData.SurfaceNormal:=Vector3TermMatrixMulBasis(Vector3Neg(fShapeConvexHull.fFaces[0].Plane.Normal),fWorldTransform);
      end else begin
-      SphereCastData.SurfaceNormal:=Vector3TermMatrixMulBasis(fShapeConvexHull.fFaces[0].Plane.Normal,fWorldTransform);
+      aSphereCastData.SurfaceNormal:=Vector3TermMatrixMulBasis(fShapeConvexHull.fFaces[0].Plane.Normal,fWorldTransform);
      end;
      result:=true;
     end;
@@ -31215,7 +31217,7 @@ begin
 end;
 
 {$ifdef DebugDraw}
-procedure TKraftShapeTriangle.Draw(const CameraMatrix:TKraftMatrix4x4);
+procedure TKraftShapeTriangle.Draw(const aCameraMatrix:TKraftMatrix4x4);
 {$ifdef NoOpenGL}
 begin
 end;
@@ -31227,7 +31229,7 @@ begin
 
  glPushMatrix;
  glMatrixMode(GL_MODELVIEW);
- ModelViewMatrix:=Matrix4x4TermMul(fInterpolatedWorldTransform,CameraMatrix);
+ ModelViewMatrix:=Matrix4x4TermMul(fInterpolatedWorldTransform,aCameraMatrix);
 {$ifdef KraftUseDouble}
  glLoadMatrixd(pointer(@ModelViewMatrix));
 {$else}
