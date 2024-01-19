@@ -1,12 +1,12 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2023-12-29-19-23-0000                       *
+ *                        Version 2024-01-19-02-48-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
  *                                                                            *
- * Copyright (c) 2015-2023, Benjamin Rosseaux (benjamin@rosseaux.de)          *
+ * Copyright (c) 2015-2024, Benjamin Rosseaux (benjamin@rosseaux.de)          *
  *                                                                            *
  * This software is provided 'as-is', without any express or implied          *
  * warranty. In no event will the authors be held liable for any damages      *
@@ -533,28 +533,30 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>=class
       public
-       const CELL_EMPTY=-1;
-             CELL_DELETED=-2;
-             ENT_EMPTY=-1;
-             ENT_DELETED=-2;
-       type PpvHashMapEntity=^TKraftHashMapEntity;
-            TKraftHashMapEntity=record
-             Key:TKraftHashMapKey;
-             Value:TKraftHashMapValue;
+       type TEntity=record
+             public
+              const Empty=0;
+                    Used=1;
+                    Deleted=2;
+             public
+              State:TKraftUInt32;
+              Key:TKraftHashMapKey;
+              Value:TKraftHashMapValue;
             end;
-            TKraftHashMapEntities=array of TKraftHashMapEntity;
+            PEntity=^TEntity;
+            TEntities=array of TEntity;
       private
-       type TKraftHashMapEntityEnumerator=record
+       type TEntityEnumerator=record
              private
               fHashMap:TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>;
               fIndex:TKraftSizeInt;
-              function GetCurrent:TKraftHashMapEntity; inline;
+              function GetCurrent:TEntity; inline;
              public
               constructor Create(const aHashMap:TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>);
               function MoveNext:boolean; inline;
-              property Current:TKraftHashMapEntity read GetCurrent;
+              property Current:TEntity read GetCurrent;
             end;
-            TKraftHashMapKeyEnumerator=record
+            TKeyEnumerator=record
              private
               fHashMap:TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>;
               fIndex:TKraftSizeInt;
@@ -564,7 +566,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
               function MoveNext:boolean; inline;
               property Current:TKraftHashMapKey read GetCurrent;
             end;
-            TKraftHashMapValueEnumerator=record
+            TValueEnumerator=record
              private
               fHashMap:TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>;
               fIndex:TKraftSizeInt;
@@ -574,46 +576,44 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
               function MoveNext:boolean; inline;
               property Current:TKraftHashMapValue read GetCurrent;
             end;
-            TKraftHashMapEntitiesObject=class
+            TEntitiesObject=class
              private
               fOwner:TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>;
              public
               constructor Create(const aOwner:TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>);
-              function GetEnumerator:TKraftHashMapEntityEnumerator;
+              function GetEnumerator:TEntityEnumerator;
             end;
-            TKraftHashMapKeysObject=class
+            TKeysObject=class
              private
               fOwner:TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>;
              public
               constructor Create(const aOwner:TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>);
-              function GetEnumerator:TKraftHashMapKeyEnumerator;
+              function GetEnumerator:TKeyEnumerator;
             end;
-            TKraftHashMapValuesObject=class
+            TValuesObject=class
              private
               fOwner:TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>;
               function GetValue(const Key:TKraftHashMapKey):TKraftHashMapValue; inline;
               procedure SetValue(const Key:TKraftHashMapKey;const aValue:TKraftHashMapValue); inline;
              public
               constructor Create(const aOwner:TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>);
-              function GetEnumerator:TKraftHashMapValueEnumerator;
+              function GetEnumerator:TValueEnumerator;
               property Values[const Key:TKraftHashMapKey]:TKraftHashMapValue read GetValue write SetValue; default;
             end;
       private
-       fRealSize:TKraftInt32;
-       fLogSize:TKraftInt32;
-       fSize:TKraftInt32;
-       fEntities:TKraftHashMapEntities;
-       fEntityToCellIndex:TKraftHashMapEntityIndices;
-       fCellToEntityIndex:TKraftHashMapEntityIndices;
+       fSize:TKraftSizeUInt;
+       fLogSize:TKraftSizeUInt;
+       fCountNonEmptyEntites:TKraftSizeUInt;
+       fEntities:TEntities;
        fDefaultValue:TKraftHashMapValue;
        fCanShrink:boolean;
-       fEntitiesObject:TKraftHashMapEntitiesObject;
-       fKeysObject:TKraftHashMapKeysObject;
-       fValuesObject:TKraftHashMapValuesObject;
+       fEntitiesObject:TEntitiesObject;
+       fKeysObject:TKeysObject;
+       fValuesObject:TValuesObject;
        function HashData(const Data:Pointer;const DataLength:TKraftUInt32):TKraftUInt32;
        function HashKey(const Key:TKraftHashMapKey):TKraftUInt32;
        function CompareKey(const KeyA,KeyB:TKraftHashMapKey):boolean;
-       function FindCell(const Key:TKraftHashMapKey):TKraftUInt32;
+       function FindEntity(const Key:TKraftHashMapKey):PEntity;
        procedure Resize;
       protected
        function GetValue(const Key:TKraftHashMapKey):TKraftHashMapValue;
@@ -622,15 +622,15 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        constructor Create(const DefaultValue:TKraftHashMapValue);
        destructor Destroy; override;
        procedure Clear;
-       function Add(const Key:TKraftHashMapKey;const Value:TKraftHashMapValue):PpvHashMapEntity;
-       function Get(const Key:TKraftHashMapKey;const CreateIfNotExist:boolean=false):PpvHashMapEntity;
+       function Add(const Key:TKraftHashMapKey;const Value:TKraftHashMapValue):PEntity;
+       function Get(const Key:TKraftHashMapKey;const CreateIfNotExist:boolean=false):PEntity;
        function TryGet(const Key:TKraftHashMapKey;out Value:TKraftHashMapValue):boolean;
        function ExistKey(const Key:TKraftHashMapKey):boolean;
        function Delete(const Key:TKraftHashMapKey):boolean;
        property EntityValues[const Key:TKraftHashMapKey]:TKraftHashMapValue read GetValue write SetValue; default;
-       property Entities:TKraftHashMapEntitiesObject read fEntitiesObject;
-       property Keys:TKraftHashMapKeysObject read fKeysObject;
-       property Values:TKraftHashMapValuesObject read fValuesObject;
+       property Entities:TEntitiesObject read fEntitiesObject;
+       property Keys:TKeysObject read fKeysObject;
+       property Values:TValuesObject read fValuesObject;
        property CanShrink:boolean read fCanShrink write fCanShrink;
      end;
 
@@ -4692,6 +4692,9 @@ function InertiaTensorParallelAxisTheorem({$ifdef USE_CONSTREF_EX}constref{$else
 
 procedure LinearStiffness(out aStiffness,aDamping:TKraftScalar;const aFrequencyHz,aDampingRatio:TKraftScalar;const aRigidBodyA,aRigidBodyB:TKraftRigidBody);
 procedure AngularStiffness(out aStiffness,aDamping:TKraftScalar;const aFrequencyHz,aDampingRatio:TKraftScalar;const aRigidBodyA,aRigidBodyB:TKraftRigidBody);
+
+function IntLog2(x:TKraftUInt32):TKraftUInt32; {$if defined(fpc)}{$ifdef CAN_INLINE}inline;{$endif}{$endif}
+function IntLog264(x:TKraftUInt64):TKraftUInt64; {$if defined(fpc)}{$ifdef CAN_INLINE}inline;{$endif}{$endif}
 
 implementation
 
@@ -12490,6 +12493,106 @@ begin
  aDamping:=2.0*Inertia*aDampingRatio*Omega;
 end;
 
+function IntLog2(x:TKraftUInt32):TKraftUInt32; {$if defined(fpc)}{$ifdef CAN_INLINE}inline;{$endif}
+begin
+ if x<>0 then begin
+  result:=BSRDWord(x);
+ end else begin
+  result:=0;
+ end;
+end;
+{$elseif defined(cpu386)}
+asm
+ test eax,eax
+ jz @Done
+ bsr eax,eax
+ @Done:
+end;
+{$elseif defined(cpux86_64)}
+asm
+{$ifndef fpc}
+ .noframe
+{$endif}
+{$ifdef Windows}
+ bsr eax,ecx
+{$else}
+ bsr eax,edi
+{$endif}
+ jnz @Done
+ xor eax,eax
+@Done:
+end;
+{$else}
+begin
+ x:=x or (x shr 1);
+ x:=x or (x shr 2);
+ x:=x or (x shr 4);
+ x:=x or (x shr 8);
+ x:=x or (x shr 16);
+ x:=x shr 1;
+ dec(x,(x shr 1) and $55555555);
+ x:=((x shr 2) and $33333333)+(x and $33333333);
+ x:=((x shr 4)+x) and $0f0f0f0f;
+ inc(x,x shr 8);
+ inc(x,x shr 16);
+ result:=x and $3f;
+end;
+{$ifend}
+
+function IntLog264(x:TKraftUInt64):TKraftUInt64; {$if defined(fpc)}{$ifdef CAN_INLINE}inline;{$endif}
+begin
+ if x<>0 then begin
+  result:=BSRQWord(x);
+ end else begin
+  result:=0;
+ end;
+end;
+{$elseif defined(cpu386)}
+asm
+ bsr eax,dword ptr [x+4]
+ jz @LowPart
+ add eax,32
+ jmp @Done
+@LowPart:
+ xor ecx,ecx
+ bsr eax,dword ptr [x+0]
+ jnz @Done
+ xor eax,eax
+@Done:
+end;
+{$elseif defined(cpux86_64)}
+asm
+{$ifndef fpc}
+ .NOFRAME
+{$endif}
+{$ifdef Windows}
+ bsr rax,rcx
+{$else}
+ bsr rax,rdi
+{$endif}
+ jnz @Done
+ xor eax,eax
+@Done:
+end;
+{$else}
+begin
+ x:=x or (x shr 1);
+ x:=x or (x shr 2);
+ x:=x or (x shr 4);
+ x:=x or (x shr 8);
+ x:=x or (x shr 16);
+ x:=x or (x shr 32);
+ x:=x shr 1;
+ dec(x,(x shr 1) and $5555555555555555);
+ x:=((x shr 2) and $3333333333333333)+(x and $3333333333333333);
+ x:=((x shr 4)+x) and $0f0f0f0f0f0f0f0f;
+ inc(x,x shr 8);
+ inc(x,x shr 16);
+ inc(x,x shr 32);
+ result:=x and $7f;
+end;
+{$ifend}
+
 { TKraftStack<T> }
 
 constructor TKraftStack<T>.Create;
@@ -12672,23 +12775,23 @@ begin
  end;
 end;
 
-constructor TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TKraftHashMapEntityEnumerator.Create(const aHashMap:TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>);
+constructor TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TEntityEnumerator.Create(const aHashMap:TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>);
 begin
  fHashMap:=aHashMap;
  fIndex:=-1;
 end;
 
-function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TKraftHashMapEntityEnumerator.GetCurrent:TKraftHashMapEntity;
+function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TEntityEnumerator.GetCurrent:TEntity;
 begin
  result:=fHashMap.fEntities[fIndex];
 end;
 
-function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TKraftHashMapEntityEnumerator.MoveNext:boolean;
+function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TEntityEnumerator.MoveNext:boolean;
 begin
  repeat
   inc(fIndex);
   if fIndex<fHashMap.fSize then begin
-   if (fHashMap.fEntityToCellIndex[fIndex]>=0) and (fHashMap.fCellToEntityIndex[fHashMap.fEntityToCellIndex[fIndex]]>=0) then begin
+   if fHashMap.fEntities[fIndex].State=TEntity.Used then begin
     result:=true;
     exit;
    end;
@@ -12699,23 +12802,23 @@ begin
  result:=false;
 end;
 
-constructor TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TKraftHashMapKeyEnumerator.Create(const aHashMap:TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>);
+constructor TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TKeyEnumerator.Create(const aHashMap:TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>);
 begin
  fHashMap:=aHashMap;
  fIndex:=-1;
 end;
 
-function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TKraftHashMapKeyEnumerator.GetCurrent:TKraftHashMapKey;
+function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TKeyEnumerator.GetCurrent:TKraftHashMapKey;
 begin
  result:=fHashMap.fEntities[fIndex].Key;
 end;
 
-function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TKraftHashMapKeyEnumerator.MoveNext:boolean;
+function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TKeyEnumerator.MoveNext:boolean;
 begin
  repeat
   inc(fIndex);
   if fIndex<fHashMap.fSize then begin
-   if (fHashMap.fEntityToCellIndex[fIndex]>=0) and (fHashMap.fCellToEntityIndex[fHashMap.fEntityToCellIndex[fIndex]]>=0) then begin
+   if fHashMap.fEntities[fIndex].State=TEntity.Used then begin
     result:=true;
     exit;
    end;
@@ -12726,23 +12829,23 @@ begin
  result:=false;
 end;
 
-constructor TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TKraftHashMapValueEnumerator.Create(const aHashMap:TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>);
+constructor TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TValueEnumerator.Create(const aHashMap:TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>);
 begin
  fHashMap:=aHashMap;
  fIndex:=-1;
 end;
 
-function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TKraftHashMapValueEnumerator.GetCurrent:TKraftHashMapValue;
+function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TValueEnumerator.GetCurrent:TKraftHashMapValue;
 begin
  result:=fHashMap.fEntities[fIndex].Value;
 end;
 
-function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TKraftHashMapValueEnumerator.MoveNext:boolean;
+function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TValueEnumerator.MoveNext:boolean;
 begin
  repeat
   inc(fIndex);
   if fIndex<fHashMap.fSize then begin
-   if (fHashMap.fEntityToCellIndex[fIndex]>=0) and (fHashMap.fCellToEntityIndex[fHashMap.fEntityToCellIndex[fIndex]]>=0) then begin
+   if fHashMap.fEntities[fIndex].State=TEntity.Used then begin
     result:=true;
     exit;
    end;
@@ -12753,45 +12856,45 @@ begin
  result:=false;
 end;
 
-constructor TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TKraftHashMapEntitiesObject.Create(const aOwner:TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>);
+constructor TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TEntitiesObject.Create(const aOwner:TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>);
 begin
  inherited Create;
  fOwner:=aOwner;
 end;
 
-function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TKraftHashMapEntitiesObject.GetEnumerator:TKraftHashMapEntityEnumerator;
+function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TEntitiesObject.GetEnumerator:TEntityEnumerator;
 begin
- result:=TKraftHashMapEntityEnumerator.Create(fOwner);
+ result:=TEntityEnumerator.Create(fOwner);
 end;
 
-constructor TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TKraftHashMapKeysObject.Create(const aOwner:TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>);
-begin
- inherited Create;
- fOwner:=aOwner;
-end;
-
-function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TKraftHashMapKeysObject.GetEnumerator:TKraftHashMapKeyEnumerator;
-begin
- result:=TKraftHashMapKeyEnumerator.Create(fOwner);
-end;
-
-constructor TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TKraftHashMapValuesObject.Create(const aOwner:TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>);
+constructor TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TKeysObject.Create(const aOwner:TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>);
 begin
  inherited Create;
  fOwner:=aOwner;
 end;
 
-function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TKraftHashMapValuesObject.GetEnumerator:TKraftHashMapValueEnumerator;
+function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TKeysObject.GetEnumerator:TKeyEnumerator;
 begin
- result:=TKraftHashMapValueEnumerator.Create(fOwner);
+ result:=TKeyEnumerator.Create(fOwner);
 end;
 
-function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TKraftHashMapValuesObject.GetValue(const Key:TKraftHashMapKey):TKraftHashMapValue;
+constructor TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TValuesObject.Create(const aOwner:TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>);
+begin
+ inherited Create;
+ fOwner:=aOwner;
+end;
+
+function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TValuesObject.GetEnumerator:TValueEnumerator;
+begin
+ result:=TValueEnumerator.Create(fOwner);
+end;
+
+function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TValuesObject.GetValue(const Key:TKraftHashMapKey):TKraftHashMapValue;
 begin
  result:=fOwner.GetValue(Key);
 end;
 
-procedure TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TKraftHashMapValuesObject.SetValue(const Key:TKraftHashMapKey;const aValue:TKraftHashMapValue);
+procedure TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TValuesObject.SetValue(const Key:TKraftHashMapKey;const aValue:TKraftHashMapValue);
 begin
  fOwner.SetValue(Key,aValue);
 end;
@@ -12799,31 +12902,27 @@ end;
 constructor TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.Create(const DefaultValue:TKraftHashMapValue);
 begin
  inherited Create;
- fRealSize:=0;
- fLogSize:=0;
  fSize:=0;
+ fLogSize:=0;
+ fCountNonEmptyEntites:=0;
  fEntities:=nil;
- fEntityToCellIndex:=nil;
- fCellToEntityIndex:=nil;
  fDefaultValue:=DefaultValue;
  fCanShrink:=true;
- fEntitiesObject:=TKraftHashMapEntitiesObject.Create(self);
- fKeysObject:=TKraftHashMapKeysObject.Create(self);
- fValuesObject:=TKraftHashMapValuesObject.Create(self);
+ fEntitiesObject:=TEntitiesObject.Create(self);
+ fKeysObject:=TKeysObject.Create(self);
+ fValuesObject:=TValuesObject.Create(self);
  Resize;
 end;
 
 destructor TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.Destroy;
-var Counter:TKraftInt32;
+var Index:TKraftSizeInt;
 begin
  Clear;
- for Counter:=0 to length(fEntities)-1 do begin
-  Finalize(fEntities[Counter].Key);
-  Finalize(fEntities[Counter].Value);
+ for Index:=0 to length(fEntities)-1 do begin
+  Finalize(fEntities[Index].Key);
+  Finalize(fEntities[Index].Value);
  end;
- SetLength(fEntities,0);
- SetLength(fEntityToCellIndex,0);
- SetLength(fCellToEntityIndex,0);
+ fEntities:=nil;
  FreeAndNil(fEntitiesObject);
  FreeAndNil(fKeysObject);
  FreeAndNil(fValuesObject);
@@ -12831,26 +12930,21 @@ begin
 end;
 
 procedure TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.Clear;
-var Counter:TKraftInt32;
+var Index:TKraftSizeInt;
 begin
- for Counter:=0 to length(fEntities)-1 do begin
-  Finalize(fEntities[Counter].Key);
-  Finalize(fEntities[Counter].Value);
+ for Index:=0 to length(fEntities)-1 do begin
+  Finalize(fEntities[Index].Key);
+  Finalize(fEntities[Index].Value);
  end;
  if fCanShrink then begin
-  fRealSize:=0;
-  fLogSize:=0;
   fSize:=0;
-  SetLength(fEntities,0);
-  SetLength(fEntityToCellIndex,0);
-  SetLength(fCellToEntityIndex,0);
+  fLogSize:=0;
+  fCountNonEmptyEntites:=0;
+  fEntities:=nil;
   Resize;
  end else begin
-  for Counter:=0 to length(fCellToEntityIndex)-1 do begin
-   fCellToEntityIndex[Counter]:=ENT_EMPTY;
-  end;
-  for Counter:=0 to length(fEntityToCellIndex)-1 do begin
-   fEntityToCellIndex[Counter]:=CELL_EMPTY;
+  for Index:=0 to length(fEntities)-1 do begin
+   fEntities[Index].State:=TEntity.Empty;
   end;
  end;
 end;
@@ -13113,129 +13207,99 @@ begin
  end;
 end;
 
-function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.FindCell(const Key:TKraftHashMapKey):TKraftUInt32;
-var HashCode,Mask,Step:TKraftUInt32;
-    Entity:TKraftInt32;
+function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.FindEntity(const Key:TKraftHashMapKey):PEntity;
+var Index,HashCode,Mask,Step:TKraftSizeUInt;
 begin
  HashCode:=HashKey(Key);
  Mask:=(2 shl fLogSize)-1;
  Step:=((HashCode shl 1)+1) and Mask;
- if fLogSize<>0 then begin
-  result:=HashCode shr (32-fLogSize);
- end else begin
-  result:=0;
- end;
+ Index:=HashCode shr (32-fLogSize);
  repeat
-  Entity:=fCellToEntityIndex[result];
-  if (Entity=ENT_EMPTY) or ((Entity<>ENT_DELETED) and CompareKey(fEntities[Entity].Key,Key)) then begin
+  result:=@fEntities[Index];
+  if (result^.State=TEntity.Empty) or ((result^.State=TEntity.Used) and CompareKey(result^.Key,Key)) then begin
    exit;
   end;
-  result:=(result+Step) and Mask;
+  Index:=(Index+Step) and Mask;
  until false;
 end;
 
 procedure TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.Resize;
-var NewLogSize,NewSize,Cell,Entity,Counter:TKraftInt32;
-    OldEntities:TKraftHashMapEntities;
-    OldCellToEntityIndex:TKraftHashMapEntityIndices;
-    OldEntityToCellIndex:TKraftHashMapEntityIndices;
+var Index:TKraftSizeInt;
+    OldEntities:TEntities;
+    OldEntity:PEntity;
 begin
- NewLogSize:=0;
- NewSize:=fRealSize;
- while NewSize<>0 do begin
-  NewSize:=NewSize shr 1;
-  inc(NewLogSize);
- end;
- if NewLogSize<1 then begin
-  NewLogSize:=1;
- end;
- fSize:=0;
- fRealSize:=0;
- fLogSize:=NewLogSize;
+
+ fLogSize:={$ifdef cpu64}IntLog264{$else}IntLog2{$endif}(fCountNonEmptyEntites)+1;
+
+ fSize:=2 shl fLogSize;
+
+ fCountNonEmptyEntites:=0;
+
  OldEntities:=fEntities;
- OldCellToEntityIndex:=fCellToEntityIndex;
- OldEntityToCellIndex:=fEntityToCellIndex;
+
  fEntities:=nil;
- fCellToEntityIndex:=nil;
- fEntityToCellIndex:=nil;
- SetLength(fEntities,2 shl fLogSize);
- SetLength(fCellToEntityIndex,2 shl fLogSize);
- SetLength(fEntityToCellIndex,2 shl fLogSize);
- for Counter:=0 to length(fCellToEntityIndex)-1 do begin
-  fCellToEntityIndex[Counter]:=ENT_EMPTY;
+ SetLength(fEntities,fSize);
+
+ for Index:=0 to length(fEntities)-1 do begin
+  fEntities[Index].State:=TEntity.Empty;
  end;
- for Counter:=0 to length(fEntityToCellIndex)-1 do begin
-  fEntityToCellIndex[Counter]:=CELL_EMPTY;
- end;
- for Counter:=0 to length(OldEntityToCellIndex)-1 do begin
-  Cell:=OldEntityToCellIndex[Counter];
-  if Cell>=0 then begin
-   Entity:=OldCellToEntityIndex[Cell];
-   if Entity>=0 then begin
-    Add(OldEntities[Counter].Key,OldEntities[Counter].Value);
+
+ if length(OldEntities)>0 then begin
+  try
+   for Index:=0 to length(OldEntities)-1 do begin
+    OldEntity:=@OldEntities[Index];
+    if OldEntity^.State=TEntity.Used then begin
+     Add(OldEntity^.Key,OldEntity^.Value);
+    end;
+{   Finalize(OldEntity^.Key);
+    Finalize(OldEntity^.Value);}
    end;
+  finally
+   OldEntities:=nil;
   end;
  end;
- for Counter:=0 to length(OldEntities)-1 do begin
-  Finalize(OldEntities[Counter].Key);
-  Finalize(OldEntities[Counter].Value);
- end;
- SetLength(OldEntities,0);
- SetLength(OldCellToEntityIndex,0);
- SetLength(OldEntityToCellIndex,0);
+
 end;
 
-function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.Add(const Key:TKraftHashMapKey;const Value:TKraftHashMapValue):PpvHashMapEntity;
-var Entity:TKraftInt32;
-    Cell:TKraftUInt32;
+function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.Add(const Key:TKraftHashMapKey;const Value:TKraftHashMapValue):PEntity;
 begin
- result:=nil;
- while fRealSize>=(1 shl fLogSize) do begin
+ while fCountNonEmptyEntites>=(1 shl fLogSize) do begin
   Resize;
  end;
- Cell:=FindCell(Key);
- Entity:=fCellToEntityIndex[Cell];
- if Entity>=0 then begin
-  result:=@fEntities[Entity];
-  result^.Key:=Key;
-  result^.Value:=Value;
-  exit;
+ result:=FindEntity(Key);
+ if result^.State=TEntity.Empty then begin
+  inc(fCountNonEmptyEntites);
  end;
- Entity:=fSize;
- inc(fSize);
- if Entity<(2 shl fLogSize) then begin
-  fCellToEntityIndex[Cell]:=Entity;
-  fEntityToCellIndex[Entity]:=Cell;
-  inc(fRealSize);
-  result:=@fEntities[Entity];
-  result^.Key:=Key;
-  result^.Value:=Value;
- end;
+ result^.State:=TEntity.Used;
+ result^.Key:=Key;
+ result^.Value:=Value;
 end;
 
-function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.Get(const Key:TKraftHashMapKey;const CreateIfNotExist:boolean=false):PpvHashMapEntity;
-var Entity:TKraftInt32;
-    Cell:TKraftUInt32;
-    Value:TKraftHashMapValue;
+function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.Get(const Key:TKraftHashMapKey;const CreateIfNotExist:boolean=false):PEntity;
+var Value:TKraftHashMapValue;
 begin
- result:=nil;
- Cell:=FindCell(Key);
- Entity:=fCellToEntityIndex[Cell];
- if Entity>=0 then begin
-  result:=@fEntities[Entity];
- end else if CreateIfNotExist then begin
-  Initialize(Value);
-  result:=Add(Key,Value);
+ result:=FindEntity(Key);
+ case result^.State of
+  TEntity.Used:begin
+  end;
+  else {TEntity.Empty,TEntity.Deleted:}begin
+   if CreateIfNotExist then begin
+    Initialize(Value);
+    result:=Add(Key,Value);
+   end else begin
+    result:=nil;
+   end;
+  end
  end;
 end;
 
 function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TryGet(const Key:TKraftHashMapKey;out Value:TKraftHashMapValue):boolean;
-var Entity:TKraftInt32;
+var Entity:PEntity;
 begin
- Entity:=fCellToEntityIndex[FindCell(Key)];
- result:=Entity>=0;
+ Entity:=FindEntity(Key);
+ result:=Entity^.State=TEntity.Used;
  if result then begin
-  Value:=fEntities[Entity].Value;
+  Value:=Entity^.Value;
  end else begin
   Initialize(Value);
  end;
@@ -13243,33 +13307,27 @@ end;
 
 function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.ExistKey(const Key:TKraftHashMapKey):boolean;
 begin
- result:=fCellToEntityIndex[FindCell(Key)]>=0;
+ result:=FindEntity(Key)^.State=TEntity.Used;
 end;
 
 function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.Delete(const Key:TKraftHashMapKey):boolean;
-var Entity:TKraftInt32;
-    Cell:TKraftUInt32;
+var Entity:PEntity;
 begin
- result:=false;
- Cell:=FindCell(Key);
- Entity:=fCellToEntityIndex[Cell];
- if Entity>=0 then begin
-  Finalize(fEntities[Entity].Key);
-  Finalize(fEntities[Entity].Value);
-  fEntityToCellIndex[Entity]:=CELL_DELETED;
-  fCellToEntityIndex[Cell]:=ENT_DELETED;
-  result:=true;
+ Entity:=FindEntity(Key);
+ result:=Entity^.State=TEntity.Used;
+ if result then begin
+  Entity^.State:=TEntity.Deleted;
+  Finalize(Entity^.Key);
+  Finalize(Entity^.Value);
  end;
 end;
 
 function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.GetValue(const Key:TKraftHashMapKey):TKraftHashMapValue;
-var Entity:TKraftInt32;
-    Cell:TKraftUInt32;
+var Entity:PEntity;
 begin
- Cell:=FindCell(Key);
- Entity:=fCellToEntityIndex[Cell];
- if Entity>=0 then begin
-  result:=fEntities[Entity].Value;
+ Entity:=FindEntity(Key);
+ if Entity^.State=TEntity.Used then begin
+  result:=Entity^.Value;
  end else begin
   result:=fDefaultValue;
  end;
@@ -14219,52 +14277,6 @@ begin
 end;
 
 type TSortCompareFunction=function(const a,b:pointer):TKraftInt32;
-
-function IntLog2(x:TKraftUInt32):TKraftUInt32; {$if defined(fpc)}{$ifdef CAN_INLINE}inline;{$endif}
-begin
- if x<>0 then begin
-  result:=BSRWord(x);
- end else begin
-  result:=0;
- end;
-end;
-{$elseif defined(cpu386)}
-asm
- test eax,eax
- jz @Done
- bsr eax,eax
- @Done:
-end;
-{$elseif defined(cpux86_64)}
-asm
-{$ifndef fpc}
- .noframe
-{$endif}
-{$ifdef Windows}
- bsr eax,ecx
-{$else}
- bsr eax,edi
-{$endif}
- jnz @Done
- xor eax,eax
-@Done:
-end;
-{$else}
-begin
- x:=x or (x shr 1);
- x:=x or (x shr 2);
- x:=x or (x shr 4);
- x:=x or (x shr 8);
- x:=x or (x shr 16);
- x:=x shr 1;
- dec(x,(x shr 1) and $55555555);
- x:=((x shr 2) and $33333333)+(x and $33333333);
- x:=((x shr 4)+x) and $0f0f0f0f;
- inc(x,x shr 8);
- inc(x,x shr 16);
- result:=x and $3f;
-end;
-{$ifend}
 
 procedure MemorySwap(a,b:pointer;Size:TKraftInt32);
 var Temp:TKraftInt32;
