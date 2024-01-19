@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2024-01-20-00-25-0000                       *
+ *                        Version 2024-01-20-00-54-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -535,9 +535,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
       public
        type TEntity=record
              public
-              const Empty=1 shl 0;
-                    Deleted=1 shl 1;
-                    Used=1 shl 2;
+              const Empty=0;
+                    Deleted=1;
+                    Used=2;
              public
               State:TKraftUInt32;
               Key:TKraftHashMapKey;
@@ -613,7 +613,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        function HashData(const aData:Pointer;const aDataLength:TKraftUInt32):TKraftUInt32;
        function HashKey(const aKey:TKraftHashMapKey):TKraftUInt32;
        function CompareKey(const aKeyA,aKeyB:TKraftHashMapKey):boolean;
-       function FindEntity(const aKey:TKraftHashMapKey;const aTerminateStateMask:TKraftUInt32):PEntity;
+       function FindEntity(const aKey:TKraftHashMapKey):PEntity;
+       function FindEntityForAdd(const aKey:TKraftHashMapKey):PEntity;
        procedure Resize;
       protected
        function GetValue(const aKey:TKraftHashMapKey):TKraftHashMapValue;
@@ -13209,7 +13210,7 @@ begin
  end;
 end;
 
-function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.FindEntity(const aKey:TKraftHashMapKey;const aTerminateStateMask:TKraftUInt32):PEntity;
+function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.FindEntity(const aKey:TKraftHashMapKey):PEntity;
 var Index,HashCode,Mask,Step:TKraftSizeUInt;
 begin
  HashCode:=HashKey(aKey);
@@ -13218,11 +13219,56 @@ begin
  Index:=HashCode shr (32-fLogSize);
  repeat
   result:=@fEntities[Index];
-  if ((result^.State and aTerminateStateMask)<>0) or ((result^.State=TEntity.Used) and CompareKey(result^.Key,aKey)) then begin
+  if (result^.State=TEntity.Empty) or ((result^.State=TEntity.Used) and CompareKey(result^.Key,aKey)) then begin
    exit;
   end;
   Index:=(Index+Step) and Mask;
  until false;
+end;
+
+function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.FindEntityForAdd(const aKey:TKraftHashMapKey):PEntity;
+var Index,HashCode,Mask,Step:TKraftSizeUInt;
+    SawDeleted:Boolean;
+begin
+ HashCode:=HashKey(aKey);
+ Mask:=(2 shl fLogSize)-1;
+ Step:=((HashCode shl 1)+1) and Mask;
+ Index:=HashCode shr (32-fLogSize);
+ SawDeleted:=false;
+ repeat
+  result:=@fEntities[Index];
+  case result^.State of
+   TEntity.Empty:begin
+    break;
+   end;
+   TEntity.Deleted:begin
+    SawDeleted:=true;
+   end;
+   else {TEntity.Used:}begin
+    if CompareKey(result^.Key,aKey) then begin
+     exit;
+    end;
+   end;
+  end;
+  Index:=(Index+Step) and Mask;
+ until false;
+ if SawDeleted then begin
+  Index:=HashCode shr (32-fLogSize);
+  repeat
+   result:=@fEntities[Index];
+   case result^.State of
+    TEntity.Empty,TEntity.Deleted:begin
+     break;
+    end;
+    else {TEntity.Used:}begin
+     if CompareKey(result^.Key,aKey) then begin
+      exit;
+     end;
+    end;
+   end;
+   Index:=(Index+Step) and Mask;
+  until false;
+ end;
 end;
 
 procedure TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.Resize;
@@ -13268,7 +13314,7 @@ begin
  while fCountNonEmptyEntites>=(1 shl fLogSize) do begin
   Resize;
  end;
- result:=FindEntity(aKey,TEntity.Empty or TEntity.Deleted);
+ result:=FindEntityForAdd(aKey);
  if result^.State=TEntity.Empty then begin
   inc(fCountNonEmptyEntites);
  end;
@@ -13280,7 +13326,7 @@ end;
 function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.Get(const aKey:TKraftHashMapKey;const aCreateIfNotExist:boolean=false):PEntity;
 var Value:TKraftHashMapValue;
 begin
- result:=FindEntity(aKey,TEntity.Empty);
+ result:=FindEntity(aKey);
  case result^.State of
   TEntity.Used:begin
   end;
@@ -13298,7 +13344,7 @@ end;
 function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.TryGet(const aKey:TKraftHashMapKey;out aValue:TKraftHashMapValue):boolean;
 var Entity:PEntity;
 begin
- Entity:=FindEntity(aKey,TEntity.Empty);
+ Entity:=FindEntity(aKey);
  result:=Entity^.State=TEntity.Used;
  if result then begin
   aValue:=Entity^.Value;
@@ -13309,13 +13355,13 @@ end;
 
 function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.ExistKey(const aKey:TKraftHashMapKey):boolean;
 begin
- result:=FindEntity(aKey,TEntity.Empty)^.State=TEntity.Used;
+ result:=FindEntity(aKey)^.State=TEntity.Used;
 end;
 
 function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.Delete(const aKey:TKraftHashMapKey):boolean;
 var Entity:PEntity;
 begin
- Entity:=FindEntity(aKey,TEntity.Empty);
+ Entity:=FindEntity(aKey);
  result:=Entity^.State=TEntity.Used;
  if result then begin
   Entity^.State:=TEntity.Deleted;
@@ -13327,7 +13373,7 @@ end;
 function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.GetValue(const aKey:TKraftHashMapKey):TKraftHashMapValue;
 var Entity:PEntity;
 begin
- Entity:=FindEntity(aKey,TEntity.Empty);
+ Entity:=FindEntity(aKey);
  if Entity^.State=TEntity.Used then begin
   result:=Entity^.Value;
  end else begin
