@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2024-01-20-01-02-0000                       *
+ *                        Version 2024-01-20-01-16-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -604,6 +604,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fSize:TKraftSizeUInt;
        fLogSize:TKraftSizeUInt;
        fCountNonEmptyEntites:TKraftSizeUInt;
+       fCountDeletedEntites:TKraftSizeUInt;
        fEntities:TEntities;
        fDefaultValue:TKraftHashMapValue;
        fCanShrink:boolean;
@@ -12906,6 +12907,7 @@ begin
  fSize:=0;
  fLogSize:=0;
  fCountNonEmptyEntites:=0;
+ fCountDeletedEntites:=0;
  fEntities:=nil;
  fDefaultValue:=aDefaultValue;
  fCanShrink:=true;
@@ -12937,10 +12939,11 @@ begin
   Finalize(fEntities[Index].Key);
   Finalize(fEntities[Index].Value);
  end;
+ fCountNonEmptyEntites:=0;
+ fCountDeletedEntites:=0;
  if fCanShrink then begin
   fSize:=0;
   fLogSize:=0;
-  fCountNonEmptyEntites:=0;
   fEntities:=nil;
   Resize;
  end else begin
@@ -13271,6 +13274,8 @@ begin
 
  fCountNonEmptyEntites:=0;
 
+ fCountDeletedEntites:=0;
+
  OldEntities:=fEntities;
 
  fEntities:=nil;
@@ -13348,6 +13353,7 @@ end;
 
 function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.Delete(const aKey:TKraftHashMapKey):boolean;
 var Entity:PEntity;
+    Index:TKraftSizeInt;
 begin
  Entity:=FindEntity(aKey);
  result:=Entity^.State=TEntity.Used;
@@ -13355,6 +13361,16 @@ begin
   Entity^.State:=TEntity.Deleted;
   Finalize(Entity^.Key);
   Finalize(Entity^.Value);
+  inc(fCountDeletedEntites);
+  if fCanShrink and (fCountDeletedEntites>=((fSize+3) shr 2)) then begin
+   fCountNonEmptyEntites:=0;
+   for Index:=0 to length(fEntities)-1 do begin
+    if fEntities[Index].State=TEntity.Used then begin
+     inc(fCountNonEmptyEntites);
+    end;
+   end;
+   Resize;
+  end;
  end;
 end;
 
