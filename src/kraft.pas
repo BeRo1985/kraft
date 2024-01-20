@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2024-01-20-01-25-0000                       *
+ *                        Version 2024-01-20-01-26-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -13368,7 +13368,7 @@ begin
   Finalize(Entity^.Key);
   Finalize(Entity^.Value);
   inc(fCountDeletedEntites);
-  if fCanShrink and (fCountDeletedEntites>=8) and (fCountDeletedEntites>=((fSize+3) shr 2)) then begin
+  if fCanShrink and (fSize>=8) and (fCountDeletedEntites>=((fSize+3) shr 2)) then begin
    dec(fCountNonEmptyEntites,fCountDeletedEntites);
    Resize;
   end;
