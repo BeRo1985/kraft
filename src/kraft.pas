@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2024-01-20-00-54-0000                       *
+ *                        Version 2024-01-20-01-02-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -13228,13 +13228,13 @@ end;
 
 function TKraftHashMap<TKraftHashMapKey,TKraftHashMapValue>.FindEntityForAdd(const aKey:TKraftHashMapKey):PEntity;
 var Index,HashCode,Mask,Step:TKraftSizeUInt;
-    SawDeleted:Boolean;
+    DeletedEntity:PEntity;
 begin
  HashCode:=HashKey(aKey);
  Mask:=(2 shl fLogSize)-1;
  Step:=((HashCode shl 1)+1) and Mask;
  Index:=HashCode shr (32-fLogSize);
- SawDeleted:=false;
+ DeletedEntity:=nil;
  repeat
   result:=@fEntities[Index];
   case result^.State of
@@ -13242,7 +13242,9 @@ begin
     break;
    end;
    TEntity.Deleted:begin
-    SawDeleted:=true;
+    if not assigned(DeletedEntity) then begin
+     DeletedEntity:=result;
+    end;
    end;
    else {TEntity.Used:}begin
     if CompareKey(result^.Key,aKey) then begin
@@ -13252,22 +13254,8 @@ begin
   end;
   Index:=(Index+Step) and Mask;
  until false;
- if SawDeleted then begin
-  Index:=HashCode shr (32-fLogSize);
-  repeat
-   result:=@fEntities[Index];
-   case result^.State of
-    TEntity.Empty,TEntity.Deleted:begin
-     break;
-    end;
-    else {TEntity.Used:}begin
-     if CompareKey(result^.Key,aKey) then begin
-      exit;
-     end;
-    end;
-   end;
-   Index:=(Index+Step) and Mask;
-  until false;
+ if assigned(DeletedEntity) then begin
+  result:=DeletedEntity;
  end;
 end;
 
