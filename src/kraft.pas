@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2024-01-20-01-16-0000                       *
+ *                        Version 2024-01-20-01-19-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -13362,7 +13362,7 @@ begin
   Finalize(Entity^.Key);
   Finalize(Entity^.Value);
   inc(fCountDeletedEntites);
-  if fCanShrink and (fCountDeletedEntites>=((fSize+3) shr 2)) then begin
+  if fCanShrink and (fCountDeletedEntites>=8) and (fCountDeletedEntites>=((fSize+3) shr 2)) then begin
    fCountNonEmptyEntites:=0;
    for Index:=0 to length(fEntities)-1 do begin
     if fEntities[Index].State=TEntity.Used then begin
