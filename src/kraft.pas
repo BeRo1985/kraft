@@ -134,6 +134,11 @@ unit kraft;
 {$longstrings on}
 {$booleval off}
 {$typeinfo on}
+{$ifdef fpc}
+ {$ifndef KraftDebug}
+  {$s-} // Stack checking off, for performance
+ {$endif}
+{$endif}
 
 {-$define UseMoreCollisionGroups}
 
