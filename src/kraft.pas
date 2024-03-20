@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2024-03-20-03-18-0000                       *
+ *                        Version 2024-03-20-23-51-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -27179,6 +27179,7 @@ begin
        begin
 
         TriangleIndices:=nil;
+
         try
 
          SetLength(TriangleIndices,fCountTriangles);
@@ -46280,7 +46281,6 @@ var Hit:Boolean;
  begin
   SphereCenter:=Vector3TermMatrixMulInverted(TKraftVector3(Pointer(@aShape.fWorldTransform[3,0])^),aWithShape.fWorldTransform);
   Radius:=TKraftShapeCapsule(aShape).fRadius;
-//Radius:=SphereFromAABB(aShape.fWorldAABB).Radius;
   RadiusWithThreshold:=Radius+EPSILON;
   Triangle:=@aWithShape.fMesh.fTriangles[aWithShapeTriangleIndex];
   Vertices[0]:=@aWithShape.fMesh.fVertices[Triangle^.Vertices[0]];
@@ -46350,7 +46350,7 @@ var Hit:Boolean;
 
   if TKraftShapeCapsule(aShape).fHeight<1e-6 then begin
 
-   // Handle to sphere degenerated capsule case
+   // Handle to-sphere-degenerated capsule case
 
    CollideCapsuleSphereWithMeshTriangle(aWithShape,aWithShapeTriangleIndex);
 
@@ -46611,7 +46611,7 @@ var Hit:Boolean;
      Vertices:array[0..2] of PKraftVector3;
  begin
   SphereCenter:=Vector3TermMatrixMulInverted(TKraftVector3(Pointer(@aShape.fWorldTransform[3,0])^),aWithShape.fWorldTransform);
-  Radius:=SphereFromAABB(aShape.fWorldAABB).Radius;
+  Radius:=TKraftShapeSphere(aShape).Radius;
   RadiusWithThreshold:=Radius+0.1;
   AABB.Min.x:=SphereCenter.x-RadiusWithThreshold;
   AABB.Min.y:=SphereCenter.y-RadiusWithThreshold;
