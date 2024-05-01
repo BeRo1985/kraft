@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2024-03-20-23-51-0000                       *
+ *                        Version 2024-05-01-23-56-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -4515,8 +4515,11 @@ function Vector3TermMatrixMulTransposed({$ifdef USE_CONSTREF_EX}constref{$else}c
 function Vector3TermMatrixMulTransposedBasis({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix4x4):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
 function Vector3TermMatrixMulBasis({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix4x4):TKraftVector3; overload; {$if defined(caninline) and not defined(SIMDASM)}inline;{$ifend} {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function Vector3TermMatrixMulHomogen({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix4x4):TKraftVector3; {$ifdef caninline}inline;{$endif}
-function Vector3Lerp({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3;const w:TKraftScalar):TKraftVector3; {$ifdef caninline}inline;{$endif}
 function Vector3Perpendicular(v:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
+function Vector3Orthogonal(v:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
+function Vector3Lerp({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3;const w:TKraftScalar):TKraftVector3; {$ifdef caninline}inline;{$endif}
+function Vector3Nlerp({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3;const w:TKraftScalar):TKraftVector3;
+function Vector3Slerp({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3;const w:TKraftScalar):TKraftVector3;
 function Vector3TermQuaternionRotate({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} q:TKraftQuaternion):TKraftVector3; {$if defined(caninline) and not defined(SIMDASM)}inline;{$ifend} {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function Vector3ProjectToBounds({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} MinVector,MaxVector:TKraftVector3):TKraftScalar; {$ifdef caninline}inline;{$endif}
 function Vector3FlushZero({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3):TKraftVector3;
@@ -6637,24 +6640,6 @@ begin
 end;
 {$ifend}
 
-function Vector3Lerp({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3;const w:TKraftScalar):TKraftVector3;
-var iw:TKraftScalar;
-begin
- if w<0.0 then begin
-  result:=v1;
- end else if w>1.0 then begin
-  result:=v2;
- end else begin
-  iw:=1.0-w;
-  result.x:=(iw*v1.x)+(w*v2.x);
-  result.y:=(iw*v1.y)+(w*v2.y);
-  result.z:=(iw*v1.z)+(w*v2.z);
- end;
-{$ifdef SIMD}
- result.w:=0.0;
-{$endif}
-end;
-
 function Vector3Perpendicular(v:TKraftVector3):TKraftVector3;
 var p:TKraftVector3;
 begin
@@ -6673,6 +6658,99 @@ begin
   p:=Vector3ZAxis;
  end;
  result:=Vector3NormEx(Vector3Sub(p,Vector3ScalarMul(v,Vector3Dot(v,p))));
+end;
+
+function Vector3Orthogonal(v:TKraftVector3):TKraftVector3;
+var p:TKraftVector3;
+begin
+ Vector3NormalizeEx(v);
+ p.x:=abs(v.x);
+ p.y:=abs(v.y);
+ p.z:=abs(v.z);
+{$ifdef SIMD}
+ p.w:=0.0;
+{$endif}
+ if (p.x<p.y) and (p.x<p.z) then begin
+  result:=Vector3Norm(Vector3(0.0,v.z,-v.y));
+ end else if abs(v.y)<abs(v.z) then begin
+  result:=Vector3Norm(Vector3(v.z,0.0,-v.x));
+ end else begin
+  result:=Vector3Norm(Vector3(v.y,-v.x,0.0));
+ end;
+end;
+
+function Vector3Lerp({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3;const w:TKraftScalar):TKraftVector3;
+var iw:TKraftScalar;
+begin
+ if w<0.0 then begin
+  result:=v1;
+ end else if w>1.0 then begin
+  result:=v2;
+ end else begin
+  iw:=1.0-w;
+  result.x:=(iw*v1.x)+(w*v2.x);
+  result.y:=(iw*v1.y)+(w*v2.y);
+  result.z:=(iw*v1.z)+(w*v2.z);
+ end;
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
+end;
+
+function Vector3Nlerp({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3;const w:TKraftScalar):TKraftVector3;
+begin
+ if w<0.0 then begin
+  result:=v1;
+ end else if w>1.0 then begin
+  result:=v2;
+ end else begin
+  result:=Vector3Norm(Vector3Add(Vector3ScalarMul(v1,1.0-w),Vector3ScalarMul(v2,w)));
+ end;
+end;
+
+function Vector3Slerp({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3;const w:TKraftScalar):TKraftVector3;
+const EPSILON=1e-5;
+var DotProduct,Theta,Sinus,Cosinus,LenV1,LenV2:TKraftScalar;
+    nv1,nv2:TKraftVector3;
+begin
+ if w<=0.0 then begin
+  result:=v1;
+ end else if w>=1.0 then begin
+  result:=v2;
+ end else begin
+  LenV1:=Vector3Length(v1);
+  LenV2:=Vector3Length(v2);
+  if (LenV1<EPSILON) or (LenV2<EPSILON) then begin
+   result:=Vector3Add(Vector3ScalarMul(v1,1.0-w),Vector3ScalarMul(v2,w));
+  end else begin
+   DotProduct:=Vector3Dot(v1,v2)/(LenV1*LenV2);
+   if DotProduct<-1.0 then begin
+    DotProduct:=-1.0;
+   end else if DotProduct>1.0 then begin
+    DotProduct:=1.0;
+   end;
+   if DotProduct>(1.0-EPSILON) then begin
+    result:=Vector3Add(Vector3ScalarMul(v1,1.0-w),Vector3ScalarMul(v2,w));
+   end else if DotProduct<(EPSILON-1.0) then begin
+    nv1:=Vector3ScalarMul(v1,1.0/LenV1);
+    result:=Vector3ScalarMul(Vector3TermQuaternionRotate(nv1,
+                                                         QuaternionFromAxisAngle(Vector3Orthogonal(nv1),w*PI)),
+                             (LenV1*(1.0-w))+(LenV2*w));
+   end else begin
+    nv1:=Vector3ScalarMul(v1,1.0/LenV1);
+    nv2:=Vector3ScalarMul(v2,1.0/LenV2);
+    Theta:=ArcCos(DotProduct)*w;
+    Sinus:=0.0;
+    Cosinus:=0.0;
+    SinCos(Theta,Sinus,Cosinus);
+    result:=Vector3ScalarMul(Vector3Add(Vector3ScalarMul(nv1,Cosinus),
+                             Vector3ScalarMul(Vector3Norm(Vector3Sub(nv2,
+                                                                     Vector3ScalarMul(nv1,DotProduct))),
+                                              Sinus)),
+                             (LenV1*(1.0-w))+(LenV2*w));
+   end;
+  end;
+ end;
 end;
 
 function Vector3TermQuaternionRotate({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} q:TKraftQuaternion):TKraftVector3; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler;
@@ -10135,8 +10213,7 @@ end;
 function QuaternionFromAxisAngle({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Axis:TKraftVector3;const Angle:TKraftScalar):TKraftQuaternion; overload;
 var sa2:TKraftScalar;
 begin
- result.w:=cos(Angle*0.5);
- sa2:=sin(Angle*0.5);
+ SinCos(Angle*0.5,sa2,result.w);
  result.x:=Axis.x*sa2;
  result.y:=Axis.y*sa2;
  result.z:=Axis.z*sa2;
