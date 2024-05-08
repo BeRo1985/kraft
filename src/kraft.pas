@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2024-05-01-23-56-0000                       *
+ *                        Version 2024-05-08-04-56-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -46772,11 +46772,13 @@ var Hit:Boolean;
  procedure CollideCapsuleWithMesh(const aWithShape:TKraftShapeMesh);
  var SkipListNodeIndex,TriangleIndex:TKraftInt32;
      SkipListNode:PKraftMeshSkipListNode;
+     AABB:TKraftAABB;
  begin
+  AABB:=AABBTransform(aShape.fWorldAABB,Matrix4x4TermSimpleInverse(aWithShape.fWorldTransform));
   SkipListNodeIndex:=0;
   while SkipListNodeIndex<aWithShape.fMesh.fCountSkipListNodes do begin
    SkipListNode:=@aWithShape.fMesh.fSkipListNodes[SkipListNodeIndex];
-   if AABBIntersect(SkipListNode^.AABB,aShape.fWorldAABB) then begin
+   if AABBIntersect(SkipListNode^.AABB,AABB) then begin
     if SkipListNode^.CountTriangles>0 then begin
      for TriangleIndex:=SkipListNode^.FirstTriangleIndex to SkipListNode^.FirstTriangleIndex+(SkipListNode^.CountTriangles-1) do begin
       CollideCapsuleWithMeshTriangle(aWithShape,TriangleIndex);
