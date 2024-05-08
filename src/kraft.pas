@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2024-05-08-04-56-0000                       *
+ *                        Version 2024-05-08-14-03-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -4514,6 +4514,7 @@ function Vector3TermMatrixMulTransposed({$ifdef USE_CONSTREF_EX}constref{$else}c
 function Vector3TermMatrixMulTransposed({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix4x4):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
 function Vector3TermMatrixMulTransposedBasis({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix4x4):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
 function Vector3TermMatrixMulBasis({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix4x4):TKraftVector3; overload; {$if defined(caninline) and not defined(SIMDASM)}inline;{$ifend} {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
+function Vector3TermMatrixMulAbsBasis({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix4x4):TKraftVector3; overload; {$if defined(caninline) and not defined(SIMDASM)}inline;{$ifend} {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function Vector3TermMatrixMulHomogen({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix4x4):TKraftVector3; {$ifdef caninline}inline;{$endif}
 function Vector3Perpendicular(v:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
 function Vector3Orthogonal(v:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
@@ -6634,6 +6635,56 @@ begin
  result.x:=(m[0,0]*v.x)+(m[1,0]*v.y)+(m[2,0]*v.z);
  result.y:=(m[0,1]*v.x)+(m[1,1]*v.y)+(m[2,1]*v.z);
  result.z:=(m[0,2]*v.x)+(m[1,2]*v.y)+(m[2,2]*v.z);
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
+end;
+{$ifend}
+
+function Vector3TermMatrixMulAbsBasis({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix4x4):TKraftVector3; overload; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; //{$if defined(fpc) and defined(cpuamd64) and not defined(Windows)}nostackframe;{$ifend}
+const Mask:array[0..3] of TKraftUInt32=($7fffffff,$7fffffff,$7fffffff,$00000000);
+//{$if defined(cpuamd64) and defined(Windows)}
+var StackSave0:array[0..3] of single;
+//{$ifend}
+asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
+//{$if defined(cpuamd64) and defined(Windows)}
+ movups dqword ptr [StackSave0],xmm6
+//{$ifend}
+ movups xmm0,dqword ptr [v]     // d c b a
+ movaps xmm1,xmm0               // d c b a
+ movaps xmm2,xmm0               // d c b a
+ shufps xmm0,xmm0,$00           // a a a a 00000000b
+ shufps xmm1,xmm1,$55           // b b b b 01010101b
+ shufps xmm2,xmm2,$aa           // c c c c 10101010b
+ movups xmm3,dqword ptr [m+0]
+ movups xmm4,dqword ptr [m+16]
+ movups xmm5,dqword ptr [m+32]
+{$if defined(cpuamd64)}
+ movups xmm6,dqword ptr [rip+Mask]
+{$else}
+ movups xmm6,dqword ptr [Mask]
+{$ifend}
+ andps xmm3,xmm6
+ andps xmm4,xmm6
+ andps xmm5,xmm6
+ mulps xmm0,xmm3
+ mulps xmm1,xmm4
+ mulps xmm2,xmm5
+ addps xmm0,xmm1
+ addps xmm0,xmm2
+ movups dqword ptr [result],xmm0
+//{$if defined(cpuamd64) and defined(Windows)}
+ movups xmm6,dqword ptr [StackSave0]
+//{$ifend}
+end;
+{$else}
+begin
+ result.x:=(abs(m[0,0])*v.x)+(abs(m[1,0])*v.y)+(abs(m[2,0])*v.z);
+ result.y:=(abs(m[0,1])*v.x)+(abs(m[1,1])*v.y)+(abs(m[2,1])*v.z);
+ result.z:=(abs(m[0,2])*v.x)+(abs(m[1,2])*v.y)+(abs(m[2,2])*v.z);
 {$ifdef SIMD}
  result.w:=0.0;
 {$endif}
@@ -10957,16 +11008,68 @@ begin
          ((Vector.z>=(AABB.Min.z-EPSILON)) and (Vector.z<=(AABB.Max.z+EPSILON)));
 end;
 
-function AABBTransform(const DstAABB:TKraftAABB;const Transform:TKraftMatrix4x4):TKraftAABB;
+function AABBAffineTransform(const aAABB:TKraftAABB;const aTransform:TKraftMatrix4x4):TKraftAABB;
+var Center,Extents:TKraftVector3;
+begin
+ Center:=Vector3TermMatrixMul(Vector3Avg(aAABB.Min,aAABB.Max),aTransform);
+ Extents:=Vector3TermMatrixMulAbsBasis(Vector3ScalarMul(Vector3Sub(aAABB.Max,aAABB.Min),0.5),aTransform);
+ result.Min:=Vector3Sub(Center,Extents);
+ result.Max:=Vector3Add(Center,Extents);
+end;
+
+function AABBNonAffineTransform(const aAABB:TKraftAABB;const aTransform:TKraftMatrix4x4):TKraftAABB;
+var Index:TKraftInt32;
+    v:TKraftVector3;
+begin
+ for Index:=0 to 7 do begin
+  v:=Vector3TermMatrixMul(Vector3(aAABB.MinMax[(Index shr 0) and 1].x,
+                                  aAABB.MinMax[(Index shr 1) and 1].y,
+                                  aAABB.MinMax[(Index shr 2) and 1].z),aTransform);
+  if Index=0 then begin
+   result.Min:=v;
+   result.Max:=v;
+  end else begin
+   if result.Min.x>v.x then begin
+    result.Min.x:=v.x;
+   end;
+   if result.Min.y>v.y then begin
+    result.Min.y:=v.y;
+   end;
+   if result.Min.z>v.z then begin
+    result.Min.z:=v.z;
+   end;
+   if result.Max.x<v.x then begin
+    result.Max.x:=v.x;
+   end;
+   if result.Max.y<v.y then begin
+    result.Max.y:=v.y;
+   end;
+   if result.Max.z<v.z then begin
+    result.Max.z:=v.z;
+   end;
+  end;
+ end;
+end;
+
+function AABBHomogenTransform(const aAABB:TKraftAABB;const aTransform:TKraftMatrix4x4):TKraftAABB;
+begin
+ if (abs(aTransform[0,3])+abs(aTransform[1,3])+abs(aTransform[2,3])+(abs(aTransform[3,3]-1.0))<1e-6) then begin
+  result:=AABBAffineTransform(aAABB,aTransform);
+ end else begin
+  result:=AABBNonAffineTransform(aAABB,aTransform);
+ end;
+end;
+
+function AABBTransform(const aAABB:TKraftAABB;const aTransform:TKraftMatrix4x4):TKraftAABB;
 var i,j:TKraftInt32;
     a,b:TKraftScalar;
 begin
- result.Min:=Vector3(Transform[3,0],Transform[3,1],Transform[3,2]);
+ result.Min:=Vector3(aTransform[3,0],aTransform[3,1],aTransform[3,2]);
  result.Max:=result.Min;
  for i:=0 to 2 do begin
   for j:=0 to 2 do begin
-   a:=Transform[j,i]*DstAABB.Min.xyz[j];
-   b:=Transform[j,i]*DstAABB.Max.xyz[j];
+   a:=aTransform[j,i]*aAABB.Min.xyz[j];
+   b:=aTransform[j,i]*aAABB.Max.xyz[j];
    if a<b then begin
     result.Min.xyz[i]:=result.Min.xyz[i]+a;
     result.Max.xyz[i]:=result.Max.xyz[i]+b;
@@ -28668,7 +28771,7 @@ begin
    fWorldAABB:=AABBCombine(fWorldAABB,TempAABB);
   end;
   else begin
-   fWorldAABB:=AABBTransform(fShapeAABB,fWorldTransform);
+   fWorldAABB:=AABBHomogenTransform(fShapeAABB,fWorldTransform);
   end;
  end;
 
@@ -34662,7 +34765,7 @@ var NewConvexAABBInMeshLocalSpace:TKraftAABB;
     Displacement,BoundsExpansion:TKraftVector3;
 begin
  Transform:=Matrix4x4TermMulSimpleInverted(fShapeConvex.fWorldTransform,fShapeMesh.fWorldTransform);
- NewConvexAABBInMeshLocalSpace:=AABBTransform(fShapeConvex.fShapeAABB,Transform);
+ NewConvexAABBInMeshLocalSpace:=AABBHomogenTransform(fShapeConvex.fShapeAABB,Transform);
  if not AABBContains(fConvexAABBInMeshLocalSpace,NewConvexAABBInMeshLocalSpace) then begin
   Displacement:=Vector3TermMatrixMulBasis(Vector3ScalarMul(fRigidBodyConvex.fLinearVelocity,fRigidBodyConvex.fPhysics.fWorldDeltaTime),Transform);
   BoundsExpansion:=Vector3ScalarMul(Vector3(fShapeConvex.fAngularMotionDisc,fShapeConvex.fAngularMotionDisc,fShapeConvex.fAngularMotionDisc),Vector3Length(fRigidBodyConvex.fAngularVelocity)*fRigidBodyConvex.fPhysics.fWorldDeltaTime);
@@ -34969,7 +35072,7 @@ begin
  Transform:=Matrix4x4TermMulSimpleInverted(MeshContactPair.fShapeConvex.fWorldTransform,MeshContactPair.fShapeMesh.fWorldTransform);
  Displacement:=Vector3TermMatrixMulBasis(Vector3ScalarMul(MeshContactPair.fRigidBodyConvex.fLinearVelocity,MeshContactPair.fRigidBodyConvex.fPhysics.fWorldDeltaTime),Transform);
  BoundsExpansion:=Vector3ScalarMul(Vector3(MeshContactPair.fShapeConvex.fAngularMotionDisc,MeshContactPair.fShapeConvex.fAngularMotionDisc,MeshContactPair.fShapeConvex.fAngularMotionDisc),Vector3Length(MeshContactPair.fRigidBodyConvex.fAngularVelocity)*MeshContactPair.fRigidBodyConvex.fPhysics.fWorldDeltaTime);
- MeshContactPair.fConvexAABBInMeshLocalSpace:=AABBStretch(AABBTransform(MeshContactPair.fShapeConvex.fShapeAABB,Transform),Displacement,BoundsExpansion);
+ MeshContactPair.fConvexAABBInMeshLocalSpace:=AABBStretch(AABBHomogenTransform(MeshContactPair.fShapeConvex.fShapeAABB,Transform),Displacement,BoundsExpansion);
 
  MeshContactPair.Query;
 
@@ -46774,7 +46877,7 @@ var Hit:Boolean;
      SkipListNode:PKraftMeshSkipListNode;
      AABB:TKraftAABB;
  begin
-  AABB:=AABBTransform(aShape.fWorldAABB,Matrix4x4TermSimpleInverse(aWithShape.fWorldTransform));
+  AABB:=AABBHomogenTransform(aShape.fWorldAABB,Matrix4x4TermSimpleInverse(aWithShape.fWorldTransform));
   SkipListNodeIndex:=0;
   while SkipListNodeIndex<aWithShape.fMesh.fCountSkipListNodes do begin
    SkipListNode:=@aWithShape.fMesh.fSkipListNodes[SkipListNodeIndex];
