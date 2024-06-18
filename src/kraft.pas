@@ -4704,8 +4704,8 @@ function InertiaTensorParallelAxisTheorem({$ifdef USE_CONSTREF_EX}constref{$else
 procedure LinearStiffness(out aStiffness,aDamping:TKraftScalar;const aFrequencyHz,aDampingRatio:TKraftScalar;const aRigidBodyA,aRigidBodyB:TKraftRigidBody);
 procedure AngularStiffness(out aStiffness,aDamping:TKraftScalar;const aFrequencyHz,aDampingRatio:TKraftScalar;const aRigidBodyA,aRigidBodyB:TKraftRigidBody);
 
-function IntLog2(x:TKraftUInt32):TKraftUInt32; {$if defined(fpc)}{$ifdef CAN_INLINE}inline;{$endif}{$endif}
-function IntLog264(x:TKraftUInt64):TKraftUInt64; {$if defined(fpc)}{$ifdef CAN_INLINE}inline;{$endif}{$endif}
+function IntLog2(x:TKraftUInt32):TKraftUInt32; {$if defined(fpc)}{$ifdef CAN_INLINE}inline;{$endif}{$ifend}
+function IntLog264(x:TKraftUInt64):TKraftUInt64; {$if defined(fpc)}{$ifdef CAN_INLINE}inline;{$endif}{$ifend}
 
 implementation
 
