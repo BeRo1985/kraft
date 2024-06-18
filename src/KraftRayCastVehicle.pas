@@ -3007,7 +3007,7 @@ end;
 { TKraftRayCastVehicle.TAckermannGroup }
 
 constructor TKraftRayCastVehicle.TAckermannGroup.Create(const aVehicle:TKraftRayCastVehicle;const aSettings:TKraftRayCastVehicle.TSettings.TAckermannGroup);
-var Index,OtherIndex:TPasJSONSizeInt;
+var Index,OtherIndex:TKraftSizeInt;
     SettingAxle:TKraftRayCastVehicle.TSettings.TAxle;
     Axle:TKraftRayCastVehicle.TAxle;
 begin
