@@ -1528,7 +1528,7 @@ end;
 
 {$ifdef KraftPasJSON}
 procedure TKraftRayCastVehicle.TSettings.TAxle.LoadFromJSON(const aJSONItem:TPasJSONItem);
-var Index,OtherIndex:TPasJSONSizeInt;
+var Index,OtherIndex:TKraftSizeInt;
     JSONItemArray:TPasJSONItemArray;
     JSONItem:TPasJSONItem;
     WheelName:UTF8String;
