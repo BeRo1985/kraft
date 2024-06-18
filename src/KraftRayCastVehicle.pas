@@ -2937,7 +2937,7 @@ end;
 { TKraftRayCastVehicle.TAxle }
 
 constructor TKraftRayCastVehicle.TAxle.Create(const aVehicle:TKraftRayCastVehicle;const aSettings:TKraftRayCastVehicle.TSettings.TAxle);
-var Index,OtherIndex:TPasJSONSizeInt;
+var Index,OtherIndex:TKraftSizeInt;
     SettingWheel:TKraftRayCastVehicle.TSettings.TWheel;
     Wheel:TKraftRayCastVehicle.TWheel;
 begin
