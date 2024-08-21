@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2024-05-08-14-03-0000                       *
+ *                        Version 2024-08-21-06-30-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -2901,6 +2901,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property ShapeCount:TKraftInt32 read fShapeCount write fShapeCount;
 
        property InterpolatedWorldTransform:TKraftMatrix4x4 read fInterpolatedWorldTransform;
+
+       property LastWorldTransform:TKraftMatrix4x4 read fLastWorldTransform write fLastWorldTransform;
 
        property WorldTransform:TKraftMatrix4x4 read fWorldTransform write fWorldTransform;
 
@@ -8457,33 +8459,47 @@ begin
  end;
 end;
 
+procedure xf(x:TKraftScalar);
+begin
+ writeln(x:1:5);
+end;
+
 function Matrix4x4Slerp({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} a,b:TKraftMatrix4x4;const x:TKraftScalar):TKraftMatrix4x4;
 var ix:TKraftScalar;
     m:TKraftMatrix3x3;
 begin
+
  if x<=0.0 then begin
+
   result:=a;
+
  end else if x>=1.0 then begin
+
   result:=b;
+
  end else begin
-  m:=QuaternionToMatrix3x3(QuaternionSlerp(QuaternionFromMatrix4x4(a),QuaternionFromMatrix4x4(b),x));
+
   ix:=1.0-x;
-  result[0,0]:=m[0,0];
-  result[0,1]:=m[0,1];
-  result[0,2]:=m[0,2];
   result[0,3]:=(a[0,3]*ix)+(b[0,3]*x);
-  result[1,0]:=m[1,0];
-  result[1,1]:=m[1,1];
-  result[1,2]:=m[1,2];
   result[1,3]:=(a[1,3]*ix)+(b[1,3]*x);
-  result[2,0]:=m[2,0];
-  result[2,1]:=m[2,1];
-  result[2,2]:=m[2,2];
+  result[3,1]:=(a[3,1]*ix)+(b[3,1]*x);
   result[2,3]:=(a[2,3]*ix)+(b[2,3]*x);
   result[3,0]:=(a[3,0]*ix)+(b[3,0]*x);
   result[3,1]:=(a[3,1]*ix)+(b[3,1]*x);
   result[3,2]:=(a[3,2]*ix)+(b[3,2]*x);
   result[3,3]:=(a[3,3]*ix)+(b[3,3]*x);
+
+  m:=QuaternionToMatrix3x3(QuaternionSlerp(QuaternionFromMatrix4x4(a),QuaternionFromMatrix4x4(b),x));
+  result[0,0]:=m[0,0];
+  result[0,1]:=m[0,1];
+  result[0,2]:=m[0,2];
+  result[1,0]:=m[1,0];
+  result[1,1]:=m[1,1];
+  result[1,2]:=m[1,2];
+  result[2,0]:=m[2,0];
+  result[2,1]:=m[2,1];
+  result[2,2]:=m[2,2];
+
  end;
 end;
 
