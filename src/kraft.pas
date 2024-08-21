@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2024-08-21-06-30-0000                       *
+ *                        Version 2024-08-21-06-34-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -8457,11 +8457,6 @@ begin
   result[3,2]:=(a[3,2]*ix)+(b[3,2]*x);
   result[3,3]:=(a[3,3]*ix)+(b[3,3]*x);
  end;
-end;
-
-procedure xf(x:TKraftScalar);
-begin
- writeln(x:1:5);
 end;
 
 function Matrix4x4Slerp({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} a,b:TKraftMatrix4x4;const x:TKraftScalar):TKraftMatrix4x4;
