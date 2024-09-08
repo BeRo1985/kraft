@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2024-08-21-06-34-0000                       *
+ *                        Version 2024-09-09-01-14-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -29927,66 +29927,163 @@ begin
 end;
 
 function TKraftShapeConvexHull.SphereCast(var SphereCastData:TKraftSphereCastData):boolean;
-var FaceIndex,BestFaceIndex:TKraftInt32;
+{$undef TKraftShapeConvexHullSphereCastTriangleBasedFallBack}
+{$ifdef TKraftShapeConvexHullSphereCastTriangleBasedFallBack}
+var FaceIndex,BestFaceIndex,VertexIndex:TKraftInt32;
     Face:PKraftConvexHullFace;
-    Time,Distance,BestDistance:TKraftScalar;
-    Origin,Direction:TKraftVector3;
+    First,SidePass:boolean;
+    Radius,Nearest,Time,u,v,w:TKraftScalar;
+    Origin,Direction,p,TriangleNormal,Normal:TKraftVector3;
 begin
  result:=false;
  if ksfSphereCastable in fFlags then begin
   Origin:=Vector3TermMatrixMulInverted(SphereCastData.Origin,fWorldTransform);
+  Radius:=SphereCastData.Radius;
   Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,fWorldTransform));
   if Vector3LengthSquared(Direction)>EPSILON then begin
-   begin
-    // Outside
-    BestFaceIndex:=-1;
-    BestDistance:=Infinity;
-    for FaceIndex:=0 to fConvexHull.fCountFaces-1 do begin
-     Face:=@fConvexHull.fFaces[FaceIndex];
-     Distance:=PlaneVectorDistance(Face^.Plane,Origin);
-     if (Distance>=0.0) and ((BestFaceIndex<0) or (Distance<BestDistance)) then begin
-      BestDistance:=Distance;
-      BestFaceIndex:=FaceIndex;
-     end;
-    end;
-   end;
-   if BestFaceIndex<0 then begin
-    // Inside
-    for FaceIndex:=0 to fConvexHull.fCountFaces-1 do begin
-     Face:=@fConvexHull.fFaces[FaceIndex];
-     Distance:=-PlaneVectorDistance(Face^.Plane,Origin);
-     if (Distance>=0.0) and ((BestFaceIndex<0) or (Distance<BestDistance)) then begin
-      BestDistance:=Distance;
-      BestFaceIndex:=FaceIndex;
-     end;
-    end;
-   end;
-   if BestFaceIndex>=0 then begin
-    Face:=@fConvexHull.fFaces[BestFaceIndex];
-    Distance:=PlaneVectorDistance(Face^.Plane,Origin);
-    if Distance<SphereCastData.Radius then begin
-     SphereCastData.TimeOfImpact:=0.0;
-     SphereCastData.Point:=Vector3TermMatrixMul(Origin,fWorldTransform);
-     SphereCastData.Normal:=Vector3TermMatrixMulBasis(Face^.Plane.Normal,fWorldTransform);
-     SphereCastData.SurfaceNormal:=SphereCastData.Normal;
-     result:=true;
-    end else if Vector3LengthSquared(Direction)>EPSILON then begin
-     Time:=-Vector3Dot(Face^.Plane.Normal,Direction);
-     if abs(Time)>EPSILON then begin
-      Time:=(Distance-SphereCastData.Radius)/Time;
-      if (Time>=0.0) and (Time<SphereCastData.MaxTime) then begin
-       SphereCastData.TimeOfImpact:=Time;
-       SphereCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
-       SphereCastData.Normal:=Vector3TermMatrixMulBasis(Face^.Plane.Normal,fWorldTransform);
-       SphereCastData.SurfaceNormal:=SphereCastData.Normal;
-       result:=true;
+   InvDirection:=Vector3Div(Vector3All,Direction);
+   Nearest:=MAX_SCALAR;
+   First:=true;
+   for FaceIndex:=0 to fConvexHull.fCountFaces-1 do begin
+    Face:=@fConvexHull.fFaces[FaceIndex];
+    for VertexIndex:=2 to Face^.CountVertices-1 do begin
+     for SidePass:=false to true do begin
+      if SidePass then begin
+       TriangleNormal:=Vector3Neg(Face^.Plane.Normal);
+      end else begin
+       TriangleNormal:=Face^.Plane.Normal;
+      end;
+      if SphereCastTriangle(Origin,
+                            Radius,
+                            Direction,
+                            fConvexHull.Vertices[Face^.Vertices[0]].Position,
+                            fConvexHull.Vertices[Face^.Vertices[VertexIndex-1]].Position,
+                            fConvexHull.Vertices[Face^.Vertices[VertexIndex]].Position,
+                            TriangleNormal,
+                            Time,
+                            u,
+                            v,
+                            w) then begin
+       p:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time));
+       if ((Time>=0.0) and (Time<=SphereCastData.MaxTime)) and (First or (Time<Nearest)) then begin
+        First:=false;
+        Nearest:=Time;
+        Normal:=Face^.Plane.Normal;
+        SphereCastData.TimeOfImpact:=Time;
+        SphereCastData.Point:=p;
+        if SidePass then begin
+         SphereCastData.Normal:=Vector3Neg(Normal);
+        end else begin
+         SphereCastData.Normal:=Normal;
+        end;
+        SphereCastData.SurfaceNormal:=TriangleNormal;
+        result:=true;
+       end;
       end;
      end;
     end;
    end;
+   if result then begin
+    SphereCastData.Point:=Vector3TermMatrixMul(SphereCastData.Point,fWorldTransform);
+    SphereCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(SphereCastData.Normal,fWorldTransform));
+    SphereCastData.SurfaceNormal:=Vector3NormEx(Vector3TermMatrixMulBasis(SphereCastData.SurfaceNormal,fWorldTransform));
+   end;
   end;
  end;
 end;
+{$else}
+var FaceIndex,BestFaceIndex:TKraftInt32;
+    Face:PKraftConvexHullFace;
+    TimeMin,TimeMax,Numerator,Denominator,TimeEnter,TimeExit,TemporaryTime:TKraftScalar;
+    Origin,Direction:TKraftVector3;
+begin
+
+ result:=false;
+
+ if ksfRayCastable in fFlags then begin
+
+  Origin:=Vector3TermMatrixMulInverted(SphereCastData.Origin,fWorldTransform);
+  Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,fWorldTransform));
+
+  if Vector3LengthSquared(Direction)>EPSILON then begin
+
+   BestFaceIndex:=-1;
+
+   TimeMin:=0.0;
+   TimeMax:=SphereCastData.MaxTime+EPSILON;
+
+   for FaceIndex:=0 to fConvexHull.fCountFaces-1 do begin
+
+    Face:=@fConvexHull.fFaces[FaceIndex];
+
+    Numerator:=-PlaneVectorDistance(Face^.Plane,Origin);
+    Denominator:=Vector3Dot(Face^.Plane.Normal,Direction);
+
+    // If denominator is zero, the ray is parallel to the plane
+    if abs(Denominator)<EPSILON then begin
+
+     // If the ray is outside the convex hull (distanceToPlane > radius), no hit
+     if Numerator<-SphereCastData.Radius then begin
+      exit;
+     end;
+
+     // Otherwise, continue to the next plane since the ray is parallel but the sphere is inside
+     continue;
+
+    end else begin
+
+     // Now handle the entry (lower) and exit (upper) intersections
+     TimeEnter:=(Numerator-SphereCastData.Radius)/Denominator; // For entering the hull
+     TimeExit:=(Numerator+SphereCastData.Radius)/Denominator; // For exiting the hull
+
+     // Ensure TimeEnter is the entry and TimeExit is the exit time
+     if TimeEnter>TimeExit then begin
+      TemporaryTime:=TimeEnter;
+      TimeEnter:=TimeExit;
+      TimeExit:=TemporaryTime;
+     end;
+
+     if Denominator<0.0 then begin
+
+      // If the ray is entering the convex hull through this plane (denominator < 0.0)
+
+      if TimeMin<TimeEnter then begin
+       TimeMin:=TimeEnter;
+       BestFaceIndex:=FaceIndex;
+      end;
+
+     end else if Denominator>0.0 then begin
+
+      // If the ray is exiting the convex hull through this plane (denominator > 0.0)
+
+      if TimeMax>TimeExit then begin
+       TimeMax:=TimeExit;
+      end;
+
+     end;
+
+     // If at any point TimeMin exceeds TimeMax, no intersection exists
+     if TimeMin>TimeMax then begin
+      exit;
+     end;
+
+    end;
+
+   end;
+
+   if (BestFaceIndex>=0) and (TimeMin<=TimeMax) and (TimeMin<=SphereCastData.MaxTime) then begin
+    SphereCastData.TimeOfImpact:=TimeMin;
+    SphereCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,TimeMin)),fWorldTransform);
+    SphereCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(fConvexHull.fFaces[BestFaceIndex].Plane.Normal,fWorldTransform));
+    result:=true;
+   end;
+
+  end;
+
+ end;
+
+end;
+{$endif}
 
 {$ifdef DebugDraw}
 procedure TKraftShapeConvexHull.Draw(const CameraMatrix:TKraftMatrix4x4);
