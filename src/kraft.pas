@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2024-09-09-07-23-0000                       *
+ *                        Version 2024-09-09-07-41-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -1733,11 +1733,11 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        function GetLocalSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar;
 
-       function GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3;
+       function GetLocalSignedDistanceGradient(const Position:TKraftVector3;out aGradient:TKraftVector3):TKraftScalar;
 
-       function GetLocalSignedDistanceNormal(const Position:TKraftVector3):TKraftVector3;
+       function GetLocalSignedDistanceNormal(const Position:TKraftVector3;out aNormal:TKraftVector3):TKraftScalar;
 
-       function GetLocalClosestPointTo(const Position:TKraftVector3):TKraftVector3;
+       function GetLocalClosestPointTo(const Position:TKraftVector3;out aClosestPoint:TKraftVector3):TKraftScalar;
 
        property Physics:TKraft read fPhysics;
 
@@ -28071,7 +28071,7 @@ begin
 end;
 {$endif}
 
-function TKraftMesh.GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3;
+function TKraftMesh.GetLocalSignedDistanceGradient(const Position:TKraftVector3;out aGradient:TKraftVector3):TKraftScalar;
 {$ifdef KraftSingleThreadedUsage}
 type PStackItem=^TStackItem;
      TStackItem=record
@@ -28153,21 +28153,24 @@ begin
   end;
   BestDistance:=sqrt(BestDistance);
   if assigned(BestTriangle) then begin
-   if SIMDTriangleClosestPointTo(self,BestTriangle^,Position,result) then begin
-    result:=Vector3Sub(Position,result);
+   if SIMDTriangleClosestPointTo(self,BestTriangle^,Position,aGradient) then begin
+    aGradient:=Vector3Sub(Position,aGradient);
     if fDoubleSided and assigned(BestTriangle) and (PlaneVectorDistance(BestTriangle^.Plane,Position)<0.0) then begin
-     result:=Vector3Neg(result);
+     aGradient:=Vector3Neg(aGradient);
     end;
    end else begin
-    result:=Vector3ScalarMul(BestTriangle^.Plane.Normal,BestDistance);
+    aGradient:=Vector3ScalarMul(BestTriangle^.Plane.Normal,BestDistance);
    end;
+   result:=BestDistance;
   end else begin
-   result:=Vector3(MAX_SCALAR,MAX_SCALAR,MAX_SCALAR);
+   aGradient:=Vector3(MAX_SCALAR,MAX_SCALAR,MAX_SCALAR);
+   result:=Infinity;
   end;
  end else begin
-  result:=Vector3(MAX_SCALAR,MAX_SCALAR,MAX_SCALAR);
+  aGradient:=Vector3(MAX_SCALAR,MAX_SCALAR,MAX_SCALAR);
+  result:=Infinity;
  end;
- Vector3Normalize(result);
+ Vector3Normalize(aGradient);
 end;
 {$else}
 var BestTriangle:PKraftMeshTriangle;
@@ -28231,25 +28234,28 @@ begin
    end;
   end;
   if assigned(BestTriangle) then begin
-   if SIMDTriangleClosestPointTo(self,BestTriangle^,Position,result) then begin
-    result:=Vector3Sub(Position,result);
+   if SIMDTriangleClosestPointTo(self,BestTriangle^,Position,aGradient) then begin
+    aGradient:=Vector3Sub(Position,aGradient);
     if fDoubleSided and assigned(BestTriangle) and (PlaneVectorDistance(BestTriangle^.Plane,Position)<0.0) then begin
-     result:=Vector3Neg(result);
+     aGradient:=Vector3Neg(aGradient);
     end;
    end else begin
-    result:=Vector3ScalarMul(BestTriangle^.Plane.Normal,BestDistance);
+    aGradient:=Vector3ScalarMul(BestTriangle^.Plane.Normal,BestDistance);
    end;
+   result:=BestDistance;
   end else begin
-   result:=Vector3(MAX_SCALAR,MAX_SCALAR,MAX_SCALAR);
+   aGradient:=Vector3(MAX_SCALAR,MAX_SCALAR,MAX_SCALAR);
+   result:=Infinity;
   end;
  end else begin
-  result:=Vector3(MAX_SCALAR,MAX_SCALAR,MAX_SCALAR);
+  aGradient:=Vector3(MAX_SCALAR,MAX_SCALAR,MAX_SCALAR);
+  result:=Infinity;
  end;
- Vector3Normalize(result);
+ Vector3Normalize(aGradient);
 end;
 {$endif}
 
-function TKraftMesh.GetLocalSignedDistanceNormal(const Position:TKraftVector3):TKraftVector3;
+function TKraftMesh.GetLocalSignedDistanceNormal(const Position:TKraftVector3;out aNormal:TKraftVector3):TKraftScalar;
 {$ifdef KraftSingleThreadedUsage}
 type PStackItem=^TStackItem;
      TStackItem=record
@@ -28330,15 +28336,18 @@ begin
    end;
   end;
   if assigned(BestTriangle) then begin
-   result:=BestTriangle^.Plane.Normal;
+   aNormal:=BestTriangle^.Plane.Normal;
    if fDoubleSided and assigned(BestTriangle) and (PlaneVectorDistance(BestTriangle^.Plane,Position)<0.0) then begin
-    result:=Vector3Neg(result);
+    aNormal:=Vector3Neg(aNormal);
+    result:=BestDistance;
    end;
   end else begin
-   result:=Vector3Origin;
+   aNormal:=Vector3Origin;
+   result:=Infinity;
   end;
  end else begin
-  result:=Vector3Origin;
+  aNormal:=Vector3Origin;
+  result:=Infinity;
  end;
 end;
 {$else}
@@ -28403,20 +28412,23 @@ begin
    end;
   end;
   if assigned(BestTriangle) then begin
-   result:=BestTriangle^.Plane.Normal;
+   aNormal:=BestTriangle^.Plane.Normal;
    if fDoubleSided and assigned(BestTriangle) and (PlaneVectorDistance(BestTriangle^.Plane,Position)<0.0) then begin
-    result:=Vector3Neg(result);
+    aNormal:=Vector3Neg(aNormal);
    end;
+   result:=BestDistance;
   end else begin
-   result:=Vector3Origin;
+   aNormal:=Vector3Origin;
+   result:=Infinity;
   end;
  end else begin
-  result:=Vector3Origin;
+  aNormal:=Vector3Origin;
+  result:=Infinity;
  end;
 end;
 {$endif}
 
-function TKraftMesh.GetLocalClosestPointTo(const Position:TKraftVector3):TKraftVector3;
+function TKraftMesh.GetLocalClosestPointTo(const Position:TKraftVector3;out aClosestPoint:TKraftVector3):TKraftScalar;
 {$ifdef KraftSingleThreadedUsage}
 type PStackItem=^TStackItem;
      TStackItem=record
@@ -28496,11 +28508,15 @@ begin
     end;
    end;
   end;
-  if not (assigned(BestTriangle) and SIMDTriangleClosestPointTo(self,BestTriangle^,Position,result)) then begin
-   result:=Vector3Origin;
+  if assigned(BestTriangle) and SIMDTriangleClosestPointTo(self,BestTriangle^,Position,aClosestPoint) then begin
+   result:=BestDistance;
+  end else begin
+   aClosestPoint:=Vector3Origin;
+   result:=Infinity;
   end;
  end else begin
-  result:=Vector3Origin;
+  aClosestPoint:=Vector3Origin;
+  result:=Infinity;
  end;
 end;
 {$else}
@@ -28564,11 +28580,15 @@ begin
     BestDistance:=-BestDistance;
    end;
   end;
-  if not (assigned(BestTriangle) and SIMDTriangleClosestPointTo(self,BestTriangle^,Position,result)) then begin
-   result:=Vector3Origin;
+  if assigned(BestTriangle) and SIMDTriangleClosestPointTo(self,BestTriangle^,Position,aClosestPoint) then begin
+   result:=BestDistance;
+  end else begin
+   aClosestPoint:=Vector3Origin;
+   result:=Infinity;
   end;
  end else begin
-  result:=Vector3Origin;
+  aClosestPoint:=Vector3Origin;
+  result:=Infinity;
  end;
 end;
 {$endif}
@@ -31733,23 +31753,66 @@ begin
 end;
 
 function TKraftShapeMesh.GetLocalSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar;
+var Index:TKraftInt32;
+    Distance:TKraftScalar;
+    DirectionTemp:TKraftVector3;
 begin
-// result:=fMesh.GetLocalSignedDistanceAndDirection(Position,Direction);
+ result:=Infinity;
+ for Index:=0 to fCountMeshes-1 do begin
+  Distance:=fMeshes[Index].GetLocalSignedDistanceAndDirection(Position,DirectionTemp);
+  if (Index=0) or (Distance<result) then begin
+   result:=Distance;
+   Direction:=DirectionTemp;
+  end;
+ end;
 end;
 
 function TKraftShapeMesh.GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3;
+var Index:TKraftInt32;
+    Gradient:TKraftVector3;
+    BestDistance,Distance:TKraftScalar;
 begin
-// result:=fMesh.GetLocalSignedDistanceGradient(Position);
+ BestDistance:=Infinity;
+ result:=Vector3Origin;
+ for Index:=0 to fCountMeshes-1 do begin
+  Distance:=fMeshes[Index].GetLocalSignedDistanceGradient(Position,Gradient);
+  if (Index=0) or (Distance<BestDistance) then begin
+   BestDistance:=Distance;
+   result:=Gradient;
+  end;
+ end;
 end;
 
 function TKraftShapeMesh.GetLocalSignedDistanceNormal(const Position:TKraftVector3):TKraftVector3;
+var Index:TKraftInt32;
+    Normal:TKraftVector3;
+    BestDistance,Distance:TKraftScalar;
 begin
-// result:=fMesh.GetLocalSignedDistanceNormal(Position);
+ BestDistance:=Infinity;
+ result:=Vector3Origin;
+ for Index:=0 to fCountMeshes-1 do begin
+  Distance:=fMeshes[Index].GetLocalSignedDistanceNormal(Position,Normal);
+  if (Index=0) or (Distance<BestDistance) then begin
+   BestDistance:=Distance;
+   result:=Normal;
+  end;
+ end;
 end;
 
 function TKraftShapeMesh.GetLocalClosestPointTo(const Position:TKraftVector3):TKraftVector3;
+var Index:TKraftInt32;
+    ClosestPoint:TKraftVector3;
+    BestDistance,Distance:TKraftScalar;
 begin
-// result:=fMesh.GetLocalClosestPointTo(Position);
+ BestDistance:=Infinity;
+ result:=Vector3Origin;
+ for Index:=0 to fCountMeshes-1 do begin
+  Distance:=fMeshes[Index].GetLocalClosestPointTo(Position,ClosestPoint);
+  if (Index=0) or (Distance<BestDistance) then begin
+   BestDistance:=Distance;
+   result:=ClosestPoint;
+  end;
+ end;
 end;
 
 function TKraftShapeMesh.GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3;
