@@ -32053,7 +32053,7 @@ begin
   glBegin(GL_TRIANGLES);
   for MeshIndex:=0 to fCountMeshes-1 do begin
    Mesh:=fMeshes[MeshIndex];
-   for i:=0 to fMesh.fCountTriangles-1 do begin
+   for i:=0 to Mesh.fCountTriangles-1 do begin
     Triangle:=@Mesh.fTriangles[i];
 {$ifdef KraftUseDouble}
     glNormal3dv(@Mesh.fNormals[Triangle^.Normals[0]]);
