@@ -43095,7 +43095,11 @@ begin
 {$ifdef KraftPasMP}
  fPasMP:=aPasMP;
 
- fCountThreads:=fPasMP.CountJobWorkerThreads;
+ if assigned(fPasMP) then begin
+  fCountThreads:=fPasMP.CountJobWorkerThreads;
+ end else begin
+  fCountThreads:=1;
+ end;
 {$else}
 
  fCountThreads:=aCountThreads;
