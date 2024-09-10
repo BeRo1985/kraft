@@ -32413,7 +32413,7 @@ begin
    while SkipListNodeIndex<fCountSkipListNodes do begin
     SkipListNode:=@fSkipListNodes[SkipListNodeIndex];
     if AABBRayIntersectOpt(SkipListNode^.AABB,Origin,InvDirection) then begin
-     MeshIndex:=TKraftPtrInt(SkipListNode^.UserData)-1;
+     MeshIndex:=TKraftPtrInt(TKraftPtrUInt(SkipListNode^.UserData))-1;
      if MeshIndex>=0 then begin
       Mesh:=fMeshes[MeshIndex];
       MeshSkipListNodeIndex:=0;
@@ -32500,7 +32500,7 @@ begin
    while SkipListNodeIndex<fCountSkipListNodes do begin
     SkipListNode:=@fSkipListNodes[SkipListNodeIndex];
     if SphereCastAABBOpt(Origin,Radius,InvDirection,SkipListNode^.AABB) then begin
-     MeshIndex:=TKraftPtrInt(SkipListNode^.UserData)-1;
+     MeshIndex:=TKraftPtrInt(TKraftPtrUInt(SkipListNode^.UserData))-1;
      if MeshIndex>=0 then begin
       Mesh:=fMeshes[MeshIndex];
       MeshSkipListNodeIndex:=0;
@@ -35601,7 +35601,7 @@ begin
   while SkipListNodeIndex<TKraftShapeMesh(fShapeMesh).fCountSkipListNodes do begin
    SkipListNode:=@TKraftShapeMesh(fShapeMesh).fSkipListNodes[SkipListNodeIndex];
    if AABBIntersect(SkipListNode^.AABB,fConvexAABBInMeshLocalSpace) then begin
-    MeshIndex:=TKraftPtrInt(SkipListNode^.UserData)-1;
+    MeshIndex:=TKraftPtrInt(TKraftPtrUInt(SkipListNode^.UserData))-1;
     if MeshIndex>=0 then begin
      Mesh:=TKraftShapeMesh(fShapeMesh).fMeshes[MeshIndex];
      MeshSkipListNodeIndex:=0;
@@ -46370,7 +46370,7 @@ var Hit:boolean;
   while SkipListNodeIndex<TKraftShapeMesh(aWithShape).fCountSkipListNodes do begin
    SkipListNode:=@TKraftShapeMesh(aWithShape).fSkipListNodes[SkipListNodeIndex];
    if AABBIntersect(SkipListNode^.AABB,AABB) then begin
-    MeshIndex:=TKraftPtrInt(SkipListNode^.UserData)-1;
+    MeshIndex:=TKraftPtrInt(TKraftPtrUInt(SkipListNode^.UserData))-1;
     if MeshIndex>=0 then begin
      Mesh:=TKraftShapeMesh(aWithShape).fMeshes[MeshIndex];
      MeshSkipListNodeIndex:=0;
@@ -46678,7 +46678,7 @@ var Sphere:TKraftSphere;
   while SkipListNodeIndex<TKraftShapeMesh(aWithShape).fCountSkipListNodes do begin
    SkipListNode:=@TKraftShapeMesh(aWithShape).fSkipListNodes[SkipListNodeIndex];
    if AABBIntersect(SkipListNode^.AABB,AABB) then begin
-    MeshIndex:=TKraftPtrInt(SkipListNode^.UserData)-1;
+    MeshIndex:=TKraftPtrInt(TKraftPtrUInt(SkipListNode^.UserData))-1;
     if MeshIndex>=0 then begin
      Mesh:=TKraftShapeMesh(aWithShape).fMeshes[MeshIndex];
      MeshSkipListNodeIndex:=0;
@@ -47754,7 +47754,7 @@ var Hit:Boolean;
   while SkipListNodeIndex<TKraftShapeMesh(aWithShape).fCountSkipListNodes do begin
    SkipListNode:=@TKraftShapeMesh(aWithShape).fSkipListNodes[SkipListNodeIndex];
    if AABBIntersect(SkipListNode^.AABB,AABB) then begin
-    MeshIndex:=TKraftPtrInt(SkipListNode^.UserData)-1;
+    MeshIndex:=TKraftPtrInt(TKraftPtrUInt(SkipListNode^.UserData))-1;
     if MeshIndex>=0 then begin
      Mesh:=TKraftShapeMesh(aWithShape).fMeshes[MeshIndex];
      MeshSkipListNodeIndex:=0;
@@ -47844,7 +47844,7 @@ var Hit:Boolean;
   while SkipListNodeIndex<TKraftShapeMesh(aWithShape).fCountSkipListNodes do begin
    SkipListNode:=@TKraftShapeMesh(aWithShape).fSkipListNodes[SkipListNodeIndex];
    if AABBIntersect(SkipListNode^.AABB,AABB) then begin
-    MeshIndex:=TKraftPtrInt(SkipListNode^.UserData)-1;
+    MeshIndex:=TKraftPtrInt(TKraftPtrUInt(SkipListNode^.UserData))-1;
     if MeshIndex>=0 then begin
      Mesh:=TKraftShapeMesh(aWithShape).fMeshes[MeshIndex];
      MeshSkipListNodeIndex:=0;
@@ -47869,11 +47869,13 @@ var Hit:Boolean;
   end;
  end;
  procedure CollideMesh(const aWithShape:TKraftShapeMesh);
- var MeshIndex,SkipListNodeIndex,TriangleIndex:TKraftInt32;
+ var SkipListNodeIndex,MeshSkipListNodeIndex,TriangleIndex:TKraftInt32;
+     MeshIndex:TKraftPtrInt;
      Mesh:TKraftMesh;
      PositionA,PositionB,Normal:TKraftVector3;
      PenetrationDepth:TKraftScalar;
-     SkipListNode:PKraftMeshSkipListNode;
+     SkipListNode:PKraftDynamicAABBTreeSkipListNode;
+     MeshSkipListNode:PKraftMeshSkipListNode;
      Triangle:PKraftMeshTriangle;
      IndirectTriangle:TKraftIndirectTriangle;
      RelativeTransform:TKraftMatrix4x4;
@@ -47887,37 +47889,47 @@ var Hit:Boolean;
    end;
    kstConvexHull,kstBox,kstPlane,kstTriangle:begin
     RelativeTransform:=Matrix4x4TermMulInverted(aShape.fWorldTransform,aWithShape.fWorldTransform);
-    for MeshIndex:=0 to aWithShape.fCountMeshes-1 do begin
-     Mesh:=aWithShape.fMeshes[MeshIndex];
-     SkipListNodeIndex:=0;
-     while SkipListNodeIndex<Mesh.fCountSkipListNodes do begin
-      SkipListNode:=@Mesh.fSkipListNodes[SkipListNodeIndex];
-      if AABBIntersect(SkipListNode^.AABB,aShape.fWorldAABB) then begin
-       if SkipListNode^.CountTriangles>0 then begin
-        for TriangleIndex:=SkipListNode^.FirstTriangleIndex to SkipListNode^.FirstTriangleIndex+(SkipListNode^.CountTriangles-1) do begin
-         Triangle:=@Mesh.fTriangles[TriangleIndex];
-         IndirectTriangle.Points[0]:=@Mesh.fVertices[Triangle^.Vertices[0]];
-         IndirectTriangle.Points[1]:=@Mesh.fVertices[Triangle^.Vertices[1]];
-         IndirectTriangle.Points[2]:=@Mesh.fVertices[Triangle^.Vertices[2]];
-         Normal:=Vector3SafeNorm(Vector3Cross(Vector3Sub(IndirectTriangle.Points[1]^,IndirectTriangle.Points[0]^),Vector3Sub(IndirectTriangle.Points[2]^,IndirectTriangle.Points[0]^)));
-         IndirectTriangle.Normal:=@Normal;
-         if MPRIndirectTrianglePenetration(@IndirectTriangle,
-                                           aShape,
-                                           Matrix4x4Identity,
-                                           RelativeTransform,
-                                           PositionA,
-                                           PositionB,
-                                           Normal,
-                                           PenetrationDepth) then begin
-          Normal:=Vector3Neg(Vector3Norm(Vector3TermMatrixMulBasis(Normal,aWithShape.fWorldTransform)));
-          AddContact(aWithShape,MeshIndex,TriangleIndex,PositionB,PositionA,Normal,PenetrationDepth);
+    SkipListNodeIndex:=0;
+    while SkipListNodeIndex<TKraftShapeMesh(aWithShape).fCountSkipListNodes do begin
+     SkipListNode:=@TKraftShapeMesh(aWithShape).fSkipListNodes[SkipListNodeIndex];
+     if AABBIntersect(SkipListNode^.AABB,aShape.fWorldAABB) then begin
+      MeshIndex:=TKraftPtrInt(TKraftPtrUInt(SkipListNode^.UserData))-1;
+      if MeshIndex>=0 then begin
+       Mesh:=TKraftShapeMesh(aWithShape).fMeshes[MeshIndex];
+       MeshSkipListNodeIndex:=0;
+       while MeshSkipListNodeIndex<Mesh.fCountSkipListNodes do begin
+        MeshSkipListNode:=@Mesh.fSkipListNodes[MeshSkipListNodeIndex];
+        if AABBIntersect(MeshSkipListNode^.AABB,aShape.fWorldAABB) then begin
+         if MeshSkipListNode^.CountTriangles>0 then begin
+          for TriangleIndex:=MeshSkipListNode^.FirstTriangleIndex to MeshSkipListNode^.FirstTriangleIndex+(MeshSkipListNode^.CountTriangles-1) do begin
+           Triangle:=@Mesh.fTriangles[TriangleIndex];
+           IndirectTriangle.Points[0]:=@Mesh.fVertices[Triangle^.Vertices[0]];
+           IndirectTriangle.Points[1]:=@Mesh.fVertices[Triangle^.Vertices[1]];
+           IndirectTriangle.Points[2]:=@Mesh.fVertices[Triangle^.Vertices[2]];
+           Normal:=Vector3SafeNorm(Vector3Cross(Vector3Sub(IndirectTriangle.Points[1]^,IndirectTriangle.Points[0]^),Vector3Sub(IndirectTriangle.Points[2]^,IndirectTriangle.Points[0]^)));
+           IndirectTriangle.Normal:=@Normal;
+           if MPRIndirectTrianglePenetration(@IndirectTriangle,
+                                             aShape,
+                                             Matrix4x4Identity,
+                                             RelativeTransform,
+                                             PositionA,
+                                             PositionB,
+                                             Normal,
+                                             PenetrationDepth) then begin
+            Normal:=Vector3Neg(Vector3Norm(Vector3TermMatrixMulBasis(Normal,aWithShape.fWorldTransform)));
+            AddContact(aWithShape,MeshIndex,TriangleIndex,PositionB,PositionA,Normal,PenetrationDepth);
+           end;
+          end;
          end;
+         inc(MeshSkipListNodeIndex);
+        end else begin
+         MeshSkipListNodeIndex:=MeshSkipListNode^.SkipToNodeIndex;
         end;
        end;
-       inc(SkipListNodeIndex);
-      end else begin
-       SkipListNodeIndex:=SkipListNode^.SkipToNodeIndex;
       end;
+      inc(SkipListNodeIndex);
+     end else begin
+      SkipListNodeIndex:=SkipListNode^.SkipToNodeIndex;
      end;
     end;
    end;
