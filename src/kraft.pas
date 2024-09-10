@@ -911,7 +911,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftStaticAABBTreeSkipListNode=record
       AABB:TKraftAABB;
-      SkipCount:TKraftSizeInt;
+      SkipToNodeIndex:TKraftSizeInt;
 //    Proxy:TKraftSizeInt;
       Proxies:TKraftStaticAABBTreeSkipListNodeProxies;
      end;
@@ -965,7 +965,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftDynamicAABBTreeSkipListNode=record
       AABB:TKraftAABB;
-      SkipCount:TKraftSizeInt;
+      SkipToNodeIndex:TKraftSizeInt;
       UserData:Pointer;
      end;
      PKraftDynamicAABBTreeSkipListNode=^TKraftDynamicAABBTreeSkipListNode;
@@ -2219,6 +2219,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fMeshes:TKraftMeshArray;
        fCountMeshes:TKraftInt32;
        fSkipListNodes:TKraftDynamicAABBTreeSkipListNodes;
+       fCountSkipListNodes:TKraftSizeInt;
        fDirty:boolean;
        fSmoothNormalsAtCasting:boolean;
        function GetMesh:TKraftMesh;
@@ -19652,7 +19653,7 @@ begin
          SkipListNode:=@result[CountSkipListNodes];
          inc(CountSkipListNodes);
          SkipListNode^.AABB:=Node^.AABB;
-         SkipListNode^.SkipCount:=0;
+         SkipListNode^.SkipToNodeIndex:=High(TKraftSizeInt);
          SkipListNode^.Proxies:=nil;
        //SkipListNode^.Proxy:=-1;
          CountProxies:=0;
@@ -19704,7 +19705,7 @@ begin
        1:begin
         if StackItem.Node>=0 then begin
          SkipListNodeIndex:=SkipListNodeMap[StackItem.Node];
-         result[SkipListNodeIndex].SkipCount:=CountSkipListNodes-SkipListNodeIndex;
+         result[SkipListNodeIndex].SkipToNodeIndex:=CountSkipListNodes{-SkipListNodeIndex};
         end;
        end;
       end;
@@ -20494,7 +20495,7 @@ begin
         SkipListNode:=@aSkipListNodes[CountSkipListNodes];
         inc(CountSkipListNodes);
         SkipListNode^.AABB:=Node^.AABB;
-        SkipListNode^.SkipCount:=0;
+        SkipListNode^.SkipToNodeIndex:=High(TKraftSizeInt);
         SkipListNode^.UserData:=Node^.UserData;
         fSkipListNodeMap[StackItem.Node]:=SkipListNodeIndex;
         NewStackItem.Pass:=1;
@@ -20527,7 +20528,7 @@ begin
       1:begin
        if StackItem.Node>=0 then begin
         SkipListNodeIndex:=fSkipListNodeMap[StackItem.Node];
-        aSkipListNodes[SkipListNodeIndex].SkipCount:=CountSkipListNodes-SkipListNodeIndex;
+        aSkipListNodes[SkipListNodeIndex].SkipToNodeIndex:=CountSkipListNodes{-SkipListNodeIndex};
        end;
       end;
      end;
@@ -32156,8 +32157,10 @@ begin
  fSkipListNodes:=nil;
  SetLength(fSkipListNodes,1);
  fSkipListNodes[0].AABB:=fMeshes[0].fAABB;
- fSkipListNodes[0].SkipCount:=1;
+ fSkipListNodes[0].SkipToNodeIndex:=1;
  fSkipListNodes[0].UserData:=@fMeshes[0];
+
+ fCountSkipListNodes:=1;
 
  fDirty:=false;
 
@@ -32188,8 +32191,11 @@ begin
  if length(fMeshes)=1 then begin
   SetLength(fSkipListNodes,1);
   fSkipListNodes[0].AABB:=fMeshes[0].fAABB;
-  fSkipListNodes[0].SkipCount:=1;
+  fSkipListNodes[0].SkipToNodeIndex:=1;
   fSkipListNodes[0].UserData:=@fMeshes[0];
+  fCountSkipListNodes:=1;
+ end else begin
+  fCountSkipListNodes:=0;
  end;
 
  fDirty:=true;
@@ -32270,6 +32276,7 @@ begin
      DynamicAABBTree.Rebuild;
     end;}
     DynamicAABBTree.GetSkipListNodes(fSkipListNodes);
+    fCountSkipListNodes:=length(fSkipListNodes);
    finally
     FreeAndNil(DynamicAABBTree);
    end;
@@ -32384,9 +32391,10 @@ begin
 end;
 
 function TKraftShapeMesh.RayCast(var RayCastData:TKraftRayCastData):boolean;
-var MeshIndex,SkipListNodeIndex,TriangleIndex:TKraftInt32;
+var SkipListNodeIndex,MeshSkipListNodeIndex,TriangleIndex:TKraftInt32;
     Mesh:TKraftMesh;
-    SkipListNode:PKraftMeshSkipListNode;
+    SkipListNode:PKraftDynamicAABBTreeSkipListNode;
+    MeshSkipListNode:PKraftMeshSkipListNode;
     Triangle:PKraftMeshTriangle;
     First,SidePass:boolean;
     Nearest,Time,u,v,w:TKraftScalar;
@@ -32400,53 +32408,62 @@ begin
    InvDirection:=Vector3Div(Vector3All,Direction);
    Nearest:=MAX_SCALAR;
    First:=true;
-   for MeshIndex:=0 to fCountMeshes-1 do begin
-    Mesh:=fMeshes[MeshIndex];
-    SkipListNodeIndex:=0;
-    while SkipListNodeIndex<Mesh.fCountSkipListNodes do begin
-     SkipListNode:=@Mesh.fSkipListNodes[SkipListNodeIndex];
-     if AABBRayIntersectOpt(SkipListNode^.AABB,Origin,InvDirection) then begin
-      if SkipListNode^.CountTriangles>0 then begin
-       for TriangleIndex:=SkipListNode^.FirstTriangleIndex to SkipListNode^.FirstTriangleIndex+(SkipListNode^.CountTriangles-1) do begin
-        Triangle:=@Mesh.fTriangles[TriangleIndex];
-        for SidePass:=false to Mesh.fDoubleSided do begin
-         if RayIntersectTriangle(Origin,
-                                 Direction,
-                                 Mesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],
-                                 Mesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],
-                                 Mesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],
-                                 Time,
-                                 u,
-                                 v,
-                                 w) then begin
-          p:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time));
-          if ((Time>=0.0) and (Time<=RayCastData.MaxTime)) and (First or (Time<Nearest)) then begin
-           First:=false;
-           Nearest:=Time;
-           if fSmoothNormalsAtCasting then begin
-            Normal:=Vector3Norm(Vector3Add(Vector3ScalarMul(Mesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],u),
-                                Vector3Add(Vector3ScalarMul(Mesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],v),
-                                           Vector3ScalarMul(Mesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],w))));
-           end else begin
-            Normal:=Triangle^.Plane.Normal;
+   SkipListNodeIndex:=0;
+   while SkipListNodeIndex<fCountSkipListNodes do begin
+    SkipListNode:=@fSkipListNodes[SkipListNodeIndex];
+    if AABBRayIntersectOpt(SkipListNode^.AABB,Origin,InvDirection) then begin
+     Mesh:=SkipListNode^.UserData;
+     if assigned(Mesh) then begin
+      MeshSkipListNodeIndex:=0;
+      while MeshSkipListNodeIndex<Mesh.fCountSkipListNodes do begin
+       MeshSkipListNode:=@Mesh.fSkipListNodes[MeshSkipListNodeIndex];
+       if AABBRayIntersectOpt(MeshSkipListNode^.AABB,Origin,InvDirection) then begin
+        if MeshSkipListNode^.CountTriangles>0 then begin
+         for TriangleIndex:=MeshSkipListNode^.FirstTriangleIndex to MeshSkipListNode^.FirstTriangleIndex+(MeshSkipListNode^.CountTriangles-1) do begin
+          Triangle:=@Mesh.fTriangles[TriangleIndex];
+          for SidePass:=false to Mesh.fDoubleSided do begin
+           if RayIntersectTriangle(Origin,
+                                   Direction,
+                                   Mesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],
+                                   Mesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],
+                                   Mesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],
+                                   Time,
+                                   u,
+                                   v,
+                                   w) then begin
+            p:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time));
+            if ((Time>=0.0) and (Time<=RayCastData.MaxTime)) and (First or (Time<Nearest)) then begin
+             First:=false;
+             Nearest:=Time;
+             if fSmoothNormalsAtCasting then begin
+              Normal:=Vector3Norm(Vector3Add(Vector3ScalarMul(Mesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],u),
+                                  Vector3Add(Vector3ScalarMul(Mesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],v),
+                                             Vector3ScalarMul(Mesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],w))));
+             end else begin
+              Normal:=Triangle^.Plane.Normal;
+             end;
+             RayCastData.TimeOfImpact:=Time;
+             RayCastData.Point:=p;
+             if SidePass then begin
+              RayCastData.Normal:=Vector3Neg(Normal);
+             end else begin
+              RayCastData.Normal:=Normal;
+             end;
+             result:=true;
+            end;
            end;
-           RayCastData.TimeOfImpact:=Time;
-           RayCastData.Point:=p;
-           if SidePass then begin
-            RayCastData.Normal:=Vector3Neg(Normal);
-           end else begin
-            RayCastData.Normal:=Normal;
-           end;
-           result:=true;
           end;
          end;
         end;
+        inc(MeshSkipListNodeIndex);
+       end else begin
+        MeshSkipListNodeIndex:=MeshSkipListNode^.SkipToNodeIndex;
        end;
       end;
-      inc(SkipListNodeIndex);
-     end else begin
-      SkipListNodeIndex:=SkipListNode^.SkipToNodeIndex;
      end;
+     inc(SkipListNodeIndex);
+    end else begin
+     SkipListNodeIndex:=SkipListNode^.SkipToNodeIndex;
     end;
    end;
    if result then begin
@@ -32458,8 +32475,9 @@ begin
 end;
 
 function TKraftShapeMesh.SphereCast(var SphereCastData:TKraftSphereCastData):boolean;
-var MeshIndex,SkipListNodeIndex,TriangleIndex:TKraftInt32;
-    SkipListNode:PKraftMeshSkipListNode;
+var SkipListNodeIndex,MeshSkipListNodeIndex,TriangleIndex:TKraftInt32;
+    SkipListNode:PKraftDynamicAABBTreeSkipListNode;
+    MeshSkipListNode:PKraftMeshSkipListNode;
     Mesh:TKraftMesh;
     Triangle:PKraftMeshTriangle;
     First,SidePass:boolean;
@@ -32475,89 +32493,98 @@ begin
    InvDirection:=Vector3Div(Vector3All,Direction);
    Nearest:=MAX_SCALAR;
    First:=true;
-   for MeshIndex:=0 to fCountMeshes-1 do begin
-    Mesh:=fMeshes[MeshIndex];
-    SkipListNodeIndex:=0;
-    while SkipListNodeIndex<Mesh.fCountSkipListNodes do begin
-     SkipListNode:=@Mesh.fSkipListNodes[SkipListNodeIndex];
-     if SphereCastAABBOpt(Origin,Radius,InvDirection,SkipListNode^.AABB) then begin
-      if SkipListNode^.CountTriangles>0 then begin
-       for TriangleIndex:=SkipListNode^.FirstTriangleIndex to SkipListNode^.FirstTriangleIndex+(SkipListNode^.CountTriangles-1) do begin
-        Triangle:=@Mesh.fTriangles[TriangleIndex];
-        if Mesh.fSmoothSphereCastNormals then begin
-         if SphereCastTriangle(Origin,
-                               Radius,
-                               Direction,
-                               Mesh.fVertices[Triangle^.Vertices[0]],
-                               Mesh.fVertices[Triangle^.Vertices[1]],
-                               Mesh.fVertices[Triangle^.Vertices[2]],
-                               Triangle^.Plane.Normal,
-                               Mesh.fDoubleSided,
-                               Normal,
-                               Time) then begin
-          p:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time));
-          if ((Time>=0.0) and (Time<=SphereCastData.MaxTime)) and (First or (Time<Nearest)) then begin
-           First:=false;
-           Nearest:=Time;
-           SphereCastData.TimeOfImpact:=Time;
-           SphereCastData.Point:=p;
-           SphereCastData.Normal:=Normal;
-           if Mesh.fDoubleSided and (Vector3Dot(Triangle^.Plane.Normal,Direction)>=0) then begin
-            SphereCastData.SurfaceNormal:=Vector3Neg(Triangle^.Plane.Normal);
-           end else begin
-            SphereCastData.SurfaceNormal:=Triangle^.Plane.Normal;
-           end;
-           result:=true;
-          end;
-         end;
-        end else begin
-         for SidePass:=false to Mesh.fDoubleSided do begin
-          if SidePass then begin
-           TriangleNormal:=Vector3Neg(Triangle^.Plane.Normal);
-          end else begin
-           TriangleNormal:=Triangle^.Plane.Normal;
-          end;
-          if SphereCastTriangle(Origin,
-                                Radius,
-                                Direction,
-                                Mesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],
-                                Mesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],
-                                Mesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],
-                                TriangleNormal,
-                                Time,
-                                u,
-                                v,
-                                w) then begin
-           p:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time));
-           if ((Time>=0.0) and (Time<=SphereCastData.MaxTime)) and (First or (Time<Nearest)) then begin
-            First:=false;
-            Nearest:=Time;
-            if fSmoothNormalsAtCasting then begin
-             Normal:=Vector3Norm(Vector3Add(Vector3ScalarMul(Mesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],u),
-                                 Vector3Add(Vector3ScalarMul(Mesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],v),
-                                            Vector3ScalarMul(Mesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],w))));
-            end else begin
-             Normal:=Triangle^.Plane.Normal;
-            end;
-            SphereCastData.TimeOfImpact:=Time;
-            SphereCastData.Point:=p;
-            if SidePass then begin
-             SphereCastData.Normal:=Vector3Neg(Normal);
-            end else begin
+   SkipListNodeIndex:=0;
+   while SkipListNodeIndex<fCountSkipListNodes do begin
+    SkipListNode:=@fSkipListNodes[SkipListNodeIndex];
+    if SphereCastAABBOpt(Origin,Radius,InvDirection,SkipListNode^.AABB) then begin
+     Mesh:=SkipListNode^.UserData;
+     if assigned(Mesh) then begin
+      MeshSkipListNodeIndex:=0;
+      while MeshSkipListNodeIndex<Mesh.fCountSkipListNodes do begin
+       MeshSkipListNode:=@Mesh.fSkipListNodes[MeshSkipListNodeIndex];
+       if SphereCastAABBOpt(Origin,Radius,InvDirection,MeshSkipListNode^.AABB) then begin
+        if MeshSkipListNode^.CountTriangles>0 then begin
+         for TriangleIndex:=MeshSkipListNode^.FirstTriangleIndex to MeshSkipListNode^.FirstTriangleIndex+(MeshSkipListNode^.CountTriangles-1) do begin
+          Triangle:=@Mesh.fTriangles[TriangleIndex];
+          if Mesh.fSmoothSphereCastNormals then begin
+           if SphereCastTriangle(Origin,
+                                 Radius,
+                                 Direction,
+                                 Mesh.fVertices[Triangle^.Vertices[0]],
+                                 Mesh.fVertices[Triangle^.Vertices[1]],
+                                 Mesh.fVertices[Triangle^.Vertices[2]],
+                                 Triangle^.Plane.Normal,
+                                 Mesh.fDoubleSided,
+                                 Normal,
+                                 Time) then begin
+            p:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time));
+            if ((Time>=0.0) and (Time<=SphereCastData.MaxTime)) and (First or (Time<Nearest)) then begin
+             First:=false;
+             Nearest:=Time;
+             SphereCastData.TimeOfImpact:=Time;
+             SphereCastData.Point:=p;
              SphereCastData.Normal:=Normal;
+             if Mesh.fDoubleSided and (Vector3Dot(Triangle^.Plane.Normal,Direction)>=0) then begin
+              SphereCastData.SurfaceNormal:=Vector3Neg(Triangle^.Plane.Normal);
+             end else begin
+              SphereCastData.SurfaceNormal:=Triangle^.Plane.Normal;
+             end;
+             result:=true;
             end;
-            SphereCastData.SurfaceNormal:=TriangleNormal;
-            result:=true;
+           end;
+          end else begin
+           for SidePass:=false to Mesh.fDoubleSided do begin
+            if SidePass then begin
+             TriangleNormal:=Vector3Neg(Triangle^.Plane.Normal);
+            end else begin
+             TriangleNormal:=Triangle^.Plane.Normal;
+            end;
+            if SphereCastTriangle(Origin,
+                                  Radius,
+                                  Direction,
+                                  Mesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],
+                                  Mesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],
+                                  Mesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],
+                                  TriangleNormal,
+                                  Time,
+                                  u,
+                                  v,
+                                  w) then begin
+             p:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time));
+             if ((Time>=0.0) and (Time<=SphereCastData.MaxTime)) and (First or (Time<Nearest)) then begin
+              First:=false;
+              Nearest:=Time;
+              if fSmoothNormalsAtCasting then begin
+               Normal:=Vector3Norm(Vector3Add(Vector3ScalarMul(Mesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],u),
+                                   Vector3Add(Vector3ScalarMul(Mesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],v),
+                                              Vector3ScalarMul(Mesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],w))));
+              end else begin
+               Normal:=Triangle^.Plane.Normal;
+              end;
+              SphereCastData.TimeOfImpact:=Time;
+              SphereCastData.Point:=p;
+              if SidePass then begin
+               SphereCastData.Normal:=Vector3Neg(Normal);
+              end else begin
+               SphereCastData.Normal:=Normal;
+              end;
+              SphereCastData.SurfaceNormal:=TriangleNormal;
+              result:=true;
+             end;
+            end;
            end;
           end;
          end;
         end;
+        inc(MeshSkipListNodeIndex);
+       end else begin
+        MeshSkipListNodeIndex:=MeshSkipListNode^.SkipToNodeIndex;
        end;
       end;
-      inc(SkipListNodeIndex);
-     end else begin
-      SkipListNodeIndex:=SkipListNode^.SkipToNodeIndex;
      end;
+     inc(SkipListNodeIndex);
+    end else begin
+     SkipListNodeIndex:=SkipListNode^.SkipToNodeIndex;
     end;
    end;
    if result then begin
