@@ -32266,9 +32266,9 @@ begin
     finally
      RandomOrderIndices:=nil;
     end;
-    if fCountMeshes<=1024 then begin
+   {if fCountMeshes<=8 then begin
      DynamicAABBTree.Rebuild;
-    end;
+    end;}
     DynamicAABBTree.GetSkipListNodes(fSkipListNodes);
    finally
     FreeAndNil(DynamicAABBTree);
