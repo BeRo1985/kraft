@@ -46336,11 +46336,13 @@ var Hit:boolean;
  end;
  procedure CollideSphereWithMesh(const aWithShape:TKraftShapeMesh);
  const ModuloThree:array[0..5] of TKraftInt32=(0,1,2,0,1,2);
- var i,MeshIndex,SkipListNodeIndex,TriangleIndex:TKraftInt32;
+ var i,SkipListNodeIndex,MeshSkipListNodeIndex,TriangleIndex:TKraftInt32;
+     MeshIndex:TKraftPtrInt;
      Radius,RadiusWithThreshold,DistanceFromPlane,ContactRadiusSqr,DistanceSqr:TKraftScalar;
      SphereCenter,Normal,P0ToCenter,ContactPoint,NearestOnEdge,ContactToCenter:TKraftVector3;
      IsInsideContactPlane,HasContact:boolean;
-     SkipListNode:PKraftMeshSkipListNode;
+     SkipListNode:PKraftDynamicAABBTreeSkipListNode;
+     MeshSkipListNode:PKraftMeshSkipListNode;
      Mesh:TKraftMesh;
      Triangle:PKraftMeshTriangle;
      AABB:TKraftAABB;
@@ -46364,63 +46366,73 @@ var Hit:boolean;
   AABB.Max.w:=0.0;
 {$endif}
   RadiusWithThreshold:=Radius+EPSILON;
-  for MeshIndex:=0 to aWithShape.fCountMeshes-1 do begin
-   Mesh:=aWithShape.fMeshes[MeshIndex];
-   SkipListNodeIndex:=0;
-   while SkipListNodeIndex<Mesh.fCountSkipListNodes do begin
-    SkipListNode:=@Mesh.fSkipListNodes[SkipListNodeIndex];
-    if AABBIntersect(SkipListNode^.AABB,AABB) then begin
-     if SkipListNode^.CountTriangles>0 then begin
-      for TriangleIndex:=SkipListNode^.FirstTriangleIndex to SkipListNode^.FirstTriangleIndex+(SkipListNode^.CountTriangles-1) do begin
-       Triangle:=@Mesh.fTriangles[TriangleIndex];
-       Vertices[0]:=@Mesh.fVertices[Triangle^.Vertices[0]];
-       Vertices[1]:=@Mesh.fVertices[Triangle^.Vertices[1]];
-       Vertices[2]:=@Mesh.fVertices[Triangle^.Vertices[2]];
-       Normal:=Vector3SafeNorm(Vector3Cross(Vector3Sub(Vertices[1]^,Vertices[0]^),Vector3Sub(Vertices[2]^,Vertices[0]^)));
-       P0ToCenter:=Vector3Sub(SphereCenter,Vertices[0]^);
-       DistanceFromPlane:=Vector3Dot(P0ToCenter,Normal);
-       if DistanceFromPlane<0.0 then begin
-        DistanceFromPlane:=-DistanceFromPlane;
-        Normal:=Vector3Neg(Normal);
-       end;
-       IsInsideContactPlane:=DistanceFromPlane<RadiusWithThreshold;
-       HasContact:=false;
-       ContactPoint:=Vector3Origin;
-       ContactRadiusSqr:=sqr(RadiusWithThreshold);
-       if IsInsideContactPlane then begin
-        if PointInTriangle(Vertices[0]^,Vertices[1]^,Vertices[2]^,Normal,SphereCenter) then begin
-         HasContact:=true;
-         ContactPoint:=Vector3Sub(SphereCenter,Vector3ScalarMul(Normal,DistanceFromPlane));
-        end else begin
-         for i:=0 to 2 do begin
-          DistanceSqr:=SegmentSqrDistance(Vertices[i]^,Vertices[ModuloThree[i+1]]^,SphereCenter,@NearestOnEdge);
-          if DistanceSqr<ContactRadiusSqr then begin
+  SkipListNodeIndex:=0;
+  while SkipListNodeIndex<TKraftShapeMesh(aWithShape).fCountSkipListNodes do begin
+   SkipListNode:=@TKraftShapeMesh(aWithShape).fSkipListNodes[SkipListNodeIndex];
+   if AABBIntersect(SkipListNode^.AABB,AABB) then begin
+    MeshIndex:=TKraftPtrInt(SkipListNode^.UserData)-1;
+    if MeshIndex>=0 then begin
+     Mesh:=TKraftShapeMesh(aWithShape).fMeshes[MeshIndex];
+     MeshSkipListNodeIndex:=0;
+     while MeshSkipListNodeIndex<Mesh.fCountSkipListNodes do begin
+      MeshSkipListNode:=@Mesh.fSkipListNodes[MeshSkipListNodeIndex];
+      if AABBIntersect(MeshSkipListNode^.AABB,AABB) then begin
+       if MeshSkipListNode^.CountTriangles>0 then begin
+        for TriangleIndex:=MeshSkipListNode^.FirstTriangleIndex to MeshSkipListNode^.FirstTriangleIndex+(MeshSkipListNode^.CountTriangles-1) do begin
+         Triangle:=@Mesh.fTriangles[TriangleIndex];
+         Vertices[0]:=@Mesh.fVertices[Triangle^.Vertices[0]];
+         Vertices[1]:=@Mesh.fVertices[Triangle^.Vertices[1]];
+         Vertices[2]:=@Mesh.fVertices[Triangle^.Vertices[2]];
+         Normal:=Vector3SafeNorm(Vector3Cross(Vector3Sub(Vertices[1]^,Vertices[0]^),Vector3Sub(Vertices[2]^,Vertices[0]^)));
+         P0ToCenter:=Vector3Sub(SphereCenter,Vertices[0]^);
+         DistanceFromPlane:=Vector3Dot(P0ToCenter,Normal);
+         if DistanceFromPlane<0.0 then begin
+          DistanceFromPlane:=-DistanceFromPlane;
+          Normal:=Vector3Neg(Normal);
+         end;
+         IsInsideContactPlane:=DistanceFromPlane<RadiusWithThreshold;
+         HasContact:=false;
+         ContactPoint:=Vector3Origin;
+         ContactRadiusSqr:=sqr(RadiusWithThreshold);
+         if IsInsideContactPlane then begin
+          if PointInTriangle(Vertices[0]^,Vertices[1]^,Vertices[2]^,Normal,SphereCenter) then begin
            HasContact:=true;
-           ContactPoint:=NearestOnEdge;
+           ContactPoint:=Vector3Sub(SphereCenter,Vector3ScalarMul(Normal,DistanceFromPlane));
+          end else begin
+           for i:=0 to 2 do begin
+            DistanceSqr:=SegmentSqrDistance(Vertices[i]^,Vertices[ModuloThree[i+1]]^,SphereCenter,@NearestOnEdge);
+            if DistanceSqr<ContactRadiusSqr then begin
+             HasContact:=true;
+             ContactPoint:=NearestOnEdge;
+            end;
+           end;
+          end;
+         end;
+         if HasContact then begin
+          ContactToCenter:=Vector3Sub(SphereCenter,ContactPoint);
+          DistanceSqr:=Vector3LengthSquared(ContactToCenter);
+          if DistanceSqr<ContactRadiusSqr then begin
+           if DistanceSqr>EPSILON then begin
+            SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Vector3SafeNorm(Vector3TermMatrixMulBasis(ContactToCenter,aWithShape.fWorldTransform)),Radius-sqrt(DistanceSqr)));
+           end else begin
+            SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Vector3SafeNorm(Vector3TermMatrixMulBasis(Normal,aWithShape.fWorldTransform)),Radius));
+           end;
+           inc(Count);
+           Hit:=true;
+           WasHit:=true;
           end;
          end;
         end;
        end;
-       if HasContact then begin
-        ContactToCenter:=Vector3Sub(SphereCenter,ContactPoint);
-        DistanceSqr:=Vector3LengthSquared(ContactToCenter);
-        if DistanceSqr<ContactRadiusSqr then begin
-         if DistanceSqr>EPSILON then begin
-          SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Vector3SafeNorm(Vector3TermMatrixMulBasis(ContactToCenter,aWithShape.fWorldTransform)),Radius-sqrt(DistanceSqr)));
-         end else begin
-          SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Vector3SafeNorm(Vector3TermMatrixMulBasis(Normal,aWithShape.fWorldTransform)),Radius));
-         end;
-         inc(Count);
-         Hit:=true;
-         WasHit:=true;
-        end;
-       end;
+       inc(MeshSkipListNodeIndex);
+      end else begin
+       MeshSkipListNodeIndex:=MeshSkipListNode^.SkipToNodeIndex;
       end;
      end;
-     inc(SkipListNodeIndex);
-    end else begin
-     SkipListNodeIndex:=SkipListNode^.SkipToNodeIndex;
     end;
+    inc(SkipListNodeIndex);
+   end else begin
+    SkipListNodeIndex:=SkipListNode^.SkipToNodeIndex;
    end;
   end;
   if WasHit then begin
@@ -46629,13 +46641,15 @@ var Sphere:TKraftSphere;
   end;
  end;
  procedure CollideMesh(const aWithShape:TKraftShapeMesh);
- var MeshIndex,SkipListNodeIndex,TriangleIndex:TKraftInt32;
+ var SkipListNodeIndex,MeshSkipListNodeIndex,TriangleIndex:TKraftInt32;
+     MeshIndex:TKraftPtrUInt;
      Mesh:TKraftMesh;
      Radius,RadiusWithThreshold:TKraftScalar;
      SphereCenter:TKraftVector3;
      PositionA,PositionB,Normal:TKraftVector3;
      PenetrationDepth:TKraftScalar;
-     SkipListNode:PKraftMeshSkipListNode;
+     SkipListNode:PKraftDynamicAABBTreeSkipListNode;
+     MeshSkipListNode:PKraftMeshSkipListNode;
      Triangle:PKraftMeshTriangle;
      IndirectTriangle:TKraftIndirectTriangle;
      RelativeTransform:TKraftMatrix4x4;
@@ -46660,48 +46674,58 @@ var Sphere:TKraftSphere;
 {$endif}
   RadiusWithThreshold:=Radius+EPSILON;
   RelativeTransform:=Matrix4x4TermMulInverted(TransformA,aWithShape.fWorldTransform);
-  for MeshIndex:=0 to aWithShape.fCountMeshes-1 do begin
-   Mesh:=aWithShape.fMeshes[MeshIndex];
-   SkipListNodeIndex:=0;
-   while SkipListNodeIndex<Mesh.fCountSkipListNodes do begin
-    SkipListNode:=@Mesh.fSkipListNodes[SkipListNodeIndex];
-    if AABBIntersect(SkipListNode^.AABB,AABB) then begin
-     if SkipListNode^.CountTriangles>0 then begin
-      for TriangleIndex:=SkipListNode^.FirstTriangleIndex to SkipListNode^.FirstTriangleIndex+(SkipListNode^.CountTriangles-1) do begin
-       Triangle:=@Mesh.fTriangles[TriangleIndex];
-       IndirectTriangle.Points[0]:=@Mesh.fVertices[Triangle^.Vertices[0]];
-       IndirectTriangle.Points[1]:=@Mesh.fVertices[Triangle^.Vertices[1]];
-       IndirectTriangle.Points[2]:=@Mesh.fVertices[Triangle^.Vertices[2]];
-       Normal:=Vector3SafeNorm(Vector3Cross(Vector3Sub(IndirectTriangle.Points[1]^,IndirectTriangle.Points[0]^),Vector3Sub(IndirectTriangle.Points[2]^,IndirectTriangle.Points[0]^)));
-       IndirectTriangle.Normal:=@Normal;
-       if MPRIndirectTrianglePenetration(@IndirectTriangle,
-                                         aShape,
-                                         Matrix4x4Identity,
-                                         RelativeTransform,
-                                         PositionA,
-                                         PositionB,
-                                         Normal,
-                                         PenetrationDepth) then begin
-        Normal:=Vector3Neg(Vector3Norm(Vector3TermMatrixMulBasis(Normal,aWithShape.fWorldTransform)));
-        if aSingleDeepest then begin
-         if (Count=0) or (BestPenetrationDepth<=PenetrationDepth) then begin
-          Count:=1;
-          BestMinimumTranslationVector:=Vector3ScalarMul(Normal,PenetrationDepth);
-          BestPenetrationDepth:=PenetrationDepth;
+  SkipListNodeIndex:=0;
+  while SkipListNodeIndex<TKraftShapeMesh(aWithShape).fCountSkipListNodes do begin
+   SkipListNode:=@TKraftShapeMesh(aWithShape).fSkipListNodes[SkipListNodeIndex];
+   if AABBIntersect(SkipListNode^.AABB,AABB) then begin
+    MeshIndex:=TKraftPtrInt(SkipListNode^.UserData)-1;
+    if MeshIndex>=0 then begin
+     Mesh:=TKraftShapeMesh(aWithShape).fMeshes[MeshIndex];
+     MeshSkipListNodeIndex:=0;
+     while MeshSkipListNodeIndex<Mesh.fCountSkipListNodes do begin
+      MeshSkipListNode:=@Mesh.fSkipListNodes[MeshSkipListNodeIndex];
+      if AABBIntersect(MeshSkipListNode^.AABB,AABB) then begin
+       if MeshSkipListNode^.CountTriangles>0 then begin
+        for TriangleIndex:=MeshSkipListNode^.FirstTriangleIndex to MeshSkipListNode^.FirstTriangleIndex+(MeshSkipListNode^.CountTriangles-1) do begin
+         Triangle:=@Mesh.fTriangles[TriangleIndex];
+         IndirectTriangle.Points[0]:=@Mesh.fVertices[Triangle^.Vertices[0]];
+         IndirectTriangle.Points[1]:=@Mesh.fVertices[Triangle^.Vertices[1]];
+         IndirectTriangle.Points[2]:=@Mesh.fVertices[Triangle^.Vertices[2]];
+         Normal:=Vector3SafeNorm(Vector3Cross(Vector3Sub(IndirectTriangle.Points[1]^,IndirectTriangle.Points[0]^),Vector3Sub(IndirectTriangle.Points[2]^,IndirectTriangle.Points[0]^)));
+         IndirectTriangle.Normal:=@Normal;
+         if MPRIndirectTrianglePenetration(@IndirectTriangle,
+                                           aShape,
+                                           Matrix4x4Identity,
+                                           RelativeTransform,
+                                           PositionA,
+                                           PositionB,
+                                           Normal,
+                                           PenetrationDepth) then begin
+          Normal:=Vector3Neg(Vector3Norm(Vector3TermMatrixMulBasis(Normal,aWithShape.fWorldTransform)));
+          if aSingleDeepest then begin
+           if (Count=0) or (BestPenetrationDepth<=PenetrationDepth) then begin
+            Count:=1;
+            BestMinimumTranslationVector:=Vector3ScalarMul(Normal,PenetrationDepth);
+            BestPenetrationDepth:=PenetrationDepth;
+           end;
+          end else begin
+           SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Normal,PenetrationDepth));
+           inc(Count);
+          end;
+          Hit:=true;
+          WasHit:=true;
          end;
-        end else begin
-         SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Normal,PenetrationDepth));
-         inc(Count);
         end;
-        Hit:=true;
-        WasHit:=true;
        end;
+       inc(MeshSkipListNodeIndex);
+      end else begin
+       MeshSkipListNodeIndex:=MeshSkipListNode^.SkipToNodeIndex;
       end;
      end;
-     inc(SkipListNodeIndex);
-    end else begin
-     SkipListNodeIndex:=SkipListNode^.SkipToNodeIndex;
     end;
+    inc(SkipListNodeIndex);
+   end else begin
+    SkipListNodeIndex:=SkipListNode^.SkipToNodeIndex;
    end;
   end;
   if WasHit then begin
