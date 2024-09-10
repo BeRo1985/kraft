@@ -887,6 +887,57 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property z:TKraftScalar read GetZ write SetZ;
      end;
 
+     TKraftStaticAABBTreeProxy=record
+      AABB:TKraftAABB;
+      UserData:TKraftPtrInt;
+      Next:TKraftSizeInt;
+     end;
+     PKraftStaticAABBTreeProxy=^TKraftStaticAABBTreeProxy;
+
+     TKraftStaticAABBTreeProxies=array of TKraftStaticAABBTreeProxy;
+
+     TKraftStaticAABBTreeNode=record
+      AABB:TKraftAABB;
+      Children:array[0..1] of TKraftSizeInt;
+      Proxies:TKraftSizeInt;
+     end;
+     PKraftStaticAABBTreeNode=^TKraftStaticAABBTreeNode;
+
+     TKraftStaticAABBTreeNodes=array of TKraftStaticAABBTreeNode;
+
+{    TKraftStaticAABBTreeSkipListNode=packed record
+      AABB:TKraftAABB;
+      SkipCount:TKraftSizeInt;
+      Left:TKraftSizeInt;
+      Right:TKraftSizeInt;
+      Proxy:TKraftSizeInt;
+     end;
+     PKraftStaticAABBTreeSkipListNode=^TKraftStaticAABBTreeSkipListNode;
+
+     TKraftStaticAABBTreeSkipListNodes=array of TKraftStaticAABBTreeSkipListNode;}
+
+     { TKraftStaticAABBTree }
+     TKraftStaticAABBTree=class
+      private
+       fProxies:TKraftStaticAABBTreeProxies;
+       fProxiesCount:TKraftSizeInt;
+       fNodes:TKraftStaticAABBTreeNodes;
+       fNodeCount:TKraftSizeInt;
+       fRoot:TKraftSizeInt;
+      public
+       constructor Create;
+       destructor Destroy; override;
+       procedure CreateProxy(const aAABB:TKraftAABB;const aUserData:TKraftPtrInt);
+       procedure Build(const aThreshold:TKraftSizeInt=8;const aMaxDepth:TKraftSizeInt=64;const aKDTree:boolean=false);
+//     function GetSkipList:TKraftStaticAABBTreeSkipListNodes;
+      public
+       property Proxies:TKraftStaticAABBTreeProxies read fProxies;
+       property ProxiesCount:TKraftSizeInt read fProxiesCount;
+       property Nodes:TKraftStaticAABBTreeNodes read fNodes;
+       property NodeCount:TKraftSizeInt read fNodeCount;
+       property Root:TKraftSizeInt read fRoot;
+     end;
+
      TKraftDynamicAABBTreeNode=record
       AABB:TKraftAABB;
       UserData:pointer;
@@ -909,6 +960,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      PKraftDynamicAABBTreeLongintArray=^TKraftDynamicAABBTreeLongintArray;
      TKraftDynamicAABBTreeLongintArray=array[0..65535] of TKraftInt32;
 
+     { TKraftDynamicAABBTree }
      TKraftDynamicAABBTree=class
       private
        fRoot:TKraftInt32;
@@ -19336,6 +19388,203 @@ begin
  fVector^:=NewVector;
 end;
 
+{ TKraftStaticAABBTree }
+
+constructor TKraftStaticAABBTree.Create;
+begin
+ inherited Create;
+ fProxies:=nil;
+ fProxiesCount:=0;
+ fNodes:=nil;
+ fNodeCount:=-1;
+ fRoot:=-1;
+end;
+
+destructor TKraftStaticAABBTree.Destroy;
+begin
+ fProxies:=nil;
+ fNodes:=nil;
+ inherited Destroy;
+end;
+
+procedure TKraftStaticAABBTree.CreateProxy(const aAABB:TKraftAABB;const aUserData:TKraftPtrInt);
+var Index:TKraftSizeInt;
+begin
+ Index:=fProxiesCount;
+ inc(fProxiesCount);
+ if fProxiesCount>=length(fProxies) then begin
+  SetLength(fProxies,RoundUpToPowerOfTwo(fProxiesCount));
+ end;
+ fProxies[Index].AABB:=aAABB;
+ fProxies[Index].UserData:=aUserData;
+ fProxies[Index].Next:=Index-1;
+end;
+
+procedure TKraftStaticAABBTree.Build(const aThreshold:TKraftSizeInt=8;const aMaxDepth:TKraftSizeInt=64;const aKDTree:boolean=false);
+var Counter,StackPointer,Node,Depth,LeftCount,RightCount,ParentCount,Axis,BestAxis,Proxy,Balance,BestBalance,
+    NextProxy,LeftNode,RightNode,TargetNode:TKraftSizeInt;
+    Stack:array of TKraftSizeInt;
+    Center:TKraftVector3;
+    LeftAABB,RightAABB:TKraftAABB;
+begin
+ SetLength(fProxies,fProxiesCount);
+ if fProxiesCount>0 then begin
+  Stack:=nil;
+  try
+   fRoot:=0;
+   fNodeCount:=1;
+   SetLength(fNodes,Max(fNodeCount,fProxiesCount));
+   fNodes[0].AABB:=fProxies[0].AABB;
+   for Counter:=1 to fProxiesCount-1 do begin
+    fNodes[0].AABB:=AABBCombine(fNodes[0].AABB,fProxies[Counter].AABB);
+   end;
+   for Counter:=0 to fProxiesCount-2 do begin
+    fProxies[Counter].Next:=Counter+1;
+   end;
+   fProxies[fProxiesCount-1].Next:=-1;
+   fNodes[0].Proxies:=0;
+   fNodes[0].Children[0]:=-1;
+   fNodes[0].Children[1]:=-1;
+   SetLength(Stack,16);
+   Stack[0]:=0;
+   Stack[1]:=aMaxDepth;
+   StackPointer:=2;
+   while StackPointer>0 do begin
+    dec(StackPointer,2);
+    Node:=Stack[StackPointer];
+    Depth:=Stack[StackPointer+1];
+    if (Node>=0) and (fNodes[Node].Proxies>=0) then begin
+     Proxy:=fNodes[Node].Proxies;
+     fNodes[Node].AABB:=fProxies[Proxy].AABB;
+     Proxy:=fProxies[Proxy].Next;
+     ParentCount:=1;
+     while Proxy>=0 do begin
+      fNodes[Node].AABB:=AABBCombine(fNodes[Node].AABB,fProxies[Proxy].AABB);
+      inc(ParentCount);
+      Proxy:=fProxies[Proxy].Next;
+     end;
+     if (Depth<>0) and ((ParentCount>2) and (ParentCount>=aThreshold)) then begin
+      Center:=Vector3Avg(fNodes[Node].AABB.Min,fNodes[Node].AABB.Max);
+      BestAxis:=-1;
+      BestBalance:=$7fffffff;
+      for Axis:=0 to 3 do begin
+       LeftCount:=0;
+       RightCount:=0;
+       ParentCount:=0;
+       LeftAABB:=fNodes[Node].AABB;
+       RightAABB:=fNodes[Node].AABB;
+       LeftAABB.Max.xyz[Axis]:=Center.xyz[Axis];
+       RightAABB.Min.xyz[Axis]:=Center.xyz[Axis];
+       Proxy:=fNodes[Node].Proxies;
+       if aKDTree then begin
+        while Proxy>=0 do begin
+         if AABBContains(LeftAABB,fProxies[Proxy].AABB) then begin
+          inc(LeftCount);
+         end else if AABBContains(RightAABB,fProxies[Proxy].AABB) then begin
+          inc(RightCount);
+         end else begin
+          inc(ParentCount);
+         end;
+         Proxy:=fProxies[Proxy].Next;
+        end;
+        if (LeftCount>0) and (RightCount>0) then begin
+         Balance:=abs(RightCount-LeftCount);
+         if (BestBalance>Balance) and ((LeftCount+RightCount)>=ParentCount) and ((LeftCount+RightCount+ParentCount)>=aThreshold) then begin
+          BestBalance:=Balance;
+          BestAxis:=Axis;
+         end;
+        end;
+       end else begin
+        while Proxy>=0 do begin
+         if ((fProxies[Proxy].AABB.Min.xyz[Axis]+fProxies[Proxy].AABB.Max.xyz[Axis])*0.5)<RightAABB.Min.xyz[Axis] then begin
+          inc(LeftCount);
+         end else begin
+          inc(RightCount);
+         end;
+         Proxy:=fProxies[Proxy].Next;
+        end;
+        if (LeftCount>0) and (RightCount>0) then begin
+         Balance:=abs(RightCount-LeftCount);
+         if BestBalance>Balance then begin
+          BestBalance:=Balance;
+          BestAxis:=Axis;
+         end;
+        end;
+       end;
+      end;
+      if BestAxis>=0 then begin
+       LeftNode:=fNodeCount;
+       RightNode:=fNodeCount+1;
+       inc(fNodeCount,2);
+       if fNodeCount>=length(fNodes) then begin
+        SetLength(fNodes,RoundUpToPowerOfTwo(fNodeCount));
+       end;
+       LeftAABB:=fNodes[Node].AABB;
+       RightAABB:=fNodes[Node].AABB;
+       LeftAABB.Max.xyz[BestAxis]:=Center.xyz[BestAxis];
+       RightAABB.Min.xyz[BestAxis]:=Center.xyz[BestAxis];
+       Proxy:=fNodes[Node].Proxies;
+       fNodes[LeftNode].Proxies:=-1;
+       fNodes[RightNode].Proxies:=-1;
+       fNodes[Node].Proxies:=-1;
+       if aKDTree then begin
+        while Proxy>=0 do begin
+         NextProxy:=fProxies[Proxy].Next;
+         if AABBContains(LeftAABB,fProxies[Proxy].AABB) then begin
+          TargetNode:=LeftNode;
+         end else if AABBContains(RightAABB,fProxies[Proxy].AABB) then begin
+          TargetNode:=RightNode;
+         end else begin
+          TargetNode:=Node;
+         end;
+         fProxies[Proxy].Next:=fNodes[TargetNode].Proxies;
+         fNodes[TargetNode].Proxies:=Proxy;
+         Proxy:=NextProxy;
+        end;
+       end else begin
+        while Proxy>=0 do begin
+         NextProxy:=fProxies[Proxy].Next;
+         if ((fProxies[Proxy].AABB.Min.xyz[BestAxis]+fProxies[Proxy].AABB.Max.xyz[BestAxis])*0.5)<RightAABB.Min.xyz[BestAxis] then begin
+          TargetNode:=LeftNode;
+         end else begin
+          TargetNode:=RightNode;
+         end;
+         fProxies[Proxy].Next:=fNodes[TargetNode].Proxies;
+         fNodes[TargetNode].Proxies:=Proxy;
+         Proxy:=NextProxy;
+        end;
+       end;
+       fNodes[Node].Children[0]:=LeftNode;
+       fNodes[Node].Children[1]:=RightNode;
+       fNodes[LeftNode].AABB:=LeftAABB;
+       fNodes[LeftNode].Children[0]:=-1;
+       fNodes[LeftNode].Children[1]:=-1;
+       fNodes[RightNode].AABB:=RightAABB;
+       fNodes[RightNode].Children[0]:=-1;
+       fNodes[RightNode].Children[1]:=-1;
+       if (StackPointer+4)>=length(Stack) then begin
+        SetLength(Stack,RoundUpToPowerOfTwo(StackPointer+4));
+       end;
+       Stack[StackPointer+0]:=LeftNode;
+       Stack[StackPointer+1]:=Max(-1,Depth-1);
+       Stack[StackPointer+2]:=RightNode;
+       Stack[StackPointer+3]:=Max(-1,Depth-1);
+       inc(StackPointer,4);
+      end;
+     end;
+    end;
+   end;
+   SetLength(fNodes,fNodeCount);
+  finally
+   Stack:=nil;
+  end;
+ end else begin
+  fNodeCount:=0;
+  SetLength(fNodes,0);
+ end;
+end;
+
+{ TKraftDynamicAABBTree }
 constructor TKraftDynamicAABBTree.Create;
 var i:TKraftInt32;
 begin
