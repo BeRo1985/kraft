@@ -905,7 +905,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftStaticAABBTreeNodes=array of TKraftStaticAABBTreeNode;
 
-{    TKraftStaticAABBTreeSkipListNode=packed record
+     TKraftStaticAABBTreeSkipListNode=packed record
       AABB:TKraftAABB;
       SkipCount:TKraftSizeInt;
       Left:TKraftSizeInt;
@@ -914,7 +914,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      end;
      PKraftStaticAABBTreeSkipListNode=^TKraftStaticAABBTreeSkipListNode;
 
-     TKraftStaticAABBTreeSkipListNodes=array of TKraftStaticAABBTreeSkipListNode;}
+     TKraftStaticAABBTreeSkipListNodes=array of TKraftStaticAABBTreeSkipListNode;
 
      { TKraftStaticAABBTree }
      TKraftStaticAABBTree=class
@@ -929,7 +929,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        destructor Destroy; override;
        procedure CreateProxy(const aAABB:TKraftAABB;const aUserData:TKraftPtrInt);
        procedure Build(const aThreshold:TKraftSizeInt=8;const aMaxDepth:TKraftSizeInt=64;const aKDTree:boolean=false);
-//     function GetSkipList:TKraftStaticAABBTreeSkipListNodes;
+       function GetSkipList:TKraftStaticAABBTreeSkipListNodes;
       public
        property Proxies:TKraftStaticAABBTreeProxies read fProxies;
        property ProxiesCount:TKraftSizeInt read fProxiesCount;
@@ -19598,6 +19598,102 @@ begin
  end;
 end;
 
+function TKraftStaticAABBTree.GetSkipList:TKraftStaticAABBTreeSkipListNodes;
+type TSkipListNodeStackItem=record
+      Pass:TKraftSizeInt;
+      Node:TKraftSizeInt;
+     end;
+     PSkipListNodeStackItem=^TSkipListNodeStackItem;
+     TSkipListNodeStackItems=array of TSkipListNodeStackItem;
+var CountSkipListNodes,StackPointer:TKraftSizeInt;
+    StackItem,NewStackItem:TSkipListNodeStackItem;
+    StackItems:TSkipListNodeStackItems;
+    Node:PKraftDynamicAABBTreeNode;
+    SkipListNode:PKraftDynamicAABBTreeSkipListNode;
+    SkipListNodeIndex:TKraftSizeInt;
+    SkipListNodeMap:array of TKraftSizeInt;
+begin
+ result:=nil;
+ CountSkipListNodes:=0;
+ try
+  if Root>=0 then begin
+   SkipListNodeMap:=nil;
+   try
+    SetLength(SkipListNodeMap,fNodeCount);
+    StackItems:=nil;
+    try
+     StackPointer:=0;
+     NewStackItem.Pass:=0;
+     NewStackItem.Node:=Root;
+     if length(StackItems)<=StackPointer then begin
+      SetLength(StackItems,(StackPointer+1)+((StackPointer+1) shr 1));
+     end;
+     StackItems[StackPointer]:=NewStackItem;
+     inc(StackPointer);
+     while StackPointer>0 do begin
+      dec(StackPointer);
+      StackItem:=StackItems[StackPointer];
+      case StackItem.Pass of
+       0:begin
+        if StackItem.Node>=0 then begin
+         Node:=@fNodes[StackItem.Node];
+         SkipListNodeIndex:=CountSkipListNodes;
+         if length(result)<=CountSkipListNodes then begin
+          SetLength(result,(CountSkipListNodes+1)+((CountSkipListNodes+1) shr 1));
+         end;
+         SkipListNode:=@result[CountSkipListNodes];
+         inc(CountSkipListNodes);
+         SkipListNode^.AABB:=Node^.AABB;
+         SkipListNode^.SkipCount:=0;
+         SkipListNode^.UserData:=Node^.UserData;
+         SkipListNodeMap[StackItem.Node]:=SkipListNodeIndex;
+         NewStackItem.Pass:=1;
+         NewStackItem.Node:=StackItem.Node;
+         if length(StackItems)<=StackPointer then begin
+          SetLength(StackItems,(StackPointer+1)+((StackPointer+1) shr 1));
+         end;
+         StackItems[StackPointer]:=NewStackItem;
+         inc(StackPointer);
+         if Node^.Children[1]>=0 then begin
+          NewStackItem.Pass:=0;
+          NewStackItem.Node:=Node^.Children[1];
+          if length(StackItems)<=StackPointer then begin
+           SetLength(StackItems,(StackPointer+1)+((StackPointer+1) shr 1));
+          end;
+          StackItems[StackPointer]:=NewStackItem;
+          inc(StackPointer);
+         end;
+         if Node^.Children[0]>=0 then begin
+          NewStackItem.Pass:=0;
+          NewStackItem.Node:=Node^.Children[0];
+          if length(StackItems)<=StackPointer then begin
+           SetLength(StackItems,(StackPointer+1)+((StackPointer+1) shr 1));
+          end;
+          StackItems[StackPointer]:=NewStackItem;
+          inc(StackPointer);
+         end;
+        end;
+       end;
+       1:begin
+        if StackItem.Node>=0 then begin
+         SkipListNodeIndex:=SkipListNodeMap[StackItem.Node];
+         result[SkipListNodeIndex].SkipCount:=CountSkipListNodes-SkipListNodeIndex;
+        end;
+       end;
+      end;
+     end;
+    finally
+     StackItems:=nil;
+    end;
+   finally
+    SkipListNodeMap:=nil;
+   end;
+  end;
+ finally
+  SetLength(result,CountSkipListNodes);
+ end;
+end;
+
 { TKraftDynamicAABBTree }
 constructor TKraftDynamicAABBTree.Create;
 var i:TKraftInt32;
@@ -20363,7 +20459,7 @@ begin
      case StackItem.Pass of
       0:begin
        if StackItem.Node>=0 then begin
-        Node:=@Nodes[StackItem.Node];
+        Node:=@fNodes[StackItem.Node];
         SkipListNodeIndex:=CountSkipListNodes;
         if length(aSkipListNodes)<=CountSkipListNodes then begin
          SetLength(aSkipListNodes,(CountSkipListNodes+1)+((CountSkipListNodes+1) shr 1));
