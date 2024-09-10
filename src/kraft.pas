@@ -2220,13 +2220,12 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fCountMeshes:TKraftInt32;
        fSkipListNodes:TKraftDynamicAABBTreeSkipListNodes;
        fCountSkipListNodes:TKraftSizeInt;
-       fTwoLevelBVH:boolean;
        fDirty:boolean;
        fSmoothNormalsAtCasting:boolean;
        function GetMesh:TKraftMesh;
       public
        constructor Create(const aPhysics:TKraft;const aRigidBody:TKraftRigidBody;const aMesh:TKraftMesh); reintroduce; overload;
-       constructor Create(const aPhysics:TKraft;const ARigidBody:TKraftRigidBody;const AMeshes:array of TKraftMesh;const aTwoLevelBVH:Boolean=true); reintroduce; overload;
+       constructor Create(const aPhysics:TKraft;const ARigidBody:TKraftRigidBody;const AMeshes:array of TKraftMesh); reintroduce; overload;
        destructor Destroy; override;
        procedure MarkAsDirty;
        procedure UpdateShapeAABB; override;
@@ -32163,8 +32162,6 @@ begin
 
  fCountSkipListNodes:=1;
 
- fTwoLevelBVH:=false;
-
  fDirty:=false;
 
  inherited Create(aPhysics,aRigidBody);
@@ -32179,7 +32176,7 @@ begin
 
 end;
 
-constructor TKraftShapeMesh.Create(const aPhysics:TKraft;const ARigidBody:TKraftRigidBody;const AMeshes:array of TKraftMesh;const aTwoLevelBVH:Boolean=true);
+constructor TKraftShapeMesh.Create(const aPhysics:TKraft;const ARigidBody:TKraftRigidBody;const AMeshes:array of TKraftMesh);
 begin
 
 //fMesh:=AMesh;
@@ -32200,8 +32197,6 @@ begin
  end else begin
   fCountSkipListNodes:=0;
  end;
-
- fTwoLevelBVH:=aTwoLevelBVH;
 
  fDirty:=true;
 
@@ -32243,7 +32238,6 @@ var Index,TargetIndex,TemporaryIndex:TKraftSizeInt;
     RandomOrderIndices:TKraftSizeIntDynamicArray;
     DynamicAABBTree:TKraftDynamicAABBTree;
     Seed:TKraftUInt32;
-    SkipListNode:PKraftDynamicAABBTreeSkipListNode;
 begin
  if fCountMeshes>0 then begin
   fShapeAABB:=fMeshes[0].fAABB;
@@ -32253,53 +32247,38 @@ begin
   if fCountMeshes=1 then begin
    fSkipListNodes[0].AABB:=fMeshes[0].fAABB;
   end else if fDirty then begin
-   if fTwoLevelBVH then begin
-    DynamicAABBTree:=TKraftDynamicAABBTree.Create;
+   DynamicAABBTree:=TKraftDynamicAABBTree.Create;
+   try
+    RandomOrderIndices:=nil;
     try
-     RandomOrderIndices:=nil;
-     try
-      SetLength(RandomOrderIndices,fCountMeshes);
-      for Index:=0 to fCountMeshes-1 do begin
-       RandomOrderIndices[Index]:=Index;
-      end;
-      Seed:=TKraftUInt32($8b0634d1);
-      for Index:=0 to fCountMeshes-1 do begin
-       TargetIndex:=TKraftUInt32(TKraftUInt64(TKraftUInt64(TKraftUInt64(Seed)*fCountMeshes) shr 32));
-       Seed:=Seed xor (Seed shl 13);
-       Seed:=Seed xor (Seed shr 17);
-       Seed:=Seed xor (Seed shl 5);
-       TemporaryIndex:=RandomOrderIndices[Index];
-       RandomOrderIndices[Index]:=RandomOrderIndices[TargetIndex];
-       RandomOrderIndices[TargetIndex]:=TemporaryIndex;
-      end;
-      for Index:=0 to fCountMeshes-1 do begin
-       TemporaryIndex:=RandomOrderIndices[Index];
-       DynamicAABBTree.CreateProxy(fMeshes[TemporaryIndex].AABB,Pointer(TKraftPtrInt(TemporaryIndex+1)));
-      end;
-     finally
-      RandomOrderIndices:=nil;
+     SetLength(RandomOrderIndices,fCountMeshes);
+     for Index:=0 to fCountMeshes-1 do begin
+      RandomOrderIndices[Index]:=Index;
      end;
-    {if fCountMeshes<=8 then begin
-      DynamicAABBTree.Rebuild;
-     end;}
-     DynamicAABBTree.GetSkipListNodes(fSkipListNodes);
-     fCountSkipListNodes:=length(fSkipListNodes);
+     Seed:=TKraftUInt32($8b0634d1);
+     for Index:=0 to fCountMeshes-1 do begin
+      TargetIndex:=TKraftUInt32(TKraftUInt64(TKraftUInt64(TKraftUInt64(Seed)*fCountMeshes) shr 32));
+      Seed:=Seed xor (Seed shl 13);
+      Seed:=Seed xor (Seed shr 17);
+      Seed:=Seed xor (Seed shl 5);
+      TemporaryIndex:=RandomOrderIndices[Index];
+      RandomOrderIndices[Index]:=RandomOrderIndices[TargetIndex];
+      RandomOrderIndices[TargetIndex]:=TemporaryIndex;
+     end;
+     for Index:=0 to fCountMeshes-1 do begin
+      TemporaryIndex:=RandomOrderIndices[Index];
+      DynamicAABBTree.CreateProxy(fMeshes[TemporaryIndex].AABB,Pointer(TKraftPtrInt(TemporaryIndex+1)));
+     end;
     finally
-     FreeAndNil(DynamicAABBTree);
+     RandomOrderIndices:=nil;
     end;
-   end else begin
-    SetLength(fSkipListNodes,fCountMeshes);
-    for Index:=0 to fCountMeshes-1 do begin
-     SkipListNode:=@fSkipListNodes[Index];
-     SkipListNode^.AABB.Min.x:=-3.4e+38;
-     SkipListNode^.AABB.Min.y:=-3.4e+38;
-     SkipListNode^.AABB.Min.z:=-3.4e+38;
-     SkipListNode^.AABB.Max.x:=3.4e+38;
-     SkipListNode^.AABB.Max.y:=3.4e+38;
-     SkipListNode^.AABB.Max.z:=3.4e+38;
-     SkipListNode^.SkipToNodeIndex:=Index+1;
-     SkipListNode^.UserData:=Pointer(TKraftPtrUInt(TKraftPtrInt(Index+1)));
-    end;
+   {if fCountMeshes<=8 then begin
+     DynamicAABBTree.Rebuild;
+    end;}
+    DynamicAABBTree.GetSkipListNodes(fSkipListNodes);
+    fCountSkipListNodes:=length(fSkipListNodes);
+   finally
+    FreeAndNil(DynamicAABBTree);
    end;
   end;
  end;
