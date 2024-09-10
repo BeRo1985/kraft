@@ -451,6 +451,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      PKraftSizeInt=^TKraftSizeInt;
      PPKraftSizeInt=^PKraftSizeInt;
 
+     TKraftSizeIntDynamicArray=array of TKraftSizeInt;
+
      TKraftSizeUInt={$if declared(PtrUInt)}PtrUInt{$elseif declared(SizeUInt)}SizeUInt{$elseif defined(CPU64)}TKraftUInt64{$else}TKraftUInt32{$ifend};
      PKraftSizeUInt=^TKraftSizeUInt;
      PPKraftSizeUInt=^PKraftSizeUInt;
@@ -905,12 +907,13 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftStaticAABBTreeNodes=array of TKraftStaticAABBTreeNode;
 
-     TKraftStaticAABBTreeSkipListNode=packed record
+     TKraftStaticAABBTreeSkipListNodeProxies=array of TKraftSizeInt;
+
+     TKraftStaticAABBTreeSkipListNode=record
       AABB:TKraftAABB;
       SkipCount:TKraftSizeInt;
-      Left:TKraftSizeInt;
-      Right:TKraftSizeInt;
-      Proxy:TKraftSizeInt;
+//    Proxy:TKraftSizeInt;
+      Proxies:TKraftStaticAABBTreeSkipListNodeProxies;
      end;
      PKraftStaticAABBTreeSkipListNode=^TKraftStaticAABBTreeSkipListNode;
 
@@ -929,7 +932,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        destructor Destroy; override;
        procedure CreateProxy(const aAABB:TKraftAABB;const aUserData:TKraftPtrInt);
        procedure Build(const aThreshold:TKraftSizeInt=8;const aMaxDepth:TKraftSizeInt=64;const aKDTree:boolean=false);
-       function GetSkipList:TKraftStaticAABBTreeSkipListNodes;
+       function GetSkipListNodes:TKraftStaticAABBTreeSkipListNodes;
       public
        property Proxies:TKraftStaticAABBTreeProxies read fProxies;
        property ProxiesCount:TKraftSizeInt read fProxiesCount;
@@ -2209,16 +2212,21 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property Plane:TKraftPlane read fPlane;
      end;
 
+     { TKraftShapeMesh }
+
      TKraftShapeMesh=class(TKraftShape)
       private
        fMeshes:TKraftMeshArray;
        fCountMeshes:TKraftInt32;
+       fSkipListNodes:TKraftDynamicAABBTreeSkipListNodes;
+       fDirty:boolean;
        fSmoothNormalsAtCasting:boolean;
        function GetMesh:TKraftMesh;
       public
-       constructor Create(const aPhysics:TKraft;const ARigidBody:TKraftRigidBody;const AMesh:TKraftMesh); reintroduce; overload;
+       constructor Create(const aPhysics:TKraft;const aRigidBody:TKraftRigidBody;const aMesh:TKraftMesh); reintroduce; overload;
        constructor Create(const aPhysics:TKraft;const ARigidBody:TKraftRigidBody;const AMeshes:array of TKraftMesh); reintroduce; overload;
        destructor Destroy; override;
+       procedure MarkAsDirty;
        procedure UpdateShapeAABB; override;
        procedure CalculateMassData; override;
        function GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar; override;
@@ -19598,18 +19606,18 @@ begin
  end;
 end;
 
-function TKraftStaticAABBTree.GetSkipList:TKraftStaticAABBTreeSkipListNodes;
+function TKraftStaticAABBTree.GetSkipListNodes:TKraftStaticAABBTreeSkipListNodes;
 type TSkipListNodeStackItem=record
       Pass:TKraftSizeInt;
       Node:TKraftSizeInt;
      end;
      PSkipListNodeStackItem=^TSkipListNodeStackItem;
      TSkipListNodeStackItems=array of TSkipListNodeStackItem;
-var CountSkipListNodes,StackPointer:TKraftSizeInt;
+var CountSkipListNodes,StackPointer,Proxy,CountProxies:TKraftSizeInt;
     StackItem,NewStackItem:TSkipListNodeStackItem;
     StackItems:TSkipListNodeStackItems;
-    Node:PKraftDynamicAABBTreeNode;
-    SkipListNode:PKraftDynamicAABBTreeSkipListNode;
+    Node:PKraftStaticAABBTreeNode;
+    SkipListNode:PKraftStaticAABBTreeSkipListNode;
     SkipListNodeIndex:TKraftSizeInt;
     SkipListNodeMap:array of TKraftSizeInt;
 begin
@@ -19645,7 +19653,26 @@ begin
          inc(CountSkipListNodes);
          SkipListNode^.AABB:=Node^.AABB;
          SkipListNode^.SkipCount:=0;
-         SkipListNode^.UserData:=Node^.UserData;
+         SkipListNode^.Proxies:=nil;
+       //SkipListNode^.Proxy:=-1;
+         CountProxies:=0;
+         Proxy:=Node^.Proxies;
+         while Proxy>=0 do begin
+          inc(CountProxies);
+          Proxy:=fProxies[Proxy].Next;
+         end;
+{        if CountProxies=1 then begin
+          SkipListNode^.Proxy:=Node^.Proxies;
+         end else}if CountProxies>0 then begin
+          SetLength(SkipListNode^.Proxies,CountProxies);
+          CountProxies:=0;
+          Proxy:=Node^.Proxies;
+          while Proxy>=0 do begin
+           SkipListNode^.Proxies[CountProxies]:=Proxy;
+           inc(CountProxies);
+           Proxy:=fProxies[Proxy].Next;
+          end;
+         end;
          SkipListNodeMap[StackItem.Node]:=SkipListNodeIndex;
          NewStackItem.Pass:=1;
          NewStackItem.Node:=StackItem.Node;
@@ -32115,18 +32142,26 @@ end;
 {$endif}
 {$endif}
 
-constructor TKraftShapeMesh.Create(const aPhysics:TKraft;const ARigidBody:TKraftRigidBody;const AMesh:TKraftMesh);
+constructor TKraftShapeMesh.Create(const aPhysics:TKraft;const aRigidBody:TKraftRigidBody;const aMesh:TKraftMesh);
 begin
 
-//fMesh:=AMesh;
+//fMesh:=aMesh;
 
  fCountMeshes:=1;
 
  fMeshes:=nil;
  SetLength(fMeshes,1);
- fMeshes[0]:=AMesh;
+ fMeshes[0]:=aMesh;
 
- inherited Create(aPhysics,ARigidBody);
+ fSkipListNodes:=nil;
+ SetLength(fSkipListNodes,1);
+ fSkipListNodes[0].AABB:=fMeshes[0].fAABB;
+ fSkipListNodes[0].SkipCount:=1;
+ fSkipListNodes[0].UserData:=@fMeshes[0];
+
+ fDirty:=false;
+
+ inherited Create(aPhysics,aRigidBody);
 
  fIsMesh:=true;
 
@@ -32149,6 +32184,16 @@ begin
  SetLength(fMeshes,length(AMeshes));
  Move(AMeshes[0],fMeshes[0],length(AMeshes)*SizeOf(TKraftMesh));
 
+ fSkipListNodes:=nil;
+ if length(fMeshes)=1 then begin
+  SetLength(fSkipListNodes,1);
+  fSkipListNodes[0].AABB:=fMeshes[0].fAABB;
+  fSkipListNodes[0].SkipCount:=1;
+  fSkipListNodes[0].UserData:=@fMeshes[0];
+ end;
+
+ fDirty:=true;
+
  inherited Create(aPhysics,ARigidBody);
 
  fIsMesh:=true;
@@ -32164,7 +32209,13 @@ end;
 destructor TKraftShapeMesh.Destroy;
 begin
  fMeshes:=nil;
+ fSkipListNodes:=nil;
  inherited Destroy;
+end;
+
+procedure TKraftShapeMesh.MarkAsDirty;
+begin
+ fDirty:=true;
 end;
 
 function TKraftShapeMesh.GetMesh:TKraftMesh;
@@ -32177,14 +32228,54 @@ begin
 end;
 
 procedure TKraftShapeMesh.UpdateShapeAABB;
-var Index:TKraftInt32;
+var Index,TargetIndex,TemporaryIndex:TKraftSizeInt;
+    RandomOrderIndices:TKraftSizeIntDynamicArray;
+    DynamicAABBTree:TKraftDynamicAABBTree;
+    Seed:TKraftUInt32;
 begin
  if fCountMeshes>0 then begin
   fShapeAABB:=fMeshes[0].fAABB;
   for Index:=1 to fCountMeshes-1 do begin
    fShapeAABB:=AABBCombine(fShapeAABB,fMeshes[Index].fAABB);
   end;
- end; 
+  if fCountMeshes=1 then begin
+   fSkipListNodes[0].AABB:=fMeshes[0].fAABB;
+  end else if fDirty then begin
+   DynamicAABBTree:=TKraftDynamicAABBTree.Create;
+   try
+    RandomOrderIndices:=nil;
+    try
+     SetLength(RandomOrderIndices,fCountMeshes);
+     for Index:=0 to fCountMeshes-1 do begin
+      RandomOrderIndices[Index]:=Index;
+     end;
+     Seed:=TKraftUInt32($8b0634d1);
+     for Index:=0 to fCountMeshes-1 do begin
+      TargetIndex:=TKraftUInt32(TKraftUInt64(TKraftUInt64(TKraftUInt64(Seed)*fCountMeshes) shr 32));
+      Seed:=Seed xor (Seed shl 13);
+      Seed:=Seed xor (Seed shr 17);
+      Seed:=Seed xor (Seed shl 5);
+      TemporaryIndex:=RandomOrderIndices[Index];
+      RandomOrderIndices[Index]:=RandomOrderIndices[TargetIndex];
+      RandomOrderIndices[TargetIndex]:=TemporaryIndex;
+     end;
+     for Index:=0 to fCountMeshes-1 do begin
+      TemporaryIndex:=RandomOrderIndices[Index];
+      DynamicAABBTree.CreateProxy(fMeshes[TemporaryIndex].AABB,@fMeshes[TemporaryIndex]);
+     end;
+    finally
+     RandomOrderIndices:=nil;
+    end;
+    if fCountMeshes<=1024 then begin
+     DynamicAABBTree.Rebuild;
+    end;
+    DynamicAABBTree.GetSkipListNodes(fSkipListNodes);
+   finally
+    FreeAndNil(DynamicAABBTree);
+   end;
+  end;
+ end;
+ fDirty:=false;
 end;
 
 procedure TKraftShapeMesh.CalculateMassData;
