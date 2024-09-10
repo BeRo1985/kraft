@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2024-09-10-04-44-0000                       *
+ *                        Version 2024-09-11-00-30-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -1794,10 +1794,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        procedure SaveToOBJ(const aStream:TStream); overload;
        procedure SaveToOBJ(const aFileName:String); overload;
-       
+
        procedure SaveBVHToOBJ(const aStream:TStream;const aMode:TKraftInt32=0); overload;
        procedure SaveBVHToOBJ(const aFileName:String;const aMode:TKraftInt32=0); overload;
-       
+
        function GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
 
        function GetLocalSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar;
@@ -2445,6 +2445,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        ContainerIndex:TKraftInt32;
        ElementIndex:TKraftInt32;
        MeshContactPair:TKraftMeshContactPair;
+       MeshContactPairGeneration:TKraftUInt64;
        RigidBodies:array[0..1] of TKraftRigidBody;
        Edges:array[0..1] of TKraftContactPairEdge;
        Friction:TKraftScalar;
@@ -2490,6 +2491,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fRigidBodyMesh:TKraftRigidBody;
 
        fConvexAABBInMeshLocalSpace:TKraftAABB;
+
+       fGeneration:TKraftUInt64;
 
       public
 
@@ -2583,7 +2586,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        constructor Create(const aPhysics:TKraft);
        destructor Destroy; override;
 
-       function HasDuplicateContact(const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const AShapeA,AShapeB:TKraftShape;const AContainerIndex:TKraftInt32=-1;const AElementIndex:TKraftInt32=-1):boolean;
+       function HasDuplicateContact(const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const AShapeA,AShapeB:TKraftShape;const AContainerIndex:TKraftInt32=-1;const AElementIndex:TKraftInt32=-1;const AMeshContactPair:TKraftMeshContactPair=nil):boolean;
 
        procedure AddConvexContact(const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const AShapeA,AShapeB:TKraftShape;const AContainerIndex:TKraftInt32=-1;const AElementIndex:TKraftInt32=-1;const AMeshContactPair:TKraftMeshContactPair=nil);
 
@@ -17360,7 +17363,7 @@ begin
 
  n:=aLocalDirection;
  v1:=MPRGetSweptExtremePoint(aShapeA,aShapeB,aSweep,aLocalTransformBinA,n,v1a);
- 
+
  n:=Vector3Cross(v1,aLocalDirection);
  if Vector3LengthSquared(n)<EPSILON then begin
   if aRayLengthSquared>EPSILON then begin
@@ -17415,7 +17418,7 @@ begin
    break;
   end;
 
-  if Count=MPRMaximumIterations then begin  
+  if Count=MPRMaximumIterations then begin
    exit;
   end;
 
@@ -17428,7 +17431,7 @@ begin
 
   v4:=MPRGetSweptExtremePoint(aShapeA,aShapeB,aSweep,aLocalTransformBinA,n,v4a);
 
-  Dot:=Vector3Dot(n,v1);  
+  Dot:=Vector3Dot(n,v1);
   SupportDot:=Vector3Dot(n,v4);
 
   if ((SupportDot-Dot)<MPRTolerance) or (Count>MPRMaximumIterations) then begin
@@ -17449,7 +17452,7 @@ begin
   end;
 
   t:=Vector3Cross(v4,aLocalDirection);
-  
+
   if Vector3Dot(v1,t)>=0.0 then begin
    if Vector3Dot(v2,t)>=0.0 then begin
     v1:=v4;
@@ -17485,7 +17488,7 @@ begin
  result:=false;
 
  RayDirection:=Vector3Add(aMinkowskiRayHit,Vector3(aLocalTransformBinA[3,0],aLocalTransformBinA[3,1],aLocalTransformBinA[3,2]));
- 
+
  if Vector3LengthSquared(RayDirection)<EPSILON then begin
   aLocalPosition:=Vector3Origin;
   result:=true;
@@ -17566,7 +17569,7 @@ begin
   v2v3:=Vector3Sub(v3,v2);
   v2v1:=Vector3Sub(v1,v2);
   n:=Vector3Cross(v2v3,v2v1);
-  
+
   PointToV1:=Vector3Sub(v1,aMinkowskiRayHit);
   Dot:=Vector3Dot(PointToV1,n);
 
@@ -25733,7 +25736,7 @@ procedure TKraftMeshSimplification.SaveToOBJ(const aStream:TStream);
  begin
   // The original stock FloatToStr uses internationalization, which is not what we want here. We do want have always "." as fraction separator.
   // And the str yet from Turbo Pascal times uses always "." as fraction separator, what we do want here.
-  Str(aValue:0:12,result); 
+  Str(aValue:0:12,result);
  end;
 var Index:TKraftInt32;
     Vertex:PKraftMeshSimplificationVector3;
@@ -27315,7 +27318,7 @@ procedure TKraftMesh.SaveToOBJ(const aStream:TStream);
  begin
   // The original stock FloatToStr uses internationalization, which is not what we want here. We do want have always "." as fraction separator.
   // And the str yet from Turbo Pascal times uses always "." as fraction separator, what we do want here.
-  Str(aValue:0:12,result); 
+  Str(aValue:0:12,result);
  end;
 var Index:TKraftInt32;
     Vertex:PKraftVector3;
@@ -27380,13 +27383,13 @@ procedure TKraftMesh.SaveBVHToOBJ(const aStream:TStream;const aMode:TKraftInt32)
  begin
   // The original stock FloatToStr uses internationalization, which is not what we want here. We do want have always "." as fraction separator.
   // And the str yet from Turbo Pascal times uses always "." as fraction separator, what we do want here.
-  Str(aValue:0:12,result); 
+  Str(aValue:0:12,result);
  end;
 var SkipListNodeIndex,Counter:TKraftInt32;
     SkipListNode:PKraftMeshSkipListNode;
 begin
  WriteLine('# Generated by KRAFT physics engine for debugging purposes only');
- WriteLine('o Nodes'); 
+ WriteLine('o Nodes');
  for SkipListNodeIndex:=0 to fCountSkipListNodes-1 do begin
   SkipListNode:=@fSkipListNodes[SkipListNodeIndex];
   case aMode of
@@ -27459,7 +27462,7 @@ type TTriangleQueue=TKraftQueue<TKraftInt32>;
 var TriangleIndex:TKraftInt32;
     Area:TKraftScalar;
     Triangle:PKraftMeshTriangle;
-    TriangleQueue:TTriangleQueue;   
+    TriangleQueue:TTriangleQueue;
     Vertices,Normals,NewVertices,NewNormals:array[0..2] of TKraftInt32;
 begin
  if fTriangleAreaSplitThreshold>EPSILON then begin
@@ -27467,7 +27470,7 @@ begin
   TriangleQueue:=TTriangleQueue.Create;
   try
 
-   // Find seed too large triangles and enqueue them 
+   // Find seed too large triangles and enqueue them
    for TriangleIndex:=0 to fCountTriangles-1 do begin
     Triangle:=@fTriangles[TriangleIndex];
     Area:=Vector3Length(Vector3Cross(Vector3Sub(fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[0]]),Vector3Sub(fVertices[Triangle^.Vertices[2]],fVertices[Triangle^.Vertices[0]])))*0.5;
@@ -27476,7 +27479,7 @@ begin
     end;
    end;
 
-   // Split too large triangles into each four sub triangles until there are no more too large triangles 
+   // Split too large triangles into each four sub triangles until there are no more too large triangles
 
    //          p0
    //          /\
@@ -27486,15 +27489,15 @@ begin
    //      / \    / \
    //     / t2\t0/ t1\
    //  p2/_____\/_____\p1
-   //          m1         
+   //          m1
 
    // t0: m0,m1,m2
    // t1: m0,p1,m1
    // t2: m2,m1,p2
-   // t3: p0,m0,m2 
+   // t3: p0,m0,m2
 
    while TriangleQueue.Dequeue(TriangleIndex) do begin
-    
+
     Triangle:=@fTriangles[TriangleIndex];
 
     Vertices[0]:=Triangle^.Vertices[0]; // p0
@@ -27515,7 +27518,7 @@ begin
 
     // Create new four triangles, where the current triangle will overwritten by the first one
 
-    // The first triangle: m0,m1,m2     
+    // The first triangle: m0,m1,m2
     Triangle^.Vertices[0]:=NewVertices[0]; // m0
     Triangle^.Vertices[1]:=NewVertices[1]; // m1
     Triangle^.Vertices[2]:=NewVertices[2]; // m2
@@ -27533,13 +27536,13 @@ begin
 {$endif}
     Triangle^.AABB.Max.x:=Max(Max(fVertices[Triangle^.Vertices[0]].x,fVertices[Triangle^.Vertices[1]].x),fVertices[Triangle^.Vertices[2]].x)+EPSILON;
     Triangle^.AABB.Max.y:=Max(Max(fVertices[Triangle^.Vertices[0]].y,fVertices[Triangle^.Vertices[1]].y),fVertices[Triangle^.Vertices[2]].y)+EPSILON;
-    Triangle^.AABB.Max.z:=Max(Max(fVertices[Triangle^.Vertices[0]].z,fVertices[Triangle^.Vertices[1]].z),fVertices[Triangle^.Vertices[2]].z)+EPSILON; 
+    Triangle^.AABB.Max.z:=Max(Max(fVertices[Triangle^.Vertices[0]].z,fVertices[Triangle^.Vertices[1]].z),fVertices[Triangle^.Vertices[2]].z)+EPSILON;
 {$ifdef SIMD}
     Triangle^.AABB.Max.w:=0.0;
-{$endif} 
+{$endif}
     Area:=Vector3Length(Vector3Cross(Vector3Sub(fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[0]]),Vector3Sub(fVertices[Triangle^.Vertices[2]],fVertices[Triangle^.Vertices[0]])))*0.5;
     if Area>fTriangleAreaSplitThreshold then begin
-     TriangleQueue.Enqueue(TriangleIndex); // Enqueue the first triangle again, when it is still too large 
+     TriangleQueue.Enqueue(TriangleIndex); // Enqueue the first triangle again, when it is still too large
     end;
 
     // The second triangle: m0,p1,m1
@@ -27552,7 +27555,7 @@ begin
     Triangle:=@fTriangles[TriangleIndex];
     Area:=Vector3Length(Vector3Cross(Vector3Sub(fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[0]]),Vector3Sub(fVertices[Triangle^.Vertices[2]],fVertices[Triangle^.Vertices[0]])))*0.5;
     if Area>fTriangleAreaSplitThreshold then begin
-     TriangleQueue.Enqueue(TriangleIndex); // Enqueue the second triangle, when it is still too large 
+     TriangleQueue.Enqueue(TriangleIndex); // Enqueue the second triangle, when it is still too large
     end;
 
     // The third triangle: m2,m1,p2
@@ -27565,7 +27568,7 @@ begin
     Triangle:=@fTriangles[TriangleIndex];
     Area:=Vector3Length(Vector3Cross(Vector3Sub(fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[0]]),Vector3Sub(fVertices[Triangle^.Vertices[2]],fVertices[Triangle^.Vertices[0]])))*0.5;
     if Area>fTriangleAreaSplitThreshold then begin
-     TriangleQueue.Enqueue(TriangleIndex); // Enqueue the third triangle, when it is still too large 
+     TriangleQueue.Enqueue(TriangleIndex); // Enqueue the third triangle, when it is still too large
     end;
 
     // The fourth triangle: p0,m0,m2
@@ -27580,12 +27583,12 @@ begin
     if Area>fTriangleAreaSplitThreshold then begin
      TriangleQueue.Enqueue(TriangleIndex); // Enqueue the fourth triangle, when it is still too large
     end;
-    
+
    end;
 
   finally
    FreeAndNil(TriangleQueue);
-  end; 
+  end;
 
  end;
 
@@ -28134,19 +28137,19 @@ begin
    VertexReindexMap:=nil;
    NormalReindexMap:=nil;
    try
-    
-    // Allocate the temporary array for the new vertices and reindex map with respect to the old vertices  
+
+    // Allocate the temporary array for the new vertices and reindex map with respect to the old vertices
     SetLength(NewVertices,fCountVertices);
     SetLength(VertexReindexMap,fCountVertices);
     for Index:=0 to fCountVertices-1 do begin
-     VertexReindexMap[Index]:=-1;     
+     VertexReindexMap[Index]:=-1;
     end;
-    
+
     // Allocate the temporary array for the new normals and reindex map with respect to the old normals
     SetLength(NewNormals,fCountNormals);
     SetLength(NormalReindexMap,fCountNormals);
     for Index:=0 to fCountNormals-1 do begin
-     NormalReindexMap[Index]:=-1;     
+     NormalReindexMap[Index]:=-1;
     end;
 
     // Do the actual reorder work
@@ -28191,11 +28194,11 @@ begin
     NewNormals:=nil;
     VertexReindexMap:=nil;
     NormalReindexMap:=nil;
-   end; 
-  
-  end;  
+   end;
 
-  // Calculate the global AABB for all vertices 
+  end;
+
+  // Calculate the global AABB for all vertices
   for Index:=0 to fCountVertices-1 do begin
    if Index=0 then begin
     fAABB.Min:=fVertices[Index];
@@ -32225,7 +32228,7 @@ begin
 end;
 
 function TKraftShapeMesh.GetMesh:TKraftMesh;
-begin 
+begin
  if fCountMeshes>0 then begin
   result:=fMeshes[0];
  end else begin
@@ -35427,6 +35430,8 @@ begin
  fRigidBodyConvex:=nil;
  fRigidBodyMesh:=nil;
 
+ fGeneration:=0;
+
 end;
 
 destructor TKraftMeshContactPair.Destroy;
@@ -35526,6 +35531,8 @@ begin
   fContactManager.fMeshContactPairLast:=self;
   fNext:=nil;
 
+  fGeneration:=0;
+
  end;
 end;
 
@@ -35576,6 +35583,7 @@ var SkipListNodeIndex,MeshSkipListNodeIndex,TriangleIndex:TKraftInt32;
     MeshSkipListNode:PKraftMeshSkipListNode;
     Triangle:PKraftMeshTriangle;
 begin
+ inc(fGeneration);
  if TKraftShapeMesh(fShapeMesh).fCountMeshes=1 then begin
   MeshIndex:=0;
   Mesh:=TKraftShapeMesh(fShapeMesh).fMeshes[MeshIndex];
@@ -35586,7 +35594,7 @@ begin
     if MeshSkipListNode^.CountTriangles>0 then begin
      for TriangleIndex:=MeshSkipListNode^.FirstTriangleIndex to MeshSkipListNode^.FirstTriangleIndex+(MeshSkipListNode^.CountTriangles-1) do begin
       Triangle:=@Mesh.fTriangles[TriangleIndex];
-      if AABBIntersect(Triangle^.AABB,fConvexAABBInMeshLocalSpace) and not fContactManager.HasDuplicateContact(fRigidBodyConvex,fRigidBodyMesh,fShapeConvex,fShapeMesh,MeshIndex,TriangleIndex) then begin
+      if AABBIntersect(Triangle^.AABB,fConvexAABBInMeshLocalSpace) and not fContactManager.HasDuplicateContact(fRigidBodyConvex,fRigidBodyMesh,fShapeConvex,fShapeMesh,MeshIndex,TriangleIndex,self) then begin
        fContactManager.AddConvexContact(fRigidBodyConvex,fRigidBodyMesh,fShapeConvex,fShapeMesh,MeshIndex,TriangleIndex,self);
       end;
      end;
@@ -35611,7 +35619,7 @@ begin
        if MeshSkipListNode^.CountTriangles>0 then begin
         for TriangleIndex:=MeshSkipListNode^.FirstTriangleIndex to MeshSkipListNode^.FirstTriangleIndex+(MeshSkipListNode^.CountTriangles-1) do begin
          Triangle:=@Mesh.fTriangles[TriangleIndex];
-         if AABBIntersect(Triangle^.AABB,fConvexAABBInMeshLocalSpace) and not fContactManager.HasDuplicateContact(fRigidBodyConvex,fRigidBodyMesh,fShapeConvex,fShapeMesh,MeshIndex,TriangleIndex) then begin
+         if AABBIntersect(Triangle^.AABB,fConvexAABBInMeshLocalSpace) and not fContactManager.HasDuplicateContact(fRigidBodyConvex,fRigidBodyMesh,fShapeConvex,fShapeMesh,MeshIndex,TriangleIndex,self) then begin
           fContactManager.AddConvexContact(fRigidBodyConvex,fRigidBodyMesh,fShapeConvex,fShapeMesh,MeshIndex,TriangleIndex,self);
          end;
         end;
@@ -35741,12 +35749,12 @@ begin
  inherited Destroy;
 end;
 
-function TKraftContactManager.HasDuplicateContact(const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const AShapeA,AShapeB:TKraftShape;const AContainerIndex:TKraftInt32=-1;const AElementIndex:TKraftInt32=-1):boolean;
+function TKraftContactManager.HasDuplicateContact(const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const AShapeA,AShapeB:TKraftShape;const AContainerIndex:TKraftInt32=-1;const AElementIndex:TKraftInt32=-1;const AMeshContactPair:TKraftMeshContactPair=nil):boolean;
 var HashTableBucket:PKraftContactPairHashTableBucket;
     ContactPair:PKraftContactPair;
 begin
  result:=false;
- if AElementIndex<0 then begin
+ if (AContainerIndex<0) and (AElementIndex<0) then begin
   if ptruint(AShapeA)<ptruint(AShapeB) then begin
    HashTableBucket:=@fConvexConvexContactPairHashTable[HashTwoPointers(AShapeA,AShapeB) and high(TKraftContactPairHashTable)];
   end else begin
@@ -35773,6 +35781,9 @@ begin
       (ContactPair^.ElementIndex=AElementIndex) and
       (((ContactPair^.Shapes[0]=AShapeA) and (ContactPair^.Shapes[1]=AShapeB)) or
        ((ContactPair^.Shapes[0]=AShapeB) and (ContactPair^.Shapes[1]=AShapeA))) then begin
+    if assigned(AMeshContactPair) then begin
+     ContactPair^.MeshContactPairGeneration:=AMeshContactPair.fGeneration;
+    end;
     result:=true;
     exit;
    end;
@@ -35811,7 +35822,7 @@ begin
 
  ContactPair^.ElementIndex:=AElementIndex;
 
- if AElementIndex<0 then begin
+ if (AContainerIndex<0) and (AElementIndex<0) then begin
   if ptruint(AShapeA)<ptruint(AShapeB) then begin
    ContactPair^.HashBucket:=HashTwoPointers(AShapeA,AShapeB) and high(TKraftContactPairHashTable);
   end else begin
@@ -35837,6 +35848,11 @@ begin
  ContactPair^.HashPrevious:=nil;
 
  ContactPair^.MeshContactPair:=AMeshContactPair;
+ if assigned(AMeshContactPair) then begin
+  ContactPair^.MeshContactPairGeneration:=AMeshContactPair.fGeneration;
+ end else begin
+  ContactPair^.MeshContactPairGeneration:=High(TKraftUInt64);
+ end;
 
  ContactPair^.RigidBodies[0]:=ARigidBodyA;
  ContactPair^.RigidBodies[1]:=ARigidBodyB;
@@ -35979,8 +35995,8 @@ begin
 
   end else begin
 
-   if not HasDuplicateContact(RigidBodyA,RigidBodyB,AShapeA,AShapeB,-1,-1) then begin
-    AddConvexContact(RigidBodyA,RigidBodyB,AShapeA,AShapeB,-1,-1);
+   if not HasDuplicateContact(RigidBodyA,RigidBodyB,AShapeA,AShapeB,-1,-1,nil) then begin
+    AddConvexContact(RigidBodyA,RigidBodyB,AShapeA,AShapeB,-1,-1,nil);
    end;
 
   end;
@@ -36057,9 +36073,10 @@ begin
   fContactPairLast:=AContactPair^.Previous;
  end;
 
- if assigned(AContactPair^.MeshContactPair) then begin
+ // Commented out: This is totally wrong, because it breaks the temporal coherence of mesh contact pairs in connection with the actual contact pairs
+{if assigned(AContactPair^.MeshContactPair) then begin
   RemoveMeshContact(AContactPair^.MeshContactPair);
- end;
+ end;}
 
  AContactPair^.Previous:=nil;
 
@@ -36141,11 +36158,16 @@ end;
 {$endif}
 
 procedure TKraftContactManager.DoNarrowPhase;
-var ActiveContactPairIndex:TKraftInt32;
+const ActionAccept=0;
+      ActionRemove=1;
+      ActionIgnore=2;
+var ActiveContactPairIndex,Action:TKraftInt32;
     ContactPair,NextContactPair:PKraftContactPair;
     MeshContactPair,NextMeshContactPair:TKraftMeshContactPair;
-    ShapeA,ShapeB:TKraftShape;
+    ShapeA,ShapeB,ShapeConvex:TKraftShape;
+    ShapeMesh:TKraftShapeMesh;
     RigidBodyA,RigidBodyB:TKraftRigidBody;
+    TemporaryAABB:TKraftAABB;
     StartTime:TKraftInt64;
     Flags:TKraftContactFlags;
 begin
@@ -36164,8 +36186,64 @@ begin
   RigidBodyA:=ContactPair^.RigidBodies[0];
   RigidBodyB:=ContactPair^.RigidBodies[1];
 
-  if kcfFiltered in ContactPair^.Flags then begin
-   if (not RigidBodyA.CanCollideWith(RigidBodyB)) or (assigned(fOnCanCollide) and not fOnCanCollide(ShapeA,ShapeB)) then begin
+  repeat
+
+   if kcfFiltered in ContactPair^.Flags then begin
+    if (not RigidBodyA.CanCollideWith(RigidBodyB)) or (assigned(fOnCanCollide) and not fOnCanCollide(ShapeA,ShapeB)) then begin
+     Action:=ActionRemove;
+     break;
+    end else begin
+     ContactPair^.Flags:=ContactPair^.Flags-[kcfFiltered];
+    end;
+   end;
+
+   if ((RigidBodyA.fFlags*[krbfAwake,krbfActive])<>[krbfAwake,krbfActive]) and
+      ((RigidBodyB.fFlags*[krbfAwake,krbfActive])<>[krbfAwake,krbfActive]) then begin
+    Action:=ActionIgnore;
+    break;
+   end;
+
+   if not AABBIntersect(ShapeA.ProxyFatWorldAABB^,ShapeB.ProxyFatWorldAABB^) then begin
+    Action:=ActionRemove;
+    break;
+   end;
+
+   if assigned(ContactPair^.MeshContactPair) and
+      (ContactPair^.MeshContactPairGeneration<>ContactPair^.MeshContactPair.fGeneration) and
+      (ContactPair^.ContainerIndex>=0) and
+      (ContactPair^.ContainerIndex<TKraftShapeMesh(ContactPair^.MeshContactPair.fShapeMesh).fCountMeshes) and
+      (ContactPair^.ElementIndex>=0) and
+      (ContactPair^.ElementIndex<TKraftShapeMesh(ContactPair^.MeshContactPair.fShapeMesh).fMeshes[ContactPair^.ContainerIndex].fCountTriangles) then begin
+    ContactPair^.MeshContactPairGeneration:=ContactPair^.MeshContactPair.fGeneration;
+    if not AABBIntersect(TKraftShapeMesh(ContactPair^.MeshContactPair.fShapeMesh).fMeshes[ContactPair^.ContainerIndex].fTriangles[ContactPair^.ElementIndex].AABB,
+                         ContactPair^.MeshContactPair.fConvexAABBInMeshLocalSpace) then begin
+     Action:=ActionRemove;
+     break;
+    end;
+   end;
+
+   Action:=ActionAccept;
+   break;
+
+  until false;
+
+  case Action of
+
+   ActionAccept:begin
+
+    ActiveContactPairIndex:=fCountActiveContactPairs;
+    inc(fCountActiveContactPairs);
+    if fCountActiveContactPairs>length(fActiveContactPairs) then begin
+     SetLength(fActiveContactPairs,fCountActiveContactPairs*2);
+    end;
+    fActiveContactPairs[ActiveContactPairIndex]:=ContactPair;
+
+    ContactPair:=ContactPair^.Next;
+
+   end;
+
+   ActionRemove:begin
+
     if (ContactPair^.Flags*[kcfColliding,kcfWasColliding])<>[] then begin
      if (ContactPair^.Flags*[kcfColliding,kcfWasColliding])=[kcfColliding] then begin
       if assigned(fOnContactBegin) then begin
@@ -36191,90 +36269,16 @@ begin
     NextContactPair:=ContactPair^.Next;
     RemoveContact(ContactPair);
     ContactPair:=NextContactPair;
-    continue;
+
    end;
-   ContactPair^.Flags:=ContactPair^.Flags-[kcfFiltered];
-  end;
 
-  if ((RigidBodyA.fFlags*[krbfAwake,krbfActive])<>[krbfAwake,krbfActive]) and
-     ((RigidBodyB.fFlags*[krbfAwake,krbfActive])<>[krbfAwake,krbfActive]) then begin
-   ContactPair:=ContactPair^.Next;
-   continue;
-  end;
+   else {ActionIgnore:}begin
 
-  if not AABBIntersect(ShapeA.ProxyFatWorldAABB^,ShapeB.ProxyFatWorldAABB^) then begin
-   if (ContactPair^.Flags*[kcfColliding,kcfWasColliding])<>[] then begin
-    if (ContactPair^.Flags*[kcfColliding,kcfWasColliding])=[kcfColliding] then begin
-     if assigned(fOnContactBegin) then begin
-      fOnContactBegin(ContactPair);
-     end;
-     if assigned(ContactPair^.Shapes[0]) and assigned(ContactPair^.Shapes[0].fOnContactBegin) then begin
-      ContactPair^.Shapes[0].fOnContactBegin(ContactPair,ContactPair^.Shapes[1]);
-     end;
-     if assigned(ContactPair^.Shapes[1]) and assigned(ContactPair^.Shapes[1].fOnContactBegin) then begin
-      ContactPair^.Shapes[1].fOnContactBegin(ContactPair,ContactPair^.Shapes[0]);
-     end;
-    end;
-    if assigned(fOnContactEnd) then begin
-     fOnContactEnd(ContactPair);
-    end;
-    if assigned(ContactPair^.Shapes[0]) and assigned(ContactPair^.Shapes[0].fOnContactEnd) then begin
-     ContactPair^.Shapes[0].fOnContactEnd(ContactPair,ContactPair^.Shapes[1]);
-    end;
-    if assigned(ContactPair^.Shapes[1]) and assigned(ContactPair^.Shapes[1].fOnContactEnd) then begin
-     ContactPair^.Shapes[1].fOnContactEnd(ContactPair,ContactPair^.Shapes[0]);
-    end;
+    ContactPair:=ContactPair^.Next;
+
    end;
-   NextContactPair:=ContactPair^.Next;
-   RemoveContact(ContactPair);
-   ContactPair:=NextContactPair;
-   continue;
-  end;
 
-  if assigned(ContactPair^.MeshContactPair) and
-     (ContactPair^.ContainerIndex>=0) and
-     (ContactPair^.ContainerIndex<TKraftShapeMesh(ContactPair^.MeshContactPair.fShapeMesh).fCountMeshes) and
-     (ContactPair^.ElementIndex>=0) and
-     (ContactPair^.ElementIndex<TKraftShapeMesh(ContactPair^.MeshContactPair.fShapeMesh).fMeshes[ContactPair^.ContainerIndex].fCountTriangles) then begin
-   if not AABBIntersect(TKraftShapeMesh(ContactPair^.MeshContactPair.fShapeMesh).fMeshes[ContactPair^.ContainerIndex].fTriangles[ContactPair^.ElementIndex].AABB,
-                        ContactPair^.MeshContactPair.fConvexAABBInMeshLocalSpace) then begin
-    if (ContactPair^.Flags*[kcfColliding,kcfWasColliding])<>[] then begin
-     if (ContactPair^.Flags*[kcfColliding,kcfWasColliding])=[kcfColliding] then begin
-      if assigned(fOnContactBegin) then begin
-       fOnContactBegin(ContactPair);
-      end;
-      if assigned(ContactPair^.Shapes[0]) and assigned(ContactPair^.Shapes[0].fOnContactBegin) then begin
-       ContactPair^.Shapes[0].fOnContactBegin(ContactPair,ContactPair^.MeshContactPair.fShapeMesh);
-      end;
-      if assigned(ContactPair^.MeshContactPair.fShapeMesh) and assigned(ContactPair^.MeshContactPair.fShapeMesh.fOnContactBegin) then begin
-       ContactPair^.Shapes[1].fOnContactBegin(ContactPair,ContactPair^.Shapes[0]);
-      end;
-     end;
-     if assigned(fOnContactEnd) then begin
-      fOnContactEnd(ContactPair);
-     end;
-     if assigned(ContactPair^.Shapes[0]) and assigned(ContactPair^.Shapes[0].fOnContactEnd) then begin
-      ContactPair^.Shapes[0].fOnContactEnd(ContactPair,ContactPair^.MeshContactPair.fShapeMesh);
-     end;
-     if assigned(ContactPair^.MeshContactPair.fShapeMesh) and assigned(ContactPair^.MeshContactPair.fShapeMesh.fOnContactEnd) then begin
-      ContactPair^.MeshContactPair.fShapeMesh.fOnContactEnd(ContactPair,ContactPair^.Shapes[0]);
-     end;
-    end;
-    NextContactPair:=ContactPair^.Next;
-    RemoveContact(ContactPair);
-    ContactPair:=NextContactPair;
-    continue;
-   end;
   end;
-
-  ActiveContactPairIndex:=fCountActiveContactPairs;
-  inc(fCountActiveContactPairs);
-  if fCountActiveContactPairs>length(fActiveContactPairs) then begin
-   SetLength(fActiveContactPairs,fCountActiveContactPairs*2);
-  end;
-  fActiveContactPairs[ActiveContactPairIndex]:=ContactPair;
-
-  ContactPair:=ContactPair^.Next;
 
  end;
 
@@ -46839,7 +46843,7 @@ var TryCounter:TKraftInt32;
 begin
  case aShape.fShapeType of
   kstSphere:begin
-   // Use more optimized sphere vs other-shape-types collision detection in this case, even if the MPR-based variant would work too, but maybe a bit slower. 
+   // Use more optimized sphere vs other-shape-types collision detection in this case, even if the MPR-based variant would work too, but maybe a bit slower.
    OriginalCenter:=TKraftVector3(Pointer(@aShape.fWorldTransform[3,0])^);
    Center:=OriginalCenter;
    result:=PushSphere(Center,TKraftShapeSphere(aShape).fRadius,aCollisionGroups,aTryIterations,aOnPushShapeContactHook,aKraftOnPushShapeFilterHook,aShape);
@@ -46847,14 +46851,14 @@ begin
   end;
   kstSignedDistanceField:begin
    // Signed distance field shype type isn't supported for PushShape, since it's not a convex shape.
-   raise EKraftShapeTypeNotSupported.Create('Signed distance field shype type isn''t supported for PushShape'); 
+   raise EKraftShapeTypeNotSupported.Create('Signed distance field shype type isn''t supported for PushShape');
    result:=false;
-  end;   
+  end;
   kstMesh:begin
    // Meshes are also not supported for PushShape, since they are not convex shapes as well.
-   raise EKraftShapeTypeNotSupported.Create('Mesh shype type isn''t supported for PushShape'); 
+   raise EKraftShapeTypeNotSupported.Create('Mesh shype type isn''t supported for PushShape');
    result:=false;
-  end;   
+  end;
   else begin
    OriginalCenter:=TKraftVector3(Pointer(@aShape.fWorldTransform[3,0])^);
    Sphere.Center:=OriginalCenter;
@@ -46922,7 +46926,7 @@ begin
     end;
    end;
   end;
- end; 
+ end;
 end;
 
 function TKraftShapeCollisionContactCompare(const a,b:pointer):TKraftInt32;
