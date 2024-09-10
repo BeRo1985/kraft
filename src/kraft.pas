@@ -47832,27 +47832,39 @@ var Hit:Boolean;
   end;
  end;
  procedure CollideCapsuleWithMesh(const aWithShape:TKraftShapeMesh);
- var MeshIndex,SkipListNodeIndex,TriangleIndex:TKraftInt32;
+ var SkipListNodeIndex,MeshSkipListNodeIndex,TriangleIndex:TKraftInt32;
+     MeshIndex:TKraftPtrInt;
      Mesh:TKraftMesh;
-     SkipListNode:PKraftMeshSkipListNode;
+     SkipListNode:PKraftDynamicAABBTreeSkipListNode;
+     MeshSkipListNode:PKraftMeshSkipListNode;
      AABB:TKraftAABB;
  begin
   AABB:=AABBHomogenTransform(aShape.fWorldAABB,Matrix4x4TermSimpleInverse(aWithShape.fWorldTransform));
-  for MeshIndex:=0 to aWithShape.fCountMeshes-1 do begin
-   Mesh:=aWithShape.fMeshes[MeshIndex];
-   SkipListNodeIndex:=0;
-   while SkipListNodeIndex<Mesh.fCountSkipListNodes do begin
-    SkipListNode:=@Mesh.fSkipListNodes[SkipListNodeIndex];
-    if AABBIntersect(SkipListNode^.AABB,AABB) then begin
-     if SkipListNode^.CountTriangles>0 then begin
-      for TriangleIndex:=SkipListNode^.FirstTriangleIndex to SkipListNode^.FirstTriangleIndex+(SkipListNode^.CountTriangles-1) do begin
-       CollideCapsuleWithMeshTriangle(aWithShape,MeshIndex,TriangleIndex);
+  SkipListNodeIndex:=0;
+  while SkipListNodeIndex<TKraftShapeMesh(aWithShape).fCountSkipListNodes do begin
+   SkipListNode:=@TKraftShapeMesh(aWithShape).fSkipListNodes[SkipListNodeIndex];
+   if AABBIntersect(SkipListNode^.AABB,AABB) then begin
+    MeshIndex:=TKraftPtrInt(SkipListNode^.UserData)-1;
+    if MeshIndex>=0 then begin
+     Mesh:=TKraftShapeMesh(aWithShape).fMeshes[MeshIndex];
+     MeshSkipListNodeIndex:=0;
+     while MeshSkipListNodeIndex<Mesh.fCountSkipListNodes do begin
+      MeshSkipListNode:=@Mesh.fSkipListNodes[MeshSkipListNodeIndex];
+      if AABBIntersect(MeshSkipListNode^.AABB,AABB) then begin
+       if MeshSkipListNode^.CountTriangles>0 then begin
+        for TriangleIndex:=MeshSkipListNode^.FirstTriangleIndex to MeshSkipListNode^.FirstTriangleIndex+(MeshSkipListNode^.CountTriangles-1) do begin
+         CollideCapsuleWithMeshTriangle(aWithShape,MeshIndex,TriangleIndex);
+        end;
+       end;
+       inc(MeshSkipListNodeIndex);
+      end else begin
+       MeshSkipListNodeIndex:=MeshSkipListNode^.SkipToNodeIndex;
       end;
      end;
-     inc(SkipListNodeIndex);
-    end else begin
-     SkipListNodeIndex:=SkipListNode^.SkipToNodeIndex;
     end;
+    inc(SkipListNodeIndex);
+   end else begin
+    SkipListNodeIndex:=SkipListNode^.SkipToNodeIndex;
    end;
   end;
  end;
