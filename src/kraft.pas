@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2024-09-11-00-30-0000                       *
+ *                        Version 2024-09-11-05-23-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -2446,6 +2446,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        ElementIndex:TKraftInt32;
        MeshContactPair:TKraftMeshContactPair;
        MeshContactPairGeneration:TKraftUInt64;
+       MeshContactPairNextContactPair:PKraftContactPair;
+       MeshContactPairPreviousContactPair:PKraftContactPair;
        RigidBodies:array[0..1] of TKraftRigidBody;
        Edges:array[0..1] of TKraftContactPairEdge;
        Friction:TKraftScalar;
@@ -2480,6 +2482,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fHashPrevious:TKraftMeshContactPair;
        fHashNext:TKraftMeshContactPair;
 
+       fFirstContactPair:PKraftContactPair;
+       fLastContactPair:PKraftContactPair;
+
        fIsOnFreeList:boolean;
 
        fFlags:TKraftContactFlags;
@@ -2496,8 +2501,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
       public
 
-       constructor Create(const AContactManager:TKraftContactManager);
+       constructor Create(const aContactManager:TKraftContactManager);
        destructor Destroy; override;
+       procedure AddContactPair(const aContactPair:PKraftContactPair); {$ifdef caninline}inline;{$endif}
+       procedure RemoveContactPair(const aContactPair:PKraftContactPair); {$ifdef caninline}inline;{$endif}
        procedure AddToHashTable; {$ifdef caninline}inline;{$endif}
        procedure RemoveFromHashTable; {$ifdef caninline}inline;{$endif}
        procedure MoveToFreeList;
@@ -2588,13 +2595,13 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        function HasDuplicateContact(const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const AShapeA,AShapeB:TKraftShape;const AContainerIndex:TKraftInt32=-1;const AElementIndex:TKraftInt32=-1;const AMeshContactPair:TKraftMeshContactPair=nil):boolean;
 
-       procedure AddConvexContact(const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const AShapeA,AShapeB:TKraftShape;const AContainerIndex:TKraftInt32=-1;const AElementIndex:TKraftInt32=-1;const AMeshContactPair:TKraftMeshContactPair=nil);
+       procedure AddConvexContact(const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const aShapeA,aShapeB:TKraftShape;const aContainerIndex:TKraftInt32=-1;const aElementIndex:TKraftInt32=-1;const aMeshContactPair:TKraftMeshContactPair=nil);
 
        procedure AddMeshContact(const ARigidBodyConvex,ARigidBodyMesh:TKraftRigidBody;const AShapeConvex,AShapeMesh:TKraftShape);
 
        procedure AddContact(const AShapeA,AShapeB:TKraftShape);
 
-       procedure RemoveContact(AContactPair:PKraftContactPair);
+       procedure RemoveContact(aContactPair:PKraftContactPair);
 
        procedure RemoveMeshContact(AMeshContactPair:TKraftMeshContactPair);
 
@@ -35398,11 +35405,11 @@ begin
 
 end;
 
-constructor TKraftMeshContactPair.Create(const AContactManager:TKraftContactManager);
+constructor TKraftMeshContactPair.Create(const aContactManager:TKraftContactManager);
 begin
  inherited Create;
 
- fContactManager:=AContactManager;
+ fContactManager:=aContactManager;
 
  if assigned(fContactManager.fMeshContactPairLast) then begin
   fContactManager.fMeshContactPairLast.fNext:=self;
@@ -35417,6 +35424,9 @@ begin
  fHashBucket:=-1;
  fHashPrevious:=nil;
  fHashNext:=nil;
+
+ fFirstContactPair:=nil;
+ fLastContactPair:=nil;
 
  fIsOnFreeList:=false;
 
@@ -35435,6 +35445,7 @@ begin
 end;
 
 destructor TKraftMeshContactPair.Destroy;
+var ContactPair:PKraftContactPair;
 begin
 
  RemoveFromHashTable;
@@ -35467,12 +35478,54 @@ begin
   fNext:=nil;
  end;
 
+ while assigned(fFirstContactPair) do begin
+  ContactPair:=fFirstContactPair;
+  RemoveContactPair(ContactPair);
+  if assigned(fContactManager) then begin
+   fContactManager.RemoveContact(ContactPair);
+  end;
+ end;
+ fFirstContactPair:=nil;
+ fLastContactPair:=nil;
+
  dec(fContactManager.fCountMeshContactPairs);
 
  inherited Destroy;
 end;
 
+procedure TKraftMeshContactPair.AddContactPair(const aContactPair:PKraftContactPair);
+begin
+ aContactPair^.MeshContactPair:=self;
+ if assigned(fLastContactPair) then begin
+  fLastContactPair^.MeshContactPairNextContactPair:=aContactPair;
+  aContactPair^.MeshContactPairPreviousContactPair:=fLastContactPair;
+ end else begin
+  fFirstContactPair:=aContactPair;
+  aContactPair^.MeshContactPairPreviousContactPair:=nil;
+ end;
+ fLastContactPair:=aContactPair;
+ aContactPair^.MeshContactPairNextContactPair:=nil;
+end;
+
+procedure TKraftMeshContactPair.RemoveContactPair(const aContactPair:PKraftContactPair);
+begin
+ aContactPair^.MeshContactPair:=nil;
+ if assigned(aContactPair^.MeshContactPairPreviousContactPair) then begin
+  aContactPair^.MeshContactPairPreviousContactPair^.MeshContactPairNextContactPair:=aContactPair^.MeshContactPairNextContactPair;
+ end else if fFirstContactPair=aContactPair then begin
+  fFirstContactPair:=aContactPair^.MeshContactPairNextContactPair;
+ end;
+ if assigned(aContactPair^.MeshContactPairNextContactPair) then begin
+  aContactPair^.MeshContactPairNextContactPair^.MeshContactPairPreviousContactPair:=aContactPair^.MeshContactPairPreviousContactPair;
+ end else if fLastContactPair=aContactPair then begin
+  fLastContactPair:=aContactPair^.MeshContactPairPreviousContactPair;
+ end;
+ aContactPair^.MeshContactPairPreviousContactPair:=nil;
+ aContactPair^.MeshContactPairNextContactPair:=nil;
+end;
+
 procedure TKraftMeshContactPair.MoveToFreeList;
+var ContactPair:PKraftContactPair;
 begin
  if not fIsOnFreeList then begin
 
@@ -35498,6 +35551,16 @@ begin
   end;
   fContactManager.fMeshContactPairLastFree:=self;
   fNext:=nil;
+
+  while assigned(fFirstContactPair) do begin
+   ContactPair:=fFirstContactPair;
+   RemoveContactPair(ContactPair);
+   if assigned(fContactManager) then begin
+    fContactManager.RemoveContact(ContactPair);
+   end;
+  end;
+  fFirstContactPair:=nil;
+  fLastContactPair:=nil;
 
  end;
 end;
@@ -35792,7 +35855,7 @@ begin
  end;
 end;
 
-procedure TKraftContactManager.AddConvexContact(const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const AShapeA,AShapeB:TKraftShape;const AContainerIndex:TKraftInt32=-1;const AElementIndex:TKraftInt32=-1;const AMeshContactPair:TKraftMeshContactPair=nil);
+procedure TKraftContactManager.AddConvexContact(const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const aShapeA,aShapeB:TKraftShape;const aContainerIndex:TKraftInt32=-1;const aElementIndex:TKraftInt32=-1;const aMeshContactPair:TKraftMeshContactPair=nil);
 var i:TKraftInt32;
     ContactPair:PKraftContactPair;
     HashTableBucket:PKraftContactPairHashTableBucket;
@@ -35815,30 +35878,30 @@ begin
 
  ContactPair^.Island:=nil;
 
- ContactPair^.Shapes[0]:=AShapeA;
- ContactPair^.Shapes[1]:=AShapeB;
+ ContactPair^.Shapes[0]:=aShapeA;
+ ContactPair^.Shapes[1]:=aShapeB;
 
- ContactPair^.ContainerIndex:=AContainerIndex;
+ ContactPair^.ContainerIndex:=aContainerIndex;
 
- ContactPair^.ElementIndex:=AElementIndex;
+ ContactPair^.ElementIndex:=aElementIndex;
 
- if (AContainerIndex<0) and (AElementIndex<0) then begin
-  if ptruint(AShapeA)<ptruint(AShapeB) then begin
-   ContactPair^.HashBucket:=HashTwoPointers(AShapeA,AShapeB) and high(TKraftContactPairHashTable);
+ if (aContainerIndex<0) and (aElementIndex<0) then begin
+  if ptruint(aShapeA)<ptruint(aShapeB) then begin
+   ContactPair^.HashBucket:=HashTwoPointers(aShapeA,aShapeB) and high(TKraftContactPairHashTable);
   end else begin
-   ContactPair^.HashBucket:=HashTwoPointers(AShapeB,AShapeA) and high(TKraftContactPairHashTable);
+   ContactPair^.HashBucket:=HashTwoPointers(aShapeB,aShapeA) and high(TKraftContactPairHashTable);
   end;
   HashTableBucket:=@fConvexConvexContactPairHashTable[ContactPair^.HashBucket];
  end else begin
-  if ptruint(AShapeA)<ptruint(AShapeB) then begin
-   ContactPair^.HashBucket:=HashTwoPointersAndTwoLongWords(AShapeA,AShapeB,AContainerIndex,AElementIndex) and high(TKraftContactPairHashTable);
+  if ptruint(aShapeA)<ptruint(aShapeB) then begin
+   ContactPair^.HashBucket:=HashTwoPointersAndTwoLongWords(aShapeA,aShapeB,aContainerIndex,aElementIndex) and high(TKraftContactPairHashTable);
   end else begin
-   ContactPair^.HashBucket:=HashTwoPointersAndTwoLongWords(AShapeB,AShapeA,AContainerIndex,AElementIndex) and high(TKraftContactPairHashTable);
+   ContactPair^.HashBucket:=HashTwoPointersAndTwoLongWords(aShapeB,aShapeA,aContainerIndex,aElementIndex) and high(TKraftContactPairHashTable);
   end;
   HashTableBucket:=@fConvexMeshTriangleContactPairHashTable[ContactPair^.HashBucket];
  end;
  if assigned(HashTableBucket^.First) then begin
-  HashTableBucket^.First.HashPrevious:=ContactPair;
+  HashTableBucket^.First^.HashPrevious:=ContactPair;
   ContactPair^.HashNext:=HashTableBucket^.First;
  end else begin
   HashTableBucket^.Last:=ContactPair;
@@ -35847,10 +35910,11 @@ begin
  HashTableBucket^.First:=ContactPair;
  ContactPair^.HashPrevious:=nil;
 
- ContactPair^.MeshContactPair:=AMeshContactPair;
- if assigned(AMeshContactPair) then begin
-  ContactPair^.MeshContactPairGeneration:=AMeshContactPair.fGeneration;
+ if assigned(aMeshContactPair) then begin
+  aMeshContactPair.AddContactPair(ContactPair);
+  ContactPair^.MeshContactPairGeneration:=aMeshContactPair.fGeneration;
  end else begin
+  ContactPair^.MeshContactPair:=nil;
   ContactPair^.MeshContactPairGeneration:=High(TKraftUInt64);
  end;
 
@@ -35865,18 +35929,18 @@ begin
 
  ContactPair^.Flags:=[kcfEnabled];
 
- ContactPair^.Friction:=sqrt(AShapeA.fFriction*AShapeB.fFriction);
+ ContactPair^.Friction:=sqrt(aShapeA.fFriction*aShapeB.fFriction);
 
- ContactPair^.Restitution:=Max(AShapeA.fRestitution,AShapeB.fRestitution);
+ ContactPair^.Restitution:=Max(aShapeA.fRestitution,aShapeB.fRestitution);
 
- if AShapeA.fRestitutionThreshold>=0.0 then begin
-  RestitutionThresholdA:=AShapeA.fRestitutionThreshold;
+ if aShapeA.fRestitutionThreshold>=0.0 then begin
+  RestitutionThresholdA:=aShapeA.fRestitutionThreshold;
  end else begin
   RestitutionThresholdA:=fPhysics.fVelocityThreshold;
  end;
 
- if AShapeB.fRestitutionThreshold>=0.0 then begin
-  RestitutionThresholdB:=AShapeB.fRestitutionThreshold;
+ if aShapeB.fRestitutionThreshold>=0.0 then begin
+  RestitutionThresholdB:=aShapeB.fRestitutionThreshold;
  end else begin
   RestitutionThresholdB:=fPhysics.fVelocityThreshold;
  end;
@@ -35919,7 +35983,7 @@ begin
  ContactPair^.Edges[1].Next:=nil;
  ARigidBodyB.fContactPairEdgeLast:=@ContactPair^.Edges[1];
 
- if not ((ksfSensor in AShapeA.Flags) or (ksfSensor in AShapeB.Flags)) then begin
+ if not ((ksfSensor in aShapeA.Flags) or (ksfSensor in aShapeB.Flags)) then begin
   ARigidBodyB.SetToAwake;
   ARigidBodyA.SetToAwake;
  end;
@@ -36005,84 +36069,83 @@ begin
 
 end;
 
-procedure TKraftContactManager.RemoveContact(AContactPair:PKraftContactPair);
+procedure TKraftContactManager.RemoveContact(aContactPair:PKraftContactPair);
 var RigidBodyA,RigidBodyB:TKraftRigidBody;
     HashTableBucket:PKraftContactPairHashTableBucket;
 begin
 
- if AContactPair^.ElementIndex<0 then begin
-  HashTableBucket:=@fConvexConvexContactPairHashTable[AContactPair^.HashBucket];
+ if aContactPair^.ElementIndex<0 then begin
+  HashTableBucket:=@fConvexConvexContactPairHashTable[aContactPair^.HashBucket];
  end else begin
-  HashTableBucket:=@fConvexMeshTriangleContactPairHashTable[AContactPair^.HashBucket];
+  HashTableBucket:=@fConvexMeshTriangleContactPairHashTable[aContactPair^.HashBucket];
  end;
- AContactPair^.HashBucket:=-1;
- if assigned(AContactPair^.HashPrevious) then begin
-  AContactPair^.HashPrevious^.HashNext:=AContactPair^.HashNext;
- end else if HashTableBucket^.First=AContactPair then begin
-  HashTableBucket^.First:=AContactPair^.HashNext;
+ aContactPair^.HashBucket:=-1;
+ if assigned(aContactPair^.HashPrevious) then begin
+  aContactPair^.HashPrevious^.HashNext:=aContactPair^.HashNext;
+ end else if HashTableBucket^.First=aContactPair then begin
+  HashTableBucket^.First:=aContactPair^.HashNext;
  end;
- if assigned(AContactPair^.HashNext) then begin
-  AContactPair^.HashNext^.HashPrevious:=AContactPair^.HashPrevious;
- end else if HashTableBucket^.Last=AContactPair then begin
-  HashTableBucket^.Last:=AContactPair^.HashPrevious;
+ if assigned(aContactPair^.HashNext) then begin
+  aContactPair^.HashNext^.HashPrevious:=aContactPair^.HashPrevious;
+ end else if HashTableBucket^.Last=aContactPair then begin
+  HashTableBucket^.Last:=aContactPair^.HashPrevious;
  end;
- AContactPair^.HashPrevious:=nil;
- AContactPair^.HashNext:=nil;
+ aContactPair^.HashPrevious:=nil;
+ aContactPair^.HashNext:=nil;
 
- RigidBodyA:=AContactPair.Shapes[0].fRigidBody;
- RigidBodyB:=AContactPair.Shapes[1].fRigidBody;
+ RigidBodyA:=aContactPair.Shapes[0].fRigidBody;
+ RigidBodyB:=aContactPair.Shapes[1].fRigidBody;
 
- if assigned(AContactPair^.Edges[0].Previous) then begin
-  AContactPair^.Edges[0].Previous^.Next:=AContactPair^.Edges[0].Next;
- end else if RigidBodyA.fContactPairEdgeFirst=@AContactPair^.Edges[0] then begin
-  RigidBodyA.fContactPairEdgeFirst:=AContactPair^.Edges[0].Next;
+ if assigned(aContactPair^.Edges[0].Previous) then begin
+  aContactPair^.Edges[0].Previous^.Next:=aContactPair^.Edges[0].Next;
+ end else if RigidBodyA.fContactPairEdgeFirst=@aContactPair^.Edges[0] then begin
+  RigidBodyA.fContactPairEdgeFirst:=aContactPair^.Edges[0].Next;
  end;
- if assigned(AContactPair^.Edges[0].Next) then begin
-  AContactPair^.Edges[0].Next^.Previous:=AContactPair^.Edges[0].Previous;
- end else if RigidBodyA.fContactPairEdgeLast=@AContactPair^.Edges[0] then begin
-  RigidBodyA.fContactPairEdgeLast:=AContactPair^.Edges[0].Previous;
+ if assigned(aContactPair^.Edges[0].Next) then begin
+  aContactPair^.Edges[0].Next^.Previous:=aContactPair^.Edges[0].Previous;
+ end else if RigidBodyA.fContactPairEdgeLast=@aContactPair^.Edges[0] then begin
+  RigidBodyA.fContactPairEdgeLast:=aContactPair^.Edges[0].Previous;
  end;
- AContactPair^.Edges[0].Previous:=nil;
- AContactPair^.Edges[0].Next:=nil;
+ aContactPair^.Edges[0].Previous:=nil;
+ aContactPair^.Edges[0].Next:=nil;
 
- if assigned(AContactPair^.Edges[1].Previous) then begin
-  AContactPair^.Edges[1].Previous^.Next:=AContactPair^.Edges[1].Next;
- end else if RigidBodyB.fContactPairEdgeFirst=@AContactPair^.Edges[1] then begin
-  RigidBodyB.fContactPairEdgeFirst:=AContactPair^.Edges[1].Next;
+ if assigned(aContactPair^.Edges[1].Previous) then begin
+  aContactPair^.Edges[1].Previous^.Next:=aContactPair^.Edges[1].Next;
+ end else if RigidBodyB.fContactPairEdgeFirst=@aContactPair^.Edges[1] then begin
+  RigidBodyB.fContactPairEdgeFirst:=aContactPair^.Edges[1].Next;
  end;
- if assigned(AContactPair^.Edges[1].Next) then begin
-  AContactPair^.Edges[1].Next^.Previous:=AContactPair^.Edges[1].Previous;
- end else if RigidBodyB.fContactPairEdgeLast=@AContactPair^.Edges[1] then begin
-  RigidBodyB.fContactPairEdgeLast:=AContactPair^.Edges[1].Previous;
+ if assigned(aContactPair^.Edges[1].Next) then begin
+  aContactPair^.Edges[1].Next^.Previous:=aContactPair^.Edges[1].Previous;
+ end else if RigidBodyB.fContactPairEdgeLast=@aContactPair^.Edges[1] then begin
+  RigidBodyB.fContactPairEdgeLast:=aContactPair^.Edges[1].Previous;
  end;
- AContactPair^.Edges[1].Previous:=nil;
- AContactPair^.Edges[1].Next:=nil;
+ aContactPair^.Edges[1].Previous:=nil;
+ aContactPair^.Edges[1].Next:=nil;
 
  RigidBodyA.SetToAwake;
  RigidBodyB.SetToAwake;
 
- if assigned(AContactPair^.Previous) then begin
-  AContactPair^.Previous^.Next:=AContactPair^.Next;
- end else if fContactPairFirst=AContactPair then begin
-  fContactPairFirst:=AContactPair^.Next;
+ if assigned(aContactPair^.Previous) then begin
+  aContactPair^.Previous^.Next:=aContactPair^.Next;
+ end else if fContactPairFirst=aContactPair then begin
+  fContactPairFirst:=aContactPair^.Next;
  end;
 
- if assigned(AContactPair^.Next) then begin
-  AContactPair^.Next^.Previous:=AContactPair^.Previous;
- end else if fContactPairLast=AContactPair then begin
-  fContactPairLast:=AContactPair^.Previous;
+ if assigned(aContactPair^.Next) then begin
+  aContactPair^.Next^.Previous:=aContactPair^.Previous;
+ end else if fContactPairLast=aContactPair then begin
+  fContactPairLast:=aContactPair^.Previous;
  end;
 
- // Commented out: This is totally wrong, because it breaks the temporal coherence of mesh contact pairs in connection with the actual contact pairs
-{if assigned(AContactPair^.MeshContactPair) then begin
-  RemoveMeshContact(AContactPair^.MeshContactPair);
- end;}
+ if assigned(aContactPair^.MeshContactPair) then begin
+  aContactPair^.MeshContactPair.RemoveContactPair(aContactPair);
+ end;
 
- AContactPair^.Previous:=nil;
+ aContactPair^.Previous:=nil;
 
- AContactPair^.Next:=fFreeContactPairs;
+ aContactPair^.Next:=fFreeContactPairs;
 
- fFreeContactPairs:=AContactPair;
+ fFreeContactPairs:=aContactPair;
 
  dec(fCountContactPairs);
 
