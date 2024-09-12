@@ -20929,10 +20929,12 @@ begin
 
  if (NodeCount>0) and (fRoot>=0) then begin
 
-  if fRebuildCapacity<fNodeCapacity then begin
-   fRebuildCapacity:=fNodeCapacity+((fNodeCapacity+1) shr 1);
-   SetLength(fLeafNodes,fRebuildCapacity);
-   SetLength(fNodeCenters,fRebuildCapacity);
+  if length(fLeafNodes)<=fNodeCapacity then begin
+   SetLength(fLeafNodes,(fNodeCapacity+1)+((fNodeCapacity+1) shr 1));
+  end;
+
+  if length(fNodeCenters)<=fNodeCapacity then begin
+   SetLength(fNodeCenters,(fNodeCapacity+1)+((fNodeCapacity+1) shr 1));
   end;
 
   FillChar(fLeafNodes[0],fNodeCapacity*SizeOf(TKraftSizeInt),#0);
@@ -21041,7 +21043,11 @@ begin
        end;
 
        fNodes^[NodeIndex].AABB:=AABB;
-//     fNodeCenters[NodeIndex]:=Vector3Avg(AABB.Min,AABB.Max);
+
+       if length(fNodeCenters)<=NodeIndex then begin
+        SetLength(fNodeCenters,(NodeIndex+1)+((NodeIndex+1) shr 1));
+       end;
+       fNodeCenters[NodeIndex]:=Vector3Avg(AABB.Min,AABB.Max);
 
        MeanX:=0.0;
        MeanY:=0.0;
