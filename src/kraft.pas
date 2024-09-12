@@ -964,7 +964,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
       AABB:TKraftAABB;
       UserData:pointer;
       CategoryBits:TKraftUInt32;
-      Enlarged:Boolean;
+      Flags:TKraftUInt32;
       Children:array[0..1] of TKraftInt32;
       Height:TKraftInt32;
       MoveBufferIndex:TKraftInt32;
@@ -1023,7 +1023,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        function Balance(aIndex:TKraftInt32):TKraftInt32;
        procedure InsertLeaf(const aLeaf,aKind:TKraftInt32);
        procedure RemoveLeaf(const aLeaf:TKraftInt32);
-       function CreateProxy(const aAABB:TKraftAABB;aUserData:pointer):TKraftInt32;
+       function CreateProxy(const aAABB:TKraftAABB;const aUserData:pointer;const aCategoryBits:TKraftUInt32=TKraftUInt32($ffffffff)):TKraftInt32;
        procedure DestroyProxy(aNodeID:TKraftInt32);
        function MoveProxy(aNodeID:TKraftInt32;const aAABB:TKraftAABB;const aDisplacement,aBoundsExpansion:TKraftVector3;const aShouldRotate:boolean):boolean;
        procedure EnlargeProxy(aNodeID:TKraftInt32;const aAABB:TKraftAABB);
@@ -4574,7 +4574,7 @@ const KraftSignatureConvexHull:TKraftSignature=('K','R','P','H','C','O','H','U')
         AABB:(Min:(x:0.0;y:0.0;z:0.0{$ifdef SIMD};w:0{$endif});Max:(x:0.0;y:0.0;z:0.0{$ifdef SIMD};w:0{$endif}));
         UserData:nil;
         CategoryBits:0;
-        Enlarged:false;
+        Flags:0;
         Children:(-1,-1);
         Height:-1;
         MoveBufferIndex:-1;
@@ -4859,6 +4859,9 @@ function IntLog264(x:TKraftUInt64):TKraftUInt64; {$if defined(fpc)}{$ifdef CAN_I
 implementation
 
 const daabbtNULLNODE=-1;
+
+      daabbtnfMODIFIED=TKraftUInt32(1) shl 0;
+      daabbtnfENLARGED=TKraftUInt32(1) shl 1;
 
       AABB_EXTENSION=0.1;
 
@@ -19968,7 +19971,7 @@ begin
  Node:=@fNodes^[result];
  Node^.UserData:=nil;
  Node^.CategoryBits:=0;
- Node^.Enlarged:=false;
+ Node^.Flags:=0;
  Node^.Parent:=daabbtNULLNODE;
  Node^.Children[0]:=daabbtNULLNODE;
  Node^.Children[1]:=daabbtNULLNODE;
@@ -20159,15 +20162,15 @@ begin
   
    NodeC^.AABB:=AABBBG;
   
-   NodeC^.Height:=1+Max(NodeB^.Height,NodeG^.Height);
-   NodeA^.Height:=1+Max(NodeC^.Height,NodeF^.Height);
+   NodeC^.Height:=Max(NodeB^.Height,NodeG^.Height)+1;
+   NodeA^.Height:=Max(NodeC^.Height,NodeF^.Height)+1;
   
    NodeC^.CategoryBits:=NodeB^.CategoryBits or NodeG^.CategoryBits;
    NodeA^.CategoryBits:=NodeC^.CategoryBits or NodeF^.CategoryBits;
-  
-   NodeC^.Enlarged:=NodeB^.Enlarged or NodeG^.Enlarged;
-   NodeA^.Enlarged:=NodeC^.Enlarged or NodeF^.Enlarged;
-  
+
+   NodeC^.Flags:=NodeB^.Flags or NodeG^.Flags;
+   NodeA^.Flags:=NodeC^.Flags or NodeF^.Flags;
+
   end else begin
 
    // Swap B and G
@@ -20180,15 +20183,15 @@ begin
   
    NodeC^.AABB:=AABBBF;
   
-   NodeC^.Height:=1+Max(NodeB^.Height,NodeF^.Height);
-   NodeA^.Height:=1+Max(NodeC^.Height,NodeG^.Height);
+   NodeC^.Height:=Max(NodeB^.Height,NodeF^.Height)+1;
+   NodeA^.Height:=Max(NodeC^.Height,NodeG^.Height)+1;
   
    NodeC^.CategoryBits:=NodeB^.CategoryBits or NodeF^.CategoryBits;
    NodeA^.CategoryBits:=NodeC^.CategoryBits or NodeG^.CategoryBits;
-  
-   NodeC^.Enlarged:=NodeB^.Enlarged or NodeF^.Enlarged;
-   NodeA^.Enlarged:=NodeC^.Enlarged or NodeG^.Enlarged;
-  
+
+   NodeC^.Flags:=NodeB^.Flags or NodeF^.Flags;
+   NodeA^.Flags:=NodeC^.Flags or NodeG^.Flags;
+
   end;
 
  end else if NodeC^.Height=0 then begin
@@ -20233,14 +20236,14 @@ begin
 
    NodeB^.AABB:=AABBCE;
 
-   NodeB^.Height:=1+Max(NodeC^.Height,NodeE^.Height);
-   NodeA^.Height:=1+Max(NodeB^.Height,NodeD^.Height);
+   NodeB^.Height:=Max(NodeC^.Height,NodeE^.Height)+1;
+   NodeA^.Height:=Max(NodeB^.Height,NodeD^.Height)+1;
 
    NodeB^.CategoryBits:=NodeC^.CategoryBits or NodeE^.CategoryBits;
    NodeA^.CategoryBits:=NodeB^.CategoryBits or NodeD^.CategoryBits;
 
-   NodeB^.Enlarged:=NodeC^.Enlarged or NodeE^.Enlarged;
-   NodeA^.Enlarged:=NodeB^.Enlarged or NodeD^.Enlarged;
+   NodeB^.Flags:=NodeC^.Flags or NodeE^.Flags;
+   NodeA^.Flags:=NodeB^.Flags or NodeD^.Flags;
 
   end else begin
    
@@ -20254,14 +20257,14 @@ begin
 
    NodeB^.AABB:=AABBCD;
 
-   NodeB^.Height:=1+Max(NodeC^.Height,NodeD^.Height);
-   NodeA^.Height:=1+Max(NodeB^.Height,NodeE^.Height);
+   NodeB^.Height:=Max(NodeC^.Height,NodeD^.Height)+1;
+   NodeA^.Height:=Max(NodeB^.Height,NodeE^.Height)+1;
 
    NodeB^.CategoryBits:=NodeC^.CategoryBits or NodeD^.CategoryBits;
    NodeA^.CategoryBits:=NodeB^.CategoryBits or NodeE^.CategoryBits;
 
-   NodeB^.Enlarged:=NodeC^.Enlarged or NodeD^.Enlarged;
-   NodeA^.Enlarged:=NodeB^.Enlarged or NodeE^.Enlarged;
+   NodeB^.Flags:=NodeC^.Flags or NodeD^.Flags;
+   NodeA^.Flags:=NodeB^.Flags or NodeE^.Flags;
 
   end;
 
@@ -20338,14 +20341,14 @@ begin
    
     NodeC^.AABB:=AABBBG;
    
-    NodeC^.Height:=1+Max(NodeB^.Height,NodeG^.Height);
-    NodeA^.Height:=1+Max(NodeC^.Height,NodeF^.Height);
+    NodeC^.Height:=Max(NodeB^.Height,NodeG^.Height)+1;
+    NodeA^.Height:=Max(NodeC^.Height,NodeF^.Height)+1;
    
     NodeC^.CategoryBits:=NodeB^.CategoryBits or NodeG^.CategoryBits;
     NodeA^.CategoryBits:=NodeC^.CategoryBits or NodeF^.CategoryBits;
-   
-    NodeC^.Enlarged:=NodeB^.Enlarged or NodeG^.Enlarged;
-    NodeA^.Enlarged:=NodeC^.Enlarged or NodeF^.Enlarged;
+
+    NodeC^.Flags:=NodeB^.Flags or NodeG^.Flags;
+    NodeA^.Flags:=NodeC^.Flags or NodeF^.Flags;
 
    end;
    
@@ -20359,15 +20362,15 @@ begin
    
     NodeC^.AABB:=AABBBF;
    
-    NodeC^.Height:=1+Max(NodeB^.Height,NodeF^.Height);
-    NodeA^.Height:=1+Max(NodeC^.Height,NodeG^.Height);
+    NodeC^.Height:=Max(NodeB^.Height,NodeF^.Height)+1;
+    NodeA^.Height:=Max(NodeC^.Height,NodeG^.Height)+1;
    
     NodeC^.CategoryBits:=NodeB^.CategoryBits or NodeF^.CategoryBits;
     NodeA^.CategoryBits:=NodeC^.CategoryBits or NodeG^.CategoryBits;
-   
-    NodeC^.Enlarged:=NodeB^.Enlarged or NodeF^.Enlarged;
-    NodeA^.Enlarged:=NodeC^.Enlarged or NodeG^.Enlarged;
-   
+
+    NodeC^.Flags:=NodeB^.Flags or NodeF^.Flags;
+    NodeA^.Flags:=NodeC^.Flags or NodeG^.Flags;
+
    end;
    
    RotateCD:begin
@@ -20380,14 +20383,14 @@ begin
    
     NodeB^.AABB:=AABBCE;
    
-    NodeB^.Height:=1+Max(NodeC^.Height,NodeE^.Height);
-    NodeA^.Height:=1+Max(NodeB^.Height,NodeD^.Height);
+    NodeB^.Height:=Max(NodeC^.Height,NodeE^.Height)+1;
+    NodeA^.Height:=Max(NodeB^.Height,NodeD^.Height)+1;
    
     NodeB^.CategoryBits:=NodeC^.CategoryBits or NodeE^.CategoryBits;
     NodeA^.CategoryBits:=NodeB^.CategoryBits or NodeD^.CategoryBits;
 
-    NodeB^.Enlarged:=NodeC^.Enlarged or NodeE^.Enlarged;
-    NodeA^.Enlarged:=NodeB^.Enlarged or NodeD^.Enlarged;
+    NodeB^.Flags:=NodeC^.Flags or NodeE^.Flags;
+    NodeA^.Flags:=NodeB^.Flags or NodeD^.Flags;
 
    end;
 
@@ -20401,15 +20404,15 @@ begin
    
     NodeB^.AABB:=AABBCD;
    
-    NodeB^.Height:=1+Max(NodeC^.Height,NodeD^.Height);
-    NodeA^.Height:=1+Max(NodeB^.Height,NodeE^.Height);
+    NodeB^.Height:=Max(NodeC^.Height,NodeD^.Height)+1;
+    NodeA^.Height:=Max(NodeB^.Height,NodeE^.Height)+1;
    
     NodeB^.CategoryBits:=NodeC^.CategoryBits or NodeD^.CategoryBits;
     NodeA^.CategoryBits:=NodeB^.CategoryBits or NodeE^.CategoryBits;
-   
-    NodeB^.Enlarged:=NodeC^.Enlarged or NodeD^.Enlarged;
-    NodeA^.Enlarged:=NodeB^.Enlarged or NodeE^.Enlarged;
-   
+
+    NodeB^.Flags:=NodeC^.Flags or NodeD^.Flags;
+    NodeA^.Flags:=NodeB^.Flags or NodeE^.Flags;
+
    end;
 
    else begin
@@ -20458,16 +20461,16 @@ begin
     NodeG^.Parent:=aIndex;
     NodeA^.AABB:=AABBCombine(NodeB^.AABB,NodeG^.AABB);
     NodeC^.AABB:=AABBCombine(NodeA^.AABB,NodeF^.AABB);
-    NodeA^.Height:=1+Max(NodeB^.Height,NodeG^.Height);
-    NodeC^.Height:=1+Max(NodeA^.Height,NodeF^.Height);
+    NodeA^.Height:=Max(NodeB^.Height,NodeG^.Height)+1;
+    NodeC^.Height:=Max(NodeA^.Height,NodeF^.Height)+1;
    end else begin
     NodeC^.Children[1]:=NodeGID;
     NodeA^.Children[1]:=NodeFID;
     NodeF^.Parent:=aIndex;
     NodeA^.AABB:=AABBCombine(NodeB^.AABB,NodeF^.AABB);
     NodeC^.AABB:=AABBCombine(NodeA^.AABB,NodeG^.AABB);
-    NodeA^.Height:=1+Max(NodeB^.Height,NodeF^.Height);
-    NodeC^.Height:=1+Max(NodeA^.Height,NodeG^.Height);
+    NodeA^.Height:=Max(NodeB^.Height,NodeF^.Height)+1;
+    NodeC^.Height:=Max(NodeA^.Height,NodeG^.Height)+1;
    end;
    result:=NodeCID;
   end else if NodeBalance<-1 then begin
@@ -20493,16 +20496,16 @@ begin
     NodeE^.Parent:=aIndex;
     NodeA^.AABB:=AABBCombine(NodeC^.AABB,NodeE^.AABB);
     NodeB^.AABB:=AABBCombine(NodeA^.AABB,NodeD^.AABB);
-    NodeA^.Height:=1+Max(NodeC^.Height,NodeE^.Height);
-    NodeB^.Height:=1+Max(NodeA^.Height,NodeD^.Height);
+    NodeA^.Height:=Max(NodeC^.Height,NodeE^.Height)+1;
+    NodeB^.Height:=Max(NodeA^.Height,NodeD^.Height)+1;
    end else begin
     NodeB^.Children[1]:=NodeEID;
     NodeA^.Children[0]:=NodeDID;
     NodeD^.Parent:=aIndex;
     NodeA^.AABB:=AABBCombine(NodeC^.AABB,NodeD^.AABB);
     NodeB^.AABB:=AABBCombine(NodeA^.AABB,NodeE^.AABB);
-    NodeA^.Height:=1+Max(NodeC^.Height,NodeD^.Height);
-    NodeB^.Height:=1+Max(NodeA^.Height,NodeE^.Height);
+    NodeA^.Height:=Max(NodeC^.Height,NodeD^.Height)+1;
+    NodeB^.Height:=Max(NodeA^.Height,NodeE^.Height)+1;
    end;
    result:=NodeBID;
   end else begin
@@ -20512,10 +20515,10 @@ begin
 end;
 
 procedure TKraftDynamicAABBTree.InsertLeaf(const aLeaf,aKind:TKraftInt32);
-var NewParentNode,TemporaryNode:PKraftDynamicAABBTreeNode;
+var NewParentNode,TemporaryNode,NodeA,NodeB:PKraftDynamicAABBTreeNode;
     CombinedAABB,LeafAABB,AABB:TKraftAABB;
-    Index,Sibling,OldParent,NewParent,Child0,Child1:TKraftInt32;
-    Cost,CombinedCost,InheritanceCost,Cost0,Cost1:TKraftScalar;
+    Index,Sibling,OldParent,NewParent,ChildA,ChildB:TKraftInt32;
+    Cost,CombinedCost,InheritanceCost,CostA,CostB:TKraftScalar;
 begin
 
  inc(fInsertionCount);
@@ -20531,35 +20534,37 @@ begin
   LeafAABB:=fNodes^[aLeaf].AABB;
   Index:=fRoot;
   while fNodes^[Index].Children[0]>=0 do begin
-   Child0:=fNodes^[Index].Children[0];
-   Child1:=fNodes^[Index].Children[1];
+
+   ChildA:=fNodes^[Index].Children[0];
+   ChildB:=fNodes^[Index].Children[1];
 
    CombinedAABB:=AABBCombine(fNodes^[Index].AABB,LeafAABB);
    CombinedCost:=AABBCost(CombinedAABB);
    Cost:=CombinedCost*2.0;
    InheritanceCost:=2.0*(CombinedCost-AABBCost(fNodes^[Index].AABB));
 
-   AABB:=AABBCombine(LeafAABB,fNodes^[Child0].AABB);
-   if fNodes^[Child0].Children[0]<0 then begin
-    Cost0:=AABBCost(AABB)+InheritanceCost;
+   AABB:=AABBCombine(LeafAABB,fNodes^[ChildA].AABB);
+   if fNodes^[ChildA].Children[0]<0 then begin
+    CostA:=AABBCost(AABB)+InheritanceCost;
    end else begin
-    Cost0:=(AABBCost(AABB)-AABBCost(fNodes^[Child0].AABB))+InheritanceCost;
+    CostA:=(AABBCost(AABB)-AABBCost(fNodes^[ChildA].AABB))+InheritanceCost;
    end;
 
-   AABB:=AABBCombine(LeafAABB,fNodes^[Child0].AABB);
-   if fNodes^[Child1].Children[1]<0 then begin
-    Cost1:=AABBCost(AABB)+InheritanceCost;
+   AABB:=AABBCombine(LeafAABB,fNodes^[ChildA].AABB);
+   if fNodes^[ChildB].Children[1]<0 then begin
+    CostB:=AABBCost(AABB)+InheritanceCost;
    end else begin
-    Cost1:=(AABBCost(AABB)-AABBCost(fNodes^[Child0].AABB))+InheritanceCost;
+    CostB:=(AABBCost(AABB)-AABBCost(fNodes^[ChildA].AABB))+InheritanceCost;
    end;
 
-   if (Cost<Cost0) and (Cost<Cost1) then begin
+   if (Cost<CostA) and (Cost<CostB) then begin
     break;
    end else begin
-    if Cost0<Cost1 then begin
-     Index:=Child0;
+
+    if CostA<CostB then begin
+     Index:=ChildA;
     end else begin
-     Index:=Child1;
+     Index:=ChildB;
     end;
    end;
 
@@ -20592,18 +20597,21 @@ begin
    fRoot:=NewParent;
   end;
 
+  // Walk back up the tree fixing heights, AABBs and modified counters
   Index:=fNodes^[aLeaf].Parent;
   while Index>=0 do begin
    Index:=Balance(Index);
-   Child0:=fNodes^[Index].Children[0];
-   Child1:=fNodes^[Index].Children[1];
-   Assert(Child0>=0);
-   Assert(Child1>=0);
+   ChildA:=fNodes^[Index].Children[0];
+   ChildB:=fNodes^[Index].Children[1];
+   Assert(ChildA>=0);
+   Assert(ChildB>=0);
+   NodeA:=@fNodes^[ChildA];
+   NodeB:=@fNodes^[ChildB];
    TemporaryNode:=@fNodes^[Index];
-   TemporaryNode^.AABB:=AABBCombine(fNodes^[Child0].AABB,fNodes^[Child1].AABB);
-   TemporaryNode^.CategoryBits:=fNodes^[Child0].CategoryBits or fNodes^[Child1].CategoryBits;
-   TemporaryNode^.Height:=Max(fNodes^[Child0].Height,fNodes^[Child1].Height)+1;
-   TemporaryNode^.Enlarged:=fNodes^[Child0].Enlarged or fNodes^[Child1].Enlarged;
+   TemporaryNode^.AABB:=AABBCombine(NodeA^.AABB,NodeB^.AABB);
+   TemporaryNode^.CategoryBits:=NodeA^.CategoryBits or NodeB^.CategoryBits;
+   TemporaryNode^.Height:=Max(NodeA^.Height,NodeB^.Height)+1;
+   TemporaryNode^.Flags:=NodeA^.Flags or NodeB^.Flags;
    Index:=TemporaryNode^.Parent;
   end;
 
@@ -20622,6 +20630,7 @@ begin
   NewParentNode^.UserData:=nil;
   NewParentNode^.AABB:=AABBCombine(LeafAABB,fNodes^[Sibling].AABB);
   NewParentNode^.CategoryBits:=fNodes^[aLeaf].CategoryBits or fNodes^[Sibling].CategoryBits;
+//NewParentNode^.Modified:=fNodes^[aLeaf].Modified or fNodes^[Sibling].Modified;
   NewParentNode^.Height:=fNodes^[Sibling].Height+1;
 
   if OldParent>=0 then begin
@@ -20654,18 +20663,20 @@ begin
 
   end;
 
-  // Walk back up the tree fixing heights and AABBs
+  // Walk back up the tree fixing heights, AABBs and modified counters
   Index:=fNodes^[aLeaf].Parent;
   while Index>=0 do begin
-   Child0:=fNodes^[Index].Children[0];
-   Child1:=fNodes^[Index].Children[1];
-   Assert(Child0>=0);
-   Assert(Child1>=0);
+   ChildA:=fNodes^[Index].Children[0];
+   ChildB:=fNodes^[Index].Children[1];
+   Assert(ChildA>=0);
+   Assert(ChildB>=0);
+   NodeA:=@fNodes^[ChildA];
+   NodeB:=@fNodes^[ChildB];
    TemporaryNode:=@fNodes^[Index];
-   TemporaryNode^.AABB:=AABBCombine(fNodes^[Child0].AABB,fNodes^[Child1].AABB);
-   TemporaryNode^.CategoryBits:=fNodes^[Child0].CategoryBits or fNodes^[Child1].CategoryBits;
-   TemporaryNode^.Height:=1+Max(fNodes^[Child0].Height,fNodes^[Child1].Height);
-   TemporaryNode^.Enlarged:=fNodes^[Child0].Enlarged or fNodes^[Child1].Enlarged;
+   TemporaryNode^.AABB:=AABBCombine(NodeA^.AABB,NodeB^.AABB);
+   TemporaryNode^.CategoryBits:=NodeA^.CategoryBits or NodeB^.CategoryBits;
+   TemporaryNode^.Height:=Max(NodeA^.Height,NodeB^.Height)+1;
+   TemporaryNode^.Flags:=NodeA^.Flags or NodeB^.Flags;
    if aKind>0 then begin
     RotateNodes(Index);
    end;
@@ -20716,7 +20727,7 @@ begin
    NodeB:=@fNodes^[NodeParent^.Children[1]];
    NodeParent^.AABB:=AABBCombine(NodeA^.AABB,NodeB^.AABB);
    NodeParent^.CategoryBits:=NodeA^.CategoryBits or NodeB^.CategoryBits;
-   NodeParent^.Height:=1+Max(NodeA^.Height,NodeB^.Height);
+   NodeParent^.Height:=Max(NodeA^.Height,NodeB^.Height)+1;
    Index:=NodeParent^.Parent;
   end;
 
@@ -20731,18 +20742,38 @@ begin
 
 end;
 
-function TKraftDynamicAABBTree.CreateProxy(const aAABB:TKraftAABB;aUserData:pointer):TKraftInt32;
-var Node:PKraftDynamicAABBTreeNode;
+function TKraftDynamicAABBTree.CreateProxy(const aAABB:TKraftAABB;const aUserData:pointer;const aCategoryBits:TKraftUInt32):TKraftInt32;
+var Node,ParentNode:PKraftDynamicAABBTreeNode;
+    ParentIndex:TKraftInt32;
 begin
+
  result:=AllocateNode;
+
  Node:=@fNodes^[result];
  Node^.AABB.Min:=Vector3Sub(aAABB.Min,AABBExtensionVector);
  Node^.AABB.Max:=Vector3Add(aAABB.Max,AABBExtensionVector);
  Node^.UserData:=aUserData;
+ Node^.CategoryBits:=aCategoryBits;
+ Node^.Flags:=Node^.Flags or daabbtnfMODIFIED;
  Node^.Height:=0;
+
  InsertLeaf(result,1);
+
+ ParentIndex:=Node^.Parent;
+ if ParentIndex>=0 then begin
+  ParentNode^.Flags:=ParentNode^.Flags or daabbtnfMODIFIED;
+  ParentIndex:=ParentNode^.Parent;
+  while (ParentIndex>=0) and ((fNodes^[ParentIndex].Flags and daabbtnfMODIFIED)=0) do begin
+   ParentNode:=@fNodes^[ParentIndex];
+   ParentNode^.Flags:=ParentNode^.Flags or daabbtnfMODIFIED;
+   ParentIndex:=ParentNode^.Parent;
+  end;
+ end;
+
  inc(fProxyCount);
+
  fRebuildDirty:=true;
+
 end;
 
 procedure TKraftDynamicAABBTree.DestroyProxy(aNodeID:TKraftInt32);
@@ -20754,16 +20785,40 @@ begin
 end;
 
 function TKraftDynamicAABBTree.MoveProxy(aNodeID:TKraftInt32;const aAABB:TKraftAABB;const aDisplacement,aBoundsExpansion:TKraftVector3;const aShouldRotate:boolean):boolean;
-var Node:PKraftDynamicAABBTreeNode;
+var Node,ParentNode:PKraftDynamicAABBTreeNode;
+    ParentIndex:TKraftInt32;
 begin
+
  Node:=@fNodes^[aNodeID];
+
  result:=not AABBContains(Node^.AABB,aAABB);
+
  if result then begin
+
   RemoveLeaf(aNodeID);
+
   Node^.AABB:=AABBStretch(aAABB,aDisplacement,aBoundsExpansion);
+  Node^.Flags:=Node^.Flags or daabbtnfMODIFIED;
+
   InsertLeaf(aNodeID,ord(aShouldRotate) and 1);
+
+  if not aShouldRotate then begin
+   ParentIndex:=Node^.Parent;
+   if ParentIndex>=0 then begin
+    ParentNode^.Flags:=ParentNode^.Flags or daabbtnfMODIFIED;
+    ParentIndex:=ParentNode^.Parent;
+    while (ParentIndex>=0) and ((fNodes^[ParentIndex].Flags and daabbtnfMODIFIED)=0) do begin
+     ParentNode:=@fNodes^[ParentIndex];
+     ParentNode^.Flags:=ParentNode^.Flags or daabbtnfMODIFIED;
+     ParentIndex:=ParentNode^.Parent;
+    end;
+   end;
+  end;
+
   fRebuildDirty:=true;
+
  end;
+
 end;
 
 procedure TKraftDynamicAABBTree.EnlargeProxy(aNodeID:TKraftInt32;const aAABB:TKraftAABB);
@@ -20781,20 +20836,20 @@ begin
    Node^.AABB:=aAABB;
   
    ParentIndex:=Node^.Parent;
-  
+
    while ParentIndex>=0 do begin
     ParentNode:=@fNodes^[ParentIndex];
     Changed:=AABBEnlarge(ParentNode^.AABB,aAABB);
-    ParentNode^.Enlarged:=true;
+    ParentNode^.Flags:=ParentNode^.Flags or daabbtnfENLARGED;
     ParentIndex:=ParentNode^.Parent;
     if not Changed then begin
      break;
     end;
    end;
 
-   while (ParentIndex>=0) and not fNodes^[ParentIndex].Enlarged do begin
+   while (ParentIndex>=0) and ((fNodes^[ParentIndex].Flags and daabbtnfENLARGED)=0) do begin
     ParentNode:=@fNodes^[ParentIndex];
-    ParentNode^.Enlarged:=true;
+    ParentNode^.Flags:=ParentNode^.Flags or daabbtnfENLARGED;
     ParentIndex:=ParentNode^.Parent;
    end;
 
@@ -20883,7 +20938,7 @@ begin
    Parent:=@fNodes^[ParentIndex];
    Parent^.Children[0]:=Index1;
    Parent^.Children[1]:=Index2;
-   Parent^.Height:=1+Max(Children[0]^.Height,Children[1]^.Height);
+   Parent^.Height:=Max(Children[0]^.Height,Children[1]^.Height)+1;
    Parent^.AABB:=AABBCombine(Children[0]^.AABB,Children[1]^.AABB);
    Parent^.Parent:=daabbtNULLNODE;
    Children[0]^.Parent:=ParentIndex;
@@ -20951,7 +21006,7 @@ begin
 
     Node:=@fNodes[Index];
 
-    if (Node^.Height=0) or ((Node^.Height>0) and ((not aFull) and not Node^.Enlarged)) then begin
+    if (Node^.Height=0) or ((Node^.Height>0) and ((not aFull) and ((Node^.Flags and (daabbtnfMODIFIED or daabbtnfENLARGED))=0))) then begin
 
      // Get node center
      fNodeCenters[Index]:=Vector3Avg(Node^.AABB.Min,Node^.AABB.Max);
@@ -20962,6 +21017,9 @@ begin
 
      // Detach
      Node^.Parent:=daabbtNULLNODE;
+
+     // Reset flags
+     Node^.Flags:=Node^.Flags and not TKraftUInt32(daabbtnfMODIFIED or daabbtnfENLARGED);
 
     end else if Node^.Height>0 then begin
 
@@ -21195,7 +21253,7 @@ begin
         if (fNodes^[HeightStackItem.Node].Children[0]<0) and (fNodes^[HeightStackItem.Node].Children[1]<0) then begin
          fNodes^[HeightStackItem.Node].Height:=0;
         end else begin
-         fNodes^[HeightStackItem.Node].Height:=1+Max(fNodes^[fNodes^[HeightStackItem.Node].Children[0]].Height,fNodes^[fNodes^[HeightStackItem.Node].Children[1]].Height);
+         fNodes^[HeightStackItem.Node].Height:=Max(fNodes^[fNodes^[HeightStackItem.Node].Children[0]].Height,fNodes^[fNodes^[HeightStackItem.Node].Children[1]].Height)+1;
         end;
        end;
       end;
