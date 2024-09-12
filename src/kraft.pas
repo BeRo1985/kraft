@@ -20941,7 +20941,7 @@ begin
 
   Count:=0;
 
-{ NodeStack.Initialize;
+  NodeStack.Initialize;
   try
 
    NodeStack.Push(fRoot);
@@ -20978,7 +20978,7 @@ begin
    NodeStack.Finalize;
   end;//}
 
-  Count:=0;
+{ Count:=0;
   for Index:=0 to fNodeCapacity-1 do begin
    if fNodes^[Index].Height>=0 then begin
     fNodeCenters[Index]:=Vector3Avg(fNodes^[Index].AABB.Min,fNodes^[Index].AABB.Max);
