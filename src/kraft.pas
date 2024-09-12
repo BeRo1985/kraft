@@ -4136,7 +4136,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fSingleThreaded:boolean;
 
-       fRegularRebuildAABBTrees:boolean;
+       fRegularPartialRebuildAABBTrees:boolean;
 
        fHighResolutionTimer:TKraftHighResolutionTimer;
 
@@ -4438,7 +4438,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        property SingleThreaded:boolean read fSingleThreaded write fSingleThreaded;
 
-       property RegularRebuildAABBTrees:boolean read fRegularRebuildAABBTrees write fRegularRebuildAABBTrees;
+       property RegularPartialRebuildAABBTrees:boolean read fRegularPartialRebuildAABBTrees write fRegularPartialRebuildAABBTrees;
 
        property WorldFrequency:TKraftScalar read fWorldFrequency write SetFrequency;
 
@@ -30335,7 +30335,7 @@ begin
     fStaticAABBTreeProxy:=fPhysics.fStaticAABBTree.CreateProxy(fWorldAABB,self);
     NeedUpdate:=true;
    end;
-   if fPhysics.fStaticAABBTree.MoveProxy(fStaticAABBTreeProxy,fWorldAABB,Vector3Origin,Vector3Origin,not fPhysics.fRegularRebuildAABBTrees) then begin
+   if fPhysics.fStaticAABBTree.MoveProxy(fStaticAABBTreeProxy,fWorldAABB,Vector3Origin,Vector3Origin,not fPhysics.fRegularPartialRebuildAABBTrees) then begin
     NeedUpdate:=true;
    end;
    if NeedUpdate then begin
@@ -30353,7 +30353,7 @@ begin
     fDynamicAABBTreeProxy:=fPhysics.fDynamicAABBTree.CreateProxy(fWorldAABB,self);
     NeedUpdate:=true;
    end;
-   if fPhysics.fDynamicAABBTree.MoveProxy(fDynamicAABBTreeProxy,fWorldAABB,WorldDisplacement,WorldBoundsExpansion,not fPhysics.fRegularRebuildAABBTrees) then begin
+   if fPhysics.fDynamicAABBTree.MoveProxy(fDynamicAABBTreeProxy,fWorldAABB,WorldDisplacement,WorldBoundsExpansion,not fPhysics.fRegularPartialRebuildAABBTrees) then begin
     NeedUpdate:=true;
    end;
    if NeedUpdate then begin
@@ -30371,7 +30371,7 @@ begin
     fKinematicAABBTreeProxy:=fPhysics.fKinematicAABBTree.CreateProxy(fWorldAABB,self);
     NeedUpdate:=true;
    end;
-   if fPhysics.fKinematicAABBTree.MoveProxy(fKinematicAABBTreeProxy,fWorldAABB,fRigidBody.fWorldDisplacement,Vector3Origin,not fPhysics.fRegularRebuildAABBTrees) then begin
+   if fPhysics.fKinematicAABBTree.MoveProxy(fKinematicAABBTreeProxy,fWorldAABB,fRigidBody.fWorldDisplacement,Vector3Origin,not fPhysics.fRegularPartialRebuildAABBTrees) then begin
     NeedUpdate:=true;
    end;
    if NeedUpdate then begin
@@ -37256,7 +37256,7 @@ begin
  HaveRebuildJobs:=false;
 {$endif}
 
- if fPhysics.fRegularRebuildAABBTrees then begin
+ if fPhysics.fRegularPartialRebuildAABBTrees then begin
 {$ifdef KraftPasMP}
   if assigned(fPhysics.fPasMP) and not fPhysics.fSingleThreaded then begin
    if fPhysics.fStaticAABBTree.fRebuildDirty then begin
@@ -44834,7 +44834,7 @@ begin
 
  fSingleThreaded:=false;
 
- fRegularRebuildAABBTrees:=false;
+ fRegularPartialRebuildAABBTrees:=true;
 
  fHighResolutionTimer:=TKraftHighResolutionTimer.Create;
 
