@@ -20761,6 +20761,7 @@ begin
 
  ParentIndex:=Node^.Parent;
  if ParentIndex>=0 then begin
+  ParentNode:=@fNodes^[ParentIndex];
   ParentNode^.Flags:=ParentNode^.Flags or daabbtnfMODIFIED;
   ParentIndex:=ParentNode^.Parent;
   while (ParentIndex>=0) and ((fNodes^[ParentIndex].Flags and daabbtnfMODIFIED)=0) do begin
@@ -20805,6 +20806,7 @@ begin
   if not aShouldRotate then begin
    ParentIndex:=Node^.Parent;
    if ParentIndex>=0 then begin
+    ParentNode:=@fNodes^[ParentIndex];
     ParentNode^.Flags:=ParentNode^.Flags or daabbtnfMODIFIED;
     ParentIndex:=ParentNode^.Parent;
     while (ParentIndex>=0) and ((fNodes^[ParentIndex].Flags and daabbtnfMODIFIED)=0) do begin
