@@ -1026,6 +1026,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        function CreateProxy(const aAABB:TKraftAABB;aUserData:pointer):TKraftInt32;
        procedure DestroyProxy(aNodeID:TKraftInt32);
        function MoveProxy(aNodeID:TKraftInt32;const aAABB:TKraftAABB;const aDisplacement,aBoundsExpansion:TKraftVector3;const aShouldRotate:boolean):boolean;
+       procedure EnlargeProxy(aNodeID:TKraftInt32;const aAABB:TKraftAABB);
        procedure Rebalance(Iterations:TKraftInt32);
        procedure RebuildBottomUp;
        procedure RebuildTopDown;
@@ -11116,6 +11117,35 @@ begin
  result:=2.0*((ex*ey)+(ey*ez)+(ez*ex));
 end;
 
+function AABBEnlarge(var AABB:TKraftAABB;const WithAABB:TKraftAABB):Boolean;
+begin
+ result:=false;
+ if WithAABB.Min.x<AABB.Min.x then begin
+  AABB.Min.x:=WithAABB.Min.x;
+  result:=true;
+ end;
+ if WithAABB.Min.y<AABB.Min.y then begin
+  AABB.Min.y:=WithAABB.Min.y;
+  result:=true;
+ end;
+ if WithAABB.Min.z<AABB.Min.z then begin
+  AABB.Min.z:=WithAABB.Min.z;
+  result:=true;
+ end;
+ if WithAABB.Max.x>AABB.Max.x then begin
+  AABB.Max.x:=WithAABB.Max.x;
+  result:=true;
+ end;
+ if WithAABB.Max.y>AABB.Max.y then begin
+  AABB.Max.y:=WithAABB.Max.y;
+  result:=true;
+ end;
+ if WithAABB.Max.z>AABB.Max.z then begin
+  AABB.Max.z:=WithAABB.Max.z;
+  result:=true;
+ end;
+end;
+
 procedure AABBDirectCombine(var AABB:TKraftAABB;const WithAABB:TKraftAABB);
 begin
  AABB.Min.x:=Min(AABB.Min.x,WithAABB.Min.x);
@@ -20734,6 +20764,44 @@ begin
   InsertLeaf(aNodeID,ord(aShouldRotate) and 1);
   fRebuildDirty:=true;
  end;
+end;
+
+procedure TKraftDynamicAABBTree.EnlargeProxy(aNodeID:TKraftInt32;const aAABB:TKraftAABB);
+var Node,ParentNode:PKraftDynamicAABBTreeNode;
+    ParentIndex:TKraftInt32;
+    Changed:boolean;
+begin
+
+ if (aNodeID>=0) and (aNodeID<fNodeCapacity) then begin
+  
+  Node:=@fNodes^[aNodeID];
+  
+  if Node^.Height=0 then begin
+  
+   Node^.AABB:=aAABB;
+  
+   ParentIndex:=Node^.Parent;
+  
+   while ParentIndex>=0 do begin
+    ParentNode:=@fNodes^[ParentIndex];
+    Changed:=AABBEnlarge(ParentNode^.AABB,aAABB);
+    ParentNode^.Enlarged:=true;
+    ParentIndex:=ParentNode^.Parent;
+    if not Changed then begin
+     break;
+    end;
+   end;
+
+   while (ParentIndex>=0) and not fNodes^[ParentIndex].Enlarged do begin
+    ParentNode:=@fNodes^[ParentIndex];
+    ParentNode^.Enlarged:=true;
+    ParentIndex:=ParentNode^.Parent;
+   end;
+
+  end;
+
+ end;
+
 end;
 
 procedure TKraftDynamicAABBTree.Rebalance(Iterations:TKraftInt32);
