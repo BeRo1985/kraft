@@ -1012,10 +1012,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fRebuildCapacity:TKraftSizeInt;
        fLeafNodes:TKraftSizeIntDynamicArray;
        fNodeCenters:TKraftVector3DynamicArray;
-       fIntervalRebuilds:Boolean;
        fRebuildDirty:Boolean;
       public
-       constructor Create(const aIntervalRebuilds:Boolean=false);
+       constructor Create;
        destructor Destroy; override;
        function AllocateNode:TKraftInt32;
        procedure FreeNode(NodeID:TKraftInt32);
@@ -1026,7 +1025,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure RemoveLeaf(const aLeaf:TKraftInt32);
        function CreateProxy(const aAABB:TKraftAABB;aUserData:pointer):TKraftInt32;
        procedure DestroyProxy(aNodeID:TKraftInt32);
-       function MoveProxy(aNodeID:TKraftInt32;const aAABB:TKraftAABB;const aDisplacement,aBoundsExpansion:TKraftVector3):boolean;
+       function MoveProxy(aNodeID:TKraftInt32;const aAABB:TKraftAABB;const aDisplacement,aBoundsExpansion:TKraftVector3;const aShouldRotate:boolean):boolean;
        procedure Rebalance(Iterations:TKraftInt32);
        procedure RebuildBottomUp;
        procedure RebuildTopDown;
@@ -2650,6 +2649,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure ProcessContactPairJob(const JobIndex,ThreadIndex:TKraftInt32);
 {$endif}
 
+{$ifdef KraftPasMP}
+       procedure RebuildAABBTreeJobFunction(const Job:PPasMPJob;const ThreadIndex:TPasMPInt32);
+{$endif}
+
        procedure DoNarrowPhase;
 
 {$ifdef DebugDraw}
@@ -4132,6 +4135,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fSingleThreaded:boolean;
 
+       fRegularRebuildAABBTrees:boolean;
+
        fHighResolutionTimer:TKraftHighResolutionTimer;
 
        fBroadPhaseTime:TKraftInt64;
@@ -4431,6 +4436,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
       published
 
        property SingleThreaded:boolean read fSingleThreaded write fSingleThreaded;
+
+       property RegularRebuildAABBTrees:boolean read fRegularRebuildAABBTrees write fRegularRebuildAABBTrees;
 
        property WorldFrequency:TKraftScalar read fWorldFrequency write SetFrequency;
 
@@ -19872,7 +19879,8 @@ begin
 end;
 
 { TKraftDynamicAABBTree }
-constructor TKraftDynamicAABBTree.Create(const aIntervalRebuilds:Boolean);
+
+constructor TKraftDynamicAABBTree.Create;
 var i:TKraftInt32;
 begin
  inherited Create;
@@ -19897,7 +19905,6 @@ begin
  fRebuildCapacity:=0;
  fLeafNodes:=nil;
  fNodeCenters:=nil;
- fIntervalRebuilds:=aIntervalRebuilds;
  fRebuildDirty:=false;
 end;
 
@@ -20716,7 +20723,7 @@ begin
  fRebuildDirty:=true;
 end;
 
-function TKraftDynamicAABBTree.MoveProxy(aNodeID:TKraftInt32;const aAABB:TKraftAABB;const aDisplacement,aBoundsExpansion:TKraftVector3):boolean;
+function TKraftDynamicAABBTree.MoveProxy(aNodeID:TKraftInt32;const aAABB:TKraftAABB;const aDisplacement,aBoundsExpansion:TKraftVector3;const aShouldRotate:boolean):boolean;
 var Node:PKraftDynamicAABBTreeNode;
 begin
  Node:=@fNodes^[aNodeID];
@@ -20724,11 +20731,7 @@ begin
  if result then begin
   RemoveLeaf(aNodeID);
   Node^.AABB:=AABBStretch(aAABB,aDisplacement,aBoundsExpansion);
-  if fIntervalRebuilds then begin
-   InsertLeaf(aNodeID,0);
-  end else begin
-   InsertLeaf(aNodeID,1);
-  end;
+  InsertLeaf(aNodeID,ord(aShouldRotate) and 1);
   fRebuildDirty:=true;
  end;
 end;
@@ -28565,7 +28568,7 @@ begin
 
    if fCountTriangles>0 then begin
 
-    DynamicAABBTree:=TKraftDynamicAABBTree.Create(false);
+    DynamicAABBTree:=TKraftDynamicAABBTree.Create;
     try
 
      // Insert triangles in a random order for better tree balance of the dynamic AABB tree
@@ -30186,7 +30189,7 @@ begin
     fStaticAABBTreeProxy:=fPhysics.fStaticAABBTree.CreateProxy(fWorldAABB,self);
     NeedUpdate:=true;
    end;
-   if fPhysics.fStaticAABBTree.MoveProxy(fStaticAABBTreeProxy,fWorldAABB,Vector3Origin,Vector3Origin) then begin
+   if fPhysics.fStaticAABBTree.MoveProxy(fStaticAABBTreeProxy,fWorldAABB,Vector3Origin,Vector3Origin,not fPhysics.fRegularRebuildAABBTrees) then begin
     NeedUpdate:=true;
    end;
    if NeedUpdate then begin
@@ -30204,7 +30207,7 @@ begin
     fDynamicAABBTreeProxy:=fPhysics.fDynamicAABBTree.CreateProxy(fWorldAABB,self);
     NeedUpdate:=true;
    end;
-   if fPhysics.fDynamicAABBTree.MoveProxy(fDynamicAABBTreeProxy,fWorldAABB,WorldDisplacement,WorldBoundsExpansion) then begin
+   if fPhysics.fDynamicAABBTree.MoveProxy(fDynamicAABBTreeProxy,fWorldAABB,WorldDisplacement,WorldBoundsExpansion,not fPhysics.fRegularRebuildAABBTrees) then begin
     NeedUpdate:=true;
    end;
    if NeedUpdate then begin
@@ -30222,7 +30225,7 @@ begin
     fKinematicAABBTreeProxy:=fPhysics.fKinematicAABBTree.CreateProxy(fWorldAABB,self);
     NeedUpdate:=true;
    end;
-   if fPhysics.fKinematicAABBTree.MoveProxy(fKinematicAABBTreeProxy,fWorldAABB,fRigidBody.fWorldDisplacement,Vector3Origin) then begin
+   if fPhysics.fKinematicAABBTree.MoveProxy(fKinematicAABBTreeProxy,fWorldAABB,fRigidBody.fWorldDisplacement,Vector3Origin,not fPhysics.fRegularRebuildAABBTrees) then begin
     NeedUpdate:=true;
    end;
    if NeedUpdate then begin
@@ -33112,7 +33115,7 @@ begin
   if fCountMeshes=1 then begin
    fSkipListNodes[0].AABB:=fMeshes[0].fAABB;
   end else if fDirty then begin
-   DynamicAABBTree:=TKraftDynamicAABBTree.Create(false);
+   DynamicAABBTree:=TKraftDynamicAABBTree.Create;
    try
     RandomOrderIndices:=nil;
     try
@@ -37075,6 +37078,13 @@ begin
 end;
 {$endif}
 
+{$ifdef KraftPasMP}
+procedure TKraftContactManager.RebuildAABBTreeJobFunction(const Job:PPasMPJob;const ThreadIndex:TPasMPInt32);
+begin
+ TKraftDynamicAABBTree(Job^.Data).Rebuild;
+end;
+{$endif}
+
 procedure TKraftContactManager.DoNarrowPhase;
 const ActionAccept=0;
       ActionRemove=1;
@@ -37088,14 +37098,63 @@ var ActiveContactPairIndex,Action:TKraftInt32;
     TemporaryAABB:TKraftAABB;
     StartTime:TKraftInt64;
     Flags:TKraftContactFlags;
+{$ifdef KraftPasMP}
+    RebuildJobs:array[0..3] of PPasMPJob;
+    HaveRebuildJobs:Boolean;
+{$endif}
 begin
 
  StartTime:=fPhysics.fHighResolutionTimer.GetTime;
 
- fPhysics.fStaticAABBTree.Rebuild;
- fPhysics.fSleepingAABBTree.Rebuild;
- fPhysics.fDynamicAABBTree.Rebuild;
- fPhysics.fKinematicAABBTree.Rebuild;
+{$ifdef KraftPasMP}
+ HaveRebuildJobs:=false;
+{$endif}
+
+ if fPhysics.fRegularRebuildAABBTrees then begin
+{$ifdef KraftPasMP}
+  if assigned(fPhysics.fPasMP) and not fPhysics.fSingleThreaded then begin
+   if fPhysics.fStaticAABBTree.fRebuildDirty then begin
+    RebuildJobs[0]:=fPhysics.fPasMP.Acquire(RebuildAABBTreeJobFunction,pointer(fPhysics.fStaticAABBTree),nil,0,0);
+    HaveRebuildJobs:=true;
+   end else begin
+    RebuildJobs[0]:=nil;
+   end;
+   if fPhysics.fSleepingAABBTree.fRebuildDirty then begin
+    RebuildJobs[1]:=fPhysics.fPasMP.Acquire(RebuildAABBTreeJobFunction,pointer(fPhysics.fSleepingAABBTree),nil,0,0);
+    HaveRebuildJobs:=true;
+   end else begin
+    RebuildJobs[1]:=nil;
+   end;
+   if fPhysics.fDynamicAABBTree.fRebuildDirty then begin
+    RebuildJobs[2]:=fPhysics.fPasMP.Acquire(RebuildAABBTreeJobFunction,pointer(fPhysics.fDynamicAABBTree),nil,0,0);
+    HaveRebuildJobs:=true;
+   end else begin
+    RebuildJobs[2]:=nil;
+   end;
+   if fPhysics.fKinematicAABBTree.fRebuildDirty then begin
+    RebuildJobs[3]:=fPhysics.fPasMP.Acquire(RebuildAABBTreeJobFunction,pointer(fPhysics.fKinematicAABBTree),nil,0,0);
+    HaveRebuildJobs:=true;
+   end else begin
+    RebuildJobs[3]:=nil;
+   end;
+   if HaveRebuildJobs then begin
+    fPhysics.fPasMP.Run(RebuildJobs);
+   end;
+  end else{$endif}begin
+   if fPhysics.fStaticAABBTree.fRebuildDirty then begin
+    fPhysics.fStaticAABBTree.Rebuild;
+   end;
+   if fPhysics.fSleepingAABBTree.fRebuildDirty then begin
+    fPhysics.fSleepingAABBTree.Rebuild;
+   end;
+   if fPhysics.fDynamicAABBTree.fRebuildDirty then begin
+    fPhysics.fDynamicAABBTree.Rebuild;
+   end;
+   if fPhysics.fKinematicAABBTree.fRebuildDirty then begin
+    fPhysics.fKinematicAABBTree.Rebuild;
+   end;
+  end;
+ end;
 
  fCountActiveContactPairs:=0;
 
@@ -37294,6 +37353,12 @@ begin
   MeshContactPair:=MeshContactPair.fNext;
 
  end;
+
+{$ifdef KraftPasMP}
+ if HaveRebuildJobs then begin
+  fPhysics.fPasMP.WaitRelease(RebuildJobs);
+ end;
+{$endif}
 
  inc(fPhysics.fNarrowPhaseTime,fPhysics.fHighResolutionTimer.GetTime-StartTime);
 
@@ -44623,6 +44688,8 @@ begin
 
  fSingleThreaded:=false;
 
+ fRegularRebuildAABBTrees:=true;
+
  fHighResolutionTimer:=TKraftHighResolutionTimer.Create;
 
  fIsSolving:=false;
@@ -44695,10 +44762,10 @@ begin
  fKinematicRigidBodyFirst:=nil;
  fKinematicRigidBodyLast:=nil;
 
- fStaticAABBTree:=TKraftDynamicAABBTree.Create(true);
- fSleepingAABBTree:=TKraftDynamicAABBTree.Create(true);
- fDynamicAABBTree:=TKraftDynamicAABBTree.Create(true);
- fKinematicAABBTree:=TKraftDynamicAABBTree.Create(true);
+ fStaticAABBTree:=TKraftDynamicAABBTree.Create;
+ fSleepingAABBTree:=TKraftDynamicAABBTree.Create;
+ fDynamicAABBTree:=TKraftDynamicAABBTree.Create;
+ fKinematicAABBTree:=TKraftDynamicAABBTree.Create;
 
  fIslands:=nil;
  SetLength(fIslands,16);
