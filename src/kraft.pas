@@ -44688,7 +44688,7 @@ begin
 
  fSingleThreaded:=false;
 
- fRegularRebuildAABBTrees:=true;
+ fRegularRebuildAABBTrees:=false;
 
  fHighResolutionTimer:=TKraftHighResolutionTimer.Create;
 
