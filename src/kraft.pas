@@ -20729,7 +20729,7 @@ var Counter,Node:TKraftInt32;
     Bit:TKraftUInt32;
 //  Children:PKraftDynamicAABBTreeLongintArray;
 begin
- if (fRoot>=0) and (fRoot<fNodeCount) then begin
+ if (fRoot>=0) and (fRoot<fNodeCapacity) then begin
   for Counter:=1 to Iterations do begin
    Bit:=0;
    Node:=fRoot;
@@ -20738,7 +20738,7 @@ begin
     Bit:=(Bit+1) and 31;
    end;
    inc(fPath);
-   if ((Node>=0) and (Node<fNodeCount)) and (fNodes[Node].Children[0]<0) then begin
+   if ((Node>=0) and (Node<fNodeCapacity)) and (fNodes[Node].Children[0]<0) then begin
     RemoveLeaf(Node);
     InsertLeaf(Node,true);
    end else begin
@@ -20843,16 +20843,16 @@ begin
 
  if NodeCount>0 then begin
 
-  if fRebuildCapacity<NodeCount then begin
-   fRebuildCapacity:=NodeCount+((NodeCount+1) shr 1);
+  if fRebuildCapacity<fNodeCapacity then begin
+   fRebuildCapacity:=fNodeCapacity+((fNodeCapacity+1) shr 1);
    SetLength(fLeafNodes,fRebuildCapacity);
    SetLength(fNodeCenters,fRebuildCapacity);
   end;
 
-  FillChar(fLeafNodes[0],NodeCount*SizeOf(TKraftSizeInt),#0);
+  FillChar(fLeafNodes[0],fNodeCapacity*SizeOf(TKraftSizeInt),#0);
 
   Count:=0;
-  for Index:=0 to NodeCount-1 do begin
+  for Index:=0 to fNodeCapacity-1 do begin
    if fNodes^[Index].Height>=0 then begin
     fNodeCenters[Index]:=Vector3Avg(fNodes^[Index].AABB.Min,fNodes^[Index].AABB.Max);
     if fNodes^[Index].Children[0]<0 then begin
@@ -21060,74 +21060,51 @@ begin
  if NodeCount<16 then begin
   RebuildBottomUp;
  end else begin
-  //RebuildTopDown;
+  RebuildTopDown;
  end;
- if (fNodeCount>0) and not Validate then begin
-  Sleep(0);
-  if not Validate then begin
-  end;
- end;
+//Assert(Validate);
 end;
 
 function TKraftDynamicAABBTree.ComputeHeight:TKraftInt32;
-{$ifdef KraftSingleThreadedUsage}
-var LocalStack:PKraftDynamicAABBTreeLongintArray;
-    LocalStackPointer,NodeID,Height:TKraftInt32;
+type TStackItem=record
+      NodeID:TKraftInt32;
+      Height:TKraftInt32;
+     end;
+     PStackItem=^TStackItem;
+     TStack=TKraftDynamicFastStack<TStackItem>;
+var Stack:TStack;
+    StackItem:TStackItem;
+    NewStackItem:PStackItem;
     Node:PKraftDynamicAABBTreeNode;
 begin
  result:=0;
  if fRoot>=0 then begin
-  LocalStack:=fStack;
-  LocalStack^[0]:=fRoot;
-  LocalStack^[1]:=1;
-  LocalStackPointer:=2;
-  while LocalStackPointer>0 do begin
-   dec(LocalStackPointer,2);
-   NodeID:=LocalStack^[LocalStackPointer];
-   Height:=LocalStack^[LocalStackPointer+1];
-   if result<Height then begin
-    result:=Height;
-   end;
-   if NodeID>=0 then begin
-    Node:=@fNodes^[NodeID];
-    if Node^.Children[0]>=0 then begin
-     if fStackCapacity<=(LocalStackPointer+4) then begin
-      fStackCapacity:=RoundUpToPowerOfTwo(LocalStackPointer+4);
-      ReallocMem(fStack,fStackCapacity*SizeOf(TKraftInt32));
-      LocalStack:=fStack;
+  Stack.Initialize;
+  try
+   NewStackItem:=pointer(Stack.PushIndirect);
+   NewStackItem^.NodeID:=fRoot;
+   NewStackItem^.Height:=1;
+   while Stack.Pop(StackItem) do begin
+    if (StackItem.NodeID>=0) and (StackItem.NodeID<fNodeCapacity) then begin
+     Node:=@fNodes^[StackItem.NodeID];
+     if Node^.Height<>0 then begin
+      if result<StackItem.Height then begin
+       result:=StackItem.Height;
+      end;
+      NewStackItem:=pointer(Stack.PushIndirect);
+      NewStackItem^.NodeID:=Node^.Children[1];
+      NewStackItem^.Height:=StackItem.Height+1;
+      NewStackItem:=pointer(Stack.PushIndirect);
+      NewStackItem^.NodeID:=Node^.Children[0];
+      NewStackItem^.Height:=StackItem.Height+1;
      end;
-     LocalStack^[LocalStackPointer+0]:=Node^.Children[0];
-     LocalStack^[LocalStackPointer+1]:=Height+1;
-     LocalStack^[LocalStackPointer+2]:=Node^.Children[1];
-     LocalStack^[LocalStackPointer+3]:=Height+1;
-     inc(LocalStackPointer,4);
     end;
    end;
+  finally
+   Stack.Finalize;
   end;
  end;
 end;
-{$else}
-var MaximalHeight:TKraftInt32;
- procedure ProcessNode(const NodeID,Height:TKraftInt32);
- var Node:PKraftDynamicAABBTreeNode;
- begin
-  if NodeID>=0 then begin
-   Node:=@fNodes^[NodeID];
-   if Node^.Height<>0 then begin
-    if MaximalHeight<Height then begin
-     MaximalHeight:=Height;
-    end;
-    ProcessNode(Node^.Children[0],Height+1);
-    ProcessNode(Node^.Children[1],Height+1);
-   end;
-  end;
- end;
-begin
- MaximalHeight:=0;
- ProcessNode(fRoot,1);
- result:=MaximalHeight;
-end;
-{$endif}
 
 function TKraftDynamicAABBTree.GetHeight:TKraftInt32;
 begin
@@ -21144,7 +21121,7 @@ var NodeID:TKraftInt32;
 begin
  result:=0;
  if fRoot>=0 then begin
-  for NodeID:=0 to fNodeCount-1 do begin
+  for NodeID:=0 to fNodeCapacity-1 do begin
    Node:=@fNodes[NodeID];
    if Node^.Height>=0 then begin
     result:=result+AABBCost(Node^.AABB);
@@ -21159,7 +21136,7 @@ var NodeID,Balance:TKraftInt32;
     Node:PKraftDynamicAABBTreeNode;
 begin
  result:=0;
- for NodeID:=0 to fNodeCount-1 do begin
+ for NodeID:=0 to fNodeCapacity-1 do begin
   Node:=@fNodes[NodeID];
   if (Node^.Height>1) and (Node^.Children[0]>=0) then begin
    Balance:=abs(fNodes[Node^.Children[1]].Height-fNodes[Node^.Children[0]].Height);
@@ -21171,143 +21148,99 @@ begin
 end;
 
 function TKraftDynamicAABBTree.ValidateStructure:boolean;
-{$ifdef KraftSingleThreadedUsage}
-var LocalStack:PKraftDynamicAABBTreeLongintArray;
-    LocalStackPointer,NodeID,Parent:TKraftInt32;
+type TStackItem=record
+      NodeID:TKraftInt32;
+      Parent:TKraftInt32;
+     end;
+     PStackItem=^TStackItem;
+     TStack=TKraftDynamicFastStack<TStackItem>;
+var Stack:TStack;
+    StackItem:TStackItem;
+    NewStackItem:PStackItem;
     Node:PKraftDynamicAABBTreeNode;
 begin
  result:=true;
  if fRoot>=0 then begin
-  LocalStack:=fStack;
-  LocalStack^[0]:=fRoot;
-  LocalStack^[1]:=-1;
-  LocalStackPointer:=2;
-  while LocalStackPointer>0 do begin
-   dec(LocalStackPointer,2);
-   NodeID:=LocalStack^[LocalStackPointer];
-   Parent:=LocalStack^[LocalStackPointer+1];
-   if (NodeID>=0) and (NodeID<fNodeCount) then begin
-    Node:=@fNodes^[NodeID];
-    if Node^.Parent<>Parent then begin
+  Stack.Initialize;
+  try
+   NewStackItem:=pointer(Stack.PushIndirect);
+   NewStackItem^.NodeID:=fRoot;
+   NewStackItem^.Parent:=daabbtNULLNODE;
+   while Stack.Pop(StackItem) do begin
+    if (StackItem.NodeID>=0) and (StackItem.NodeID<fNodeCapacity) then begin
+     Node:=@fNodes^[StackItem.NodeID];
+     if Node^.Parent<>StackItem.Parent then begin
+      result:=false;
+      break;
+     end;
+     if Node^.Children[0]<0 then begin
+      if (Node^.Children[1]>=0) or (Node^.Height<>0) then begin
+       result:=false;
+       break;
+      end;
+     end else begin
+      NewStackItem:=pointer(Stack.PushIndirect);
+      NewStackItem.NodeID:=Node^.Children[1];
+      NewStackItem.Parent:=StackItem.NodeID;
+      NewStackItem:=pointer(Stack.PushIndirect);
+      NewStackItem.NodeID:=Node^.Children[1];
+      NewStackItem.Parent:=StackItem.NodeID;
+     end;
+    end else begin
      result:=false;
      break;
     end;
-    if Node^.Children[0]<0 then begin
-     if (Node^.Children[1]>=0) or (Node^.Height<>0) then begin
-      result:=false;
-      break;
-     end;
-    end else begin
-     if fStackCapacity<=(LocalStackPointer+4) then begin
-      fStackCapacity:=RoundUpToPowerOfTwo(LocalStackPointer+4);
-      ReallocMem(fStack,fStackCapacity*SizeOf(TKraftInt32));
-      LocalStack:=fStack;
-     end;
-     LocalStack^[LocalStackPointer+0]:=Node^.Children[0];
-     LocalStack^[LocalStackPointer+1]:=NodeID;
-     LocalStack^[LocalStackPointer+2]:=Node^.Children[1];
-     LocalStack^[LocalStackPointer+3]:=NodeID;
-     inc(LocalStackPointer,4);
-    end;
-   end else begin
-    result:=false;
-    break;
    end;
+  finally
+   Stack.Finalize;
   end;
  end;
 end;
-{$else}
-var OK:boolean;
- procedure ProcessNode(const NodeID,Parent:TKraftInt32);
- var Node:PKraftDynamicAABBTreeNode;
- begin
-  if (NodeID>=0) and (NodeID<fNodeCount) and OK then begin
-   Node:=@fNodes^[NodeID];
-   if Node^.Parent<>Parent then begin
-    OK:=false;
-   end else begin
-    ProcessNode(Node^.Children[0],NodeID);
-    ProcessNode(Node^.Children[1],NodeID);
-   end;
-  end;
- end;
-begin
- OK:=true;
- ProcessNode(fRoot,-1);
- result:=OK;
-end;
-{$endif}
 
 function TKraftDynamicAABBTree.ValidateMetrics:boolean;
-{$ifdef KraftSingleThreadedUsage}
-var LocalStack:PKraftDynamicAABBTreeLongintArray;
-    LocalStackPointer,NodeID{,Height}:TKraftInt32;
+type TStackItem=record
+      NodeID:TKraftInt32;
+     end;
+     PStackItem=^TStackItem;
+     TStack=TKraftDynamicFastStack<TStackItem>;
+var Stack:TStack;
+    StackItem:TStackItem;
+    NewStackItem:PStackItem;
     Node:PKraftDynamicAABBTreeNode;
-    AABB:TKraftAABB;
 begin
  result:=true;
  if fRoot>=0 then begin
-  LocalStack:=fStack;
-  LocalStack^[0]:=fRoot;
-  LocalStackPointer:=1;
-  while LocalStackPointer>0 do begin
-   dec(LocalStackPointer);
-   NodeID:=LocalStack^[LocalStackPointer];
-   if (NodeID>=0) and (NodeID<fNodeCount) then begin
-    Node:=@fNodes^[NodeID];
-    if Node^.Children[0]>=0 then begin
-     if (((Node^.Children[0]<0) or (Node^.Children[0]>=fNodeCount)) or
-         ((Node^.Children[1]<0) or (Node^.Children[1]>=fNodeCount))) or
-        (Node^.Height<>(1+Max(fNodes[Node^.Children[0]].Height,fNodes[Node^.Children[1]].Height))) then begin
-      result:=false;
-      break;
+  Stack.Initialize;
+  try
+   NewStackItem:=pointer(Stack.PushIndirect);
+   NewStackItem^.NodeID:=fRoot;
+   while Stack.Pop(StackItem) do begin
+    if (StackItem.NodeID>=0) and (StackItem.NodeID<fNodeCapacity) then begin
+     Node:=@fNodes^[StackItem.NodeID];
+     if Node^.Height<>0 then begin
+      if (Node^.Children[0]>=0) and (Node^.Children[0]<fNodeCapacity) and
+         (Node^.Children[1]>=0) and (Node^.Children[1]<fNodeCapacity) then begin
+       if Node^.Height<>(Max(fNodes[Node^.Children[0]].Height,fNodes[Node^.Children[1]].Height)+1) then begin
+        result:=false;
+        break;
+       end else begin
+        NewStackItem:=pointer(Stack.PushIndirect);
+        NewStackItem^.NodeID:=Node^.Children[1];
+        NewStackItem:=pointer(Stack.PushIndirect);
+        NewStackItem^.NodeID:=Node^.Children[0];
+       end;
+      end else begin
+       result:=false;
+       break;
+      end;
      end;
-     AABB:=AABBCombine(fNodes[Node^.Children[0]].AABB,fNodes[Node^.Children[1]].AABB);
-     if not (Vector3Compare(Node^.AABB.Min,AABB.Min) and Vector3Compare(Node^.AABB.Max,AABB.Max)) then begin
-      result:=false;
-      break;
-     end;
-     if fStackCapacity<=(LocalStackPointer+2) then begin
-      fStackCapacity:=RoundUpToPowerOfTwo(LocalStackPointer+2);
-      ReallocMem(fStack,fStackCapacity*SizeOf(TKraftInt32));
-      LocalStack:=fStack;
-     end;
-     LocalStack^[LocalStackPointer+0]:=Node^.Children[0];
-     LocalStack^[LocalStackPointer+1]:=Node^.Children[1];
-     inc(LocalStackPointer,2);
     end;
-   end else begin
-    result:=false;
-    break;
    end;
+  finally
+   Stack.Finalize;
   end;
  end;
 end;
-{$else}
-var OK:boolean;
- procedure ProcessNode(const NodeID:TKraftInt32);
- var Node:PKraftDynamicAABBTreeNode;
- begin
-  if (NodeID>=0) and OK then begin
-   Node:=@fNodes^[NodeID];
-   if Node^.Height<>0 then begin
-    if (((Node^.Children[0]<0) or (Node^.Children[0]>=fNodeCount)) or
-        ((Node^.Children[1]<0) or (Node^.Children[1]>=fNodeCount))) or
-       (Node^.Height<>(1+Max(fNodes[Node^.Children[0]].Height,fNodes[Node^.Children[1]].Height))) then begin
-     OK:=false;
-    end else begin
-     ProcessNode(Node^.Children[0]);
-     ProcessNode(Node^.Children[1]);
-    end;
-   end;
-  end;
- end;
-begin
- OK:=true;
- ProcessNode(fRoot);
- result:=OK;
-end;
-{$endif}
 
 function TKraftDynamicAABBTree.Validate:boolean;
 var NodeID,FreeCount:TKraftInt32;
@@ -21331,66 +21264,43 @@ begin
 end;
 
 function TKraftDynamicAABBTree.GetIntersectionProxy(const AABB:TKraftAABB):pointer;
-{$ifdef KraftSingleThreadedUsage}
-var LocalStack:PKraftDynamicAABBTreeLongintArray;
-    LocalStackPointer,NodeID:TKraftInt32;
+type TStackItem=record
+      NodeID:TKraftInt32;
+     end;
+     PStackItem=^TStackItem;
+     TStack=TKraftDynamicFastStack<TStackItem>;
+var Stack:TStack;
+    StackItem:TStackItem;
+    NewStackItem:PStackItem;
     Node:PKraftDynamicAABBTreeNode;
 begin
  result:=nil;
  if fRoot>=0 then begin
-  LocalStack:=fStack;
-  LocalStack^[0]:=fRoot;
-  LocalStackPointer:=1;
-  while LocalStackPointer>0 do begin
-   dec(LocalStackPointer);
-   NodeID:=LocalStack^[LocalStackPointer];
-   if NodeID>=0 then begin
-    Node:=@fNodes[NodeID];
-    if AABBIntersect(Node^.AABB,AABB) then begin
-     if Node^.Children[0]<0 then begin
-      result:=Node^.UserData;
-      exit;
-     end else begin
-      if fStackCapacity<=(LocalStackPointer+2) then begin
-       fStackCapacity:=RoundUpToPowerOfTwo(LocalStackPointer+2);
-       ReallocMem(fStack,fStackCapacity*SizeOf(TKraftInt32));
-       LocalStack:=fStack;
+  Stack.Initialize;
+  try
+   NewStackItem:=pointer(Stack.PushIndirect);
+   NewStackItem.NodeID:=fRoot;
+   while Stack.Pop(StackItem) do begin
+    if (StackItem.NodeID>=0) and (StackItem.NodeID<fNodeCapacity) then begin
+     Node:=@fNodes^[StackItem.NodeID];
+     if AABBIntersect(Node^.AABB,AABB) then begin
+      if Node^.Children[0]<0 then begin
+       result:=Node^.UserData;
+       break;
+      end else begin
+       NewStackItem:=pointer(Stack.PushIndirect);
+       NewStackItem^.NodeID:=Node^.Children[1];
+       NewStackItem:=pointer(Stack.PushIndirect);
+       NewStackItem^.NodeID:=Node^.Children[0];
       end;
-      LocalStack^[LocalStackPointer+0]:=Node^.Children[0];
-      LocalStack^[LocalStackPointer+1]:=Node^.Children[1];
-      inc(LocalStackPointer,2);
      end;
     end;
    end;
+  finally
+   Stack.Finalize;
   end;
  end;
 end;
-{$else}
-var Data:pointer;
-    Done:boolean;
- procedure ProcessNode(const NodeID:TKraftInt32);
- var Node:PKraftDynamicAABBTreeNode;
- begin
-  if (NodeID>=0) and not Done then begin
-   Node:=@fNodes^[NodeID];
-   if AABBIntersect(Node^.AABB,AABB) then begin
-    if Node^.Children[0]<0 then begin
-     Data:=Node^.UserData;
-     Done:=true;
-    end else begin
-     ProcessNode(Node^.Children[0]);
-     ProcessNode(Node^.Children[1]);
-    end;
-   end;
-  end;
- end;
-begin
- Data:=nil;
- Done:=false;
- ProcessNode(fRoot);
- result:=Data;
-end;
-{$endif}
 
 procedure TKraftDynamicAABBTree.GetSkipListNodes(var aSkipListNodes:TKraftDynamicAABBTreeSkipListNodes);
 type TSkipListNodeStackItem=record
@@ -21412,8 +21322,8 @@ begin
    StackItems:=nil;
    try
     StackPointer:=0;
-    if length(fSkipListNodeMap)<fNodeCount then begin
-     SetLength(fSkipListNodeMap,fNodeCount+((fNodeCount+1) shr 1));
+    if length(fSkipListNodeMap)<fNodeCapacity then begin
+     SetLength(fSkipListNodeMap,fNodeCapacity+((fNodeCapacity+1) shr 1));
     end;
     NewStackItem.Pass:=0;
     NewStackItem.Node:=Root;
@@ -37168,10 +37078,10 @@ begin
 
  StartTime:=fPhysics.fHighResolutionTimer.GetTime;
 
-{fPhysics.fStaticAABBTree.Rebuild;
+ fPhysics.fStaticAABBTree.Rebuild;
  fPhysics.fSleepingAABBTree.Rebuild;
  fPhysics.fDynamicAABBTree.Rebuild;
- fPhysics.fKinematicAABBTree.Rebuild;}
+ fPhysics.fKinematicAABBTree.Rebuild;
 
  fCountActiveContactPairs:=0;
 
@@ -37792,7 +37702,7 @@ procedure TKraftBroadPhaseMoveBuffer.Add(const aProxyID:TKraftInt32);
 var Index:TKraftInt32;
     Node:PKraftDynamicAABBTreeNode;
 begin
- if (aProxyID>=0) and (aProxyID<fAABBTree.fNodeCount) then begin
+ if (aProxyID>=0) and (aProxyID<fAABBTree.fNodeCapacity) then begin
   Node:=@fAABBTree.fNodes^[aProxyID];
  end else begin
   Node:=nil;
@@ -37822,7 +37732,7 @@ begin
  // The order of the items is irrelevant in this case, so that we can simply
  // overwrite the to be removed item with the the last array item, while
  // decrementing the size of the array in the process at the same time.
- if (aProxyID>=0) and (aProxyID<fAABBTree.fNodeCount) then begin
+ if (aProxyID>=0) and (aProxyID<fAABBTree.fNodeCapacity) then begin
   Node:=@fAABBTree.fNodes^[aProxyID];
  end else begin
   Node:=nil;
