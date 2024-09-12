@@ -1012,8 +1012,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fRebuildCapacity:TKraftSizeInt;
        fLeafNodes:TKraftSizeIntDynamicArray;
        fNodeCenters:TKraftVector3DynamicArray;
+       fIntervalRebuilds:Boolean;
+       fRebuildDirty:Boolean;
       public
-       constructor Create;
+       constructor Create(const aIntervalRebuilds:Boolean=false);
        destructor Destroy; override;
        function AllocateNode:TKraftInt32;
        procedure FreeNode(NodeID:TKraftInt32);
@@ -1028,7 +1030,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure Rebalance(Iterations:TKraftInt32);
        procedure RebuildBottomUp;
        procedure RebuildTopDown;
-       procedure Rebuild;
+       procedure Rebuild(const aForce:Boolean=false);
        function ComputeHeight:TKraftInt32;
        function GetHeight:TKraftInt32;
        function GetAreaRatio:TKraftScalar;
@@ -19870,7 +19872,7 @@ begin
 end;
 
 { TKraftDynamicAABBTree }
-constructor TKraftDynamicAABBTree.Create;
+constructor TKraftDynamicAABBTree.Create(const aIntervalRebuilds:Boolean);
 var i:TKraftInt32;
 begin
  inherited Create;
@@ -19895,6 +19897,8 @@ begin
  fRebuildCapacity:=0;
  fLeafNodes:=nil;
  fNodeCenters:=nil;
+ fIntervalRebuilds:=aIntervalRebuilds;
+ fRebuildDirty:=false;
 end;
 
 destructor TKraftDynamicAABBTree.Destroy;
@@ -20701,6 +20705,7 @@ begin
  Node^.Height:=0;
  InsertLeaf(result,1);
  inc(fProxyCount);
+ fRebuildDirty:=true;
 end;
 
 procedure TKraftDynamicAABBTree.DestroyProxy(aNodeID:TKraftInt32);
@@ -20708,6 +20713,7 @@ begin
  dec(fProxyCount);
  RemoveLeaf(aNodeID);
  FreeNode(aNodeID);
+ fRebuildDirty:=true;
 end;
 
 function TKraftDynamicAABBTree.MoveProxy(aNodeID:TKraftInt32;const aAABB:TKraftAABB;const aDisplacement,aBoundsExpansion:TKraftVector3):boolean;
@@ -20718,7 +20724,12 @@ begin
  if result then begin
   RemoveLeaf(aNodeID);
   Node^.AABB:=AABBStretch(aAABB,aDisplacement,aBoundsExpansion);
-  InsertLeaf(aNodeID,0);
+  if fIntervalRebuilds then begin
+   InsertLeaf(aNodeID,0);
+  end else begin
+   InsertLeaf(aNodeID,1);
+  end;
+  fRebuildDirty:=true;
  end;
 end;
 
@@ -21053,14 +21064,19 @@ begin
 
 end;
 
-procedure TKraftDynamicAABBTree.Rebuild;
+procedure TKraftDynamicAABBTree.Rebuild(const aForce:Boolean);
 begin
- if NodeCount<16 then begin
-  RebuildBottomUp;
- end else begin
-  RebuildTopDown;
+ if fRebuildDirty or aForce then begin
+  fRebuildDirty:=false;
+  if fProxyCount>0 then begin
+   if fProxyCount<16 then begin
+    RebuildBottomUp;
+   end else begin
+    RebuildTopDown;
+   end;
+ //Assert(Validate);
+  end;
  end;
-//Assert(Validate);
 end;
 
 function TKraftDynamicAABBTree.ComputeHeight:TKraftInt32;
@@ -28549,7 +28565,7 @@ begin
 
    if fCountTriangles>0 then begin
 
-    DynamicAABBTree:=TKraftDynamicAABBTree.Create;
+    DynamicAABBTree:=TKraftDynamicAABBTree.Create(false);
     try
 
      // Insert triangles in a random order for better tree balance of the dynamic AABB tree
@@ -33096,7 +33112,7 @@ begin
   if fCountMeshes=1 then begin
    fSkipListNodes[0].AABB:=fMeshes[0].fAABB;
   end else if fDirty then begin
-   DynamicAABBTree:=TKraftDynamicAABBTree.Create;
+   DynamicAABBTree:=TKraftDynamicAABBTree.Create(false);
    try
     RandomOrderIndices:=nil;
     try
@@ -44679,10 +44695,10 @@ begin
  fKinematicRigidBodyFirst:=nil;
  fKinematicRigidBodyLast:=nil;
 
- fStaticAABBTree:=TKraftDynamicAABBTree.Create;
- fSleepingAABBTree:=TKraftDynamicAABBTree.Create;
- fDynamicAABBTree:=TKraftDynamicAABBTree.Create;
- fKinematicAABBTree:=TKraftDynamicAABBTree.Create;
+ fStaticAABBTree:=TKraftDynamicAABBTree.Create(true);
+ fSleepingAABBTree:=TKraftDynamicAABBTree.Create(true);
+ fDynamicAABBTree:=TKraftDynamicAABBTree.Create(true);
+ fKinematicAABBTree:=TKraftDynamicAABBTree.Create(true);
 
  fIslands:=nil;
  SetLength(fIslands,16);
