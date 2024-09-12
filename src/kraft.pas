@@ -20941,7 +20941,7 @@ begin
 
   Count:=0;
 
-  NodeStack.Initialize;
+{ NodeStack.Initialize;
   try
 
    NodeStack.Push(fRoot);
@@ -20976,9 +20976,9 @@ begin
 
   finally
    NodeStack.Finalize;
-  end;
+  end;//}
 
-{ Count:=0;
+  Count:=0;
   for Index:=0 to fNodeCapacity-1 do begin
    if fNodes^[Index].Height>=0 then begin
     fNodeCenters[Index]:=Vector3Avg(fNodes^[Index].AABB.Min,fNodes^[Index].AABB.Max);
@@ -20990,7 +20990,7 @@ begin
      FreeNode(Index);
     end;
    end;
-  end;{}
+  end;//}
 
   fRoot:=daabbtNULLNODE;
 
@@ -21088,6 +21088,30 @@ begin
         end;
        end;
 
+{$define TKraftDynamicAABBTreeRebuildTopDownQuickSortStylePartitioning}
+{$ifdef TKraftDynamicAABBTreeRebuildTopDownQuickSortStylePartitioning}
+       // Quick-Sort style paritioning with Hoare partition scheme
+       LeftIndex:=FillStackItem.FirstLeafNode;
+       RightIndex:=FillStackItem.FirstLeafNode+FillStackItem.CountLeafNodes;
+       while LeftIndex<RightIndex do begin
+        while (LeftIndex<RightIndex) and (fNodeCenters[fLeafNodes[LeftIndex]].xyz[SplitAxis]<=SplitValue) do begin
+         inc(LeftIndex);
+        end;
+        while (LeftIndex<RightIndex) and (fNodeCenters[fLeafNodes[RightIndex-1]].xyz[SplitAxis]>SplitValue) do begin
+         dec(RightIndex);
+        end;
+        if LeftIndex<RightIndex then begin
+         dec(RightIndex);
+         TempIndex:=fLeafNodes[LeftIndex];
+         fLeafNodes[LeftIndex]:=fLeafNodes[RightIndex];
+         fLeafNodes[RightIndex]:=TempIndex;
+         inc(LeftIndex);
+        end;
+       end;
+       LeftCount:=LeftIndex-FillStackItem.FirstLeafNode;
+       RightCount:=FillStackItem.CountLeafNodes-LeftCount;
+{$else}
+       // Bubble-Sort style paritioning?
        LeftIndex:=FillStackItem.FirstLeafNode;
        RightIndex:=FillStackItem.FirstLeafNode+FillStackItem.CountLeafNodes;
        LeftCount:=0;
@@ -21105,8 +21129,7 @@ begin
          fLeafNodes[RightIndex]:=TempIndex;
         end;
        end;
-
-       LeftCount:=LeftIndex-FillStackItem.FirstLeafNode;
+{$endif}
 
        MinPerSubTree:=(TKraftInt64(FillStackItem.CountLeafNodes+1)*341) shr 10;
        if (LeftCount=0) or
