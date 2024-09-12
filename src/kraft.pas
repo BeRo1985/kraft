@@ -34,9 +34,7 @@
  *    appropriate copyright notice.                                           *
  * 3. After a pull request, check the status of your pull request on          *
       http://github.com/BeRo1985/kraft                                        *
- * 4. Write code, which is compatible with Delphi 7-XE7 and FreePascal >= 2.6 *
- *    so don't use generics/templates, operator overloading and another newer *
- *    syntax features than Delphi 7 has support for that.                     *
+ * 4. Write code, which is compatible with Delphi >= XE7 and FreePascal >= 3  *
  * 5. Don't use Delphi VCL, FreePascal FCL or Lazarus LCL libraries/units.    *
  * 6. No use of third-party libraries/units as possible, but if needed, make  *
  *    it out-ifdef-able                                                       *
@@ -891,6 +889,25 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property z:TKraftScalar read GetZ write SetZ;
      end;
 
+     { TKraftDynamicFastStack }
+     TKraftDynamicFastStack<T>=record
+      public
+       const LocalSize=32;
+       type PT=^T;
+      private
+       fLocalItems:array[0..LocalSize-1] of T;
+       fItems:array of T;
+       fCount:TKraftSizeInt;
+      public
+       procedure Initialize;
+       procedure Finalize;
+       procedure Clear;
+       procedure Push(const aItem:T);
+       function PushIndirect:PT;
+       function Pop(out aItem:T):boolean;
+       function PopIndirect(out aItem:PT):boolean;
+     end;
+
      TKraftStaticAABBTreeProxy=record
       AABB:TKraftAABB;
       UserData:TKraftPtrInt;
@@ -988,14 +1005,13 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fFreeList:TKraftInt32;
        fPath:TKraftUInt32;
        fInsertionCount:TKraftInt32;
+       fProxyCount:TKraftInt32;
        fStack:PKraftDynamicAABBTreeLongintArray;
        fStackCapacity:TKraftInt32;
        fSkipListNodeMap:TKraftDynamicAABBTreeSkipListNodeMap;
-       fLeafIndices:TKraftInt32DynamicArray;
-       fLeafBoxes:TKraftAABBDynamicArray;
-       fLeafCenters:TKraftVector3DynamicArray;
-       fBinIndices:TKraftInt32DynamicArray;
-       fRebuildCapacity:TKraftInt32;
+       fRebuildCapacity:TKraftSizeInt;
+       fLeafNodes:TKraftSizeIntDynamicArray;
+       fNodeCenters:TKraftVector3DynamicArray;
       public
        constructor Create;
        destructor Destroy; override;
@@ -1010,6 +1026,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure DestroyProxy(aNodeID:TKraftInt32);
        function MoveProxy(aNodeID:TKraftInt32;const aAABB:TKraftAABB;const aDisplacement,aBoundsExpansion:TKraftVector3):boolean;
        procedure Rebalance(Iterations:TKraftInt32);
+       procedure RebuildBottomUp;
+       procedure RebuildTopDown;
        procedure Rebuild;
        function ComputeHeight:TKraftInt32;
        function GetHeight:TKraftInt32;
@@ -11084,6 +11102,16 @@ begin
  result:=2.0*((ex*ey)+(ey*ez)+(ez*ex));
 end;
 
+procedure AABBDirectCombine(var AABB:TKraftAABB;const WithAABB:TKraftAABB);
+begin
+ AABB.Min.x:=Min(AABB.Min.x,WithAABB.Min.x);
+ AABB.Min.y:=Min(AABB.Min.y,WithAABB.Min.y);
+ AABB.Min.z:=Min(AABB.Min.z,WithAABB.Min.z);
+ AABB.Max.x:=Max(AABB.Max.x,WithAABB.Max.x);
+ AABB.Max.y:=Max(AABB.Max.y,WithAABB.Max.y);
+ AABB.Max.z:=Max(AABB.Max.z,WithAABB.Max.z);
+end;
+
 function AABBCombine(const AABB,WithAABB:TKraftAABB):TKraftAABB;
 begin
  result.Min.x:=Min(AABB.Min.x,WithAABB.Min.x);
@@ -19444,6 +19472,87 @@ begin
  fVector^:=NewVector;
 end;
 
+{ TKraftDynamicFastStack<T> }
+
+procedure TKraftDynamicFastStack<T>.Initialize;
+begin
+ System.Initialize(fLocalItems);
+ fItems:=nil;
+ fCount:=0;
+end;
+
+procedure TKraftDynamicFastStack<T>.Finalize;
+begin
+ System.Finalize(fLocalItems);
+ fItems:=nil;
+ fCount:=0;
+end;
+
+procedure TKraftDynamicFastStack<T>.Clear;
+begin
+ fCount:=0;
+end;
+
+procedure TKraftDynamicFastStack<T>.Push(const aItem:T);
+var Index,ThresholdedCount:TKraftSizeInt;
+begin
+ Index:=fCount;
+ inc(fCount);
+ if Index<=High(fLocalItems) then begin
+  fLocalItems[Index]:=aItem;
+ end else begin
+  ThresholdedCount:=fCount-Length(fLocalItems);
+  if length(fItems)<ThresholdedCount then begin
+   SetLength(fItems,ThresholdedCount+((ThresholdedCount+1) shr 1));
+  end;
+  fItems[Index-Length(fLocalItems)]:=aItem;
+ end;
+end;
+
+function TKraftDynamicFastStack<T>.PushIndirect:PT;
+var Index,ThresholdedCount:TKraftSizeInt;
+begin
+ Index:=fCount;
+ inc(fCount);
+ if Index<=High(fLocalItems) then begin
+  result:=@fLocalItems[Index];
+ end else begin
+  ThresholdedCount:=fCount-Length(fLocalItems);
+  if length(fItems)<ThresholdedCount then begin
+   SetLength(fItems,ThresholdedCount+((ThresholdedCount+1) shr 1));
+  end;
+  result:=@fItems[Index-Length(fLocalItems)];
+ end;
+end;
+
+function TKraftDynamicFastStack<T>.Pop(out aItem:T):boolean;
+begin
+ result:=fCount>0;
+ if result then begin
+  dec(fCount);
+  if fCount<=High(fLocalItems) then begin
+   aItem:=fLocalItems[fCount];
+  end else begin
+   aItem:=fItems[fCount-Length(fLocalItems)];
+  end;
+ end;
+end;
+
+function TKraftDynamicFastStack<T>.PopIndirect(out aItem:PT):boolean;
+begin
+ result:=fCount>0;
+ if result then begin
+  dec(fCount);
+  if fCount<=High(fLocalItems) then begin
+   aItem:=@fLocalItems[fCount];
+  end else begin
+   aItem:=@fItems[fCount-Length(fLocalItems)];
+  end;
+ end else begin
+  aItem:=nil;
+ end;
+end;
+
 { TKraftStaticAABBTree }
 
 constructor TKraftStaticAABBTree.Create;
@@ -19492,7 +19601,7 @@ begin
    SetLength(fNodes,Max(fNodeCount,fProxiesCount));
    fNodes[0].AABB:=fProxies[0].AABB;
    for Counter:=1 to fProxiesCount-1 do begin
-    fNodes[0].AABB:=AABBCombine(fNodes[0].AABB,fProxies[Counter].AABB);
+    AABBDirectCombine(fNodes[0].AABB,fProxies[Counter].AABB);
    end;
    for Counter:=0 to fProxiesCount-2 do begin
     fProxies[Counter].Next:=Counter+1;
@@ -19515,7 +19624,7 @@ begin
      Proxy:=fProxies[Proxy].Next;
      ParentCount:=1;
      while Proxy>=0 do begin
-      fNodes[Node].AABB:=AABBCombine(fNodes[Node].AABB,fProxies[Proxy].AABB);
+      AABBDirectCombine(fNodes[Node].AABB,fProxies[Proxy].AABB);
       inc(ParentCount);
       Proxy:=fProxies[Proxy].Next;
      end;
@@ -19774,24 +19883,19 @@ begin
  fFreeList:=0;
  fPath:=0;
  fInsertionCount:=0;
+ fProxyCount:=0;
  fStackCapacity:=16;
  GetMem(fStack,fStackCapacity*SizeOf(TKraftInt32));
  fSkipListNodeMap:=nil;
- fLeafIndices:=nil;
- fLeafBoxes:=nil;
- fLeafCenters:=nil;
- fBinIndices:=nil;
  fRebuildCapacity:=0;
+ fLeafNodes:=nil;
+ fNodeCenters:=nil;
 end;
 
 destructor TKraftDynamicAABBTree.Destroy;
 begin
  fSkipListNodeMap:=nil;
- fLeafIndices:=nil;
- fLeafBoxes:=nil;
- fLeafCenters:=nil;
- fBinIndices:=nil;
- fSkipListNodeMap:=nil;
+ fNodeCenters:=nil;
  FreeMem(fNodes);
  FreeMem(fStack);
  inherited Destroy;
@@ -20588,7 +20692,6 @@ begin
 
 end;
 
-
 function TKraftDynamicAABBTree.CreateProxy(const aAABB:TKraftAABB;aUserData:pointer):TKraftInt32;
 var Node:PKraftDynamicAABBTreeNode;
 begin
@@ -20599,10 +20702,12 @@ begin
  Node^.UserData:=aUserData;
  Node^.Height:=0;
  InsertLeaf(result,true);
+ inc(fProxyCount);
 end;
 
 procedure TKraftDynamicAABBTree.DestroyProxy(aNodeID:TKraftInt32);
 begin
+ dec(fProxyCount);
  RemoveLeaf(aNodeID);
  FreeNode(aNodeID);
 end;
@@ -20643,7 +20748,7 @@ begin
  end;
 end;
 
-procedure TKraftDynamicAABBTree.Rebuild;
+procedure TKraftDynamicAABBTree.RebuildBottomUp;
 var NewNodes:PKraftDynamicAABBTreeLongintArray;
     Children:array[0..1] of PKraftDynamicAABBTreeNode;
     Parent:PKraftDynamicAABBTreeNode;
@@ -20709,6 +20814,253 @@ begin
   end;
   fRoot:=NewNodes^[0];
   FreeMem(NewNodes);
+ end;
+end;
+
+procedure TKraftDynamicAABBTree.RebuildTopDown;
+type TFillStackItem=record
+      Parent:TKraftSizeInt;
+      Which:TKraftSizeInt;
+      LeafNodes:TKraftSizeIntDynamicArray;
+     end;
+     TFillStack=TKraftDynamicFastStack<TFillStackItem>;
+     THeightStackItem=record
+      Node:TKraftSizeInt;
+      Pass:TKraftSizeInt;
+     end;
+     THeightStack=TKraftDynamicFastStack<THeightStackItem>;
+var Count,Index,MinPerSubTree,ParentIndex,NodeIndex,SplitAxis,TempIndex,
+    LeftIndex,RightIndex,LeftCount,RightCount:TKraftSizeint;
+    SplitValue:TKraftScalar;
+    AABB:TKraftAABB;
+    Center:PKraftVector3;
+    VarianceX,VarianceY,VarianceZ,MeanX,MeanY,MeanZ:Double;
+    FillStack:TFillStack;
+    FillStackItem,NewFillStackItem:TFillStackItem;
+    HeightStack:THeightStack;
+    HeightStackItem,NewHeightStackItem:THeightStackItem;
+begin
+
+ if NodeCount>0 then begin
+
+  if fRebuildCapacity<NodeCount then begin
+   fRebuildCapacity:=NodeCount+((NodeCount+1) shr 1);
+   SetLength(fLeafNodes,fRebuildCapacity);
+   SetLength(fNodeCenters,fRebuildCapacity);
+  end;
+
+  FillChar(fLeafNodes[0],NodeCount*SizeOf(TKraftSizeInt),#0);
+
+  Count:=0;
+  for Index:=0 to NodeCount-1 do begin
+   if fNodes^[Index].Height>=0 then begin
+    fNodeCenters[Index]:=Vector3Avg(fNodes^[Index].AABB.Min,fNodes^[Index].AABB.Max);
+    if fNodes^[Index].Children[0]<0 then begin
+     fNodes^[Index].Parent:=daabbtNULLNODE;
+     fLeafNodes[Count]:=Index;
+     inc(Count);
+    end else begin
+     FreeNode(Index);
+    end;
+   end;
+  end;
+
+  fRoot:=daabbtNULLNODE;
+
+  if Count>0 then begin
+
+   FillStack.Initialize;
+   try
+
+    NewFillStackItem.Parent:=daabbtNULLNODE;
+    NewFillStackItem.Which:=-1;
+    NewFillStackItem.LeafNodes:=copy(fLeafNodes,0,Count);
+    FillStack.Push(NewFillStackItem);
+
+    while FillStack.Pop(FillStackItem) do begin
+
+     case length(FillStackItem.LeafNodes) of
+
+      0:begin
+      end;
+
+      1:begin
+       NodeIndex:=FillStackItem.LeafNodes[0];
+       ParentIndex:=FillStackItem.Parent;
+       fNodes^[NodeIndex].Parent:=ParentIndex;
+       if (FillStackItem.Which>=0) and (ParentIndex>=0) then begin
+        fNodes^[ParentIndex].Children[FillStackItem.Which]:=NodeIndex;
+       end else begin
+        fRoot:=daabbtNULLNODE;
+       end;
+      end;
+
+      else begin
+
+       NodeIndex:=AllocateNode;
+
+       ParentIndex:=FillStackItem.Parent;
+
+       fNodes^[NodeIndex].Parent:=ParentIndex;
+
+       if (FillStackItem.Which>=0) and (ParentIndex>=0) then begin
+        fNodes^[ParentIndex].Children[FillStackItem.Which]:=NodeIndex;
+       end else begin
+        fRoot:=NodeIndex;
+       end;
+
+       AABB:=fNodes^[FillStackItem.LeafNodes[0]].AABB;
+       for Index:=1 to length(FillStackItem.LeafNodes)-1 do begin
+        AABBDirectCombine(AABB,fNodes^[FillStackItem.LeafNodes[Index]].AABB);
+       end;
+
+       fNodes^[NodeIndex].AABB:=AABB;
+       fNodeCenters[NodeIndex]:=Vector3Avg(AABB.Min,AABB.Max);
+
+       MeanX:=0.0;
+       MeanY:=0.0;
+       MeanZ:=0.0;
+       for Index:=0 to length(FillStackItem.LeafNodes)-1 do begin
+        Center:=@fNodeCenters[FillStackItem.LeafNodes[Index]];
+        MeanX:=MeanX+Center^.x;
+        MeanY:=MeanY+Center^.y;
+        MeanZ:=MeanZ+Center^.z;
+       end;
+       MeanX:=MeanX/length(FillStackItem.LeafNodes);
+       MeanY:=MeanY/length(FillStackItem.LeafNodes);
+       MeanZ:=MeanZ/length(FillStackItem.LeafNodes);
+
+       VarianceX:=0.0;
+       VarianceY:=0.0;
+       VarianceZ:=0.0;
+       for Index:=0 to length(FillStackItem.LeafNodes)-1 do begin
+        Center:=@fNodeCenters[FillStackItem.LeafNodes[Index]];
+        VarianceX:=VarianceX+sqr(Center^.x-MeanX);
+        VarianceY:=VarianceY+sqr(Center^.y-MeanY);
+        VarianceZ:=VarianceZ+sqr(Center^.z-MeanZ);
+       end;
+       VarianceX:=VarianceX/length(FillStackItem.LeafNodes);
+       VarianceY:=VarianceY/length(FillStackItem.LeafNodes);
+       VarianceZ:=VarianceZ/length(FillStackItem.LeafNodes);
+
+       if VarianceX<VarianceY then begin
+        if VarianceY<VarianceZ then begin
+         SplitAxis:=2;
+         SplitValue:=MeanZ;
+        end else begin
+         SplitAxis:=1;
+         SplitValue:=MeanY;
+        end;
+       end else begin
+        if VarianceX<VarianceZ then begin
+         SplitAxis:=2;
+         SplitValue:=MeanZ;
+        end else begin
+         SplitAxis:=0;
+         SplitValue:=MeanX;
+        end;
+       end;
+
+       LeftIndex:=0;
+       RightIndex:=length(FillStackItem.LeafNodes);
+       LeftCount:=0;
+       RightCount:=0;
+       while LeftIndex<RightIndex do begin
+        Center:=@fNodeCenters[FillStackItem.LeafNodes[LeftIndex]];
+        if Center.xyz[SplitAxis]<=SplitValue then begin
+         inc(LeftIndex);
+         inc(LeftCount);
+        end else begin
+         dec(RightIndex);
+         inc(RightCount);
+         TempIndex:=FillStackItem.LeafNodes[LeftIndex];
+         FillStackItem.LeafNodes[LeftIndex]:=FillStackItem.LeafNodes[RightIndex];
+         FillStackItem.LeafNodes[RightIndex]:=TempIndex;
+        end;
+       end;
+
+       MinPerSubTree:=(TKraftInt64(length(FillStackItem.LeafNodes)+1)*341) shr 10;
+       if (LeftCount=0) or
+          (RightCount=0) or
+          (LeftCount<=MinPerSubTree) or
+          (RightCount<=MinPerSubTree) then begin
+        RightIndex:=(length(FillStackItem.LeafNodes)+1) shr 1;
+       end;
+
+       begin
+        NewFillStackItem.Parent:=NodeIndex;
+        NewFillStackItem.Which:=1;
+        NewFillStackItem.LeafNodes:=copy(FillStackItem.LeafNodes,RightIndex,length(FillStackItem.LeafNodes)-RightIndex);
+        FillStack.Push(NewFillStackItem);
+       end;
+
+       begin
+        NewFillStackItem.Parent:=NodeIndex;
+        NewFillStackItem.Which:=0;
+        NewFillStackItem.LeafNodes:=copy(FillStackItem.LeafNodes,0,RightIndex);
+        FillStack.Push(NewFillStackItem);
+       end;
+
+       FillStackItem.LeafNodes:=nil;
+
+      end;
+     end;
+    end;
+
+   finally
+    FillStack.Finalize;
+   end;
+
+   HeightStack.Initialize;
+   try
+
+    NewHeightStackItem.Node:=Root;
+    NewHeightStackItem.Pass:=0;
+    HeightStack.Push(NewHeightStackItem);
+
+    while HeightStack.Pop(HeightStackItem) do begin
+     case HeightStackItem.Pass of
+      0:begin
+       NewHeightStackItem.Node:=HeightStackItem.Node;
+       NewHeightStackItem.Pass:=1;
+       HeightStack.Push(NewHeightStackItem);
+       if fNodes^[HeightStackItem.Node].Children[1]>=0 then begin
+        NewHeightStackItem.Node:=fNodes^[HeightStackItem.Node].Children[1];
+        NewHeightStackItem.Pass:=0;
+        HeightStack.Push(NewHeightStackItem);
+       end;
+       if fNodes^[HeightStackItem.Node].Children[0]>=0 then begin
+        NewHeightStackItem.Node:=fNodes^[HeightStackItem.Node].Children[0];
+        NewHeightStackItem.Pass:=0;
+        HeightStack.Push(NewHeightStackItem);
+       end;
+      end;
+      1:begin
+       if (fNodes^[HeightStackItem.Node].Children[0]<0) and (fNodes^[HeightStackItem.Node].Children[1]<0) then begin
+        fNodes^[HeightStackItem.Node].Height:=1;
+       end else begin
+        fNodes^[HeightStackItem.Node].Height:=1+Max(fNodes^[fNodes^[HeightStackItem.Node].Children[0]].Height,fNodes^[fNodes^[HeightStackItem.Node].Children[1]].Height);
+       end;
+      end;
+     end;
+    end;
+
+   finally
+    HeightStack.Finalize;
+   end;
+
+  end;
+
+ end;
+
+end;
+
+procedure TKraftDynamicAABBTree.Rebuild;
+begin
+ if NodeCount<16 then begin
+  RebuildBottomUp;
+ end else begin
+  RebuildTopDown;
  end;
 end;
 
@@ -32822,7 +33174,7 @@ begin
  if fCountMeshes>0 then begin
   fShapeAABB:=fMeshes[0].fAABB;
   for Index:=1 to fCountMeshes-1 do begin
-   fShapeAABB:=AABBCombine(fShapeAABB,fMeshes[Index].fAABB);
+   AABBDirectCombine(fShapeAABB,fMeshes[Index].fAABB);
   end;
   if fCountMeshes=1 then begin
    fSkipListNodes[0].AABB:=fMeshes[0].fAABB;
@@ -32853,7 +33205,7 @@ begin
      RandomOrderIndices:=nil;
     end;
    {if fCountMeshes<=8 then begin
-     DynamicAABBTree.Rebuild;
+     DynamicAABBTree.RebuildBottomUp;
     end;}
     DynamicAABBTree.GetSkipListNodes(fSkipListNodes);
     fCountSkipListNodes:=length(fSkipListNodes);
