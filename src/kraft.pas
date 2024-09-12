@@ -34,9 +34,7 @@
  *    appropriate copyright notice.                                           *
  * 3. After a pull request, check the status of your pull request on          *
       http://github.com/BeRo1985/kraft                                        *
- * 4. Write code, which is compatible with Delphi 7-XE7 and FreePascal >= 2.6 *
- *    so don't use generics/templates, operator overloading and another newer *
- *    syntax features than Delphi 7 has support for that.                     *
+ * 4. Write code, which is compatible with Delphi >= XE7 and FreePascal >= 3  *
  * 5. Don't use Delphi VCL, FreePascal FCL or Lazarus LCL libraries/units.    *
  * 6. No use of third-party libraries/units as possible, but if needed, make  *
  *    it out-ifdef-able                                                       *
@@ -719,25 +717,25 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      TKraftDoubles=array[0..0] of TKraftDouble;
      PKraftDoubles=^TKraftDoubles;
 
-     TKraftInt8Array=array of TKraftInt8;
+     TKraftInt8DynamicArray=array of TKraftInt8;
 
-     TKraftUInt8Array=array of TKraftUInt8;
+     TKraftUInt8DynamicArray=array of TKraftUInt8;
 
-     TKraftInt16Array=array of TKraftInt16;
+     TKraftInt16DynamicArray=array of TKraftInt16;
 
-     TKraftUInt16Array=array of TKraftUInt16;
+     TKraftUInt16DynamicArray=array of TKraftUInt16;
 
-     TKraftInt32Array=array of TKraftInt32;
+     TKraftInt32DynamicArray=array of TKraftInt32;
 
-     TKraftUInt32Array=array of TKraftUInt32;
+     TKraftUInt32DynamicArray=array of TKraftUInt32;
 
-     TKraftInt64Array=array of TKraftInt64;
+     TKraftInt64DynamicArray=array of TKraftInt64;
 
-     TKraftUInt64Array=array of TKraftUInt64;
+     TKraftUInt64DynamicArray=array of TKraftUInt64;
 
-     TKraftFloatArray=array of TKraftFloat;
+     TKraftFloatDynamicArray=array of TKraftFloat;
 
-     TKraftDoubleArray=array of TKraftDouble;
+     TKraftDoubleDynamicArray=array of TKraftDouble;
 
      TKraftSignature=array[0..7] of AnsiChar;
      PKraftSignature=^TKraftSignature;
@@ -785,7 +783,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      end;
      PKraftVector4=^TKraftVector4;
 
-     TKraftVector3Array=array of TKraftVector3;
+     TKraftVector3DynamicArray=array of TKraftVector3;
 
      TKraftVector3s=array[0..$ff] of TKraftVector3;
      PKraftVector3s=^TKraftVector3s;
@@ -826,6 +824,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftAABBs=array[0..65535] of TKraftAABB;
      PKraftAABBs=^TKraftAABBs;
+
+     TKraftAABBDynamicArray=array of TKraftAABB;
 
      TKraftSphere=record
       Center:TKraftVector3;
@@ -889,6 +889,25 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property z:TKraftScalar read GetZ write SetZ;
      end;
 
+     { TKraftDynamicFastStack }
+     TKraftDynamicFastStack<T>=record
+      public
+       const LocalSize=32;
+       type PT=^T;
+      private
+       fLocalItems:array[0..LocalSize-1] of T;
+       fItems:array of T;
+       fCount:TKraftSizeInt;
+      public
+       procedure Initialize;
+       procedure Finalize;
+       procedure Clear;
+       procedure Push(const aItem:T);
+       function PushIndirect:PT;
+       function Pop(out aItem:T):boolean;
+       function PopIndirect(out aItem:PT):boolean;
+     end;
+
      TKraftStaticAABBTreeProxy=record
       AABB:TKraftAABB;
       UserData:TKraftPtrInt;
@@ -944,6 +963,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      TKraftDynamicAABBTreeNode=record
       AABB:TKraftAABB;
       UserData:pointer;
+      CategoryBits:TKraftUInt32;
+      Enlarged:Boolean;
       Children:array[0..1] of TKraftInt32;
       Height:TKraftInt32;
       MoveBufferIndex:TKraftInt32;
@@ -984,21 +1005,29 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fFreeList:TKraftInt32;
        fPath:TKraftUInt32;
        fInsertionCount:TKraftInt32;
+       fProxyCount:TKraftInt32;
        fStack:PKraftDynamicAABBTreeLongintArray;
        fStackCapacity:TKraftInt32;
        fSkipListNodeMap:TKraftDynamicAABBTreeSkipListNodeMap;
+       fRebuildCapacity:TKraftSizeInt;
+       fLeafNodes:TKraftSizeIntDynamicArray;
+       fNodeCenters:TKraftVector3DynamicArray;
       public
        constructor Create;
        destructor Destroy; override;
        function AllocateNode:TKraftInt32;
        procedure FreeNode(NodeID:TKraftInt32);
-       function Balance(NodeAID:TKraftInt32):TKraftInt32;
-       procedure InsertLeaf(Leaf:TKraftInt32);
-       procedure RemoveLeaf(Leaf:TKraftInt32);
-       function CreateProxy(const AABB:TKraftAABB;UserData:pointer):TKraftInt32;
-       procedure DestroyProxy(NodeID:TKraftInt32);
-       function MoveProxy(NodeID:TKraftInt32;const AABB:TKraftAABB;const Displacement,BoundsExpansion:TKraftVector3):boolean;
+       function FindBestSibling(const aAABB:TKraftAABB):TKraftInt32;
+       procedure RotateNodes(const aIndex:TKraftInt32);
+       function Balance(aIndex:TKraftInt32):TKraftInt32;
+       procedure InsertLeaf(const aLeaf:TKraftInt32;const aShouldRotate:Boolean);
+       procedure RemoveLeaf(const aLeaf:TKraftInt32);
+       function CreateProxy(const aAABB:TKraftAABB;aUserData:pointer):TKraftInt32;
+       procedure DestroyProxy(aNodeID:TKraftInt32);
+       function MoveProxy(aNodeID:TKraftInt32;const aAABB:TKraftAABB;const aDisplacement,aBoundsExpansion:TKraftVector3):boolean;
        procedure Rebalance(Iterations:TKraftInt32);
+       procedure RebuildBottomUp;
+       procedure RebuildTopDown;
        procedure Rebuild;
        function ComputeHeight:TKraftInt32;
        function GetHeight:TKraftInt32;
@@ -1193,7 +1222,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftQuickHullVector3DArray=array of TKraftQuickHullVector3D;
 
-     TKraftQuickHullOutputFace=TKraftInt32Array;
+     TKraftQuickHullOutputFace=TKraftInt32DynamicArray;
 
      TKraftQuickHullOutputFaces=array of TKraftQuickHullOutputFace;
 
@@ -1396,7 +1425,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      TKraftConvexHullVertex=record
       Position:TKraftVector3;
       CountAdjacencies:TKraftInt32;
-      Adjacencies:TKraftInt32Array;
+      Adjacencies:TKraftInt32DynamicArray;
      end;
      PKraftConvexHullVertex=^TKraftConvexHullVertex;
 
@@ -1407,7 +1436,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftConvexHullFace=record
       Plane:TKraftPlane;
-      Vertices:TKraftInt32Array;
+      Vertices:TKraftInt32DynamicArray;
       CountVertices:TKraftInt32;
       EdgeVertexOffset:TKraftInt32;
      end;
@@ -1705,10 +1734,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fNormalsHashMap:TKraftMeshVectorHashMap;
        fTriangleVerticesHashMap:TKraftMeshTriangleVerticesHashMap;
 
-       fVertices:TKraftVector3Array;
+       fVertices:TKraftVector3DynamicArray;
        fCountVertices:TKraftInt32;
 
-       fNormals:TKraftVector3Array;
+       fNormals:TKraftVector3DynamicArray;
        fCountNormals:TKraftInt32;
 
        fTriangles:TKraftMeshTriangles;
@@ -1813,10 +1842,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property Previous:TKraftMesh read fPrevious;
        property Next:TKraftMesh read fNext;
 
-       property Vertices:TKraftVector3Array read fVertices;
+       property Vertices:TKraftVector3DynamicArray read fVertices;
        property CountVertices:TKraftInt32 read fCountVertices;
 
-       property Normals:TKraftVector3Array read fNormals;
+       property Normals:TKraftVector3DynamicArray read fNormals;
        property CountNormals:TKraftInt32 read fCountNormals;
 
        property Triangles:TKraftMeshTriangles read fTriangles;
@@ -2661,7 +2690,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftBroadPhaseContactPairs=array of TKraftBroadPhaseContactPair;
 
-     TKraftBroadPhaseMoveBufferItems=TKraftInt32Array;
+     TKraftBroadPhaseMoveBufferItems=TKraftInt32DynamicArray;
 
      TKraftBroadPhaseMoveBuffer=class
       private
@@ -2756,7 +2785,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
       OtherRigidBody:TKraftRigidBody;
      end;
 
-     TKraftRigidBodyIslandIndices=TKraftInt32Array;
+     TKraftRigidBodyIslandIndices=TKraftInt32DynamicArray;
 
      TKraftRigidBody=class(TPersistent)
       private
@@ -4529,6 +4558,18 @@ const KraftSignatureConvexHull:TKraftSignature=('K','R','P','H','C','O','H','U')
       Matrix4x4NormalizedSpace:TKraftMatrix4x4=((2.0,0.0,0,0.0),(0.0,2.0,0.0,0.0),(0.0,0.0,2.0,0.0),(-1.0,-1.0,-1.0,1.0));
 
       QuaternionIdentity:TKraftQuaternion=(x:0.0;y:0.0;z:0.0;w:1.0);
+
+      DefaultDynamicAABBTreeNode:TKraftDynamicAABBTreeNode=
+       (
+        AABB:(Min:(x:0.0;y:0.0;z:0.0{$ifdef SIMD};w:0{$endif});Max:(x:0.0;y:0.0;z:0.0{$ifdef SIMD};w:0{$endif}));
+        UserData:nil;
+        CategoryBits:0;
+        Enlarged:false;
+        Children:(-1,-1);
+        Height:-1;
+        MoveBufferIndex:-1;
+        Parent:-1;
+       );
 
 function SpatialHashVector(const aX,aY,aZ:TKraftInt32{;const aW:TKraftInt32=0}):TKraftUInt32;
 
@@ -11059,6 +11100,16 @@ begin
  ey:=abs(AABB.Max.y-AABB.Min.y);
  ez:=abs(AABB.Max.z-AABB.Min.z);
  result:=2.0*((ex*ey)+(ey*ez)+(ez*ex));
+end;
+
+procedure AABBDirectCombine(var AABB:TKraftAABB;const WithAABB:TKraftAABB);
+begin
+ AABB.Min.x:=Min(AABB.Min.x,WithAABB.Min.x);
+ AABB.Min.y:=Min(AABB.Min.y,WithAABB.Min.y);
+ AABB.Min.z:=Min(AABB.Min.z,WithAABB.Min.z);
+ AABB.Max.x:=Max(AABB.Max.x,WithAABB.Max.x);
+ AABB.Max.y:=Max(AABB.Max.y,WithAABB.Max.y);
+ AABB.Max.z:=Max(AABB.Max.z,WithAABB.Max.z);
 end;
 
 function AABBCombine(const AABB,WithAABB:TKraftAABB):TKraftAABB;
@@ -19421,6 +19472,87 @@ begin
  fVector^:=NewVector;
 end;
 
+{ TKraftDynamicFastStack<T> }
+
+procedure TKraftDynamicFastStack<T>.Initialize;
+begin
+ System.Initialize(fLocalItems);
+ fItems:=nil;
+ fCount:=0;
+end;
+
+procedure TKraftDynamicFastStack<T>.Finalize;
+begin
+ System.Finalize(fLocalItems);
+ fItems:=nil;
+ fCount:=0;
+end;
+
+procedure TKraftDynamicFastStack<T>.Clear;
+begin
+ fCount:=0;
+end;
+
+procedure TKraftDynamicFastStack<T>.Push(const aItem:T);
+var Index,ThresholdedCount:TKraftSizeInt;
+begin
+ Index:=fCount;
+ inc(fCount);
+ if Index<=High(fLocalItems) then begin
+  fLocalItems[Index]:=aItem;
+ end else begin
+  ThresholdedCount:=fCount-Length(fLocalItems);
+  if length(fItems)<ThresholdedCount then begin
+   SetLength(fItems,ThresholdedCount+((ThresholdedCount+1) shr 1));
+  end;
+  fItems[Index-Length(fLocalItems)]:=aItem;
+ end;
+end;
+
+function TKraftDynamicFastStack<T>.PushIndirect:PT;
+var Index,ThresholdedCount:TKraftSizeInt;
+begin
+ Index:=fCount;
+ inc(fCount);
+ if Index<=High(fLocalItems) then begin
+  result:=@fLocalItems[Index];
+ end else begin
+  ThresholdedCount:=fCount-Length(fLocalItems);
+  if length(fItems)<ThresholdedCount then begin
+   SetLength(fItems,ThresholdedCount+((ThresholdedCount+1) shr 1));
+  end;
+  result:=@fItems[Index-Length(fLocalItems)];
+ end;
+end;
+
+function TKraftDynamicFastStack<T>.Pop(out aItem:T):boolean;
+begin
+ result:=fCount>0;
+ if result then begin
+  dec(fCount);
+  if fCount<=High(fLocalItems) then begin
+   aItem:=fLocalItems[fCount];
+  end else begin
+   aItem:=fItems[fCount-Length(fLocalItems)];
+  end;
+ end;
+end;
+
+function TKraftDynamicFastStack<T>.PopIndirect(out aItem:PT):boolean;
+begin
+ result:=fCount>0;
+ if result then begin
+  dec(fCount);
+  if fCount<=High(fLocalItems) then begin
+   aItem:=@fLocalItems[fCount];
+  end else begin
+   aItem:=@fItems[fCount-Length(fLocalItems)];
+  end;
+ end else begin
+  aItem:=nil;
+ end;
+end;
+
 { TKraftStaticAABBTree }
 
 constructor TKraftStaticAABBTree.Create;
@@ -19469,7 +19601,7 @@ begin
    SetLength(fNodes,Max(fNodeCount,fProxiesCount));
    fNodes[0].AABB:=fProxies[0].AABB;
    for Counter:=1 to fProxiesCount-1 do begin
-    fNodes[0].AABB:=AABBCombine(fNodes[0].AABB,fProxies[Counter].AABB);
+    AABBDirectCombine(fNodes[0].AABB,fProxies[Counter].AABB);
    end;
    for Counter:=0 to fProxiesCount-2 do begin
     fProxies[Counter].Next:=Counter+1;
@@ -19492,7 +19624,7 @@ begin
      Proxy:=fProxies[Proxy].Next;
      ParentCount:=1;
      while Proxy>=0 do begin
-      fNodes[Node].AABB:=AABBCombine(fNodes[Node].AABB,fProxies[Proxy].AABB);
+      AABBDirectCombine(fNodes[Node].AABB,fProxies[Proxy].AABB);
       inc(ParentCount);
       Proxy:=fProxies[Proxy].Next;
      end;
@@ -19751,14 +19883,19 @@ begin
  fFreeList:=0;
  fPath:=0;
  fInsertionCount:=0;
+ fProxyCount:=0;
  fStackCapacity:=16;
  GetMem(fStack,fStackCapacity*SizeOf(TKraftInt32));
  fSkipListNodeMap:=nil;
+ fRebuildCapacity:=0;
+ fLeafNodes:=nil;
+ fNodeCenters:=nil;
 end;
 
 destructor TKraftDynamicAABBTree.Destroy;
 begin
  fSkipListNodeMap:=nil;
+ fNodeCenters:=nil;
  FreeMem(fNodes);
  FreeMem(fStack);
  inherited Destroy;
@@ -19783,12 +19920,14 @@ begin
  result:=fFreeList;
  fFreeList:=fNodes^[result].Next;
  Node:=@fNodes^[result];
+ Node^.UserData:=nil;
+ Node^.CategoryBits:=0;
+ Node^.Enlarged:=false;
  Node^.Parent:=daabbtNULLNODE;
  Node^.Children[0]:=daabbtNULLNODE;
  Node^.Children[1]:=daabbtNULLNODE;
  Node^.Height:=0;
  Node^.MoveBufferIndex:=-1;
- Node^.UserData:=nil;
  inc(fNodeCount);
 end;
 
@@ -19803,13 +19942,447 @@ begin
  dec(fNodeCount);
 end;
 
-function TKraftDynamicAABBTree.Balance(NodeAID:TKraftInt32):TKraftInt32;
+function TKraftDynamicAABBTree.FindBestSibling(const aAABB:TKraftAABB):TKraftInt32;
+var Center:TKraftVector3;
+    Area,AreaBase,Cost,DirectCost,InheritedCost,BestCost,LowerCost1,LowerCost2,Area1,Area2,
+    DirectCost1,DirectCost2:TKraftScalar;
+    RootIndex,Index,Child1,Child2:TKraftInt32;
+    RootAABB,AABB1,AABB2:TKraftAABB;
+    Leaf1,Leaf2:boolean;
+begin
+
+ Center:=Vector3Avg(aAABB.Min,aAABB.Max);
+ Area:=AABBArea(aAABB);
+
+ RootIndex:=fRoot;
+
+ RootAABB:=fNodes^[RootIndex].AABB;
+
+ AreaBase:=AABBArea(RootAABB);
+
+ DirectCost:=AABBArea(AABBCombine(RootAABB,aAABB));
+ InheritedCost:=0.0;
+
+ result:=RootIndex;
+ BestCost:=DirectCost;
+
+ Index:=RootIndex;
+ while fNodes^[Index].Height>0 do begin
+
+  Child1:=fNodes^[Index].Children[0];
+  Child2:=fNodes^[Index].Children[1];
+
+  Cost:=DirectCost+InheritedCost;
+
+  if Cost<BestCost then begin
+   result:=Index;
+   BestCost:=Cost;
+  end;
+
+  InheritedCost:=InheritedCost+(DirectCost-AreaBase);
+
+  Leaf1:=fNodes^[Child1].Height=0;
+  Leaf2:=fNodes^[Child2].Height=0;
+
+  LowerCost1:=Infinity;
+  AABB1:=fNodes^[Child1].AABB;
+  DirectCost1:=AABBArea(AABBCombine(AABB1,aAABB));
+  Area1:=0.0;
+  if Leaf1 then begin
+   Cost:=DirectCost1+InheritedCost;
+   if Cost<BestCost then begin
+    result:=Child1;
+    BestCost:=Cost;
+   end;
+  end else begin
+   Area1:=AABBArea(AABB1);
+   LowerCost1:=InheritedCost+DirectCost1+Min(0.0,Area-Area1);
+  end;
+
+  LowerCost2:=Infinity;
+  AABB2:=fNodes^[Child2].AABB;
+  DirectCost2:=AABBArea(AABBCombine(AABB2,aAABB));
+  Area2:=0.0;
+  if Leaf2 then begin
+   Cost:=DirectCost2+InheritedCost;
+   if Cost<BestCost then begin
+    result:=Child2;
+    BestCost:=Cost;
+   end;
+  end else begin
+   Area2:=AABBArea(AABB2);
+   LowerCost2:=InheritedCost+DirectCost2+Min(0.0,Area-Area2);
+  end;
+
+  if Leaf1 and Leaf2 then begin
+   break;
+  end;
+
+  if (BestCost<=LowerCost1) and (BestCost<=LowerCost2) then begin
+   break;
+  end;
+
+  if (LowerCost1=LowerCost2) and not Leaf1 then begin
+   if (LowerCost1<Infinity) and (LowerCost2<Infinity) then begin
+    LowerCost1:=Vector3LengthSquared(Vector3Sub(Vector3Avg(AABB1.Min,AABB1.Max),Center));
+    LowerCost2:=Vector3LengthSquared(Vector3Sub(Vector3Avg(AABB2.Min,AABB2.Max),Center));
+   end;
+  end;
+
+  if (LowerCost1<LowerCost2) and not Leaf1 then begin
+   Index:=Child1;
+   AreaBase:=Area1;
+   DirectCost:=DirectCost1;
+  end else begin
+   Index:=Child2;
+   AreaBase:=Area2;
+   DirectCost:=DirectCost2;
+  end;
+
+ end;
+
+end;
+
+procedure TKraftDynamicAABBTree.RotateNodes(const aIndex:TKraftInt32);
+const RotateNone=0;
+      RotateBF=1;
+      RotateBG=2;
+      RotateCD=3;
+      RotateCE=4;
+var IndexA,IndexB,IndexC,IndexD,IndexE,IndexF,IndexG:TKraftInt32;
+    NodeA,NodeB,NodeC,NodeD,NodeE,NodeF,NodeG:PKraftDynamicAABBTreeNode;
+    AABBBG,AABBBF,AABBCE,AABBCD:TKraftAABB;
+    CostBase,BestCost,CostBF,CostBG,CostCD,CostCE,AreaB,AreaC:TKraftScalar;
+    BestRotation:TKraftInt32;
+begin
+
+ IndexA:=aIndex;
+ NodeA:=@fNodes^[IndexA];
+ if NodeA^.Height<2 then begin
+  exit;
+ end;
+
+ IndexB:=NodeA^.Children[0];
+ IndexC:=NodeA^.Children[1];
+ if (IndexB<0) or (IndexB>=fNodeCapacity) or (IndexC<0) or (IndexC>=fNodeCapacity) then begin
+  exit;
+ end;
+
+ NodeB:=@fNodes^[IndexB];
+ NodeC:=@fNodes^[IndexC];
+
+ if NodeB^.Height=0 then begin
+  
+  // B is a leaf and C is internal
+
+  Assert(NodeC^.Height>0);
+  
+  IndexF:=NodeC^.Children[0];
+  IndexG:=NodeC^.Children[1];
+  
+  if (IndexF<0) or (IndexF>=fNodeCapacity) or (IndexG<0) or (IndexG>=fNodeCapacity) then begin
+   exit;
+  end;
+
+  NodeF:=@fNodes^[IndexF];
+  NodeG:=@fNodes^[IndexG];
+
+  CostBase:=AABBArea(NodeC^.AABB);
+
+  // Cost of swapping B and F
+  AABBBG:=AABBCombine(NodeB^.AABB,NodeG^.AABB);
+  CostBF:=AABBArea(AABBBG);
+
+  // Cost of swapping B and G
+  AABBBF:=AABBCombine(NodeB^.AABB,NodeF^.AABB);
+  CostBG:=AABBArea(AABBBF);
+
+  if (CostBase<CostBF) and (CostBase<CostBG) then begin
+   exit;
+  end;
+
+  if CostBF<CostBG then begin
+
+   // Swap B and F
+
+   NodeA^.Children[0]:=IndexF;
+   NodeC^.Children[0]:=IndexB;
+  
+   NodeB^.Parent:=IndexC;
+   NodeF^.Parent:=IndexA;
+  
+   NodeC^.AABB:=AABBBG;
+  
+   NodeC^.Height:=1+Max(NodeB^.Height,NodeG^.Height);
+   NodeA^.Height:=1+Max(NodeC^.Height,NodeF^.Height);
+  
+   NodeC^.CategoryBits:=NodeB^.CategoryBits or NodeG^.CategoryBits;
+   NodeA^.CategoryBits:=NodeC^.CategoryBits or NodeF^.CategoryBits;
+  
+   NodeC^.Enlarged:=NodeB^.Enlarged or NodeG^.Enlarged;
+   NodeA^.Enlarged:=NodeC^.Enlarged or NodeF^.Enlarged;
+  
+  end else begin
+
+   // Swap B and G
+  
+   NodeA^.Children[0]:=IndexG;
+   NodeC^.Children[1]:=IndexB;
+  
+   NodeB^.Parent:=IndexC;
+   NodeG^.Parent:=IndexA;
+  
+   NodeC^.AABB:=AABBBF;
+  
+   NodeC^.Height:=1+Max(NodeB^.Height,NodeF^.Height);
+   NodeA^.Height:=1+Max(NodeC^.Height,NodeG^.Height);
+  
+   NodeC^.CategoryBits:=NodeB^.CategoryBits or NodeF^.CategoryBits;
+   NodeA^.CategoryBits:=NodeC^.CategoryBits or NodeG^.CategoryBits;
+  
+   NodeC^.Enlarged:=NodeB^.Enlarged or NodeF^.Enlarged;
+   NodeA^.Enlarged:=NodeC^.Enlarged or NodeG^.Enlarged;
+  
+  end;
+
+ end else if NodeC^.Height=0 then begin
+
+  // C is a leaf and B is internal
+
+  Assert(NodeB^.Height>0);
+
+  IndexD:=NodeB^.Children[0];
+  IndexE:=NodeB^.Children[1];
+
+  if (IndexD<0) or (IndexD>=fNodeCapacity) or (IndexE<0) or (IndexE>=fNodeCapacity) then begin
+   exit;
+  end;
+
+  NodeD:=@fNodes^[IndexD];
+  NodeE:=@fNodes^[IndexE];
+
+  CostBase:=AABBArea(NodeB^.AABB);
+
+  // Cost of swapping C and D
+  AABBCE:=AABBCombine(NodeC^.AABB,NodeE^.AABB);
+  CostCD:=AABBArea(AABBCE);
+
+  // Cost of swapping C and E
+  AABBCD:=AABBCombine(NodeC^.AABB,NodeD^.AABB);
+  CostCE:=AABBArea(AABBCD);
+
+  if (CostBase<CostCD) and (CostBase<CostCE) then begin
+   exit;
+  end;
+
+  if CostCD<CostCE then begin
+
+   // Swap C and D
+
+   NodeA^.Children[1]:=IndexD;
+   NodeB^.Children[0]:=IndexC;
+
+   NodeC^.Parent:=IndexB;
+   NodeD^.Parent:=IndexA;
+
+   NodeB^.AABB:=AABBCE;
+
+   NodeB^.Height:=1+Max(NodeC^.Height,NodeE^.Height);
+   NodeA^.Height:=1+Max(NodeB^.Height,NodeD^.Height);
+
+   NodeB^.CategoryBits:=NodeC^.CategoryBits or NodeE^.CategoryBits;
+   NodeA^.CategoryBits:=NodeB^.CategoryBits or NodeD^.CategoryBits;
+
+   NodeB^.Enlarged:=NodeC^.Enlarged or NodeE^.Enlarged;
+   NodeA^.Enlarged:=NodeB^.Enlarged or NodeD^.Enlarged;
+
+  end else begin
+   
+   // Swap C and E
+
+   NodeA^.Children[1]:=IndexE;
+   NodeB^.Children[1]:=IndexC;
+
+   NodeC^.Parent:=IndexB;
+   NodeE^.Parent:=IndexA;
+
+   NodeB^.AABB:=AABBCD;
+
+   NodeB^.Height:=1+Max(NodeC^.Height,NodeD^.Height);
+   NodeA^.Height:=1+Max(NodeB^.Height,NodeE^.Height);
+
+   NodeB^.CategoryBits:=NodeC^.CategoryBits or NodeD^.CategoryBits;
+   NodeA^.CategoryBits:=NodeB^.CategoryBits or NodeE^.CategoryBits;
+
+   NodeB^.Enlarged:=NodeC^.Enlarged or NodeD^.Enlarged;
+   NodeA^.Enlarged:=NodeB^.Enlarged or NodeE^.Enlarged;
+
+  end;
+
+ end else begin
+
+  IndexD:=NodeB^.Children[0];
+  IndexE:=NodeB^.Children[1];
+  IndexF:=NodeC^.Children[0];
+  IndexG:=NodeC^.Children[1];
+
+  if (IndexD<0) or (IndexD>=fNodeCapacity) or (IndexE<0) or (IndexE>=fNodeCapacity) or
+     (IndexF<0) or (IndexF>=fNodeCapacity) or (IndexG<0) or (IndexG>=fNodeCapacity) then begin
+   exit;
+  end;
+
+  NodeD:=@fNodes^[IndexD];
+  NodeE:=@fNodes^[IndexE];
+  NodeF:=@fNodes^[IndexF];
+  NodeG:=@fNodes^[IndexG];
+
+  CostBase:=AABBArea(NodeB^.AABB)+AABBArea(NodeC^.AABB);
+
+  // Base cost 
+  AreaB:=AABBArea(NodeB^.AABB);
+  AreaC:=AABBArea(NodeC^.AABB);
+  CostBase:=AreaB+AreaC;
+  BestRotation:=RotateNone;
+  BestCost:=CostBase;
+
+  // Cost of swapping B and F
+  AABBBG:=AABBCombine(NodeB^.AABB,NodeG^.AABB);
+  CostBF:=AreaB+AABBArea(AABBBG);
+  if CostBF<BestCost then begin
+   BestRotation:=RotateBF;
+   BestCost:=CostBF;
+  end;
+
+  // Cost of swapping B and G
+  AABBBF:=AABBCombine(NodeB^.AABB,NodeF^.AABB);
+  CostBG:=AreaB+AABBArea(AABBBF);
+  if CostBG<BestCost then begin
+   BestRotation:=RotateBG;
+   BestCost:=CostBG;
+  end;
+
+  // Cost of swapping C and D
+  AABBCE:=AABBCombine(NodeC^.AABB,NodeE^.AABB);
+  CostCD:=AreaC+AABBArea(AABBCE);
+  if CostCD<BestCost then begin
+   BestRotation:=RotateCD;
+   BestCost:=CostCD;
+  end;
+
+  // Cost of swapping C and E
+  AABBCD:=AABBCombine(NodeC^.AABB,NodeD^.AABB);
+  CostCE:=AreaC+AABBArea(AABBCD);
+  if CostCE<BestCost then begin
+   BestRotation:=RotateCE;
+   // BestCost:=CostCE;
+  end;
+
+  case BestRotation of
+   
+   RotateNone:begin
+   end;
+   
+   RotateBF:begin
+
+    NodeA^.Children[0]:=IndexF;
+    NodeC^.Children[0]:=IndexB;
+   
+    NodeB^.Parent:=IndexC;
+    NodeF^.Parent:=IndexA;
+   
+    NodeC^.AABB:=AABBBG;
+   
+    NodeC^.Height:=1+Max(NodeB^.Height,NodeG^.Height);
+    NodeA^.Height:=1+Max(NodeC^.Height,NodeF^.Height);
+   
+    NodeC^.CategoryBits:=NodeB^.CategoryBits or NodeG^.CategoryBits;
+    NodeA^.CategoryBits:=NodeC^.CategoryBits or NodeF^.CategoryBits;
+   
+    NodeC^.Enlarged:=NodeB^.Enlarged or NodeG^.Enlarged;
+    NodeA^.Enlarged:=NodeC^.Enlarged or NodeF^.Enlarged;
+
+   end;
+   
+   RotateBG:begin
+   
+    NodeA^.Children[0]:=IndexG;
+    NodeC^.Children[1]:=IndexB;
+   
+    NodeB^.Parent:=IndexC;
+    NodeG^.Parent:=IndexA;
+   
+    NodeC^.AABB:=AABBBF;
+   
+    NodeC^.Height:=1+Max(NodeB^.Height,NodeF^.Height);
+    NodeA^.Height:=1+Max(NodeC^.Height,NodeG^.Height);
+   
+    NodeC^.CategoryBits:=NodeB^.CategoryBits or NodeF^.CategoryBits;
+    NodeA^.CategoryBits:=NodeC^.CategoryBits or NodeG^.CategoryBits;
+   
+    NodeC^.Enlarged:=NodeB^.Enlarged or NodeF^.Enlarged;
+    NodeA^.Enlarged:=NodeC^.Enlarged or NodeG^.Enlarged;
+   
+   end;
+   
+   RotateCD:begin
+   
+    NodeA^.Children[1]:=IndexD;
+    NodeB^.Children[0]:=IndexC;
+   
+    NodeC^.Parent:=IndexB;
+    NodeD^.Parent:=IndexA;
+   
+    NodeB^.AABB:=AABBCE;
+   
+    NodeB^.Height:=1+Max(NodeC^.Height,NodeE^.Height);
+    NodeA^.Height:=1+Max(NodeB^.Height,NodeD^.Height);
+   
+    NodeB^.CategoryBits:=NodeC^.CategoryBits or NodeE^.CategoryBits;
+    NodeA^.CategoryBits:=NodeB^.CategoryBits or NodeD^.CategoryBits;
+
+    NodeB^.Enlarged:=NodeC^.Enlarged or NodeE^.Enlarged;
+    NodeA^.Enlarged:=NodeB^.Enlarged or NodeD^.Enlarged;
+
+   end;
+
+   RotateCE:begin
+   
+    NodeA^.Children[1]:=IndexE;
+    NodeB^.Children[1]:=IndexC;
+   
+    NodeC^.Parent:=IndexB;
+    NodeE^.Parent:=IndexA;
+   
+    NodeB^.AABB:=AABBCD;
+   
+    NodeB^.Height:=1+Max(NodeC^.Height,NodeD^.Height);
+    NodeA^.Height:=1+Max(NodeB^.Height,NodeE^.Height);
+   
+    NodeB^.CategoryBits:=NodeC^.CategoryBits or NodeD^.CategoryBits;
+    NodeA^.CategoryBits:=NodeB^.CategoryBits or NodeE^.CategoryBits;
+   
+    NodeB^.Enlarged:=NodeC^.Enlarged or NodeD^.Enlarged;
+    NodeA^.Enlarged:=NodeB^.Enlarged or NodeE^.Enlarged;
+   
+   end;
+
+   else begin
+    Assert(false);
+   end;
+
+  end;
+
+ end;
+
+end;
+
+function TKraftDynamicAABBTree.Balance(aIndex:TKraftInt32):TKraftInt32;
 var NodeA,NodeB,NodeC,NodeD,NodeE,NodeF,NodeG:PKraftDynamicAABBTreeNode;
     NodeBID,NodeCID,NodeDID,NodeEID,NodeFID,NodeGID,NodeBalance:TKraftInt32;
 begin
- NodeA:=@fNodes^[NodeAID];
+ NodeA:=@fNodes^[aIndex];
  if (NodeA.Children[0]<0) or (NodeA^.Height<2) then begin
-  result:=NodeAID;
+  result:=aIndex;
  end else begin
   NodeBID:=NodeA^.Children[0];
   NodeCID:=NodeA^.Children[1];
@@ -19821,11 +20394,11 @@ begin
    NodeGID:=NodeC^.Children[1];
    NodeF:=@fNodes^[NodeFID];
    NodeG:=@fNodes^[NodeGID];
-   NodeC^.Children[0]:=NodeAID;
+   NodeC^.Children[0]:=aIndex;
    NodeC^.Parent:=NodeA^.Parent;
    NodeA^.Parent:=NodeCID;
    if NodeC^.Parent>=0 then begin
-    if fNodes^[NodeC^.Parent].Children[0]=NodeAID then begin
+    if fNodes^[NodeC^.Parent].Children[0]=aIndex then begin
      fNodes^[NodeC^.Parent].Children[0]:=NodeCID;
     end else begin
      fNodes^[NodeC^.Parent].Children[1]:=NodeCID;
@@ -19836,7 +20409,7 @@ begin
    if NodeF^.Height>NodeG^.Height then begin
     NodeC^.Children[1]:=NodeFID;
     NodeA^.Children[1]:=NodeGID;
-    NodeG^.Parent:=NodeAID;
+    NodeG^.Parent:=aIndex;
     NodeA^.AABB:=AABBCombine(NodeB^.AABB,NodeG^.AABB);
     NodeC^.AABB:=AABBCombine(NodeA^.AABB,NodeF^.AABB);
     NodeA^.Height:=1+Max(NodeB^.Height,NodeG^.Height);
@@ -19844,7 +20417,7 @@ begin
    end else begin
     NodeC^.Children[1]:=NodeGID;
     NodeA^.Children[1]:=NodeFID;
-    NodeF^.Parent:=NodeAID;
+    NodeF^.Parent:=aIndex;
     NodeA^.AABB:=AABBCombine(NodeB^.AABB,NodeF^.AABB);
     NodeC^.AABB:=AABBCombine(NodeA^.AABB,NodeG^.AABB);
     NodeA^.Height:=1+Max(NodeB^.Height,NodeF^.Height);
@@ -19856,11 +20429,11 @@ begin
    NodeEID:=NodeB^.Children[1];
    NodeD:=@fNodes^[NodeDID];
    NodeE:=@fNodes^[NodeEID];
-   NodeB^.Children[0]:=NodeAID;
+   NodeB^.Children[0]:=aIndex;
    NodeB^.Parent:=NodeA^.Parent;
    NodeA^.Parent:=NodeBID;
    if NodeB^.Parent>=0 then begin
-    if fNodes^[NodeB^.Parent].Children[0]=NodeAID then begin
+    if fNodes^[NodeB^.Parent].Children[0]=aIndex then begin
      fNodes^[NodeB^.Parent].Children[0]:=NodeBID;
     end else begin
      fNodes^[NodeB^.Parent].Children[1]:=NodeBID;
@@ -19871,7 +20444,7 @@ begin
    if NodeD^.Height>NodeE^.Height then begin
     NodeB^.Children[1]:=NodeDID;
     NodeA^.Children[0]:=NodeEID;
-    NodeE^.Parent:=NodeAID;
+    NodeE^.Parent:=aIndex;
     NodeA^.AABB:=AABBCombine(NodeC^.AABB,NodeE^.AABB);
     NodeB^.AABB:=AABBCombine(NodeA^.AABB,NodeD^.AABB);
     NodeA^.Height:=1+Max(NodeC^.Height,NodeE^.Height);
@@ -19879,7 +20452,7 @@ begin
    end else begin
     NodeB^.Children[1]:=NodeEID;
     NodeA^.Children[0]:=NodeDID;
-    NodeD^.Parent:=NodeAID;
+    NodeD^.Parent:=aIndex;
     NodeA^.AABB:=AABBCombine(NodeC^.AABB,NodeD^.AABB);
     NodeB^.AABB:=AABBCombine(NodeA^.AABB,NodeE^.AABB);
     NodeA^.Height:=1+Max(NodeC^.Height,NodeD^.Height);
@@ -19887,12 +20460,92 @@ begin
    end;
    result:=NodeBID;
   end else begin
-   result:=NodeAID;
+   result:=aIndex;
   end;
  end;
 end;
 
-procedure TKraftDynamicAABBTree.InsertLeaf(Leaf:TKraftInt32);
+procedure TKraftDynamicAABBTree.InsertLeaf(const aLeaf:TKraftInt32;const aShouldRotate:Boolean);
+{$define NewInsertLeaf}
+{$ifdef NewInsertLeaf}
+var NewParentNode,TemporaryNode:PKraftDynamicAABBTreeNode;
+    LeafAABB:TKraftAABB;
+    Index,Sibling,OldParent,NewParent,Child1,Child2:TKraftInt32;
+begin
+
+ inc(fInsertionCount);
+
+ if fRoot<0 then begin
+  fRoot:=aLeaf;
+  fNodes^[aLeaf].Parent:=daabbtNULLNODE;
+  exit;
+ end;
+
+ // Find the best sibling for this node
+ LeafAABB:=fNodes^[aLeaf].AABB;
+ Sibling:=FindBestSibling(LeafAABB);
+
+ // Create a new parent for the leaf and sibling  
+ OldParent:=fNodes^[Sibling].Parent;
+ NewParent:=AllocateNode;
+
+ NewParentNode:=@fNodes^[NewParent];
+ NewParentNode^.Parent:=OldParent;
+ NewParentNode^.UserData:=nil;
+ NewParentNode^.AABB:=AABBCombine(LeafAABB,fNodes^[Sibling].AABB);
+ NewParentNode^.CategoryBits:=fNodes^[aLeaf].CategoryBits or fNodes^[Sibling].CategoryBits;
+ NewParentNode^.Height:=fNodes^[Sibling].Height+1;
+
+ if OldParent>=0 then begin
+
+  // The sibling was not the root
+
+  if fNodes^[OldParent].Children[0]=Sibling then begin
+   fNodes^[OldParent].Children[0]:=NewParent;
+  end else begin
+   fNodes^[OldParent].Children[1]:=NewParent;
+  end;
+  
+  NewParentNode^.Children[0]:=Sibling;
+  NewParentNode^.Children[1]:=aLeaf;
+  
+  fNodes^[Sibling].Parent:=NewParent;
+  Nodes^[aLeaf].Parent:=NewParent;
+
+ end else begin
+
+  // The sibling was the root
+
+  NewParentNode^.Children[0]:=Sibling;
+  NewParentNode^.Children[1]:=aLeaf;
+ 
+  fNodes^[Sibling].Parent:=NewParent;
+  fNodes^[aLeaf].Parent:=NewParent;
+ 
+  fRoot:=NewParent;
+
+ end;
+
+ // Walk back up the tree fixing heights and AABBs
+ Index:=fNodes^[aLeaf].Parent;
+ while Index>=0 do begin
+  Child1:=fNodes^[Index].Children[0];
+  Child2:=fNodes^[Index].Children[1];
+  Assert(Child1>=0);
+  Assert(Child2>=0);
+  TemporaryNode:=@fNodes^[Index];
+  TemporaryNode^.AABB:=AABBCombine(fNodes^[Child1].AABB,fNodes^[Child2].AABB);
+  TemporaryNode^.CategoryBits:=fNodes^[Child1].CategoryBits or fNodes^[Child2].CategoryBits;
+  TemporaryNode^.Height:=1+Max(fNodes^[Child1].Height,fNodes^[Child2].Height);
+  TemporaryNode^.Enlarged:=fNodes^[Child1].Enlarged or fNodes^[Child2].Enlarged;
+  if aShouldRotate then begin
+   RotateNodes(Index);
+  end;
+  Index:=TemporaryNode^.Parent;
+ end;
+
+end;
+{$else}
 var Node:PKraftDynamicAABBTreeNode;
     LeafAABB,CombinedAABB,AABB:TKraftAABB;
     Index,Sibling,OldParent,NewParent:TKraftInt32;
@@ -19902,10 +20555,10 @@ var Node:PKraftDynamicAABBTreeNode;
 begin
  inc(fInsertionCount);
  if fRoot<0 then begin
-  fRoot:=Leaf;
-  fNodes^[Leaf].Parent:=daabbtNULLNODE;
+  fRoot:=aLeaf;
+  fNodes^[aLeaf].Parent:=daabbtNULLNODE;
  end else begin
-  LeafAABB:=fNodes^[Leaf].AABB;
+  LeafAABB:=fNodes^[aLeaf].AABB;
   Index:=fRoot;
   while fNodes^[Index].Children[0]>=0 do begin
    Children[0]:=fNodes^[Index].Children[0];
@@ -19958,94 +20611,116 @@ begin
     fNodes^[OldParent].Children[1]:=NewParent;
    end;
    fNodes^[NewParent].Children[0]:=Sibling;
-   fNodes^[NewParent].Children[1]:=Leaf;
+   fNodes^[NewParent].Children[1]:=aLeaf;
    fNodes^[Sibling].Parent:=NewParent;
-   fNodes^[Leaf].Parent:=NewParent;
+   fNodes^[aLeaf].Parent:=NewParent;
   end else begin
    fNodes^[NewParent].Children[0]:=Sibling;
-   fNodes^[NewParent].Children[1]:=Leaf;
+   fNodes^[NewParent].Children[1]:=aLeaf;
    fNodes^[Sibling].Parent:=NewParent;
-   fNodes^[Leaf].Parent:=NewParent;
+   fNodes^[aLeaf].Parent:=NewParent;
    fRoot:=NewParent;
   end;
 
-  Index:=fNodes^[Leaf].Parent;
+  Index:=fNodes^[aLeaf].Parent;
   while Index>=0 do begin
    Index:=Balance(Index);
    Node:=@fNodes^[Index];
    Node^.AABB:=AABBCombine(fNodes^[Node^.Children[0]].AABB,fNodes^[Node^.Children[1]].AABB);
+   Node^.CategoryBits:=fNodes^[Node^.Children[0]].CategoryBits or fNodes^[Node^.Children[1]].CategoryBits;
    Node^.Height:=1+Max(fNodes^[Node^.Children[0]].Height,fNodes^[Node^.Children[1]].Height);
+   Node^.Enlargend:=fNodes^[Node^.Children[0]].Enlargend or fNodes^[Node^.Children[1]].Enlargend;
    Index:=Node^.Parent;
   end;
 
  end;
 end;
-
-procedure TKraftDynamicAABBTree.RemoveLeaf(Leaf:TKraftInt32);
-var Node:PKraftDynamicAABBTreeNode;
-    Parent,GrandParent,Sibling,Index:TKraftInt32;
+{$endif}
+ 
+procedure TKraftDynamicAABBTree.RemoveLeaf(const aLeaf:TKraftInt32);
+var Parent,GrandParent,Sibling,Index:TKraftInt32;
+    NodeParent,NodeA,NodeB:PKraftDynamicAABBTreeNode;
 begin
- if fRoot=Leaf then begin
+
+ if aLeaf=fRoot then begin
   fRoot:=daabbtNULLNODE;
- end else begin
-  Parent:=fNodes^[Leaf].Parent;
-  GrandParent:=fNodes^[Parent].Parent;
-  if fNodes^[Parent].Children[0]=Leaf then begin
-   Sibling:=fNodes^[Parent].Children[1];
-  end else begin
-   Sibling:=fNodes^[Parent].Children[0];
-  end;
-  if GrandParent>=0 then begin
-   if fNodes^[GrandParent].Children[0]=Parent then begin
-    fNodes^[GrandParent].Children[0]:=Sibling;
-   end else begin
-    fNodes^[GrandParent].Children[1]:=Sibling;
-   end;
-   fNodes^[Sibling].Parent:=GrandParent;
-   FreeNode(Parent);
-   Index:=GrandParent;
-   while Index>=0 do begin
-    Index:=Balance(Index);
-    Node:=@fNodes^[Index];
-    Node^.AABB:=AABBCombine(fNodes^[Node^.Children[0]].AABB,fNodes^[Node^.Children[1]].AABB);
-    Node^.Height:=1+Max(fNodes^[Node^.Children[0]].Height,fNodes^[Node^.Children[1]].Height);
-    Index:=Node^.Parent;
-   end;
-  end else begin
-   fRoot:=Sibling;
-   fNodes^[Sibling].Parent:=daabbtNULLNODE;
-   FreeNode(Parent);
-  end;
+  exit;
  end;
+
+ Parent:=fNodes^[aLeaf].Parent;
+ GrandParent:=fNodes^[Parent].Parent;
+ if fNodes^[Parent].Children[0]=aLeaf then begin
+  Sibling:=fNodes^[Parent].Children[1];
+ end else begin
+  Sibling:=fNodes^[Parent].Children[0];
+ end;
+
+ if GrandParent>=0 then begin
+
+  // Destroy parent and connect sibling to grand parent
+
+  if fNodes^[GrandParent].Children[0]=Parent then begin
+   fNodes^[GrandParent].Children[0]:=Sibling;
+  end else begin
+   fNodes^[GrandParent].Children[1]:=Sibling;
+  end;
+
+  fNodes^[Sibling].Parent:=GrandParent;
+  FreeNode(Parent);
+
+  // Adjust ancestor bounds
+
+  Index:=GrandParent;
+  while Index>=0 do begin
+   NodeParent:=@fNodes^[Index];
+   NodeA:=@fNodes^[NodeParent^.Children[0]];
+   NodeB:=@fNodes^[NodeParent^.Children[1]];
+   NodeParent^.AABB:=AABBCombine(NodeA^.AABB,NodeB^.AABB);
+   NodeParent^.CategoryBits:=NodeA^.CategoryBits or NodeB^.CategoryBits;
+   NodeParent^.Height:=1+Max(NodeA^.Height,NodeB^.Height);
+   Index:=NodeParent^.Parent;
+  end;
+
+ end else begin
+
+  fRoot:=Sibling;
+  fNodes^[Sibling].Parent:=daabbtNULLNODE;
+  FreeNode(Parent);
+
+ end;
+
+
 end;
 
-function TKraftDynamicAABBTree.CreateProxy(const AABB:TKraftAABB;UserData:pointer):TKraftInt32;
+function TKraftDynamicAABBTree.CreateProxy(const aAABB:TKraftAABB;aUserData:pointer):TKraftInt32;
 var Node:PKraftDynamicAABBTreeNode;
 begin
  result:=AllocateNode;
  Node:=@fNodes^[result];
- Node^.AABB.Min:=Vector3Sub(AABB.Min,AABBExtensionVector);
- Node^.AABB.Max:=Vector3Add(AABB.Max,AABBExtensionVector);
- Node^.UserData:=UserData;
+ Node^.AABB.Min:=Vector3Sub(aAABB.Min,AABBExtensionVector);
+ Node^.AABB.Max:=Vector3Add(aAABB.Max,AABBExtensionVector);
+ Node^.UserData:=aUserData;
  Node^.Height:=0;
- InsertLeaf(result);
+ InsertLeaf(result,true);
+ inc(fProxyCount);
 end;
 
-procedure TKraftDynamicAABBTree.DestroyProxy(NodeID:TKraftInt32);
+procedure TKraftDynamicAABBTree.DestroyProxy(aNodeID:TKraftInt32);
 begin
- RemoveLeaf(NodeID);
- FreeNode(NodeID);
+ dec(fProxyCount);
+ RemoveLeaf(aNodeID);
+ FreeNode(aNodeID);
 end;
 
-function TKraftDynamicAABBTree.MoveProxy(NodeID:TKraftInt32;const AABB:TKraftAABB;const Displacement,BoundsExpansion:TKraftVector3):boolean;
+function TKraftDynamicAABBTree.MoveProxy(aNodeID:TKraftInt32;const aAABB:TKraftAABB;const aDisplacement,aBoundsExpansion:TKraftVector3):boolean;
 var Node:PKraftDynamicAABBTreeNode;
 begin
- Node:=@fNodes^[NodeID];
- result:=not AABBContains(Node^.AABB,AABB);
+ Node:=@fNodes^[aNodeID];
+ result:=not AABBContains(Node^.AABB,aAABB);
  if result then begin
-  RemoveLeaf(NodeID);
-  Node^.AABB:=AABBStretch(AABB,Displacement,BoundsExpansion);
-  InsertLeaf(NodeID);
+  RemoveLeaf(aNodeID);
+  Node^.AABB:=AABBStretch(aAABB,aDisplacement,aBoundsExpansion);
+  InsertLeaf(aNodeID,false);
  end;
 end;
 
@@ -20065,7 +20740,7 @@ begin
    inc(fPath);
    if ((Node>=0) and (Node<fNodeCount)) and (fNodes[Node].Children[0]<0) then begin
     RemoveLeaf(Node);
-    InsertLeaf(Node);
+    InsertLeaf(Node,true);
    end else begin
     break;
    end;
@@ -20073,7 +20748,7 @@ begin
  end;
 end;
 
-procedure TKraftDynamicAABBTree.Rebuild;
+procedure TKraftDynamicAABBTree.RebuildBottomUp;
 var NewNodes:PKraftDynamicAABBTreeLongintArray;
     Children:array[0..1] of PKraftDynamicAABBTreeNode;
     Parent:PKraftDynamicAABBTreeNode;
@@ -20142,6 +20817,258 @@ begin
  end;
 end;
 
+procedure TKraftDynamicAABBTree.RebuildTopDown;
+type TFillStackItem=record
+      Parent:TKraftSizeInt;
+      Which:TKraftSizeInt;
+      LeafNodes:TKraftSizeIntDynamicArray;
+     end;
+     TFillStack=TKraftDynamicFastStack<TFillStackItem>;
+     THeightStackItem=record
+      Node:TKraftSizeInt;
+      Pass:TKraftSizeInt;
+     end;
+     THeightStack=TKraftDynamicFastStack<THeightStackItem>;
+var Count,Index,MinPerSubTree,ParentIndex,NodeIndex,SplitAxis,TempIndex,
+    LeftIndex,RightIndex,LeftCount,RightCount:TKraftSizeint;
+    SplitValue:TKraftScalar;
+    AABB:TKraftAABB;
+    Center:PKraftVector3;
+    VarianceX,VarianceY,VarianceZ,MeanX,MeanY,MeanZ:Double;
+    FillStack:TFillStack;
+    FillStackItem,NewFillStackItem:TFillStackItem;
+    HeightStack:THeightStack;
+    HeightStackItem,NewHeightStackItem:THeightStackItem;
+begin
+
+ if NodeCount>0 then begin
+
+  if fRebuildCapacity<NodeCount then begin
+   fRebuildCapacity:=NodeCount+((NodeCount+1) shr 1);
+   SetLength(fLeafNodes,fRebuildCapacity);
+   SetLength(fNodeCenters,fRebuildCapacity);
+  end;
+
+  FillChar(fLeafNodes[0],NodeCount*SizeOf(TKraftSizeInt),#0);
+
+  Count:=0;
+  for Index:=0 to NodeCount-1 do begin
+   if fNodes^[Index].Height>=0 then begin
+    fNodeCenters[Index]:=Vector3Avg(fNodes^[Index].AABB.Min,fNodes^[Index].AABB.Max);
+    if fNodes^[Index].Children[0]<0 then begin
+     fNodes^[Index].Parent:=daabbtNULLNODE;
+     fLeafNodes[Count]:=Index;
+     inc(Count);
+    end else begin
+     FreeNode(Index);
+    end;
+   end;
+  end;
+
+  fRoot:=daabbtNULLNODE;
+
+  if Count>0 then begin
+
+   FillStack.Initialize;
+   try
+
+    NewFillStackItem.Parent:=daabbtNULLNODE;
+    NewFillStackItem.Which:=-1;
+    NewFillStackItem.LeafNodes:=copy(fLeafNodes,0,Count);
+    FillStack.Push(NewFillStackItem);
+
+    while FillStack.Pop(FillStackItem) do begin
+
+     case length(FillStackItem.LeafNodes) of
+
+      0:begin
+      end;
+
+      1:begin
+       NodeIndex:=FillStackItem.LeafNodes[0];
+       ParentIndex:=FillStackItem.Parent;
+       fNodes^[NodeIndex].Parent:=ParentIndex;
+       if (FillStackItem.Which>=0) and (ParentIndex>=0) then begin
+        fNodes^[ParentIndex].Children[FillStackItem.Which]:=NodeIndex;
+       end else begin
+        fRoot:=daabbtNULLNODE;
+       end;
+      end;
+
+      else begin
+
+       NodeIndex:=AllocateNode;
+
+       ParentIndex:=FillStackItem.Parent;
+
+       fNodes^[NodeIndex].Parent:=ParentIndex;
+
+       if (FillStackItem.Which>=0) and (ParentIndex>=0) then begin
+        fNodes^[ParentIndex].Children[FillStackItem.Which]:=NodeIndex;
+       end else begin
+        fRoot:=NodeIndex;
+       end;
+
+       AABB:=fNodes^[FillStackItem.LeafNodes[0]].AABB;
+       for Index:=1 to length(FillStackItem.LeafNodes)-1 do begin
+        AABBDirectCombine(AABB,fNodes^[FillStackItem.LeafNodes[Index]].AABB);
+       end;
+
+       fNodes^[NodeIndex].AABB:=AABB;
+       fNodeCenters[NodeIndex]:=Vector3Avg(AABB.Min,AABB.Max);
+
+       MeanX:=0.0;
+       MeanY:=0.0;
+       MeanZ:=0.0;
+       for Index:=0 to length(FillStackItem.LeafNodes)-1 do begin
+        Center:=@fNodeCenters[FillStackItem.LeafNodes[Index]];
+        MeanX:=MeanX+Center^.x;
+        MeanY:=MeanY+Center^.y;
+        MeanZ:=MeanZ+Center^.z;
+       end;
+       MeanX:=MeanX/length(FillStackItem.LeafNodes);
+       MeanY:=MeanY/length(FillStackItem.LeafNodes);
+       MeanZ:=MeanZ/length(FillStackItem.LeafNodes);
+
+       VarianceX:=0.0;
+       VarianceY:=0.0;
+       VarianceZ:=0.0;
+       for Index:=0 to length(FillStackItem.LeafNodes)-1 do begin
+        Center:=@fNodeCenters[FillStackItem.LeafNodes[Index]];
+        VarianceX:=VarianceX+sqr(Center^.x-MeanX);
+        VarianceY:=VarianceY+sqr(Center^.y-MeanY);
+        VarianceZ:=VarianceZ+sqr(Center^.z-MeanZ);
+       end;
+       VarianceX:=VarianceX/length(FillStackItem.LeafNodes);
+       VarianceY:=VarianceY/length(FillStackItem.LeafNodes);
+       VarianceZ:=VarianceZ/length(FillStackItem.LeafNodes);
+
+       if VarianceX<VarianceY then begin
+        if VarianceY<VarianceZ then begin
+         SplitAxis:=2;
+         SplitValue:=MeanZ;
+        end else begin
+         SplitAxis:=1;
+         SplitValue:=MeanY;
+        end;
+       end else begin
+        if VarianceX<VarianceZ then begin
+         SplitAxis:=2;
+         SplitValue:=MeanZ;
+        end else begin
+         SplitAxis:=0;
+         SplitValue:=MeanX;
+        end;
+       end;
+
+       LeftIndex:=0;
+       RightIndex:=length(FillStackItem.LeafNodes);
+       LeftCount:=0;
+       RightCount:=0;
+       while LeftIndex<RightIndex do begin
+        Center:=@fNodeCenters[FillStackItem.LeafNodes[LeftIndex]];
+        if Center.xyz[SplitAxis]<=SplitValue then begin
+         inc(LeftIndex);
+         inc(LeftCount);
+        end else begin
+         dec(RightIndex);
+         inc(RightCount);
+         TempIndex:=FillStackItem.LeafNodes[LeftIndex];
+         FillStackItem.LeafNodes[LeftIndex]:=FillStackItem.LeafNodes[RightIndex];
+         FillStackItem.LeafNodes[RightIndex]:=TempIndex;
+        end;
+       end;
+
+       MinPerSubTree:=(TKraftInt64(length(FillStackItem.LeafNodes)+1)*341) shr 10;
+       if (LeftCount=0) or
+          (RightCount=0) or
+          (LeftCount<=MinPerSubTree) or
+          (RightCount<=MinPerSubTree) then begin
+        RightIndex:=(length(FillStackItem.LeafNodes)+1) shr 1;
+       end;
+
+       begin
+        NewFillStackItem.Parent:=NodeIndex;
+        NewFillStackItem.Which:=1;
+        NewFillStackItem.LeafNodes:=copy(FillStackItem.LeafNodes,RightIndex,length(FillStackItem.LeafNodes)-RightIndex);
+        FillStack.Push(NewFillStackItem);
+       end;
+
+       begin
+        NewFillStackItem.Parent:=NodeIndex;
+        NewFillStackItem.Which:=0;
+        NewFillStackItem.LeafNodes:=copy(FillStackItem.LeafNodes,0,RightIndex);
+        FillStack.Push(NewFillStackItem);
+       end;
+
+       FillStackItem.LeafNodes:=nil;
+
+      end;
+     end;
+    end;
+
+   finally
+    FillStack.Finalize;
+   end;
+
+   HeightStack.Initialize;
+   try
+
+    NewHeightStackItem.Node:=Root;
+    NewHeightStackItem.Pass:=0;
+    HeightStack.Push(NewHeightStackItem);
+
+    while HeightStack.Pop(HeightStackItem) do begin
+     case HeightStackItem.Pass of
+      0:begin
+       NewHeightStackItem.Node:=HeightStackItem.Node;
+       NewHeightStackItem.Pass:=1;
+       HeightStack.Push(NewHeightStackItem);
+       if fNodes^[HeightStackItem.Node].Children[1]>=0 then begin
+        NewHeightStackItem.Node:=fNodes^[HeightStackItem.Node].Children[1];
+        NewHeightStackItem.Pass:=0;
+        HeightStack.Push(NewHeightStackItem);
+       end;
+       if fNodes^[HeightStackItem.Node].Children[0]>=0 then begin
+        NewHeightStackItem.Node:=fNodes^[HeightStackItem.Node].Children[0];
+        NewHeightStackItem.Pass:=0;
+        HeightStack.Push(NewHeightStackItem);
+       end;
+      end;
+      1:begin
+       if (fNodes^[HeightStackItem.Node].Children[0]<0) and (fNodes^[HeightStackItem.Node].Children[1]<0) then begin
+        fNodes^[HeightStackItem.Node].Height:=0;
+       end else begin
+        fNodes^[HeightStackItem.Node].Height:=1+Max(fNodes^[fNodes^[HeightStackItem.Node].Children[0]].Height,fNodes^[fNodes^[HeightStackItem.Node].Children[1]].Height);
+       end;
+      end;
+     end;
+    end;
+
+   finally
+    HeightStack.Finalize;
+   end;
+
+  end;
+
+ end;
+
+end;
+
+procedure TKraftDynamicAABBTree.Rebuild;
+begin
+ if NodeCount<16 then begin
+  RebuildBottomUp;
+ end else begin
+  //RebuildTopDown;
+ end;
+ if (fNodeCount>0) and not Validate then begin
+  Sleep(0);
+  if not Validate then begin
+  end;
+ end;
+end;
+
 function TKraftDynamicAABBTree.ComputeHeight:TKraftInt32;
 {$ifdef KraftSingleThreadedUsage}
 var LocalStack:PKraftDynamicAABBTreeLongintArray;
@@ -20184,13 +21111,15 @@ var MaximalHeight:TKraftInt32;
  procedure ProcessNode(const NodeID,Height:TKraftInt32);
  var Node:PKraftDynamicAABBTreeNode;
  begin
-  if result<Height then begin
-   result:=Height;
-  end;
   if NodeID>=0 then begin
    Node:=@fNodes^[NodeID];
-   ProcessNode(Node^.Children[0],Height+1);
-   ProcessNode(Node^.Children[1],Height+1);
+   if Node^.Height<>0 then begin
+    if MaximalHeight<Height then begin
+     MaximalHeight:=Height;
+    end;
+    ProcessNode(Node^.Children[0],Height+1);
+    ProcessNode(Node^.Children[1],Height+1);
+   end;
   end;
  end;
 begin
@@ -20361,13 +21290,15 @@ var OK:boolean;
  begin
   if (NodeID>=0) and OK then begin
    Node:=@fNodes^[NodeID];
-   if (((Node^.Children[0]<0) or (Node^.Children[0]>=fNodeCount)) or
-       ((Node^.Children[1]<0) or (Node^.Children[1]>=fNodeCount))) or
-      (Node^.Height<>(1+Max(fNodes[Node^.Children[0]].Height,fNodes[Node^.Children[1]].Height))) then begin
-    OK:=false;
-   end else begin
-    ProcessNode(Node^.Children[0]);
-    ProcessNode(Node^.Children[1]);
+   if Node^.Height<>0 then begin
+    if (((Node^.Children[0]<0) or (Node^.Children[0]>=fNodeCount)) or
+        ((Node^.Children[1]<0) or (Node^.Children[1]>=fNodeCount))) or
+       (Node^.Height<>(1+Max(fNodes[Node^.Children[0]].Height,fNodes[Node^.Children[1]].Height))) then begin
+     OK:=false;
+    end else begin
+     ProcessNode(Node^.Children[0]);
+     ProcessNode(Node^.Children[1]);
+    end;
    end;
   end;
  end;
@@ -20575,7 +21506,7 @@ type PConvexHullVector=^TConvexHullVector;
 
      PConvexHullPolygon=^TConvexHullPolygon;
      TConvexHullPolygon=record
-      Indices:TKraftInt32Array;
+      Indices:TKraftInt32DynamicArray;
       Count:TKraftInt32;
       Plane:TConvexHullPlane;
      end;
@@ -21108,7 +22039,7 @@ var CountPoints:TKraftInt32;
      Tris:TTris;
      tt:PTri;
      {TempTri:TTri;}
-     Map,Used:TKraftInt32Array;
+     Map,Used:TKraftInt32DynamicArray;
   procedure TrisPushBack(const NewTri:TTri);
   begin
    if (CountTris+1)>=length(Tris) then begin
@@ -21363,8 +22294,8 @@ var CountPoints:TKraftInt32;
  var PointIndex,OtherPointIndex,CountNewPoints,HashItemIndex:TKraftInt32;
      Hash:TKraftUInt32;
      NewPoints:TConvexHullVectors;
-     PointNextIndices:TKraftInt32Array;
-     HashTable:TKraftInt32Array;
+     PointNextIndices:TKraftInt32DynamicArray;
+     HashTable:TKraftInt32DynamicArray;
  begin
   NewPoints:=nil;
   PointNextIndices:=nil;
@@ -21430,8 +22361,8 @@ var CountPoints:TKraftInt32;
      Hash:TKraftUInt32;
      InverseTolerance:double;
      NewPoints:TConvexHullVectors;
-     PointNextIndices:TKraftInt32Array;
-     HashTable:TKraftInt32Array;
+     PointNextIndices:TKraftInt32DynamicArray;
+     HashTable:TKraftInt32DynamicArray;
  begin
   NewPoints:=nil;
   PointNextIndices:=nil;
@@ -23864,7 +24795,7 @@ var PointIndex,TriangleIndex,TriangleVertexIndex,VertexIndex,OtherVertexIndex,{O
     TempFaceEdgeHash:TKraftUInt32;
     TempFaceEdgeHashItem:PTempFaceEdgeHashItem;
     TempPoints:TConvexHullVectors;
-    TempPointHashTable:TKraftInt32Array;
+    TempPointHashTable:TKraftInt32DynamicArray;
     TempTriangles:TConvexHullTriangles;
     Vertex:PKraftConvexHullVertex;
     Face:PKraftConvexHullFace;
@@ -23876,7 +24807,7 @@ var PointIndex,TriangleIndex,TriangleVertexIndex,VertexIndex,OtherVertexIndex,{O
     TempFaceEdge:PTempFaceEdge;
     Found:boolean;
     TempFaceEdgeHashItems:array of TTempFaceEdgeHashItem;
-    TempFaceEdgeHashTable:TKraftInt32Array;
+    TempFaceEdgeHashTable:TKraftInt32DynamicArray;
     {TempInputPolygons,}TempOutputPolygons:TConvexHullPolygons;
     TempPolygon:PConvexHullPolygon;
     QuickHullInstance:TKraftQuickHull;
@@ -26400,8 +27331,8 @@ var SrcPos:TKraftInt32;
       TVector2=TKraftVector2;
       PVector2Array=^TVector2Array;
       TVector2Array=array[0..0] of TVector2;
-      PVector3Array=^TKraftVector3Array;
-      TKraftVector3Array=array[0..0] of TKraftVector3;
+      PVector3Array=^TKraftVector3DynamicArray;
+      TKraftVector3DynamicArray=array[0..0] of TKraftVector3;
       PFace3DS=^TFace3DS;
       TFace3DS=record
        Indices:array[0..2] of TKraftUInt32;
@@ -27234,7 +28165,7 @@ end;
 
 procedure TKraftMesh.CalculateNormals;
 var TriangleIndex,NormalIndex,Counter:TKraftInt32;
-    NormalCounts:TKraftInt32Array;
+    NormalCounts:TKraftInt32DynamicArray;
     Triangle:PKraftMeshTriangle;
 begin
  NormalCounts:=nil;
@@ -27635,11 +28566,11 @@ var Index{$ifdef KraftPasMP},JobIndex{$endif},TreeNodeIndex,SkipListNodeIndex,
     Stack:array of TKraftUInt64;
     StackItem:TKraftUInt64;
     SkipListNode:PKraftMeshSkipListNode;
-    SkipListNodeMap:TKraftInt32Array;
-    NewVertices:TKraftVector3Array;
-    NewNormals:TKraftVector3Array;
-    VertexReindexMap:TKraftInt32Array;
-    NormalReindexMap:TKraftInt32Array;
+    SkipListNodeMap:TKraftInt32DynamicArray;
+    NewVertices:TKraftVector3DynamicArray;
+    NewNormals:TKraftVector3DynamicArray;
+    VertexReindexMap:TKraftInt32DynamicArray;
+    NormalReindexMap:TKraftInt32DynamicArray;
     DynamicAABBTree:TKraftDynamicAABBTree;
     DynamicAABBTreeOriginalNode:PKraftDynamicAABBTreeNode;
     DynamicAABBTreeNode,OtherDynamicAABBTreeNode:PDynamicAABBTreeNode;
@@ -27647,7 +28578,7 @@ var Index{$ifdef KraftPasMP},JobIndex{$endif},TreeNodeIndex,SkipListNodeIndex,
     DynamicAABBTreeNodeStack:TDynamicAABBTreeNodeStack;
     NewDynamicAABBTreeNodeStackItem:TDynamicAABBTreeNodeStackItem;
     CurrentDynamicAABBTreeNodeStackItem:TDynamicAABBTreeNodeStackItem;
-    TriangleIndices:TKraftInt32Array;
+    TriangleIndices:TKraftInt32DynamicArray;
     TemporaryTriangle:TKraftMeshTriangle;
     Seed:TKraftUInt32;
 begin
@@ -32252,7 +33183,7 @@ begin
  if fCountMeshes>0 then begin
   fShapeAABB:=fMeshes[0].fAABB;
   for Index:=1 to fCountMeshes-1 do begin
-   fShapeAABB:=AABBCombine(fShapeAABB,fMeshes[Index].fAABB);
+   AABBDirectCombine(fShapeAABB,fMeshes[Index].fAABB);
   end;
   if fCountMeshes=1 then begin
    fSkipListNodes[0].AABB:=fMeshes[0].fAABB;
@@ -32283,7 +33214,7 @@ begin
      RandomOrderIndices:=nil;
     end;
    {if fCountMeshes<=8 then begin
-     DynamicAABBTree.Rebuild;
+     DynamicAABBTree.RebuildBottomUp;
     end;}
     DynamicAABBTree.GetSkipListNodes(fSkipListNodes);
     fCountSkipListNodes:=length(fSkipListNodes);
@@ -36236,6 +37167,11 @@ var ActiveContactPairIndex,Action:TKraftInt32;
 begin
 
  StartTime:=fPhysics.fHighResolutionTimer.GetTime;
+
+{fPhysics.fStaticAABBTree.Rebuild;
+ fPhysics.fSleepingAABBTree.Rebuild;
+ fPhysics.fDynamicAABBTree.Rebuild;
+ fPhysics.fKinematicAABBTree.Rebuild;}
 
  fCountActiveContactPairs:=0;
 
