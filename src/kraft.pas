@@ -37227,7 +37227,7 @@ end;
 {$ifdef KraftPasMP}
 procedure TKraftContactManager.RebuildAABBTreeJobFunction(const Job:PPasMPJob;const ThreadIndex:TPasMPInt32);
 begin
- TKraftDynamicAABBTree(Job^.Data).Rebuild;
+ TKraftDynamicAABBTree(Job^.Data).Rebuild(false,false);
 end;
 {$endif}
 
