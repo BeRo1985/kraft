@@ -1029,8 +1029,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure EnlargeProxy(aNodeID:TKraftInt32;const aAABB:TKraftAABB);
        procedure Rebalance(Iterations:TKraftInt32);
        procedure RebuildBottomUp;
-       procedure RebuildTopDown;
-       procedure Rebuild(const aForce:Boolean=false);
+       procedure RebuildTopDown(const aFull:Boolean=false);
+       procedure Rebuild(const aFull:Boolean=false;const aForce:Boolean=false);
        function ComputeHeight:TKraftInt32;
        function GetHeight:TKraftInt32;
        function GetAreaRatio:TKraftScalar;
@@ -20897,11 +20897,12 @@ begin
  end;
 end;
 
-procedure TKraftDynamicAABBTree.RebuildTopDown;
+procedure TKraftDynamicAABBTree.RebuildTopDown(const aFull:Boolean);
 type TFillStackItem=record
       Parent:TKraftSizeInt;
       Which:TKraftSizeInt;
-      LeafNodes:TKraftSizeIntDynamicArray;
+      FirstLeafNode:TKraftSizeInt;
+      CountLeafNodes:TKraftSizeInt;
      end;
      TFillStack=TKraftDynamicFastStack<TFillStackItem>;
      THeightStackItem=record
@@ -20909,6 +20910,8 @@ type TFillStackItem=record
       Pass:TKraftSizeInt;
      end;
      THeightStack=TKraftDynamicFastStack<THeightStackItem>;
+     TNodeStackItem=TKraftInt32;
+     TNodeStack=TKraftDynamicFastStack<TNodeStackItem>;
 var Count,Index,MinPerSubTree,ParentIndex,NodeIndex,SplitAxis,TempIndex,
     LeftIndex,RightIndex,LeftCount,RightCount:TKraftSizeint;
     SplitValue:TKraftScalar;
@@ -20919,9 +20922,12 @@ var Count,Index,MinPerSubTree,ParentIndex,NodeIndex,SplitAxis,TempIndex,
     FillStackItem,NewFillStackItem:TFillStackItem;
     HeightStack:THeightStack;
     HeightStackItem,NewHeightStackItem:THeightStackItem;
+    NodeStack:TNodeStack;
+    NodeStackItem:TNodeStackItem;
+    Node:PKraftDynamicAABBTreeNode;
 begin
 
- if NodeCount>0 then begin
+ if (NodeCount>0) and (fRoot>=0) then begin
 
   if fRebuildCapacity<fNodeCapacity then begin
    fRebuildCapacity:=fNodeCapacity+((fNodeCapacity+1) shr 1);
@@ -20932,6 +20938,45 @@ begin
   FillChar(fLeafNodes[0],fNodeCapacity*SizeOf(TKraftSizeInt),#0);
 
   Count:=0;
+
+  NodeStack.Initialize;
+  try
+
+   NodeStack.Push(fRoot);
+   while NodeStack.Pop(NodeStackItem) do begin
+
+    Index:=NodeStackItem;
+
+    Node:=@fNodes[Index];
+
+    if (Node^.Height=0) or ((Node^.Height>0) and ((not aFull) and not Node^.Enlarged)) then begin
+
+     // Get node center
+     fNodeCenters[Index]:=Vector3Avg(Node^.AABB.Min,Node^.AABB.Max);
+
+     // Add
+     fLeafNodes[Count]:=Index;
+     inc(Count);
+
+     // Detach
+     Node^.Parent:=daabbtNULLNODE;
+
+    end else if Node^.Height>0 then begin
+
+     NodeStack.Push(Node^.Children[0]);
+     NodeStack.Push(Node^.Children[1]);
+
+     FreeNode(Index);
+
+    end;
+
+   end;
+
+  finally
+   NodeStack.Finalize;
+  end;
+
+{ Count:=0;
   for Index:=0 to fNodeCapacity-1 do begin
    if fNodes^[Index].Height>=0 then begin
     fNodeCenters[Index]:=Vector3Avg(fNodes^[Index].AABB.Min,fNodes^[Index].AABB.Max);
@@ -20943,7 +20988,7 @@ begin
      FreeNode(Index);
     end;
    end;
-  end;
+  end;{}
 
   fRoot:=daabbtNULLNODE;
 
@@ -20954,24 +20999,25 @@ begin
 
     NewFillStackItem.Parent:=daabbtNULLNODE;
     NewFillStackItem.Which:=-1;
-    NewFillStackItem.LeafNodes:=copy(fLeafNodes,0,Count);
+    NewFillStackItem.FirstLeafNode:=0;
+    NewFillStackItem.CountLeafNodes:=Count;
     FillStack.Push(NewFillStackItem);
 
     while FillStack.Pop(FillStackItem) do begin
 
-     case length(FillStackItem.LeafNodes) of
+     case FillStackItem.CountLeafNodes of
 
       0:begin
       end;
 
       1:begin
-       NodeIndex:=FillStackItem.LeafNodes[0];
+       NodeIndex:=fLeafNodes[FillStackItem.FirstLeafNode];
        ParentIndex:=FillStackItem.Parent;
        fNodes^[NodeIndex].Parent:=ParentIndex;
        if (FillStackItem.Which>=0) and (ParentIndex>=0) then begin
         fNodes^[ParentIndex].Children[FillStackItem.Which]:=NodeIndex;
        end else begin
-        fRoot:=daabbtNULLNODE;
+        fRoot:=NodeIndex;
        end;
       end;
 
@@ -20989,39 +21035,39 @@ begin
         fRoot:=NodeIndex;
        end;
 
-       AABB:=fNodes^[FillStackItem.LeafNodes[0]].AABB;
-       for Index:=1 to length(FillStackItem.LeafNodes)-1 do begin
-        AABBDirectCombine(AABB,fNodes^[FillStackItem.LeafNodes[Index]].AABB);
+       AABB:=fNodes^[fLeafNodes[FillStackItem.FirstLeafNode]].AABB;
+       for Index:=1 to FillStackItem.CountLeafNodes-1 do begin
+        AABBDirectCombine(AABB,fNodes^[fLeafNodes[FillStackItem.FirstLeafNode+Index]].AABB);
        end;
 
        fNodes^[NodeIndex].AABB:=AABB;
-       fNodeCenters[NodeIndex]:=Vector3Avg(AABB.Min,AABB.Max);
+//     fNodeCenters[NodeIndex]:=Vector3Avg(AABB.Min,AABB.Max);
 
        MeanX:=0.0;
        MeanY:=0.0;
        MeanZ:=0.0;
-       for Index:=0 to length(FillStackItem.LeafNodes)-1 do begin
-        Center:=@fNodeCenters[FillStackItem.LeafNodes[Index]];
+       for Index:=0 to FillStackItem.CountLeafNodes-1 do begin
+        Center:=@fNodes^[fLeafNodes[FillStackItem.FirstLeafNode+Index]];
         MeanX:=MeanX+Center^.x;
         MeanY:=MeanY+Center^.y;
         MeanZ:=MeanZ+Center^.z;
        end;
-       MeanX:=MeanX/length(FillStackItem.LeafNodes);
-       MeanY:=MeanY/length(FillStackItem.LeafNodes);
-       MeanZ:=MeanZ/length(FillStackItem.LeafNodes);
+       MeanX:=MeanX/FillStackItem.CountLeafNodes;
+       MeanY:=MeanY/FillStackItem.CountLeafNodes;
+       MeanZ:=MeanZ/FillStackItem.CountLeafNodes;
 
        VarianceX:=0.0;
        VarianceY:=0.0;
        VarianceZ:=0.0;
-       for Index:=0 to length(FillStackItem.LeafNodes)-1 do begin
-        Center:=@fNodeCenters[FillStackItem.LeafNodes[Index]];
+       for Index:=0 to FillStackItem.CountLeafNodes-1 do begin
+        Center:=@fNodes^[fLeafNodes[FillStackItem.FirstLeafNode+Index]];
         VarianceX:=VarianceX+sqr(Center^.x-MeanX);
         VarianceY:=VarianceY+sqr(Center^.y-MeanY);
         VarianceZ:=VarianceZ+sqr(Center^.z-MeanZ);
        end;
-       VarianceX:=VarianceX/length(FillStackItem.LeafNodes);
-       VarianceY:=VarianceY/length(FillStackItem.LeafNodes);
-       VarianceZ:=VarianceZ/length(FillStackItem.LeafNodes);
+       VarianceX:=VarianceX/FillStackItem.CountLeafNodes;
+       VarianceY:=VarianceY/FillStackItem.CountLeafNodes;
+       VarianceZ:=VarianceZ/FillStackItem.CountLeafNodes;
 
        if VarianceX<VarianceY then begin
         if VarianceY<VarianceZ then begin
@@ -21041,92 +21087,100 @@ begin
         end;
        end;
 
-       LeftIndex:=0;
-       RightIndex:=length(FillStackItem.LeafNodes);
+       LeftIndex:=FillStackItem.FirstLeafNode;
+       RightIndex:=FillStackItem.FirstLeafNode+FillStackItem.CountLeafNodes;
        LeftCount:=0;
        RightCount:=0;
        while LeftIndex<RightIndex do begin
-        Center:=@fNodeCenters[FillStackItem.LeafNodes[LeftIndex]];
+        Center:=@fNodeCenters[fLeafNodes[LeftIndex]];
         if Center.xyz[SplitAxis]<=SplitValue then begin
          inc(LeftIndex);
          inc(LeftCount);
         end else begin
          dec(RightIndex);
          inc(RightCount);
-         TempIndex:=FillStackItem.LeafNodes[LeftIndex];
-         FillStackItem.LeafNodes[LeftIndex]:=FillStackItem.LeafNodes[RightIndex];
-         FillStackItem.LeafNodes[RightIndex]:=TempIndex;
+         TempIndex:=fLeafNodes[LeftIndex];
+         fLeafNodes[LeftIndex]:=fLeafNodes[RightIndex];
+         fLeafNodes[RightIndex]:=TempIndex;
         end;
        end;
 
-       MinPerSubTree:=(TKraftInt64(length(FillStackItem.LeafNodes)+1)*341) shr 10;
+       LeftCount:=LeftIndex-FillStackItem.FirstLeafNode;
+
+       MinPerSubTree:=(TKraftInt64(FillStackItem.CountLeafNodes+1)*341) shr 10;
        if (LeftCount=0) or
           (RightCount=0) or
           (LeftCount<=MinPerSubTree) or
           (RightCount<=MinPerSubTree) then begin
-        RightIndex:=(length(FillStackItem.LeafNodes)+1) shr 1;
+        LeftCount:=(FillStackItem.CountLeafNodes+1) shr 1;
        end;
 
-       begin
-        NewFillStackItem.Parent:=NodeIndex;
-        NewFillStackItem.Which:=1;
-        NewFillStackItem.LeafNodes:=copy(FillStackItem.LeafNodes,RightIndex,length(FillStackItem.LeafNodes)-RightIndex);
-        FillStack.Push(NewFillStackItem);
-       end;
+       if (LeftCount>0) and (LeftCount<FillStackItem.CountLeafNodes) then begin
 
-       begin
         NewFillStackItem.Parent:=NodeIndex;
         NewFillStackItem.Which:=0;
-        NewFillStackItem.LeafNodes:=copy(FillStackItem.LeafNodes,0,RightIndex);
+        NewFillStackItem.FirstLeafNode:=FillStackItem.FirstLeafNode;
+        NewFillStackItem.CountLeafNodes:=LeftCount;
         FillStack.Push(NewFillStackItem);
+
+        NewFillStackItem.Parent:=NodeIndex;
+        NewFillStackItem.Which:=1;
+        NewFillStackItem.FirstLeafNode:=FillStackItem.FirstLeafNode+LeftCount;
+        NewFillStackItem.CountLeafNodes:=FillStackItem.CountLeafNodes-LeftCount;
+        FillStack.Push(NewFillStackItem);
+
        end;
 
-       FillStackItem.LeafNodes:=nil;
-
       end;
+
      end;
+
     end;
 
    finally
     FillStack.Finalize;
    end;
 
-   HeightStack.Initialize;
-   try
+   if fRoot>=0 then begin
 
-    NewHeightStackItem.Node:=Root;
-    NewHeightStackItem.Pass:=0;
-    HeightStack.Push(NewHeightStackItem);
+    HeightStack.Initialize;
+    try
 
-    while HeightStack.Pop(HeightStackItem) do begin
-     case HeightStackItem.Pass of
-      0:begin
-       NewHeightStackItem.Node:=HeightStackItem.Node;
-       NewHeightStackItem.Pass:=1;
-       HeightStack.Push(NewHeightStackItem);
-       if fNodes^[HeightStackItem.Node].Children[1]>=0 then begin
-        NewHeightStackItem.Node:=fNodes^[HeightStackItem.Node].Children[1];
-        NewHeightStackItem.Pass:=0;
+     NewHeightStackItem.Node:=fRoot;
+     NewHeightStackItem.Pass:=0;
+     HeightStack.Push(NewHeightStackItem);
+
+     while HeightStack.Pop(HeightStackItem) do begin
+      case HeightStackItem.Pass of
+       0:begin
+        NewHeightStackItem.Node:=HeightStackItem.Node;
+        NewHeightStackItem.Pass:=1;
         HeightStack.Push(NewHeightStackItem);
+        if fNodes^[HeightStackItem.Node].Children[1]>=0 then begin
+         NewHeightStackItem.Node:=fNodes^[HeightStackItem.Node].Children[1];
+         NewHeightStackItem.Pass:=0;
+         HeightStack.Push(NewHeightStackItem);
+        end;
+        if fNodes^[HeightStackItem.Node].Children[0]>=0 then begin
+         NewHeightStackItem.Node:=fNodes^[HeightStackItem.Node].Children[0];
+         NewHeightStackItem.Pass:=0;
+         HeightStack.Push(NewHeightStackItem);
+        end;
        end;
-       if fNodes^[HeightStackItem.Node].Children[0]>=0 then begin
-        NewHeightStackItem.Node:=fNodes^[HeightStackItem.Node].Children[0];
-        NewHeightStackItem.Pass:=0;
-        HeightStack.Push(NewHeightStackItem);
-       end;
-      end;
-      1:begin
-       if (fNodes^[HeightStackItem.Node].Children[0]<0) and (fNodes^[HeightStackItem.Node].Children[1]<0) then begin
-        fNodes^[HeightStackItem.Node].Height:=0;
-       end else begin
-        fNodes^[HeightStackItem.Node].Height:=1+Max(fNodes^[fNodes^[HeightStackItem.Node].Children[0]].Height,fNodes^[fNodes^[HeightStackItem.Node].Children[1]].Height);
+       1:begin
+        if (fNodes^[HeightStackItem.Node].Children[0]<0) and (fNodes^[HeightStackItem.Node].Children[1]<0) then begin
+         fNodes^[HeightStackItem.Node].Height:=0;
+        end else begin
+         fNodes^[HeightStackItem.Node].Height:=1+Max(fNodes^[fNodes^[HeightStackItem.Node].Children[0]].Height,fNodes^[fNodes^[HeightStackItem.Node].Children[1]].Height);
+        end;
        end;
       end;
      end;
+
+    finally
+     HeightStack.Finalize;
     end;
 
-   finally
-    HeightStack.Finalize;
    end;
 
   end;
@@ -21135,7 +21189,7 @@ begin
 
 end;
 
-procedure TKraftDynamicAABBTree.Rebuild(const aForce:Boolean);
+procedure TKraftDynamicAABBTree.Rebuild(const aFull:Boolean;const aForce:Boolean);
 begin
  if fRebuildDirty or aForce then begin
   fRebuildDirty:=false;
@@ -21143,7 +21197,7 @@ begin
    if fProxyCount<16 then begin
     RebuildBottomUp;
    end else begin
-    RebuildTopDown;
+    RebuildTopDown(aFull);
    end;
  //Assert(Validate);
   end;
