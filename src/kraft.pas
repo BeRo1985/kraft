@@ -21044,11 +21044,6 @@ begin
 
        fNodes^[NodeIndex].AABB:=AABB;
 
-       if length(fNodeCenters)<=NodeIndex then begin
-        SetLength(fNodeCenters,(NodeIndex+1)+((NodeIndex+1) shr 1));
-       end;
-       fNodeCenters[NodeIndex]:=Vector3Avg(AABB.Min,AABB.Max);
-
        MeanX:=0.0;
        MeanY:=0.0;
        MeanZ:=0.0;
