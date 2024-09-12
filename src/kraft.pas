@@ -1020,7 +1020,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        function FindBestSibling(const aAABB:TKraftAABB):TKraftInt32;
        procedure RotateNodes(const aIndex:TKraftInt32);
        function Balance(aIndex:TKraftInt32):TKraftInt32;
-       procedure InsertLeaf(const aLeaf:TKraftInt32;const aShouldRotate:Boolean);
+       procedure InsertLeaf(const aLeaf,aKind:TKraftInt32);
        procedure RemoveLeaf(const aLeaf:TKraftInt32);
        function CreateProxy(const aAABB:TKraftAABB;aUserData:pointer):TKraftInt32;
        procedure DestroyProxy(aNodeID:TKraftInt32);
@@ -11084,13 +11084,18 @@ begin
 end;
 
 function AABBCost(const AABB:TKraftAABB):TKraftScalar;
+var ex,ey,ez:TKraftScalar;
 begin
 //result:=(AABB.Max.x-AABB.Min.x)+(AABB.Max.y-AABB.Min.y)+(AABB.Max.z-AABB.Min.z); // Manhattan distance
 //result:=(AABB.Max.x-AABB.Min.x)*(AABB.Max.y-AABB.Min.y)*(AABB.Max.z-AABB.Min.z); // Volume
  // Area
- result:=2.0*((abs(AABB.Max.x-AABB.Min.x)*abs(AABB.Max.y-AABB.Min.y))+
+ ex:=abs(AABB.Max.x-AABB.Min.x);
+ ey:=abs(AABB.Max.y-AABB.Min.y);
+ ez:=abs(AABB.Max.z-AABB.Min.z);
+ result:=2.0*((ex*ey)+(ey*ez)+(ez*ex));
+{result:=2.0*((abs(AABB.Max.x-AABB.Min.x)*abs(AABB.Max.y-AABB.Min.y))+
               (abs(AABB.Max.y-AABB.Min.y)*abs(AABB.Max.z-AABB.Min.z))+
-              (abs(AABB.Max.x-AABB.Min.x)*abs(AABB.Max.z-AABB.Min.z)))
+              (abs(AABB.Max.x-AABB.Min.x)*abs(AABB.Max.z-AABB.Min.z)));}
 end;
 
 function AABBArea(const AABB:TKraftAABB):TKraftScalar;
@@ -19944,7 +19949,7 @@ end;
 
 function TKraftDynamicAABBTree.FindBestSibling(const aAABB:TKraftAABB):TKraftInt32;
 var Center:TKraftVector3;
-    Area,AreaBase,Cost,DirectCost,InheritedCost,BestCost,LowerCost1,LowerCost2,Area1,Area2,
+    aAABBCost,RootAABBCost,Cost,DirectCost,InheritedCost,BestCost,LowerCost1,LowerCost2,Cost1,Cost2,
     DirectCost1,DirectCost2:TKraftScalar;
     RootIndex,Index,Child1,Child2:TKraftInt32;
     RootAABB,AABB1,AABB2:TKraftAABB;
@@ -19952,15 +19957,15 @@ var Center:TKraftVector3;
 begin
 
  Center:=Vector3Avg(aAABB.Min,aAABB.Max);
- Area:=AABBArea(aAABB);
+ aAABBCost:=AABBCost(aAABB);
 
  RootIndex:=fRoot;
 
  RootAABB:=fNodes^[RootIndex].AABB;
 
- AreaBase:=AABBArea(RootAABB);
+ RootAABBCost:=AABBCost(RootAABB);
 
- DirectCost:=AABBArea(AABBCombine(RootAABB,aAABB));
+ DirectCost:=AABBCost(AABBCombine(RootAABB,aAABB));
  InheritedCost:=0.0;
 
  result:=RootIndex;
@@ -19979,15 +19984,15 @@ begin
    BestCost:=Cost;
   end;
 
-  InheritedCost:=InheritedCost+(DirectCost-AreaBase);
+  InheritedCost:=InheritedCost+(DirectCost-RootAABBCost);
 
   Leaf1:=fNodes^[Child1].Height=0;
   Leaf2:=fNodes^[Child2].Height=0;
 
   LowerCost1:=Infinity;
   AABB1:=fNodes^[Child1].AABB;
-  DirectCost1:=AABBArea(AABBCombine(AABB1,aAABB));
-  Area1:=0.0;
+  DirectCost1:=AABBCost(AABBCombine(AABB1,aAABB));
+  Cost1:=0.0;
   if Leaf1 then begin
    Cost:=DirectCost1+InheritedCost;
    if Cost<BestCost then begin
@@ -19995,14 +20000,14 @@ begin
     BestCost:=Cost;
    end;
   end else begin
-   Area1:=AABBArea(AABB1);
-   LowerCost1:=InheritedCost+DirectCost1+Min(0.0,Area-Area1);
+   Cost1:=AABBCost(AABB1);
+   LowerCost1:=InheritedCost+DirectCost1+Min(0.0,aAABBCost-Cost1);
   end;
 
   LowerCost2:=Infinity;
   AABB2:=fNodes^[Child2].AABB;
-  DirectCost2:=AABBArea(AABBCombine(AABB2,aAABB));
-  Area2:=0.0;
+  DirectCost2:=AABBCost(AABBCombine(AABB2,aAABB));
+  Cost2:=0.0;
   if Leaf2 then begin
    Cost:=DirectCost2+InheritedCost;
    if Cost<BestCost then begin
@@ -20010,8 +20015,8 @@ begin
     BestCost:=Cost;
    end;
   end else begin
-   Area2:=AABBArea(AABB2);
-   LowerCost2:=InheritedCost+DirectCost2+Min(0.0,Area-Area2);
+   Cost2:=AABBCost(AABB2);
+   LowerCost2:=InheritedCost+DirectCost2+Min(0.0,aAABBCost-Cost2);
   end;
 
   if Leaf1 and Leaf2 then begin
@@ -20031,11 +20036,11 @@ begin
 
   if (LowerCost1<LowerCost2) and not Leaf1 then begin
    Index:=Child1;
-   AreaBase:=Area1;
+   RootAABBCost:=Cost1;
    DirectCost:=DirectCost1;
   end else begin
    Index:=Child2;
-   AreaBase:=Area2;
+   RootAABBCost:=Cost2;
    DirectCost:=DirectCost2;
   end;
 
@@ -20087,15 +20092,15 @@ begin
   NodeF:=@fNodes^[IndexF];
   NodeG:=@fNodes^[IndexG];
 
-  CostBase:=AABBArea(NodeC^.AABB);
+  CostBase:=AABBCost(NodeC^.AABB);
 
   // Cost of swapping B and F
   AABBBG:=AABBCombine(NodeB^.AABB,NodeG^.AABB);
-  CostBF:=AABBArea(AABBBG);
+  CostBF:=AABBCost(AABBBG);
 
   // Cost of swapping B and G
   AABBBF:=AABBCombine(NodeB^.AABB,NodeF^.AABB);
-  CostBG:=AABBArea(AABBBF);
+  CostBG:=AABBCost(AABBBF);
 
   if (CostBase<CostBF) and (CostBase<CostBG) then begin
    exit;
@@ -20161,15 +20166,15 @@ begin
   NodeD:=@fNodes^[IndexD];
   NodeE:=@fNodes^[IndexE];
 
-  CostBase:=AABBArea(NodeB^.AABB);
+  CostBase:=AABBCost(NodeB^.AABB);
 
   // Cost of swapping C and D
   AABBCE:=AABBCombine(NodeC^.AABB,NodeE^.AABB);
-  CostCD:=AABBArea(AABBCE);
+  CostCD:=AABBCost(AABBCE);
 
   // Cost of swapping C and E
   AABBCD:=AABBCombine(NodeC^.AABB,NodeD^.AABB);
-  CostCE:=AABBArea(AABBCD);
+  CostCE:=AABBCost(AABBCD);
 
   if (CostBase<CostCD) and (CostBase<CostCE) then begin
    exit;
@@ -20236,18 +20241,18 @@ begin
   NodeF:=@fNodes^[IndexF];
   NodeG:=@fNodes^[IndexG];
 
-  CostBase:=AABBArea(NodeB^.AABB)+AABBArea(NodeC^.AABB);
+  CostBase:=AABBCost(NodeB^.AABB)+AABBCost(NodeC^.AABB);
 
   // Base cost 
-  AreaB:=AABBArea(NodeB^.AABB);
-  AreaC:=AABBArea(NodeC^.AABB);
+  AreaB:=AABBCost(NodeB^.AABB);
+  AreaC:=AABBCost(NodeC^.AABB);
   CostBase:=AreaB+AreaC;
   BestRotation:=RotateNone;
   BestCost:=CostBase;
 
   // Cost of swapping B and F
   AABBBG:=AABBCombine(NodeB^.AABB,NodeG^.AABB);
-  CostBF:=AreaB+AABBArea(AABBBG);
+  CostBF:=AreaB+AABBCost(AABBBG);
   if CostBF<BestCost then begin
    BestRotation:=RotateBF;
    BestCost:=CostBF;
@@ -20255,7 +20260,7 @@ begin
 
   // Cost of swapping B and G
   AABBBF:=AABBCombine(NodeB^.AABB,NodeF^.AABB);
-  CostBG:=AreaB+AABBArea(AABBBF);
+  CostBG:=AreaB+AABBCost(AABBBF);
   if CostBG<BestCost then begin
    BestRotation:=RotateBG;
    BestCost:=CostBG;
@@ -20263,7 +20268,7 @@ begin
 
   // Cost of swapping C and D
   AABBCE:=AABBCombine(NodeC^.AABB,NodeE^.AABB);
-  CostCD:=AreaC+AABBArea(AABBCE);
+  CostCD:=AreaC+AABBCost(AABBCE);
   if CostCD<BestCost then begin
    BestRotation:=RotateCD;
    BestCost:=CostCD;
@@ -20271,10 +20276,10 @@ begin
 
   // Cost of swapping C and E
   AABBCD:=AABBCombine(NodeC^.AABB,NodeD^.AABB);
-  CostCE:=AreaC+AABBArea(AABBCD);
+  CostCE:=AreaC+AABBCost(AABBCD);
   if CostCE<BestCost then begin
    BestRotation:=RotateCE;
-   // BestCost:=CostCE;
+ //BestCost:=CostCE;
   end;
 
   case BestRotation of
@@ -20465,12 +20470,11 @@ begin
  end;
 end;
 
-procedure TKraftDynamicAABBTree.InsertLeaf(const aLeaf:TKraftInt32;const aShouldRotate:Boolean);
-{$define NewInsertLeaf}
-{$ifdef NewInsertLeaf}
+procedure TKraftDynamicAABBTree.InsertLeaf(const aLeaf,aKind:TKraftInt32);
 var NewParentNode,TemporaryNode:PKraftDynamicAABBTreeNode;
-    LeafAABB:TKraftAABB;
-    Index,Sibling,OldParent,NewParent,Child1,Child2:TKraftInt32;
+    CombinedAABB,LeafAABB,AABB:TKraftAABB;
+    Index,Sibling,OldParent,NewParent,Child0,Child1:TKraftInt32;
+    Cost,CombinedCost,InheritanceCost,Cost0,Cost1:TKraftScalar;
 begin
 
  inc(fInsertionCount);
@@ -20481,115 +20485,40 @@ begin
   exit;
  end;
 
- // Find the best sibling for this node
- LeafAABB:=fNodes^[aLeaf].AABB;
- Sibling:=FindBestSibling(LeafAABB);
+ if aKind<0 then begin
 
- // Create a new parent for the leaf and sibling  
- OldParent:=fNodes^[Sibling].Parent;
- NewParent:=AllocateNode;
-
- NewParentNode:=@fNodes^[NewParent];
- NewParentNode^.Parent:=OldParent;
- NewParentNode^.UserData:=nil;
- NewParentNode^.AABB:=AABBCombine(LeafAABB,fNodes^[Sibling].AABB);
- NewParentNode^.CategoryBits:=fNodes^[aLeaf].CategoryBits or fNodes^[Sibling].CategoryBits;
- NewParentNode^.Height:=fNodes^[Sibling].Height+1;
-
- if OldParent>=0 then begin
-
-  // The sibling was not the root
-
-  if fNodes^[OldParent].Children[0]=Sibling then begin
-   fNodes^[OldParent].Children[0]:=NewParent;
-  end else begin
-   fNodes^[OldParent].Children[1]:=NewParent;
-  end;
-  
-  NewParentNode^.Children[0]:=Sibling;
-  NewParentNode^.Children[1]:=aLeaf;
-  
-  fNodes^[Sibling].Parent:=NewParent;
-  Nodes^[aLeaf].Parent:=NewParent;
-
- end else begin
-
-  // The sibling was the root
-
-  NewParentNode^.Children[0]:=Sibling;
-  NewParentNode^.Children[1]:=aLeaf;
- 
-  fNodes^[Sibling].Parent:=NewParent;
-  fNodes^[aLeaf].Parent:=NewParent;
- 
-  fRoot:=NewParent;
-
- end;
-
- // Walk back up the tree fixing heights and AABBs
- Index:=fNodes^[aLeaf].Parent;
- while Index>=0 do begin
-  Child1:=fNodes^[Index].Children[0];
-  Child2:=fNodes^[Index].Children[1];
-  Assert(Child1>=0);
-  Assert(Child2>=0);
-  TemporaryNode:=@fNodes^[Index];
-  TemporaryNode^.AABB:=AABBCombine(fNodes^[Child1].AABB,fNodes^[Child2].AABB);
-  TemporaryNode^.CategoryBits:=fNodes^[Child1].CategoryBits or fNodes^[Child2].CategoryBits;
-  TemporaryNode^.Height:=1+Max(fNodes^[Child1].Height,fNodes^[Child2].Height);
-  TemporaryNode^.Enlarged:=fNodes^[Child1].Enlarged or fNodes^[Child2].Enlarged;
-  if aShouldRotate then begin
-   RotateNodes(Index);
-  end;
-  Index:=TemporaryNode^.Parent;
- end;
-
-end;
-{$else}
-var Node:PKraftDynamicAABBTreeNode;
-    LeafAABB,CombinedAABB,AABB:TKraftAABB;
-    Index,Sibling,OldParent,NewParent:TKraftInt32;
-    Children:array[0..1] of TKraftInt32;
-    CombinedCost,Cost,InheritanceCost:TKraftScalar;
-    Costs:array[0..1] of TKraftScalar;
-begin
- inc(fInsertionCount);
- if fRoot<0 then begin
-  fRoot:=aLeaf;
-  fNodes^[aLeaf].Parent:=daabbtNULLNODE;
- end else begin
   LeafAABB:=fNodes^[aLeaf].AABB;
   Index:=fRoot;
   while fNodes^[Index].Children[0]>=0 do begin
-   Children[0]:=fNodes^[Index].Children[0];
-   Children[1]:=fNodes^[Index].Children[1];
+   Child0:=fNodes^[Index].Children[0];
+   Child1:=fNodes^[Index].Children[1];
 
    CombinedAABB:=AABBCombine(fNodes^[Index].AABB,LeafAABB);
    CombinedCost:=AABBCost(CombinedAABB);
    Cost:=CombinedCost*2.0;
    InheritanceCost:=2.0*(CombinedCost-AABBCost(fNodes^[Index].AABB));
 
-   AABB:=AABBCombine(LeafAABB,fNodes^[Children[0]].AABB);
-   if fNodes^[Children[0]].Children[0]<0 then begin
-    Costs[0]:=AABBCost(AABB)+InheritanceCost;
+   AABB:=AABBCombine(LeafAABB,fNodes^[Child0].AABB);
+   if fNodes^[Child0].Children[0]<0 then begin
+    Cost0:=AABBCost(AABB)+InheritanceCost;
    end else begin
-    Costs[0]:=(AABBCost(AABB)-AABBCost(fNodes^[Children[0]].AABB))+InheritanceCost;
+    Cost0:=(AABBCost(AABB)-AABBCost(fNodes^[Child0].AABB))+InheritanceCost;
    end;
 
-   AABB:=AABBCombine(LeafAABB,fNodes^[Children[1]].AABB);
-   if fNodes^[Children[1]].Children[1]<0 then begin
-    Costs[1]:=AABBCost(AABB)+InheritanceCost;
+   AABB:=AABBCombine(LeafAABB,fNodes^[Child0].AABB);
+   if fNodes^[Child1].Children[1]<0 then begin
+    Cost1:=AABBCost(AABB)+InheritanceCost;
    end else begin
-    Costs[1]:=(AABBCost(AABB)-AABBCost(fNodes^[Children[1]].AABB))+InheritanceCost;
+    Cost1:=(AABBCost(AABB)-AABBCost(fNodes^[Child0].AABB))+InheritanceCost;
    end;
 
-   if (Cost<Costs[0]) and (Cost<Costs[1]) then begin
+   if (Cost<Cost0) and (Cost<Cost1) then begin
     break;
    end else begin
-    if Costs[0]<Costs[1] then begin
-     Index:=Children[0];
+    if Cost0<Cost1 then begin
+     Index:=Child0;
     end else begin
-     Index:=Children[1];
+     Index:=Child1;
     end;
    end;
 
@@ -20625,18 +20554,87 @@ begin
   Index:=fNodes^[aLeaf].Parent;
   while Index>=0 do begin
    Index:=Balance(Index);
-   Node:=@fNodes^[Index];
-   Node^.AABB:=AABBCombine(fNodes^[Node^.Children[0]].AABB,fNodes^[Node^.Children[1]].AABB);
-   Node^.CategoryBits:=fNodes^[Node^.Children[0]].CategoryBits or fNodes^[Node^.Children[1]].CategoryBits;
-   Node^.Height:=1+Max(fNodes^[Node^.Children[0]].Height,fNodes^[Node^.Children[1]].Height);
-   Node^.Enlargend:=fNodes^[Node^.Children[0]].Enlargend or fNodes^[Node^.Children[1]].Enlargend;
-   Index:=Node^.Parent;
+   Child0:=fNodes^[Index].Children[0];
+   Child1:=fNodes^[Index].Children[1];
+   Assert(Child0>=0);
+   Assert(Child1>=0);
+   TemporaryNode:=@fNodes^[Index];
+   TemporaryNode^.AABB:=AABBCombine(fNodes^[Child0].AABB,fNodes^[Child1].AABB);
+   TemporaryNode^.CategoryBits:=fNodes^[Child0].CategoryBits or fNodes^[Child1].CategoryBits;
+   TemporaryNode^.Height:=Max(fNodes^[Child0].Height,fNodes^[Child1].Height)+1;
+   TemporaryNode^.Enlarged:=fNodes^[Child0].Enlarged or fNodes^[Child1].Enlarged;
+   Index:=TemporaryNode^.Parent;
+  end;
+
+ end else begin
+
+  // Find the best sibling for this node
+  LeafAABB:=fNodes^[aLeaf].AABB;
+  Sibling:=FindBestSibling(LeafAABB);
+
+  // Create a new parent for the leaf and sibling
+  OldParent:=fNodes^[Sibling].Parent;
+  NewParent:=AllocateNode;
+
+  NewParentNode:=@fNodes^[NewParent];
+  NewParentNode^.Parent:=OldParent;
+  NewParentNode^.UserData:=nil;
+  NewParentNode^.AABB:=AABBCombine(LeafAABB,fNodes^[Sibling].AABB);
+  NewParentNode^.CategoryBits:=fNodes^[aLeaf].CategoryBits or fNodes^[Sibling].CategoryBits;
+  NewParentNode^.Height:=fNodes^[Sibling].Height+1;
+
+  if OldParent>=0 then begin
+
+   // The sibling was not the root
+
+   if fNodes^[OldParent].Children[0]=Sibling then begin
+    fNodes^[OldParent].Children[0]:=NewParent;
+   end else begin
+    fNodes^[OldParent].Children[1]:=NewParent;
+   end;
+
+   NewParentNode^.Children[0]:=Sibling;
+   NewParentNode^.Children[1]:=aLeaf;
+
+   fNodes^[Sibling].Parent:=NewParent;
+   Nodes^[aLeaf].Parent:=NewParent;
+
+  end else begin
+
+   // The sibling was the root
+
+   NewParentNode^.Children[0]:=Sibling;
+   NewParentNode^.Children[1]:=aLeaf;
+
+   fNodes^[Sibling].Parent:=NewParent;
+   fNodes^[aLeaf].Parent:=NewParent;
+
+   fRoot:=NewParent;
+
+  end;
+
+  // Walk back up the tree fixing heights and AABBs
+  Index:=fNodes^[aLeaf].Parent;
+  while Index>=0 do begin
+   Child0:=fNodes^[Index].Children[0];
+   Child1:=fNodes^[Index].Children[1];
+   Assert(Child0>=0);
+   Assert(Child1>=0);
+   TemporaryNode:=@fNodes^[Index];
+   TemporaryNode^.AABB:=AABBCombine(fNodes^[Child0].AABB,fNodes^[Child1].AABB);
+   TemporaryNode^.CategoryBits:=fNodes^[Child0].CategoryBits or fNodes^[Child1].CategoryBits;
+   TemporaryNode^.Height:=1+Max(fNodes^[Child0].Height,fNodes^[Child1].Height);
+   TemporaryNode^.Enlarged:=fNodes^[Child0].Enlarged or fNodes^[Child1].Enlarged;
+   if aKind>0 then begin
+    RotateNodes(Index);
+   end;
+   Index:=TemporaryNode^.Parent;
   end;
 
  end;
+
 end;
-{$endif}
- 
+
 procedure TKraftDynamicAABBTree.RemoveLeaf(const aLeaf:TKraftInt32);
 var Parent,GrandParent,Sibling,Index:TKraftInt32;
     NodeParent,NodeA,NodeB:PKraftDynamicAABBTreeNode;
@@ -20701,7 +20699,7 @@ begin
  Node^.AABB.Max:=Vector3Add(aAABB.Max,AABBExtensionVector);
  Node^.UserData:=aUserData;
  Node^.Height:=0;
- InsertLeaf(result,true);
+ InsertLeaf(result,1);
  inc(fProxyCount);
 end;
 
@@ -20720,7 +20718,7 @@ begin
  if result then begin
   RemoveLeaf(aNodeID);
   Node^.AABB:=AABBStretch(aAABB,aDisplacement,aBoundsExpansion);
-  InsertLeaf(aNodeID,false);
+  InsertLeaf(aNodeID,0);
  end;
 end;
 
@@ -20740,7 +20738,7 @@ begin
    inc(fPath);
    if ((Node>=0) and (Node<fNodeCapacity)) and (fNodes[Node].Children[0]<0) then begin
     RemoveLeaf(Node);
-    InsertLeaf(Node,true);
+    InsertLeaf(Node,-1);
    end else begin
     break;
    end;
