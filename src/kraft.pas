@@ -20968,6 +20968,7 @@ begin
 end;
 
 procedure TKraftDynamicAABBTree.RebuildTopDown(const aFull:Boolean);
+{$define TKraftDynamicAABBTreeRebuildTopDownQuickSortStylePartitioning}
 const CountBins=8;
       CountPlanes=CountBins-1;
 type TFillStackItem=record
@@ -21230,6 +21231,8 @@ begin
          end;
         end;
 
+{$ifdef TKraftDynamicAABBTreeRebuildTopDownQuickSortStylePartitioning}
+        // Quick-Sort style paritioning with Hoare partition scheme
         LeftIndex:=FillStackItem.FirstLeafNode;
         RightIndex:=FillStackItem.FirstLeafNode+FillStackItem.CountLeafNodes;
         while LeftIndex<RightIndex do begin
@@ -21249,6 +21252,25 @@ begin
         end;
         LeftCount:=LeftIndex-FillStackItem.FirstLeafNode;
         RightCount:=FillStackItem.CountLeafNodes-LeftCount;
+{$else}
+        // Bubble-Sort style paritioning?
+        LeftIndex:=FillStackItem.FirstLeafNode;
+        RightIndex:=FillStackItem.FirstLeafNode+FillStackItem.CountLeafNodes;
+        LeftCount:=0;
+        RightCount:=0;
+        while LeftIndex<RightIndex do begin
+         if fNodeBinIndices[fLeafNodes[LeftIndex]]<=BestPlaneIndex then begin
+          inc(LeftIndex);
+          inc(LeftCount);
+         end else begin
+          dec(RightIndex);
+          inc(RightCount);
+          TempIndex:=fLeafNodes[LeftIndex];
+          fLeafNodes[LeftIndex]:=fLeafNodes[RightIndex];
+          fLeafNodes[RightIndex]:=TempIndex;
+         end;
+        end;
+{$endif}
 
         if (LeftCount=0) or (RightCount=0) then begin
          LeftCount:=(FillStackItem.CountLeafNodes+1) shr 1;
@@ -21303,7 +21325,6 @@ begin
          end;
         end;
 
-{$define TKraftDynamicAABBTreeRebuildTopDownQuickSortStylePartitioning}
 {$ifdef TKraftDynamicAABBTreeRebuildTopDownQuickSortStylePartitioning}
         // Quick-Sort style paritioning with Hoare partition scheme
         LeftIndex:=FillStackItem.FirstLeafNode;
