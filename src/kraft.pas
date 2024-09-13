@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2024-09-12-02-55-0000                       *
+ *                        Version 2024-09-13-13-39-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -1012,7 +1012,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fRebuildCapacity:TKraftSizeInt;
        fLeafNodes:TKraftSizeIntDynamicArray;
        fNodeCenters:TKraftVector3DynamicArray;
-       fNodeBinIndices:TKraftSizeIntDynamicArray;
+       fNodeBinIndices:array[0..2] of TKraftSizeIntDynamicArray;
        fRebuildDirty:Boolean;
       public
        constructor Create;
@@ -1718,7 +1718,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        kmbbmSAHBruteforce,
        kmbbmSAHSteps,
        kmbbmSAHBinned,
-       kmbbmSAHRandomInsert
+       kmbbmSAHRandomInsert,
+       kmbbmSAHDynamicBVHRebuild
       );
 
      TKraftMeshVectorHashMap=TKraftHashMap<TKraftVector3,TKraftInt32>;
@@ -19949,7 +19950,9 @@ begin
  fRebuildCapacity:=0;
  fLeafNodes:=nil;
  fNodeCenters:=nil;
- fNodeBinIndices:=nil;
+ fNodeBinIndices[0]:=nil;
+ fNodeBinIndices[1]:=nil;
+ fNodeBinIndices[2]:=nil;
  fRebuildDirty:=false;
 end;
 
@@ -19957,7 +19960,9 @@ destructor TKraftDynamicAABBTree.Destroy;
 begin
  fSkipListNodeMap:=nil;
  fNodeCenters:=nil;
- fNodeBinIndices:=nil;
+ fNodeBinIndices[0]:=nil;
+ fNodeBinIndices[1]:=nil;
+ fNodeBinIndices[2]:=nil;
  FreeMem(fNodes);
  FreeMem(fStack);
  inherited Destroy;
@@ -21004,19 +21009,19 @@ type TFillStackItem=record
      PPlane=^TPlane;
      TPlanes=array[0..CountPlanes-1] of TPlane;
 {$endif}
-var Count,Index,ParentIndex,NodeIndex,SplitAxis,TempIndex,
+var Count,Index,ParentIndex,NodeIndex,TempIndex,
     LeftIndex,RightIndex,LeftCount,RightCount:TKraftSizeInt;
 {$ifdef TKraftDynamicAABBTreeRebuildTopDownSAH}
-    BinIndex,BestPlaneIndex:TKraftSizeInt;
-    InvD,MinCenterValue,BestCost,Cost:TKraftScalar;
+    AxisIndex,BinIndex,BestPlaneIndex,BestAxisIndex:TKraftSizeInt;
+    InvAxisLength,MinCenterValue,BestCost,Cost:TKraftScalar;
     Bins:TBins;
     Bin:PBin;
     Planes:TPlanes;
     Plane,PreviousPlane:PPlane;
     CentroidAABB:TKraftAABB;
-    D:TKraftVector3;
+    AxisLengths:TKraftVector3;
 {$else}
-    MinPerSubTree:TKraftSizeInt;
+    SplitAxis,MinPerSubTree:TKraftSizeInt;
     SplitValue:TKraftScalar;
     VarianceX,VarianceY,VarianceZ,MeanX,MeanY,MeanZ:Double;
 {$endif}
@@ -21041,8 +21046,10 @@ begin
    SetLength(fNodeCenters,(fNodeCapacity+1)+((fNodeCapacity+1) shr 1));
   end;
 
-  if length(fNodeBinIndices)<=fNodeCapacity then begin
-   SetLength(fNodeBinIndices,(fNodeCapacity+1)+((fNodeCapacity+1) shr 1));
+  for Index:=0 to 2 do begin
+   if length(fNodeBinIndices[Index])<=fNodeCapacity then begin
+    SetLength(fNodeBinIndices[Index],(fNodeCapacity+1)+((fNodeCapacity+1) shr 1));
+   end;
   end;
 
   FillChar(fLeafNodes[0],fNodeCapacity*SizeOf(TKraftSizeInt),#0);
@@ -21163,85 +21170,101 @@ begin
         Center:=@fNodeCenters[fLeafNodes[FillStackItem.FirstLeafNode]];
         CentroidAABB.Min:=Center^;
         CentroidAABB.Max:=Center^;
-        for Index:=0 to FillStackItem.CountLeafNodes-1 do begin
+        for Index:=1 to FillStackItem.CountLeafNodes-1 do begin
          Center:=@fNodeCenters[fLeafNodes[FillStackItem.FirstLeafNode+Index]];
          AABBDirectCombineVector3(CentroidAABB,Center^);
         end;
 
-        D:=Vector3Sub(CentroidAABB.Max,CentroidAABB.Min);
-        if D.x<D.y then begin
-         if D.y<D.z then begin
-          SplitAxis:=2;
+{       AxisLengths:=Vector3Sub(CentroidAABB.Max,CentroidAABB.Min);
+        if AxisLengths.x<AxisLengths.y then begin
+         if AxisLengths.y<AxisLengths.z then begin
+          AxisIndex:=2;
          end else begin
-          SplitAxis:=1;
+          AxisIndex:=1;
          end;
         end else begin
-         if D.x<D.z then begin
-          SplitAxis:=2;
+         if AxisLengths.x<AxisLengths.z then begin
+          AxisIndex:=2;
          end else begin
-          SplitAxis:=0;
+          AxisIndex:=0;
          end;
-        end;
-        if D.xyz[SplitAxis]>0.0 then begin
-         InvD:=1.0/D.xyz[SplitAxis];
-        end else begin
-         InvD:=0.0;
-        end;
-
-        for Index:=0 to CountBins-1 do begin
-         Bin:=@Bins[Index];
-         Bin^.AABB.Min.x:=Infinity;
-         Bin^.AABB.Min.y:=Infinity;
-         Bin^.AABB.Min.z:=Infinity;
-         Bin^.AABB.Max.x:=-Infinity;
-         Bin^.AABB.Max.y:=-Infinity;
-         Bin^.AABB.Max.z:=-Infinity;
-         Bin^.Count:=0;
-        end;
-
-        MinCenterValue:=CentroidAABB.Min.xyz[SplitAxis];
-        for Index:=0 to FillStackItem.CountLeafNodes-1 do begin
-         Center:=@fNodeCenters[fLeafNodes[FillStackItem.FirstLeafNode+Index]];
-         BinIndex:=Min(Max(trunc((((Center^.xyz[SplitAxis]-MinCenterValue)*InvD))*CountBins),0),CountBins-1);
-         fNodeBinIndices[fLeafNodes[FillStackItem.FirstLeafNode+Index]]:=BinIndex;
-         Bin:=@Bins[BinIndex];
-         inc(Bin^.Count);
-         AABBDirectCombine(Bin^.AABB,fNodes^[fLeafNodes[FillStackItem.FirstLeafNode+Index]].AABB);
-        end;
-
-        Plane:=@Planes[0];
-        Bin:=@Bins[0];
-        Plane^.LeftAABB:=Bin^.AABB;
-        Plane^.LeftCount:=Bin^.Count;
-        for Index:=1 to CountPlanes-1 do begin
-         PreviousPlane:=Plane;
-         Plane:=@Planes[Index];
-         Bin:=@Bins[Index];
-         Plane^.LeftAABB:=AABBCombine(PreviousPlane^.LeftAABB,Bin^.AABB);
-         Plane^.LeftCount:=PreviousPlane^.LeftCount+Bin^.Count;
-        end;
-
-        Plane:=@Planes[CountPlanes-1];
-        Bin:=@Bins[CountPlanes];
-        Plane^.RightAABB:=Bin^.AABB;
-        Plane^.RightCount:=Bin^.Count;
-        for Index:=CountPlanes-2 downto 0 do begin
-         PreviousPlane:=Plane;
-         Plane:=@Planes[Index];
-         Bin:=@Bins[Index+1];
-         Plane^.RightAABB:=AABBCombine(PreviousPlane^.RightAABB,Bin^.AABB);
-         Plane^.RightCount:=PreviousPlane^.RightCount+Bin^.Count;
-        end;
+        end;}
 
         BestCost:=Infinity;
-        BestPlaneIndex:=0;
-        for Index:=0 to CountPlanes-1 do begin
-         Plane:=@Planes[Index];
-         Cost:=(AABBCost(Plane^.LeftAABB)*Plane^.LeftCount)+(AABBCost(Plane^.RightAABB)*Plane^.RightCount);
-         if (Index=0) or (BestCost>Cost) then begin
-          BestCost:=Cost;
-          BestPlaneIndex:=Index;
+        BestPlaneIndex:=-1;
+        BestAxisIndex:=0;
+
+        for AxisIndex:=0 to 2 do begin
+
+         for Index:=0 to CountBins-1 do begin
+          Bin:=@Bins[Index];
+          Bin^.AABB.Min.x:=Infinity;
+          Bin^.AABB.Min.y:=Infinity;
+          Bin^.AABB.Min.z:=Infinity;
+          Bin^.AABB.Max.x:=-Infinity;
+          Bin^.AABB.Max.y:=-Infinity;
+          Bin^.AABB.Max.z:=-Infinity;
+          Bin^.Count:=0;
          end;
+
+         if AxisLengths.xyz[AxisIndex]>0.0 then begin
+          InvAxisLength:=1.0/AxisLengths.xyz[AxisIndex];
+         end else begin
+          InvAxisLength:=0.0;
+         end;
+
+         MinCenterValue:=CentroidAABB.Min.xyz[AxisIndex];
+         for Index:=0 to FillStackItem.CountLeafNodes-1 do begin
+          Center:=@fNodeCenters[fLeafNodes[FillStackItem.FirstLeafNode+Index]];
+          BinIndex:=Min(Max(trunc((((Center^.xyz[AxisIndex]-MinCenterValue)*InvAxisLength))*CountBins),0),CountBins-1);
+          fNodeBinIndices[AxisIndex,fLeafNodes[FillStackItem.FirstLeafNode+Index]]:=BinIndex;
+          Bin:=@Bins[BinIndex];
+          if Bin^.Count=0 then begin
+           Bin^.AABB:=fNodes^[fLeafNodes[FillStackItem.FirstLeafNode+Index]].AABB;
+          end else begin
+           AABBDirectCombine(Bin^.AABB,fNodes^[fLeafNodes[FillStackItem.FirstLeafNode+Index]].AABB);
+          end;
+          inc(Bin^.Count);
+         end;
+
+         Plane:=@Planes[0];
+         Bin:=@Bins[0];
+         Plane^.LeftAABB:=Bin^.AABB;
+         Plane^.LeftCount:=Bin^.Count;
+         for Index:=1 to CountPlanes-1 do begin
+          PreviousPlane:=Plane;
+          Plane:=@Planes[Index];
+          Bin:=@Bins[Index];
+          Plane^.LeftAABB:=AABBCombine(PreviousPlane^.LeftAABB,Bin^.AABB);
+          Plane^.LeftCount:=PreviousPlane^.LeftCount+Bin^.Count;
+         end;
+
+         Plane:=@Planes[CountPlanes-1];
+         Bin:=@Bins[CountPlanes];
+         Plane^.RightAABB:=Bin^.AABB;
+         Plane^.RightCount:=Bin^.Count;
+         for Index:=CountPlanes-2 downto 0 do begin
+          PreviousPlane:=Plane;
+          Plane:=@Planes[Index];
+          Bin:=@Bins[Index+1];
+          Plane^.RightAABB:=AABBCombine(PreviousPlane^.RightAABB,Bin^.AABB);
+          Plane^.RightCount:=PreviousPlane^.RightCount+Bin^.Count;
+         end;
+
+         for Index:=0 to CountPlanes-1 do begin
+          Plane:=@Planes[Index];
+          Cost:=(AABBCost(Plane^.LeftAABB)*Plane^.LeftCount)+(AABBCost(Plane^.RightAABB)*Plane^.RightCount);
+          if (BestPlaneIndex<0) or (BestCost>Cost) then begin
+           BestCost:=Cost;
+           BestPlaneIndex:=Index;
+           BestAxisIndex:=AxisIndex;
+          end;
+         end;
+
+        end;
+
+        if BestPlaneIndex<0 then begin
+         BestPlaneIndex:=0;
         end;
 
 {$ifdef TKraftDynamicAABBTreeRebuildTopDownQuickSortStylePartitioning}
@@ -21249,10 +21272,10 @@ begin
         LeftIndex:=FillStackItem.FirstLeafNode;
         RightIndex:=FillStackItem.FirstLeafNode+FillStackItem.CountLeafNodes;
         while LeftIndex<RightIndex do begin
-         while (LeftIndex<RightIndex) and (fNodeBinIndices[fLeafNodes[LeftIndex]]<=BestPlaneIndex) do begin
+         while (LeftIndex<RightIndex) and (fNodeBinIndices[BestAxisIndex,fLeafNodes[LeftIndex]]<=BestPlaneIndex) do begin
           inc(LeftIndex);
          end;
-         while (LeftIndex<RightIndex) and (fNodeBinIndices[fLeafNodes[RightIndex-1]]>BestPlaneIndex) do begin
+         while (LeftIndex<RightIndex) and (fNodeBinIndices[BestAxisIndex,fLeafNodes[RightIndex-1]]>BestPlaneIndex) do begin
           dec(RightIndex);
          end;
          if LeftIndex<RightIndex then begin
@@ -21272,7 +21295,7 @@ begin
         LeftCount:=0;
         RightCount:=0;
         while LeftIndex<RightIndex do begin
-         if fNodeBinIndices[fLeafNodes[LeftIndex]]<=BestPlaneIndex then begin
+         if fNodeBinIndices[BestAxisIndex,fLeafNodes[LeftIndex]]<=BestPlaneIndex then begin
           inc(LeftIndex);
           inc(LeftCount);
          end else begin
@@ -28961,7 +28984,8 @@ begin
    SetLength(fTreeNodes,Max(1,length(fTriangles)*2));
   end;
 
-  if fBVHBuildMode=TKraftMeshBVHBuildMode.kmbbmSAHRandomInsert then begin
+  if (fBVHBuildMode=TKraftMeshBVHBuildMode.kmbbmSAHRandomInsert) or
+     (fBVHBuildMode=TKraftMeshBVHBuildMode.kmbbmSAHDynamicBVHRebuild) then begin
 
    if fCountTriangles>0 then begin
 
@@ -28994,7 +29018,9 @@ begin
       TriangleIndices:=nil;
      end;
 
- //  DynamicAABBTree.Rebalance(65536);
+     if fBVHBuildMode=TKraftMeshBVHBuildMode.kmbbmSAHDynamicBVHRebuild then begin
+      DynamicAABBTree.Rebuild(true,true);
+     end;
 
      DynamicAABBTreeNodes:=nil;
      try
