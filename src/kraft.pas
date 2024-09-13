@@ -20999,8 +20999,8 @@ type TFillStackItem=record
      PPlane=^TPlane;
      TPlanes=array[0..CountPlanes-1] of TPlane;
 var Count,Index,MinPerSubTree,ParentIndex,NodeIndex,SplitAxis,TempIndex,
-    LeftIndex,RightIndex,LeftCount,RightCount,BinIndex:TKraftSizeint;
-    SplitValue,InvD,MinCenterValue:TKraftScalar;
+    LeftIndex,RightIndex,LeftCount,RightCount,BinIndex,BestPlaneIndex:TKraftSizeint;
+    SplitValue,InvD,MinCenterValue,BestCost,Cost:TKraftScalar;
     AABB,CentroidAABB:TKraftAABB;
     Center:PKraftVector3;
     D,C:TKraftVector3;
@@ -21217,6 +21217,17 @@ begin
          Bin:=@Bins[Index+1];
          Plane^.RightAABB:=AABBCombine(PreviousPlane^.RightAABB,Bin^.AABB);
          Plane^.RightCount:=PreviousPlane^.RightCount+Bin^.Count;
+        end;
+
+        BestCost:=Infinity;
+        BestPlaneIndex:=0;
+        for Index:=0 to CountPlanes-1 do begin
+         Plane:=@Planes[Index];
+         Cost:=(AABBCost(Plane^.LeftAABB)*Plane^.LeftCount)+(AABBCost(Plane^.RightAABB)*Plane^.RightCount);
+         if (Index=0) or (BestCost>Cost) then begin
+          BestCost:=Cost;
+          BestPlaneIndex:=Index;
+         end;
         end;
 
        end else begin
