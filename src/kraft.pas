@@ -20968,9 +20968,12 @@ begin
 end;
 
 procedure TKraftDynamicAABBTree.RebuildTopDown(const aFull:Boolean);
+{$define TKraftDynamicAABBTreeRebuildTopDownSAH}
 {$define TKraftDynamicAABBTreeRebuildTopDownQuickSortStylePartitioning}
+{$ifdef TKraftDynamicAABBTreeRebuildTopDownSAH}
 const CountBins=8;
       CountPlanes=CountBins-1;
+{$endif}
 type TFillStackItem=record
       Parent:TKraftSizeInt;
       Which:TKraftSizeInt;
@@ -20985,6 +20988,7 @@ type TFillStackItem=record
      THeightStack=TKraftDynamicFastStack<THeightStackItem>;
      TNodeStackItem=TKraftInt32;
      TNodeStack=TKraftDynamicFastStack<TNodeStackItem>;
+{$ifdef TKraftDynamicAABBTreeRebuildTopDownSAH}
      TBin=record
       AABB:TKraftAABB;
       Count:TKraftInt32;
@@ -20999,13 +21003,25 @@ type TFillStackItem=record
      end;
      PPlane=^TPlane;
      TPlanes=array[0..CountPlanes-1] of TPlane;
-var Count,Index,MinPerSubTree,ParentIndex,NodeIndex,SplitAxis,TempIndex,
-    LeftIndex,RightIndex,LeftCount,RightCount,BinIndex,BestPlaneIndex:TKraftSizeint;
-    SplitValue,InvD,MinCenterValue,BestCost,Cost:TKraftScalar;
-    AABB,CentroidAABB:TKraftAABB;
-    Center:PKraftVector3;
-    D,C:TKraftVector3;
+{$endif}
+var Count,Index,ParentIndex,NodeIndex,SplitAxis,TempIndex,
+    LeftIndex,RightIndex,LeftCount,RightCount:TKraftSizeInt;
+{$ifdef TKraftDynamicAABBTreeRebuildTopDownSAH}
+    BinIndex,BestPlaneIndex:TKraftSizeInt;
+    InvD,MinCenterValue,BestCost,Cost:TKraftScalar;
+    Bins:TBins;
+    Bin:PBin;
+    Planes:TPlanes;
+    Plane,PreviousPlane:PPlane;
+    CentroidAABB:TKraftAABB;
+    D:TKraftVector3;
+{$else}
+    MinPerSubTree:TKraftSizeInt;
+    SplitValue:TKraftScalar;
     VarianceX,VarianceY,VarianceZ,MeanX,MeanY,MeanZ:Double;
+{$endif}
+    AABB:TKraftAABB;
+    Center:PKraftVector3;
     FillStack:TFillStack;
     FillStackItem,NewFillStackItem:TFillStackItem;
     HeightStack:THeightStack;
@@ -21013,10 +21029,6 @@ var Count,Index,MinPerSubTree,ParentIndex,NodeIndex,SplitAxis,TempIndex,
     NodeStack:TNodeStack;
     NodeStackItem:TNodeStackItem;
     Node:PKraftDynamicAABBTreeNode;
-    Bins:TBins;
-    Bin:PBin;
-    Planes:TPlanes;
-    Plane,PreviousPlane:PPlane;
 begin
 
  if (NodeCount>0) and (fRoot>=0) then begin
@@ -21143,7 +21155,8 @@ begin
 
        fNodes^[NodeIndex].AABB:=AABB;
 
-       if true then begin
+{$ifdef TKraftDynamicAABBTreeRebuildTopDownSAH}
+       begin
 
         // SAH
 
@@ -21277,7 +21290,9 @@ begin
          RightCount:=FillStackItem.CountLeafNodes-LeftCount;
         end;
 
-       end else begin
+       end;
+{$else}
+       begin
 
         // Mean Variance
 
@@ -21377,6 +21392,7 @@ begin
         end;
 
        end;
+{$endif}
 
        if (LeftCount>0) and (LeftCount<FillStackItem.CountLeafNodes) then begin
 
