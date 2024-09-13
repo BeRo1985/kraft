@@ -21230,6 +21230,26 @@ begin
          end;
         end;
 
+        LeftIndex:=FillStackItem.FirstLeafNode;
+        RightIndex:=FillStackItem.FirstLeafNode+FillStackItem.CountLeafNodes;
+        while LeftIndex<RightIndex do begin
+         while (LeftIndex<RightIndex) and (fNodeBinIndices[fLeafNodes[LeftIndex]]<=BestPlaneIndex) do begin
+          inc(LeftIndex);
+         end;
+         while (LeftIndex<RightIndex) and (fNodeBinIndices[fLeafNodes[RightIndex-1]]>BestPlaneIndex) do begin
+          dec(RightIndex);
+         end;
+         if LeftIndex<RightIndex then begin
+          dec(RightIndex);
+          TempIndex:=fLeafNodes[LeftIndex];
+          fLeafNodes[LeftIndex]:=fLeafNodes[RightIndex];
+          fLeafNodes[RightIndex]:=TempIndex;
+          inc(LeftIndex);
+         end;
+        end;
+        LeftCount:=LeftIndex-FillStackItem.FirstLeafNode;
+        RightCount:=FillStackItem.CountLeafNodes-LeftCount;
+
        end else begin
 
         // Mean Variance
@@ -21278,50 +21298,50 @@ begin
          end;
         end;
 
-       end;
-
 {$define TKraftDynamicAABBTreeRebuildTopDownQuickSortStylePartitioning}
 {$ifdef TKraftDynamicAABBTreeRebuildTopDownQuickSortStylePartitioning}
-       // Quick-Sort style paritioning with Hoare partition scheme
-       LeftIndex:=FillStackItem.FirstLeafNode;
-       RightIndex:=FillStackItem.FirstLeafNode+FillStackItem.CountLeafNodes;
-       while LeftIndex<RightIndex do begin
-        while (LeftIndex<RightIndex) and (fNodeCenters[fLeafNodes[LeftIndex]].xyz[SplitAxis]<=SplitValue) do begin
-         inc(LeftIndex);
+        // Quick-Sort style paritioning with Hoare partition scheme
+        LeftIndex:=FillStackItem.FirstLeafNode;
+        RightIndex:=FillStackItem.FirstLeafNode+FillStackItem.CountLeafNodes;
+        while LeftIndex<RightIndex do begin
+         while (LeftIndex<RightIndex) and (fNodeCenters[fLeafNodes[LeftIndex]].xyz[SplitAxis]<=SplitValue) do begin
+          inc(LeftIndex);
+         end;
+         while (LeftIndex<RightIndex) and (fNodeCenters[fLeafNodes[RightIndex-1]].xyz[SplitAxis]>SplitValue) do begin
+          dec(RightIndex);
+         end;
+         if LeftIndex<RightIndex then begin
+          dec(RightIndex);
+          TempIndex:=fLeafNodes[LeftIndex];
+          fLeafNodes[LeftIndex]:=fLeafNodes[RightIndex];
+          fLeafNodes[RightIndex]:=TempIndex;
+          inc(LeftIndex);
+         end;
         end;
-        while (LeftIndex<RightIndex) and (fNodeCenters[fLeafNodes[RightIndex-1]].xyz[SplitAxis]>SplitValue) do begin
-         dec(RightIndex);
-        end;
-        if LeftIndex<RightIndex then begin
-         dec(RightIndex);
-         TempIndex:=fLeafNodes[LeftIndex];
-         fLeafNodes[LeftIndex]:=fLeafNodes[RightIndex];
-         fLeafNodes[RightIndex]:=TempIndex;
-         inc(LeftIndex);
-        end;
-       end;
-       LeftCount:=LeftIndex-FillStackItem.FirstLeafNode;
-       RightCount:=FillStackItem.CountLeafNodes-LeftCount;
+        LeftCount:=LeftIndex-FillStackItem.FirstLeafNode;
+        RightCount:=FillStackItem.CountLeafNodes-LeftCount;
 {$else}
-       // Bubble-Sort style paritioning?
-       LeftIndex:=FillStackItem.FirstLeafNode;
-       RightIndex:=FillStackItem.FirstLeafNode+FillStackItem.CountLeafNodes;
-       LeftCount:=0;
-       RightCount:=0;
-       while LeftIndex<RightIndex do begin
-        Center:=@fNodeCenters[fLeafNodes[LeftIndex]];
-        if Center.xyz[SplitAxis]<=SplitValue then begin
-         inc(LeftIndex);
-         inc(LeftCount);
-        end else begin
-         dec(RightIndex);
-         inc(RightCount);
-         TempIndex:=fLeafNodes[LeftIndex];
-         fLeafNodes[LeftIndex]:=fLeafNodes[RightIndex];
-         fLeafNodes[RightIndex]:=TempIndex;
+        // Bubble-Sort style paritioning?
+        LeftIndex:=FillStackItem.FirstLeafNode;
+        RightIndex:=FillStackItem.FirstLeafNode+FillStackItem.CountLeafNodes;
+        LeftCount:=0;
+        RightCount:=0;
+        while LeftIndex<RightIndex do begin
+         Center:=@fNodeCenters[fLeafNodes[LeftIndex]];
+         if Center.xyz[SplitAxis]<=SplitValue then begin
+          inc(LeftIndex);
+          inc(LeftCount);
+         end else begin
+          dec(RightIndex);
+          inc(RightCount);
+          TempIndex:=fLeafNodes[LeftIndex];
+          fLeafNodes[LeftIndex]:=fLeafNodes[RightIndex];
+          fLeafNodes[RightIndex]:=TempIndex;
+         end;
         end;
-       end;
 {$endif}
+
+       end;
 
        MinPerSubTree:=(TKraftInt64(FillStackItem.CountLeafNodes+1)*341) shr 10;
        if (LeftCount=0) or
