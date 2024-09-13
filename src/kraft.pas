@@ -21142,7 +21142,7 @@ begin
 
        fNodes^[NodeIndex].AABB:=AABB;
 
-       if false then begin
+       if true then begin
 
         // SAH
 
@@ -21190,7 +21190,7 @@ begin
          Center:=@fNodeCenters[fLeafNodes[FillStackItem.FirstLeafNode+Index]];
          BinIndex:=Min(Max(trunc((((Center^.xyz[SplitAxis]-MinCenterValue)*InvD))*CountBins),0),CountBins-1);
          fNodeBinIndices[fLeafNodes[FillStackItem.FirstLeafNode+Index]]:=BinIndex;
-         Bin:=@Bins[Index];
+         Bin:=@Bins[BinIndex];
          inc(Bin^.Count);
          AABBDirectCombine(Bin^.AABB,fNodes^[fLeafNodes[FillStackItem.FirstLeafNode+Index]].AABB);
         end;
@@ -21249,6 +21249,11 @@ begin
         end;
         LeftCount:=LeftIndex-FillStackItem.FirstLeafNode;
         RightCount:=FillStackItem.CountLeafNodes-LeftCount;
+
+        if (LeftCount=0) or (RightCount=0) then begin
+         LeftCount:=(FillStackItem.CountLeafNodes+1) shr 1;
+         RightCount:=FillStackItem.CountLeafNodes-LeftCount;
+        end;
 
        end else begin
 
@@ -21341,14 +21346,15 @@ begin
         end;
 {$endif}
 
-       end;
+        MinPerSubTree:=(TKraftInt64(FillStackItem.CountLeafNodes+1)*341) shr 10;
+        if (LeftCount=0) or
+           (RightCount=0) or
+           (LeftCount<=MinPerSubTree) or
+           (RightCount<=MinPerSubTree) then begin
+         LeftCount:=(FillStackItem.CountLeafNodes+1) shr 1;
+         RightCount:=FillStackItem.CountLeafNodes-LeftCount;
+        end;
 
-       MinPerSubTree:=(TKraftInt64(FillStackItem.CountLeafNodes+1)*341) shr 10;
-       if (LeftCount=0) or
-          (RightCount=0) or
-          (LeftCount<=MinPerSubTree) or
-          (RightCount<=MinPerSubTree) then begin
-        LeftCount:=(FillStackItem.CountLeafNodes+1) shr 1;
        end;
 
        if (LeftCount>0) and (LeftCount<FillStackItem.CountLeafNodes) then begin
