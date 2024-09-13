@@ -21473,11 +21473,7 @@ begin
  if fRebuildDirty or aForce then begin
   fRebuildDirty:=false;
   if fProxyCount>0 then begin
-   if fProxyCount<16 then begin
-    RebuildBottomUp;
-   end else begin
-    RebuildTopDown(aFull);
-   end;
+   RebuildTopDown(aFull);
  //Assert(Validate);
   end;
  end;
