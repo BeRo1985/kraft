@@ -11159,6 +11159,16 @@ begin
  AABB.Max.z:=Max(AABB.Max.z,WithAABB.Max.z);
 end;
 
+procedure AABBDirectCombineVector3(var AABB:TKraftAABB;const WithVector:TKraftVector3);
+begin
+ AABB.Min.x:=Min(AABB.Min.x,WithVector.x);
+ AABB.Min.y:=Min(AABB.Min.y,WithVector.y);
+ AABB.Min.z:=Min(AABB.Min.z,WithVector.z);
+ AABB.Max.x:=Max(AABB.Max.x,WithVector.x);
+ AABB.Max.y:=Max(AABB.Max.y,WithVector.y);
+ AABB.Max.z:=Max(AABB.Max.z,WithVector.z);
+end;
+
 function AABBCombine(const AABB,WithAABB:TKraftAABB):TKraftAABB;
 begin
  result.Min.x:=Min(AABB.Min.x,WithAABB.Min.x);
@@ -20972,7 +20982,7 @@ type TFillStackItem=record
 var Count,Index,MinPerSubTree,ParentIndex,NodeIndex,SplitAxis,TempIndex,
     LeftIndex,RightIndex,LeftCount,RightCount:TKraftSizeint;
     SplitValue:TKraftScalar;
-    AABB:TKraftAABB;
+    AABB,CentroidAABB:TKraftAABB;
     Center:PKraftVector3;
     VarianceX,VarianceY,VarianceZ,MeanX,MeanY,MeanZ:Double;
     FillStack:TFillStack;
@@ -21104,48 +21114,66 @@ begin
 
        fNodes^[NodeIndex].AABB:=AABB;
 
-       MeanX:=0.0;
-       MeanY:=0.0;
-       MeanZ:=0.0;
-       for Index:=0 to FillStackItem.CountLeafNodes-1 do begin
-        Center:=@fNodes^[fLeafNodes[FillStackItem.FirstLeafNode+Index]];
-        MeanX:=MeanX+Center^.x;
-        MeanY:=MeanY+Center^.y;
-        MeanZ:=MeanZ+Center^.z;
-       end;
-       MeanX:=MeanX/FillStackItem.CountLeafNodes;
-       MeanY:=MeanY/FillStackItem.CountLeafNodes;
-       MeanZ:=MeanZ/FillStackItem.CountLeafNodes;
+       if false then begin
 
-       VarianceX:=0.0;
-       VarianceY:=0.0;
-       VarianceZ:=0.0;
-       for Index:=0 to FillStackItem.CountLeafNodes-1 do begin
-        Center:=@fNodes^[fLeafNodes[FillStackItem.FirstLeafNode+Index]];
-        VarianceX:=VarianceX+sqr(Center^.x-MeanX);
-        VarianceY:=VarianceY+sqr(Center^.y-MeanY);
-        VarianceZ:=VarianceZ+sqr(Center^.z-MeanZ);
-       end;
-       VarianceX:=VarianceX/FillStackItem.CountLeafNodes;
-       VarianceY:=VarianceY/FillStackItem.CountLeafNodes;
-       VarianceZ:=VarianceZ/FillStackItem.CountLeafNodes;
+        // SAH
 
-       if VarianceX<VarianceY then begin
-        if VarianceY<VarianceZ then begin
-         SplitAxis:=2;
-         SplitValue:=MeanZ;
-        end else begin
-         SplitAxis:=1;
-         SplitValue:=MeanY;
+        Center:=@fNodeCenters[fLeafNodes[FillStackItem.FirstLeafNode]];
+        CentroidAABB.Min:=Center^;
+        CentroidAABB.Max:=Center^;
+        for Index:=0 to FillStackItem.CountLeafNodes-1 do begin
+         Center:=@fNodeCenters[fLeafNodes[FillStackItem.FirstLeafNode+Index]];
+         AABBDirectCombineVector3(CentroidAABB,Center^);
         end;
+
        end else begin
-        if VarianceX<VarianceZ then begin
-         SplitAxis:=2;
-         SplitValue:=MeanZ;
-        end else begin
-         SplitAxis:=0;
-         SplitValue:=MeanX;
+
+        // Mean Variance
+
+        MeanX:=0.0;
+        MeanY:=0.0;
+        MeanZ:=0.0;
+        for Index:=0 to FillStackItem.CountLeafNodes-1 do begin
+         Center:=@fNodeCenters[fLeafNodes[FillStackItem.FirstLeafNode+Index]];
+         MeanX:=MeanX+Center^.x;
+         MeanY:=MeanY+Center^.y;
+         MeanZ:=MeanZ+Center^.z;
         end;
+        MeanX:=MeanX/FillStackItem.CountLeafNodes;
+        MeanY:=MeanY/FillStackItem.CountLeafNodes;
+        MeanZ:=MeanZ/FillStackItem.CountLeafNodes;
+
+        VarianceX:=0.0;
+        VarianceY:=0.0;
+        VarianceZ:=0.0;
+        for Index:=0 to FillStackItem.CountLeafNodes-1 do begin
+         Center:=@fNodeCenters[fLeafNodes[FillStackItem.FirstLeafNode+Index]];
+         VarianceX:=VarianceX+sqr(Center^.x-MeanX);
+         VarianceY:=VarianceY+sqr(Center^.y-MeanY);
+         VarianceZ:=VarianceZ+sqr(Center^.z-MeanZ);
+        end;
+        VarianceX:=VarianceX/FillStackItem.CountLeafNodes;
+        VarianceY:=VarianceY/FillStackItem.CountLeafNodes;
+        VarianceZ:=VarianceZ/FillStackItem.CountLeafNodes;
+
+        if VarianceX<VarianceY then begin
+         if VarianceY<VarianceZ then begin
+          SplitAxis:=2;
+          SplitValue:=MeanZ;
+         end else begin
+          SplitAxis:=1;
+          SplitValue:=MeanY;
+         end;
+        end else begin
+         if VarianceX<VarianceZ then begin
+          SplitAxis:=2;
+          SplitValue:=MeanZ;
+         end else begin
+          SplitAxis:=0;
+          SplitValue:=MeanX;
+         end;
+        end;
+
        end;
 
 {$define TKraftDynamicAABBTreeRebuildTopDownQuickSortStylePartitioning}
