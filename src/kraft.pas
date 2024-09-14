@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2024-09-14-11-28-0000                       *
+ *                        Version 2024-09-14-11-36-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -2750,9 +2750,6 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
       private
 
        fPhysics:TKraft;
-
-       fStack:array[0..MAX_THREADS-1] of PKraftDynamicAABBTreeLongintArray;
-       fStackCapacity:array[0..MAX_THREADS-1] of TKraftInt32;
 
        fContactPairs:array[0..MAX_THREADS-1] of TKraftBroadPhaseContactPairs;
        fCountContactPairs:array[0..MAX_THREADS-1] of TKraftInt32;
@@ -38010,14 +38007,6 @@ begin
 
  for ThreadIndex:=0 to MAX_THREADS-1 do begin
 
-  if ThreadIndex<CountThreads then begin
-   fStackCapacity[ThreadIndex]:=16;
-   GetMem(fStack[ThreadIndex],fStackCapacity[ThreadIndex]*SizeOf(TKraftInt32));
-  end else begin
-   fStack[ThreadIndex]:=nil;
-   fStackCapacity[ThreadIndex]:=0;
-  end;
-
   fContactPairs[ThreadIndex]:=nil;
   if ThreadIndex<CountThreads then begin
    SetLength(fContactPairs[ThreadIndex],4096);
@@ -38040,10 +38029,6 @@ destructor TKraftBroadPhase.Destroy;
 var ThreadIndex:TKraftInt32;
 begin
  for ThreadIndex:=0 to MAX_THREADS-1 do begin
-  if assigned(fStack[ThreadIndex]) then begin
-   FreeMem(fStack[ThreadIndex]);
-   fStack[ThreadIndex]:=nil;
-  end;
   SetLength(fContactPairs[ThreadIndex],0);
  end;
  FreeAndNil(fStaticMoveBuffer);
@@ -38083,41 +38068,39 @@ begin
 end;
 
 procedure TKraftBroadPhase.QueryShapeWithTree(const ThreadIndex:TKraftInt32;const Shape:TKraftShape;const AABBTree:TKraftDynamicAABBTree);
+type TStack=TKraftDynamicFastNonRTTIStack<TKraftInt32>;
 var ShapeAABB:PKraftAABB;
-    LocalStack:PKraftDynamicAABBTreeLongintArray;
-    LocalStackPointer,NodeID:TKraftInt32;
+    Stack:TStack;
+    NodeID:TKraftInt32;
     Node:PKraftDynamicAABBTreeNode;
     OtherShape:TKraftShape;
 begin
  if assigned(Shape) and assigned(AABBTree) and (AABBTree.fRoot>=0) then begin
-  ShapeAABB:=Shape.ProxyFatWorldAABB;
-  LocalStack:=fStack[ThreadIndex];
-  LocalStack^[0]:=AABBTree.fRoot;
-  LocalStackPointer:=1;
-  while LocalStackPointer>0 do begin
-   dec(LocalStackPointer);
-   NodeID:=LocalStack^[LocalStackPointer];
-   if NodeID>=0 then begin
-    Node:=@AABBTree.fNodes[NodeID];
-    if AABBIntersect(Node^.AABB,ShapeAABB^) then begin
-     if Node^.Children[0]<0 then begin
-      OtherShape:=Node^.UserData;
-      if assigned(OtherShape) and (Shape<>OtherShape) then begin
-       AddPair(ThreadIndex,Shape,OtherShape);
+  Stack.Initialize;
+//try
+   ShapeAABB:=Shape.ProxyFatWorldAABB;
+   Stack.Push(AABBTree.fRoot);
+   while Stack.Pop(NodeID) do begin
+    while NodeID>=0 do begin
+     Node:=@AABBTree.fNodes[NodeID];
+     if AABBIntersect(Node^.AABB,ShapeAABB^) then begin
+      if Node^.Children[0]<0 then begin
+       OtherShape:=Node^.UserData;
+       if assigned(OtherShape) and (Shape<>OtherShape) then begin
+        AddPair(ThreadIndex,Shape,OtherShape);
+       end;
+      end else begin
+       Stack.Push(Node^.Children[1]);
+       NodeID:=Node^.Children[0];
+       continue;
       end;
-     end else begin
-      if fStackCapacity[ThreadIndex]<=(LocalStackPointer+2) then begin
-       fStackCapacity[ThreadIndex]:=RoundUpToPowerOfTwo(LocalStackPointer+2);
-       ReallocMem(fStack[ThreadIndex],fStackCapacity[ThreadIndex]*SizeOf(TKraftInt32));
-       LocalStack:=fStack[ThreadIndex];
-      end;
-      LocalStack^[LocalStackPointer+0]:=Node^.Children[0];
-      LocalStack^[LocalStackPointer+1]:=Node^.Children[1];
-      inc(LocalStackPointer,2);
      end;
+     break;
     end;
    end;
-  end;
+//finally
+   Stack.Finalize;
+//end;
  end;
 end;
 
