@@ -46637,74 +46637,41 @@ begin
  end;
 end;
 
-{$ifndef KraftSingleThreadedUsage}
-type TKraftRayCastProcessNodeData=record
-      CollisionGroups:TKraftRigidBodyCollisionGroups;
-      Point:TKraftVector3;
-      Normal:TKraftVector3;
-      MaxTime:TKraftScalar;
-      Time:TKraftScalar;
-      OnRayCastFilterHook:TKraftOnRayCastFilterHook;
-      AABBTree:TKraftDynamicAABBTree;
-      Shape:TKraftShape;
-      Hit:boolean;
-      RayCastData:TKraftRayCastData;
-     end;
-     PKraftRayCastProcessNodeData=^TKraftRayCastProcessNodeData;
-
-procedure TKraftRayCastProcessNode(const aData:PKraftRayCastProcessNodeData;aNodeID:TKraftInt32);
-var Node:PKraftDynamicAABBTreeNode;
-    CurrentShape:TKraftShape;
-begin
- while aNodeID>=0 do begin
-  Node:=@aData.AABBTree.fNodes[aNodeID];
-  if AABBRayIntersect(Node^.AABB,aData^.RayCastData.Origin,aData^.RayCastData.Direction) then begin
-   if Node^.Children[0]<0 then begin
-    CurrentShape:=Node^.UserData;
-    aData^.RayCastData.MaxTime:=aData^.MaxTime;
-    if (assigned(CurrentShape) and (assigned(CurrentShape.fRigidBody) and ((CurrentShape.fRigidBody.fCollisionGroups*aData^.CollisionGroups)<>[]))) and CurrentShape.RayCast(aData^.RayCastData) then begin
-     if (assigned(aData^.OnRayCastFilterHook) and aData^.OnRayCastFilterHook(aData^.RayCastData.Point,aData^.RayCastData.Normal,aData^.RayCastData.TimeOfImpact,CurrentShape)) or not assigned(aData^.OnRayCastFilterHook) then begin
-      if (aData^.Hit and (aData^.RayCastData.TimeOfImpact<aData^.Time)) or not aData^.Hit then begin
-       aData^.Hit:=true;
-       aData^.Time:=aData^.RayCastData.TimeOfImpact;
-       aData^.Point:=aData^.RayCastData.Point;
-       aData^.Normal:=aData^.RayCastData.Normal;
-       aData^.Shape:=CurrentShape;
-      end;
-     end;
-    end;
-   end else begin
-    TKraftRayCastProcessNode(aData,Node^.Children[0]);
-    aNodeID:=Node^.Children[1];
-    continue;
-   end;
-  end;
-  break;
- end;
-end;
-
-{$endif}
-
 function TKraft.RayCast(const aOrigin,aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnRayCastFilterHook:TKraftOnRayCastFilterHook=nil):boolean;
-{$ifdef KraftSingleThreadedUsage}
-var Hit:boolean;
- procedure QueryTree(aAABBTree:TKraftDynamicAABBTree);
- var LocalStack:PKraftDynamicAABBTreeLongintArray;
-     LocalStackPointer,NodeID:TKraftInt32;
-     Node:PKraftDynamicAABBTreeNode;
-     CurrentShape:TKraftShape;
-     RayCastData:TKraftRaycastData;
- begin
-  if assigned(aAABBTree) then begin
-   if aAABBTree.fRoot>=0 then begin
-    LocalStack:=aAABBTree.fStack;
-    LocalStack^[0]:=aAABBTree.fRoot;
-    LocalStackPointer:=1;
-    while LocalStackPointer>0 do begin
-     dec(LocalStackPointer);
-     NodeID:=LocalStack^[LocalStackPointer];
+type TStack=TKraftDynamicFastNonRTTIStack<TKraftInt32>;
+var AABBTreeIndex:TKraftInt32;
+    AABBTree:TKraftDynamicAABBTree;
+    Stack:TStack;
+    NodeID:TKraftInt32;
+    Node:PKraftDynamicAABBTreeNode;
+    CurrentShape:TKraftShape;
+    RayCastData:TKraftRaycastData;
+begin
+ result:=false;
+ aTime:=aMaxTime;
+ Stack.Initialize;
+ try
+  for AABBTreeIndex:=0 to 3 do begin
+   case AABBTreeIndex of
+    0:begin
+     AABBTree:=fStaticAABBTree;
+    end;
+    1:begin
+     AABBTree:=fSleepingAABBTree;
+    end;
+    2:begin
+     AABBTree:=fDynamicAABBTree;
+    end;
+    else begin
+     AABBTree:=fKinematicAABBTree;
+    end;
+   end;
+   if assigned(AABBTree) and (AABBTree.fRoot>=0) then begin
+    Stack.Clear;
+    Stack.Push(AABBTree.fRoot);
+    while Stack.Pop(NodeID) do begin
      if NodeID>=0 then begin
-      Node:=@aAABBTree.fNodes[NodeID];
+      Node:=@AABBTree.fNodes[NodeID];
       if AABBRayIntersect(Node^.AABB,aOrigin,aDirection) then begin
        if Node^.Children[0]<0 then begin
         CurrentShape:=Node^.UserData;
@@ -46713,8 +46680,8 @@ var Hit:boolean;
         RayCastData.MaxTime:=aMaxTime;
         if (assigned(CurrentShape) and (assigned(CurrentShape.fRigidBody) and ((CurrentShape.fRigidBody.fCollisionGroups*aCollisionGroups)<>[]))) and CurrentShape.RayCast(RayCastData) then begin
          if (assigned(aOnRayCastFilterHook) and aOnRayCastFilterHook(RayCastData.Point,RayCastData.Normal,RayCastData.TimeOfImpact,CurrentShape)) or not assigned(aOnRayCastFilterHook) then begin
-          if (Hit and (RayCastData.TimeOfImpact<aTime)) or not Hit then begin
-           Hit:=true;
+          if (result and (RayCastData.TimeOfImpact<aTime)) or not result then begin
+           result:=true;
            aTime:=RayCastData.TimeOfImpact;
            aPoint:=RayCastData.Point;
            aNormal:=RayCastData.Normal;
@@ -46723,69 +46690,18 @@ var Hit:boolean;
          end;
         end;
        end else begin
-        if aAABBTree.fStackCapacity<=(LocalStackPointer+2) then begin
-         aAABBTree.fStackCapacity:=RoundUpToPowerOfTwo(LocalStackPointer+2);
-         ReallocMem(aAABBTree.fStack,aAABBTree.fStackCapacity*SizeOf(TKraftInt32));
-         LocalStack:=aAABBTree.fStack;
-        end;
-        LocalStack^[LocalStackPointer+0]:=Node^.Children[0];
-        LocalStack^[LocalStackPointer+1]:=Node^.Children[1];
-        inc(LocalStackPointer,2);
+        Stack.Push(Node^.Children[0]);
+        Stack.Push(Node^.Children[1]);
        end;
       end;
      end;
     end;
    end;
   end;
- end;
-begin
- Hit:=false;
- aTime:=aMaxTime;
- QueryTree(fStaticAABBTree);
- QueryTree(fSleepingAABBTree);
- QueryTree(fDynamicAABBTree);
- QueryTree(fKinematicAABBTree);
- result:=Hit;
-end;
-{$else}
-var Data:TKraftRayCastProcessNodeData;
-begin
- Data.CollisionGroups:=aCollisionGroups;
- Data.RayCastData.Origin:=aOrigin;
- Data.RayCastData.Direction:=aDirection;
- Data.Point:=Vector3Origin;
- Data.Normal:=Vector3Origin;
- Data.MaxTime:=aMaxTime;
- Data.Time:=aMaxTime;
- Data.OnRayCastFilterHook:=aOnRayCastFilterHook;
- Data.AABBTree:=nil;
- Data.Shape:=nil;
- Data.Hit:=false;
- begin
-  Data.AABBTree:=fStaticAABBTree;
-  TKraftRayCastProcessNode(@Data,fStaticAABBTree.fRoot);
- end;
- begin
-  Data.AABBTree:=fSleepingAABBTree;
-  TKraftRayCastProcessNode(@Data,fSleepingAABBTree.fRoot);
- end;
- begin
-  Data.AABBTree:=fDynamicAABBTree;
-  TKraftRayCastProcessNode(@Data,fDynamicAABBTree.fRoot);
- end;
- begin
-  Data.AABBTree:=fKinematicAABBTree;
-  TKraftRayCastProcessNode(@Data,fKinematicAABBTree.fRoot);
- end;
- result:=Data.Hit;
- if result then begin
-  aShape:=Data.Shape;
-  aTime:=Data.Time;
-  aPoint:=Data.Point;
-  aNormal:=Data.Normal;
+ finally
+  Stack.Finalize;
  end;
 end;
-{$endif}
 
 function TKraft.RayCast(const aSource,aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnRayCastFilterHook:TKraftOnRayCastFilterHook):boolean;
 var Len:TKraftScalar;
