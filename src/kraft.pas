@@ -46580,118 +46580,62 @@ begin
 
 end;
 
-{$ifndef KraftSingleThreadedUsage}
-type TKraftTestPointProcessNodeData=record
-      Hit:TKraftShape;
-      AABBTree:TKraftDynamicAABBTree;
-      Point:PKraftVector3;
-     end;
-     PKraftTestPointProcessNodeData=^TKraftTestPointProcessNodeData;
-
-procedure TKraftTestPointProcessNode(const aData:PKraftTestPointProcessNodeData;aNodeID:TKraftInt32);
-var Node:PKraftDynamicAABBTreeNode;
+function TKraft.TestPoint(const aPoint:TKraftVector3):TKraftShape;
+type TStack=TKraftDynamicFastNonRTTIStack<TKraftInt32>;
+var AABBTreeIndex:TKraftInt32;
+    AABBTree:TKraftDynamicAABBTree;
+    Stack:TStack;
+    NodeID:TKraftInt32;
+    Node:PKraftDynamicAABBTreeNode;
     CurrentShape:TKraftShape;
 begin
- while (aNodeID>=0) and not assigned(aData^.Hit) do begin
-  Node:=@aData^.AABBTree.fNodes[aNodeID];
-  if AABBContains(Node^.AABB,aData^.Point^) then begin
-   if Node^.Children[0]<0 then begin
-    CurrentShape:=Node^.UserData;
-    if assigned(CurrentShape) and CurrentShape.TestPoint(aData.Point^) then begin
-     aData^.Hit:=CurrentShape;
-     exit;
+ result:=nil;
+ Stack.Initialize;
+ try
+  for AABBTreeIndex:=0 to 3 do begin
+   case AABBTreeIndex of
+    0:begin
+     AABBTree:=fStaticAABBTree;
     end;
-   end else begin
-    TKraftTestPointProcessNode(aData,Node^.Children[0]);
-    aNodeID:=Node^.Children[1];
-    continue;
+    1:begin
+     AABBTree:=fSleepingAABBTree;
+    end;
+    2:begin
+     AABBTree:=fDynamicAABBTree;
+    end;
+    else begin
+     AABBTree:=fKinematicAABBTree;
+    end;
    end;
-  end;
-  break;
- end;
-end;
-{$endif}
-
-function TKraft.TestPoint(const aPoint:TKraftVector3):TKraftShape;
-{$ifdef KraftSingleThreadedUsage}
-var Hit:TKraftShape;
- procedure QueryTree(aAABBTree:TKraftDynamicAABBTree);
- var LocalStack:PKraftDynamicAABBTreeLongintArray;
-     LocalStackPointer,NodeID:TKraftInt32;
-     Node:PKraftDynamicAABBTreeNode;
-     CurrentShape:TKraftShape;
- begin
-  if assigned(aAABBTree) then begin
-   if aAABBTree.fRoot>=0 then begin
-    LocalStack:=aAABBTree.fStack;
-    LocalStack^[0]:=aAABBTree.fRoot;
-    LocalStackPointer:=1;
-    while LocalStackPointer>0 do begin
-     dec(LocalStackPointer);
-     NodeID:=LocalStack^[LocalStackPointer];
+   if assigned(AABBTree) and (AABBTree.fRoot>=0) then begin
+    Stack.Clear;
+    Stack.Push(AABBTree.fRoot);
+    while Stack.Pop(NodeID) do begin
      if NodeID>=0 then begin
-      Node:=@aAABBTree.fNodes[NodeID];
+      Node:=@AABBTree.fNodes[NodeID];
       if AABBContains(Node^.AABB,aPoint) then begin
        if Node^.Children[0]<0 then begin
         CurrentShape:=Node^.UserData;
         if assigned(CurrentShape) and CurrentShape.TestPoint(aPoint) then begin
-         Hit:=CurrentShape;
-         exit;
+         result:=CurrentShape;
+         break;
         end;
        end else begin
-        if aAABBTree.fStackCapacity<=(LocalStackPointer+2) then begin
-         aAABBTree.fStackCapacity:=RoundUpToPowerOfTwo(LocalStackPointer+2);
-         ReallocMem(aAABBTree.fStack,aAABBTree.fStackCapacity*SizeOf(TKraftInt32));
-         LocalStack:=aAABBTree.fStack;
-        end;
-        LocalStack^[LocalStackPointer+0]:=Node^.Children[0];
-        LocalStack^[LocalStackPointer+1]:=Node^.Children[1];
-        inc(LocalStackPointer,2);
+        Stack.Push(Node^.Children[0]);
+        Stack.Push(Node^.Children[1]);
        end;
       end;
      end;
     end;
    end;
+   if assigned(result) then begin
+    exit;
+   end;
   end;
+ finally
+  Stack.Finalize;
  end;
-begin
- Hit:=nil;
- QueryTree(fStaticAABBTree);
- if not assigned(Hit) then begin
-  QueryTree(fSleepingAABBTree);
- end;
- if not assigned(Hit) then begin
-  QueryTree(fDynamicAABBTree);
- end;
- if not assigned(Hit) then begin
-  QueryTree(fKinematicAABBTree);
- end;
- result:=Hit;
 end;
-{$else}
-var Data:TKraftTestPointProcessNodeData;
-begin
- Data.Hit:=nil;
- Data.Point:=@aPoint;
- begin
-  Data.AABBTree:=fStaticAABBTree;
-  TKraftTestPointProcessNode(@Data,fStaticAABBTree.fRoot);
- end;
- if not assigned(Data.Hit) then begin
-  Data.AABBTree:=fSleepingAABBTree;
-  TKraftTestPointProcessNode(@Data,fSleepingAABBTree.fRoot);
- end;
- if not assigned(Data.Hit) then begin
-  Data.AABBTree:=fDynamicAABBTree;
-  TKraftTestPointProcessNode(@Data,fDynamicAABBTree.fRoot);
- end;
- if not assigned(Data.Hit) then begin
-  Data.AABBTree:=fKinematicAABBTree;
-  TKraftTestPointProcessNode(@Data,fKinematicAABBTree.fRoot);
- end;
- result:=Data.Hit;
-end;
-{$endif}
 
 {$ifndef KraftSingleThreadedUsage}
 type TKraftRayCastProcessNodeData=record
