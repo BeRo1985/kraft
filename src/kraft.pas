@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2024-09-13-13-39-0000                       *
+ *                        Version 2024-09-14-11-28-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -21183,8 +21183,8 @@ begin
 
     end else if Node^.Height>0 then begin
 
-     NodeStack.Push(Node^.Children[0]);
      NodeStack.Push(Node^.Children[1]);
+     NodeStack.Push(Node^.Children[0]);
 
      FreeNode(Index);
 
@@ -21520,15 +21520,15 @@ begin
        if (LeftCount>0) and (LeftCount<FillStackItem.CountLeafNodes) then begin
 
         NewFillStackItem.Parent:=NodeIndex;
-        NewFillStackItem.Which:=0;
-        NewFillStackItem.FirstLeafNode:=FillStackItem.FirstLeafNode;
-        NewFillStackItem.CountLeafNodes:=LeftCount;
-        FillStack.Push(NewFillStackItem);
-
-        NewFillStackItem.Parent:=NodeIndex;
         NewFillStackItem.Which:=1;
         NewFillStackItem.FirstLeafNode:=FillStackItem.FirstLeafNode+LeftCount;
         NewFillStackItem.CountLeafNodes:=FillStackItem.CountLeafNodes-LeftCount;
+        FillStack.Push(NewFillStackItem);
+
+        NewFillStackItem.Parent:=NodeIndex;
+        NewFillStackItem.Which:=0;
+        NewFillStackItem.FirstLeafNode:=FillStackItem.FirstLeafNode;
+        NewFillStackItem.CountLeafNodes:=LeftCount;
         FillStack.Push(NewFillStackItem);
 
        end;
@@ -21720,7 +21720,7 @@ begin
       NewStackItem.NodeID:=Node^.Children[1];
       NewStackItem.Parent:=StackItem.NodeID;
       NewStackItem:=pointer(Stack.PushIndirect);
-      NewStackItem.NodeID:=Node^.Children[1];
+      NewStackItem.NodeID:=Node^.Children[0];
       NewStackItem.Parent:=StackItem.NodeID;
      end;
     end else begin
@@ -29648,26 +29648,26 @@ begin
        SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fTreeNodes[Node^.FirstLeftChild].AABB,Position);
        SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fTreeNodes[Node^.FirstLeftChild+1].AABB,Position);
        if SquaredDistances[0]<SquaredDistances[1] then begin
-        if (SquaredDistances[0]-SquaredThicknessEpsilon)<result then begin
-         NewStackItem:=pointer(Stack.PushIndirect);
-         NewStackItem^.NodeIndex:=Node^.FirstLeftChild;
-         NewStackItem^.SquaredDistance:=SquaredDistances[0];
-        end;
         if (SquaredDistances[1]-SquaredThicknessEpsilon)<result then begin
          NewStackItem:=pointer(Stack.PushIndirect);
          NewStackItem^.NodeIndex:=Node^.FirstLeftChild+1;
          NewStackItem^.SquaredDistance:=SquaredDistances[1];
+        end;
+        if (SquaredDistances[0]-SquaredThicknessEpsilon)<result then begin
+         NewStackItem:=pointer(Stack.PushIndirect);
+         NewStackItem^.NodeIndex:=Node^.FirstLeftChild;
+         NewStackItem^.SquaredDistance:=SquaredDistances[0];
         end;
        end else begin
-        if (SquaredDistances[1]-SquaredThicknessEpsilon)<result then begin
-         NewStackItem:=pointer(Stack.PushIndirect);
-         NewStackItem^.NodeIndex:=Node^.FirstLeftChild+1;
-         NewStackItem^.SquaredDistance:=SquaredDistances[1];
-        end;
         if (SquaredDistances[0]-SquaredThicknessEpsilon)<result then begin
          NewStackItem:=pointer(Stack.PushIndirect);
          NewStackItem^.NodeIndex:=Node^.FirstLeftChild;
          NewStackItem^.SquaredDistance:=SquaredDistances[0];
+        end;
+        if (SquaredDistances[1]-SquaredThicknessEpsilon)<result then begin
+         NewStackItem:=pointer(Stack.PushIndirect);
+         NewStackItem^.NodeIndex:=Node^.FirstLeftChild+1;
+         NewStackItem^.SquaredDistance:=SquaredDistances[1];
         end;
        end;
       end;
@@ -29738,26 +29738,26 @@ begin
        SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fTreeNodes[Node^.FirstLeftChild].AABB,Position);
        SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fTreeNodes[Node^.FirstLeftChild+1].AABB,Position);
        if SquaredDistances[0]<SquaredDistances[1] then begin
-        if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
-         NewStackItem:=pointer(Stack.PushIndirect);
-         NewStackItem^.NodeIndex:=Node^.FirstLeftChild;
-         NewStackItem^.SquaredDistance:=SquaredDistances[0];
-        end;
         if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
          NewStackItem:=pointer(Stack.PushIndirect);
          NewStackItem^.NodeIndex:=Node^.FirstLeftChild+1;
          NewStackItem^.SquaredDistance:=SquaredDistances[1];
+        end;
+        if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
+         NewStackItem:=pointer(Stack.PushIndirect);
+         NewStackItem^.NodeIndex:=Node^.FirstLeftChild;
+         NewStackItem^.SquaredDistance:=SquaredDistances[0];
         end;
        end else begin
-        if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
-         NewStackItem:=pointer(Stack.PushIndirect);
-         NewStackItem^.NodeIndex:=Node^.FirstLeftChild+1;
-         NewStackItem^.SquaredDistance:=SquaredDistances[1];
-        end;
         if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
          NewStackItem:=pointer(Stack.PushIndirect);
          NewStackItem^.NodeIndex:=Node^.FirstLeftChild;
          NewStackItem^.SquaredDistance:=SquaredDistances[0];
+        end;
+        if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
+         NewStackItem:=pointer(Stack.PushIndirect);
+         NewStackItem^.NodeIndex:=Node^.FirstLeftChild+1;
+         NewStackItem^.SquaredDistance:=SquaredDistances[1];
         end;
        end;
       end;
@@ -29844,26 +29844,26 @@ begin
        SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fTreeNodes[Node^.FirstLeftChild].AABB,Position);
        SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fTreeNodes[Node^.FirstLeftChild+1].AABB,Position);
        if SquaredDistances[0]<SquaredDistances[1] then begin
-        if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
-         NewStackItem:=pointer(Stack.PushIndirect);
-         NewStackItem^.NodeIndex:=Node^.FirstLeftChild;
-         NewStackItem^.SquaredDistance:=SquaredDistances[0];
-        end;
         if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
          NewStackItem:=pointer(Stack.PushIndirect);
          NewStackItem^.NodeIndex:=Node^.FirstLeftChild+1;
          NewStackItem^.SquaredDistance:=SquaredDistances[1];
+        end;
+        if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
+         NewStackItem:=pointer(Stack.PushIndirect);
+         NewStackItem^.NodeIndex:=Node^.FirstLeftChild;
+         NewStackItem^.SquaredDistance:=SquaredDistances[0];
         end;
        end else begin
-        if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
-         NewStackItem:=pointer(Stack.PushIndirect);
-         NewStackItem^.NodeIndex:=Node^.FirstLeftChild+1;
-         NewStackItem^.SquaredDistance:=SquaredDistances[1];
-        end;
         if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
          NewStackItem:=pointer(Stack.PushIndirect);
          NewStackItem^.NodeIndex:=Node^.FirstLeftChild;
          NewStackItem^.SquaredDistance:=SquaredDistances[0];
+        end;
+        if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
+         NewStackItem:=pointer(Stack.PushIndirect);
+         NewStackItem^.NodeIndex:=Node^.FirstLeftChild+1;
+         NewStackItem^.SquaredDistance:=SquaredDistances[1];
         end;
        end;
       end;
@@ -29950,26 +29950,26 @@ begin
        SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fTreeNodes[Node^.FirstLeftChild].AABB,Position);
        SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fTreeNodes[Node^.FirstLeftChild+1].AABB,Position);
        if SquaredDistances[0]<SquaredDistances[1] then begin
-        if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
-         NewStackItem:=pointer(Stack.PushIndirect);
-         NewStackItem^.NodeIndex:=Node^.FirstLeftChild;
-         NewStackItem^.SquaredDistance:=SquaredDistances[0];
-        end;
         if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
          NewStackItem:=pointer(Stack.PushIndirect);
          NewStackItem^.NodeIndex:=Node^.FirstLeftChild+1;
          NewStackItem^.SquaredDistance:=SquaredDistances[1];
+        end;
+        if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
+         NewStackItem:=pointer(Stack.PushIndirect);
+         NewStackItem^.NodeIndex:=Node^.FirstLeftChild;
+         NewStackItem^.SquaredDistance:=SquaredDistances[0];
         end;
        end else begin
-        if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
-         NewStackItem:=pointer(Stack.PushIndirect);
-         NewStackItem^.NodeIndex:=Node^.FirstLeftChild+1;
-         NewStackItem^.SquaredDistance:=SquaredDistances[1];
-        end;
         if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
          NewStackItem:=pointer(Stack.PushIndirect);
          NewStackItem^.NodeIndex:=Node^.FirstLeftChild;
          NewStackItem^.SquaredDistance:=SquaredDistances[0];
+        end;
+        if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
+         NewStackItem:=pointer(Stack.PushIndirect);
+         NewStackItem^.NodeIndex:=Node^.FirstLeftChild+1;
+         NewStackItem^.SquaredDistance:=SquaredDistances[1];
         end;
        end;
       end;
@@ -30052,26 +30052,26 @@ begin
        SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fTreeNodes[Node^.FirstLeftChild].AABB,Position);
        SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fTreeNodes[Node^.FirstLeftChild+1].AABB,Position);
        if SquaredDistances[0]<SquaredDistances[1] then begin
-        if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
-         NewStackItem:=pointer(Stack.PushIndirect);
-         NewStackItem^.NodeIndex:=Node^.FirstLeftChild;
-         NewStackItem^.SquaredDistance:=SquaredDistances[0];
-        end;
         if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
          NewStackItem:=pointer(Stack.PushIndirect);
          NewStackItem^.NodeIndex:=Node^.FirstLeftChild+1;
          NewStackItem^.SquaredDistance:=SquaredDistances[1];
+        end;
+        if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
+         NewStackItem:=pointer(Stack.PushIndirect);
+         NewStackItem^.NodeIndex:=Node^.FirstLeftChild;
+         NewStackItem^.SquaredDistance:=SquaredDistances[0];
         end;
        end else begin
-        if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
-         NewStackItem:=pointer(Stack.PushIndirect);
-         NewStackItem^.NodeIndex:=Node^.FirstLeftChild+1;
-         NewStackItem^.SquaredDistance:=SquaredDistances[1];
-        end;
         if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
          NewStackItem:=pointer(Stack.PushIndirect);
          NewStackItem^.NodeIndex:=Node^.FirstLeftChild;
          NewStackItem^.SquaredDistance:=SquaredDistances[0];
+        end;
+        if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
+         NewStackItem:=pointer(Stack.PushIndirect);
+         NewStackItem^.NodeIndex:=Node^.FirstLeftChild+1;
+         NewStackItem^.SquaredDistance:=SquaredDistances[1];
         end;
        end;
       end;
@@ -46621,8 +46621,8 @@ begin
          break;
         end;
        end else begin
-        Stack.Push(Node^.Children[0]);
-        NodeID:=Node^.Children[1];
+        Stack.Push(Node^.Children[1]);
+        NodeID:=Node^.Children[0];
         continue;
        end;
       end;
@@ -46692,8 +46692,8 @@ begin
          end;
         end;
        end else begin
-        Stack.Push(Node^.Children[0]);
-        NodeID:=Node^.Children[1];
+        Stack.Push(Node^.Children[1]);
+        NodeID:=Node^.Children[0];
         continue;
        end;
       end;
@@ -46771,8 +46771,8 @@ begin
          end;
         end;
        end else begin
-        Stack.Push(Node^.Children[0]);
-        NodeID:=Node^.Children[1];
+        Stack.Push(Node^.Children[1]);
+        NodeID:=Node^.Children[0];
         continue;
        end;
       end;
@@ -46841,8 +46841,8 @@ begin
          end;
         end;
        end else begin
-        Stack.Push(Node^.Children[0]);
-        NodeID:=Node^.Children[1];
+        Stack.Push(Node^.Children[1]);
+        NodeID:=Node^.Children[0];
         continue;
        end;
       end;
@@ -47388,8 +47388,8 @@ begin
           end;
          end;
         end else begin
-         Stack.Push(Node^.Children[0]);
-         NodeID:=Node^.Children[1];
+         Stack.Push(Node^.Children[1]);
+         NodeID:=Node^.Children[0];
          continue;
         end;
        end;
@@ -47646,8 +47646,8 @@ begin
             end;
            end;
           end else begin
-           Stack.Push(Node^.Children[0]);
-           NodeID:=Node^.Children[1];
+           Stack.Push(Node^.Children[1]);
+           NodeID:=Node^.Children[0];
            continue;
           end;
          end;
@@ -48764,8 +48764,8 @@ begin
        if Node^.Children[0]<0 then begin
         CollideShape(Node^.UserData);
        end else begin
-        Stack.Push(Node^.Children[0]);
-        NodeID:=Node^.Children[1];
+        Stack.Push(Node^.Children[1]);
+        NodeID:=Node^.Children[0];
         continue;
        end;
       end;
