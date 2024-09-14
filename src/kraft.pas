@@ -46610,8 +46610,8 @@ begin
    if assigned(AABBTree) and (AABBTree.fRoot>=0) then begin
     Stack.Clear;
     Stack.Push(AABBTree.fRoot);
-    while Stack.Pop(NodeID) do begin
-     if NodeID>=0 then begin
+    while Stack.Pop(NodeID) and not assigned(result) do begin
+     while (NodeID>=0) and not assigned(result) do begin
       Node:=@AABBTree.fNodes[NodeID];
       if AABBContains(Node^.AABB,aPoint) then begin
        if Node^.Children[0]<0 then begin
@@ -46622,9 +46622,11 @@ begin
         end;
        end else begin
         Stack.Push(Node^.Children[0]);
-        Stack.Push(Node^.Children[1]);
+        NodeID:=Node^.Children[1];
+        continue;
        end;
       end;
+      break;
      end;
     end;
    end;
@@ -46670,7 +46672,7 @@ begin
     Stack.Clear;
     Stack.Push(AABBTree.fRoot);
     while Stack.Pop(NodeID) do begin
-     if NodeID>=0 then begin
+     while NodeID>=0 do begin
       Node:=@AABBTree.fNodes[NodeID];
       if AABBRayIntersect(Node^.AABB,aOrigin,aDirection) then begin
        if Node^.Children[0]<0 then begin
@@ -46691,9 +46693,11 @@ begin
         end;
        end else begin
         Stack.Push(Node^.Children[0]);
-        Stack.Push(Node^.Children[1]);
+        NodeID:=Node^.Children[1];
+        continue;
        end;
       end;
+      break;
      end;
     end;
    end;
@@ -46746,7 +46750,7 @@ begin
     Stack.Clear;
     Stack.Push(AABBTree.fRoot);
     while Stack.Pop(NodeID) do begin
-     if NodeID>=0 then begin
+     while NodeID>=0 do begin
       Node:=@AABBTree.fNodes[NodeID];
       if SphereCastAABB(aOrigin,aRadius,aDirection,Node^.AABB) then begin
        if Node^.Children[0]<0 then begin
@@ -46768,9 +46772,11 @@ begin
         end;
        end else begin
         Stack.Push(Node^.Children[0]);
-        Stack.Push(Node^.Children[1]);
+        NodeID:=Node^.Children[1];
+        continue;
        end;
       end;
+      break;
      end;
     end;
    end;
@@ -46813,7 +46819,7 @@ begin
     Stack.Clear;
     Stack.Push(AABBTree.fRoot);
     while Stack.Pop(NodeID) do begin
-     if NodeID>=0 then begin
+     while NodeID>=0 do begin
       Node:=@AABBTree.fNodes[NodeID];
       if SphereCastAABB(aOrigin,aRadius,aDirection,Node^.AABB) then begin
        if Node^.Children[0]<0 then begin
@@ -46836,9 +46842,11 @@ begin
         end;
        end else begin
         Stack.Push(Node^.Children[0]);
-        Stack.Push(Node^.Children[1]);
+        NodeID:=Node^.Children[1];
+        continue;
        end;
       end;
+      break;
      end;
     end;
    end;
@@ -47339,7 +47347,7 @@ begin
      Stack.Clear;
      Stack.Push(AABBTree.fRoot);
      while Stack.Pop(NodeID) do begin
-      if NodeID>=0 then begin
+      while NodeID>=0 do begin
        Node:=@AABBTree.fNodes[NodeID];
        if AABBIntersect(Node^.AABB,AABB) then begin
         if Node^.Children[0]<0 then begin
@@ -47381,9 +47389,11 @@ begin
          end;
         end else begin
          Stack.Push(Node^.Children[0]);
-         Stack.Push(Node^.Children[1]);
+         NodeID:=Node^.Children[1];
+         continue;
         end;
        end;
+       break;
       end;
      end;
     end;
@@ -47610,7 +47620,7 @@ begin
        Stack.Clear;
        Stack.Push(AABBTree.fRoot);
        while Stack.Pop(NodeID) do begin
-        if NodeID>=0 then begin
+        while NodeID>=0 do begin
          Node:=@AABBTree.fNodes[NodeID];
          if AABBIntersect(Node^.AABB,AABB) then begin
           if Node^.Children[0]<0 then begin
@@ -47637,9 +47647,11 @@ begin
            end;
           end else begin
            Stack.Push(Node^.Children[0]);
-           Stack.Push(Node^.Children[1]);
+           NodeID:=Node^.Children[1];
+           continue;
           end;
          end;
+         break;
         end;
        end;
       end;
@@ -48711,77 +48723,60 @@ var Hit:Boolean;
    end;
   end;
  end;
-{$ifdef KraftSingleThreadedUsage}
- procedure QueryTree(aAABBTree:TKraftDynamicAABBTree);
- var LocalStack:PKraftDynamicAABBTreeLongintArray;
-     LocalStackPointer,NodeID:TKraftInt32;
-     Node:PKraftDynamicAABBTreeNode;
- begin
-  if assigned(aAABBTree) then begin
-   if aAABBTree.fRoot>=0 then begin
-    LocalStack:=aAABBTree.fStack;
-    LocalStack^[0]:=aAABBTree.fRoot;
-    LocalStackPointer:=1;
-    while LocalStackPointer>0 do begin
-     dec(LocalStackPointer);
-     NodeID:=LocalStack^[LocalStackPointer];
-     if NodeID>=0 then begin
-      Node:=@aAABBTree.fNodes[NodeID];
-      if AABBIntersect(Node^.AABB,aShape.fWorldAABB) then begin
-       if Node^.Children[0]<0 then begin
-        CollideShape(Node^.UserData);
-       end else begin
-        if aAABBTree.fStackCapacity<=(LocalStackPointer+2) then begin
-         aAABBTree.fStackCapacity:=RoundUpToPowerOfTwo(LocalStackPointer+2);
-         ReallocMem(aAABBTree.fStack,aAABBTree.fStackCapacity*SizeOf(TKraftInt32));
-         LocalStack:=aAABBTree.fStack;
-        end;
-        LocalStack^[LocalStackPointer+0]:=Node^.Children[0];
-        LocalStack^[LocalStackPointer+1]:=Node^.Children[1];
-        inc(LocalStackPointer,2);
-       end;
-      end;
-     end;
-    end;
-   end;
-  end;
- end;
-{$else}
- procedure QueryTree(aAABBTree:TKraftDynamicAABBTree);
-  procedure ProcessNode(aNodeID:TKraftInt32);
-  var Node:PKraftDynamicAABBTreeNode;
-  begin
-   while aNodeID>=0 do begin
-    Node:=@aAABBTree.fNodes[aNodeID];
-    if AABBIntersect(Node^.AABB,aShape.fWorldAABB) then begin
-     if Node^.Children[0]<0 then begin
-      CollideShape(Node^.UserData);
-     end else begin
-      ProcessNode(Node^.Children[0]);
-      aNodeID:=Node^.Children[1];
-      continue;
-     end;
-    end;
-    break;
-   end;
-  end;
- begin
-  ProcessNode(aAABBTree.fRoot);
- end;
-{$endif}
  procedure SortContactsByDescendingPenetrationDepth;
  begin
   if aCountContacts>1 then begin
    DirectIntroSort(@aContacts[0],0,aCountContacts-1,SizeOf(TKraftShapeCollisionContact),TKraftShapeCollisionContactCompare);
   end;
  end;
+type TStack=TKraftDynamicFastNonRTTIStack<TKraftInt32>;
+var AABBTreeIndex,NodeID:TKraftInt32;
+    AABBTree:TKraftDynamicAABBTree;
+    Stack:TStack;
+    Node:PKraftDynamicAABBTreeNode;
 begin
  Hit:=false;
  aCountContacts:=0;
- QueryTree(fStaticAABBTree);
- QueryTree(fSleepingAABBTree);
- QueryTree(fDynamicAABBTree);
- QueryTree(fKinematicAABBTree);
+ Stack.Initialize;
+ try
+  for AABBTreeIndex:=0 to 3 do begin
+   case AABBTreeIndex of
+    0:begin
+     AABBTree:=fStaticAABBTree;
+    end;
+    1:begin
+     AABBTree:=fSleepingAABBTree;
+    end;
+    2:begin
+     AABBTree:=fDynamicAABBTree;
+    end;
+    else begin
+     AABBTree:=fKinematicAABBTree;
+    end;
+   end;
+   if assigned(AABBTree) and (AABBTree.fRoot>=0) then begin
+    Stack.Clear;
+    Stack.Push(AABBTree.fRoot);
+    while Stack.Pop(NodeID) do begin
+     while NodeID>=0 do begin
+      Node:=@AABBTree.fNodes[NodeID];
+      if AABBIntersect(Node^.AABB,aShape.fWorldAABB) then begin
+       if Node^.Children[0]<0 then begin
+        CollideShape(Node^.UserData);
+       end else begin
+        Stack.Push(Node^.Children[0]);
+        NodeID:=Node^.Children[1];
+        continue;
+       end;
+      end;
+      break;
+     end;
+    end;
+   end;
+  end;
+ finally
+  Stack.Finalize;
+ end;
  SortContactsByDescendingPenetrationDepth;
  result:=Hit;
 end;
