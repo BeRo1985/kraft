@@ -46713,76 +46713,41 @@ begin
  end;
 end;
 
-{$ifndef KraftSingleThreadedUsage}
-type TKraftSphereCastProcessNodeData=record
-      CollisionGroups:TKraftRigidBodyCollisionGroups;
-      Point:TKraftVector3;
-      Normal:TKraftVector3;
-      SurfaceNormal:TKraftVector3;
-      MaxTime:TKraftScalar;
-      Time:TKraftScalar;
-      OnSphereCastFilterHook:TKraftOnSphereCastFilterHook;
-      AABBTree:TKraftDynamicAABBTree;
-      Shape:TKraftShape;
-      Hit:boolean;
-      SphereCastData:TKraftSphereCastData;
-     end;
-     PKraftSphereCastProcessNodeData=^TKraftSphereCastProcessNodeData;
-
-procedure TKraftSphereCastProcessNode(const aData:PKraftSphereCastProcessNodeData;aNodeID:TKraftInt32);
-var Node:PKraftDynamicAABBTreeNode;
-    CurrentShape:TKraftShape;
-begin
- while aNodeID>=0 do begin
-  Node:=@aData.AABBTree.fNodes[aNodeID];
-  if SphereCastAABB(aData^.SphereCastData.Origin,aData^.SphereCastData.Radius,aData^.SphereCastData.Direction,Node^.AABB) then begin
-   if Node^.Children[0]<0 then begin
-    CurrentShape:=Node^.UserData;
-    aData^.SphereCastData.MaxTime:=aData^.MaxTime;
-    if (assigned(CurrentShape) and (assigned(CurrentShape.fRigidBody) and ((CurrentShape.fRigidBody.fCollisionGroups*aData^.CollisionGroups)<>[]))) and CurrentShape.SphereCast(aData^.SphereCastData) then begin
-     if (assigned(aData^.OnSphereCastFilterHook) and aData^.OnSphereCastFilterHook(aData^.SphereCastData.Point,aData^.SphereCastData.Normal,aData^.SphereCastData.TimeOfImpact,CurrentShape)) or not assigned(aData^.OnSphereCastFilterHook) then begin
-      if (aData^.Hit and (aData^.SphereCastData.TimeOfImpact<aData^.Time)) or not aData^.Hit then begin
-       aData^.Hit:=true;
-       aData^.Time:=aData^.SphereCastData.TimeOfImpact;
-       aData^.Point:=aData^.SphereCastData.Point;
-       aData^.Normal:=aData^.SphereCastData.Normal;
-       aData^.SurfaceNormal:=aData^.SphereCastData.SurfaceNormal;
-       aData^.Shape:=CurrentShape;
-      end;
-     end;
-    end;
-   end else begin
-    TKraftSphereCastProcessNode(aData,Node^.Children[0]);
-    aNodeID:=Node^.Children[1];
-    continue;
-   end;
-  end;
-  break;
- end;
-end;
-
-{$endif}
-
 function TKraft.SphereCast(const aOrigin:TKraftVector3;const aRadius:TKraftScalar;const aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook):boolean;
-{$ifdef KraftSingleThreadedUsage}
-var Hit:boolean;
- procedure QueryTree(aAABBTree:TKraftDynamicAABBTree);
- var LocalStack:PKraftDynamicAABBTreeLongintArray;
-     LocalStackPointer,NodeID:TKraftInt32;
-     Node:PKraftDynamicAABBTreeNode;
-     CurrentShape:TKraftShape;
-     SphereCastData:TKraftSpherecastData;
- begin
-  if assigned(aAABBTree) then begin
-   if aAABBTree.fRoot>=0 then begin
-    LocalStack:=aAABBTree.fStack;
-    LocalStack^[0]:=aAABBTree.fRoot;
-    LocalStackPointer:=1;
-    while LocalStackPointer>0 do begin
-     dec(LocalStackPointer);
-     NodeID:=LocalStack^[LocalStackPointer];
+type TStack=TKraftDynamicFastNonRTTIStack<TKraftInt32>;
+var AABBTreeIndex:TKraftInt32;
+    AABBTree:TKraftDynamicAABBTree;
+    Stack:TStack;
+    NodeID:TKraftInt32;
+    Node:PKraftDynamicAABBTreeNode;
+    CurrentShape:TKraftShape;
+    SphereCastData:TKraftSpherecastData;
+begin
+ result:=false;
+ aTime:=aMaxTime;
+ Stack.Initialize;
+ try
+  for AABBTreeIndex:=0 to 3 do begin
+   case AABBTreeIndex of
+    0:begin
+     AABBTree:=fStaticAABBTree;
+    end;
+    1:begin
+     AABBTree:=fSleepingAABBTree;
+    end;
+    2:begin
+     AABBTree:=fDynamicAABBTree;
+    end;
+    else begin
+     AABBTree:=fKinematicAABBTree;
+    end;
+   end;
+   if assigned(AABBTree) and (AABBTree.fRoot>=0) then begin
+    Stack.Clear;
+    Stack.Push(AABBTree.fRoot);
+    while Stack.Pop(NodeID) do begin
      if NodeID>=0 then begin
-      Node:=@aAABBTree.fNodes[NodeID];
+      Node:=@AABBTree.fNodes[NodeID];
       if SphereCastAABB(aOrigin,aRadius,aDirection,Node^.AABB) then begin
        if Node^.Children[0]<0 then begin
         CurrentShape:=Node^.UserData;
@@ -46792,8 +46757,8 @@ var Hit:boolean;
         SphereCastData.MaxTime:=aMaxTime;
         if (assigned(CurrentShape) and (assigned(CurrentShape.fRigidBody) and ((CurrentShape.fRigidBody.fCollisionGroups*aCollisionGroups)<>[]))) and CurrentShape.SphereCast(SphereCastData) then begin
          if (assigned(aOnSphereCastFilterHook) and aOnSphereCastFilterHook(SphereCastData.Point,SphereCastData.Normal,SphereCastData.TimeOfImpact,CurrentShape)) or not assigned(aOnSphereCastFilterHook) then begin
-          if (Hit and (SphereCastData.TimeOfImpact<aTime)) or not Hit then begin
-           Hit:=true;
+          if (result and (SphereCastData.TimeOfImpact<aTime)) or not result then begin
+           result:=true;
            aTime:=SphereCastData.TimeOfImpact;
            aPoint:=SphereCastData.Point;
            aNormal:=SphereCastData.Normal;
@@ -46802,91 +46767,54 @@ var Hit:boolean;
          end;
         end;
        end else begin
-        if aAABBTree.fStackCapacity<=(LocalStackPointer+2) then begin
-         aAABBTree.fStackCapacity:=RoundUpToPowerOfTwo(LocalStackPointer+2);
-         ReallocMem(aAABBTree.fStack,aAABBTree.fStackCapacity*SizeOf(TKraftInt32));
-         LocalStack:=aAABBTree.fStack;
-        end;
-        LocalStack^[LocalStackPointer+0]:=Node^.Children[0];
-        LocalStack^[LocalStackPointer+1]:=Node^.Children[1];
-        inc(LocalStackPointer,2);
+        Stack.Push(Node^.Children[0]);
+        Stack.Push(Node^.Children[1]);
        end;
       end;
      end;
     end;
    end;
   end;
- end;
-begin
- Hit:=false;
- aTime:=aMaxTime;
- QueryTree(fStaticAABBTree);
- QueryTree(fSleepingAABBTree);
- QueryTree(fDynamicAABBTree);
- QueryTree(fKinematicAABBTree);
- result:=Hit;
-end;
-{$else}
-var Data:TKraftSphereCastProcessNodeData;
-begin
- Data.CollisionGroups:=aCollisionGroups;
- Data.SphereCastData.Origin:=aOrigin;
- Data.SphereCastData.Direction:=aDirection;
- Data.SphereCastData.Radius:=aRadius;
- Data.Point:=Vector3Origin;
- Data.Normal:=Vector3Origin;
- Data.MaxTime:=aMaxTime;
- Data.Time:=aMaxTime;
- Data.OnSphereCastFilterHook:=aOnSphereCastFilterHook;
- Data.AABBTree:=nil;
- Data.Shape:=nil;
- Data.Hit:=false;
- begin
-  Data.AABBTree:=fStaticAABBTree;
-  TKraftSphereCastProcessNode(@Data,fStaticAABBTree.fRoot);
- end;
- begin
-  Data.AABBTree:=fSleepingAABBTree;
-  TKraftSphereCastProcessNode(@Data,fSleepingAABBTree.fRoot);
- end;
- begin
-  Data.AABBTree:=fDynamicAABBTree;
-  TKraftSphereCastProcessNode(@Data,fDynamicAABBTree.fRoot);
- end;
- begin
-  Data.AABBTree:=fKinematicAABBTree;
-  TKraftSphereCastProcessNode(@Data,fKinematicAABBTree.fRoot);
- end;
- result:=Data.Hit;
- if result then begin
-  aShape:=Data.Shape;
-  aTime:=Data.Time;
-  aPoint:=Data.Point;
-  aNormal:=Data.Normal;
+ finally
+  Stack.Finalize;
  end;
 end;
-{$endif}
 
 function TKraft.SphereCast(const aOrigin:TKraftVector3;const aRadius:TKraftScalar;const aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook):boolean;
-{$ifdef KraftSingleThreadedUsage}
-var Hit:boolean;
- procedure QueryTree(aAABBTree:TKraftDynamicAABBTree);
- var LocalStack:PKraftDynamicAABBTreeLongintArray;
-     LocalStackPointer,NodeID:TKraftInt32;
-     Node:PKraftDynamicAABBTreeNode;
-     CurrentShape:TKraftShape;
-     SphereCastData:TKraftSpherecastData;
- begin
-  if assigned(aAABBTree) then begin
-   if aAABBTree.fRoot>=0 then begin
-    LocalStack:=aAABBTree.fStack;
-    LocalStack^[0]:=aAABBTree.fRoot;
-    LocalStackPointer:=1;
-    while LocalStackPointer>0 do begin
-     dec(LocalStackPointer);
-     NodeID:=LocalStack^[LocalStackPointer];
+type TStack=TKraftDynamicFastNonRTTIStack<TKraftInt32>;
+var AABBTreeIndex:TKraftInt32;
+    AABBTree:TKraftDynamicAABBTree;
+    Stack:TStack;
+    NodeID:TKraftInt32;
+    Node:PKraftDynamicAABBTreeNode;
+    CurrentShape:TKraftShape;
+    SphereCastData:TKraftSpherecastData;
+begin
+ result:=false;
+ aTime:=aMaxTime;
+ Stack.Initialize;
+ try
+  for AABBTreeIndex:=0 to 3 do begin
+   case AABBTreeIndex of
+    0:begin
+     AABBTree:=fStaticAABBTree;
+    end;
+    1:begin
+     AABBTree:=fSleepingAABBTree;
+    end;
+    2:begin
+     AABBTree:=fDynamicAABBTree;
+    end;
+    else begin
+     AABBTree:=fKinematicAABBTree;
+    end;
+   end;
+   if assigned(AABBTree) and (AABBTree.fRoot>=0) then begin
+    Stack.Clear;
+    Stack.Push(AABBTree.fRoot);
+    while Stack.Pop(NodeID) do begin
      if NodeID>=0 then begin
-      Node:=@aAABBTree.fNodes[NodeID];
+      Node:=@AABBTree.fNodes[NodeID];
       if SphereCastAABB(aOrigin,aRadius,aDirection,Node^.AABB) then begin
        if Node^.Children[0]<0 then begin
         CurrentShape:=Node^.UserData;
@@ -46896,8 +46824,8 @@ var Hit:boolean;
         SphereCastData.MaxTime:=aMaxTime;
         if (assigned(CurrentShape) and (assigned(CurrentShape.fRigidBody) and ((CurrentShape.fRigidBody.fCollisionGroups*aCollisionGroups)<>[]))) and CurrentShape.SphereCast(SphereCastData) then begin
          if (assigned(aOnSphereCastFilterHook) and aOnSphereCastFilterHook(SphereCastData.Point,SphereCastData.Normal,SphereCastData.TimeOfImpact,CurrentShape)) or not assigned(aOnSphereCastFilterHook) then begin
-          if (Hit and (SphereCastData.TimeOfImpact<aTime)) or not Hit then begin
-           Hit:=true;
+          if (result and (SphereCastData.TimeOfImpact<aTime)) or not result then begin
+           result:=true;
            aTime:=SphereCastData.TimeOfImpact;
            aPoint:=SphereCastData.Point;
            aNormal:=SphereCastData.Normal;
@@ -46907,71 +46835,18 @@ var Hit:boolean;
          end;
         end;
        end else begin
-        if aAABBTree.fStackCapacity<=(LocalStackPointer+2) then begin
-         aAABBTree.fStackCapacity:=RoundUpToPowerOfTwo(LocalStackPointer+2);
-         ReallocMem(aAABBTree.fStack,aAABBTree.fStackCapacity*SizeOf(TKraftInt32));
-         LocalStack:=aAABBTree.fStack;
-        end;
-        LocalStack^[LocalStackPointer+0]:=Node^.Children[0];
-        LocalStack^[LocalStackPointer+1]:=Node^.Children[1];
-        inc(LocalStackPointer,2);
+        Stack.Push(Node^.Children[0]);
+        Stack.Push(Node^.Children[1]);
        end;
       end;
      end;
     end;
    end;
   end;
- end;
-begin
- Hit:=false;
- aTime:=aMaxTime;
- QueryTree(fStaticAABBTree);
- QueryTree(fSleepingAABBTree);
- QueryTree(fDynamicAABBTree);
- QueryTree(fKinematicAABBTree);
- result:=Hit;
-end;
-{$else}
-var Data:TKraftSphereCastProcessNodeData;
-begin
- Data.CollisionGroups:=aCollisionGroups;
- Data.SphereCastData.Origin:=aOrigin;
- Data.SphereCastData.Direction:=aDirection;
- Data.SphereCastData.Radius:=aRadius;
- Data.Point:=Vector3Origin;
- Data.Normal:=Vector3Origin;
- Data.MaxTime:=aMaxTime;
- Data.Time:=aMaxTime;
- Data.OnSphereCastFilterHook:=aOnSphereCastFilterHook;
- Data.AABBTree:=nil;
- Data.Shape:=nil;
- Data.Hit:=false;
- begin
-  Data.AABBTree:=fStaticAABBTree;
-  TKraftSphereCastProcessNode(@Data,fStaticAABBTree.fRoot);
- end;
- begin
-  Data.AABBTree:=fSleepingAABBTree;
-  TKraftSphereCastProcessNode(@Data,fSleepingAABBTree.fRoot);
- end;
- begin
-  Data.AABBTree:=fDynamicAABBTree;
-  TKraftSphereCastProcessNode(@Data,fDynamicAABBTree.fRoot);
- end;
- begin
-  Data.AABBTree:=fKinematicAABBTree;
-  TKraftSphereCastProcessNode(@Data,fKinematicAABBTree.fRoot);
- end;
- result:=Data.Hit;
- if result then begin
-  aShape:=Data.Shape;
-  aTime:=Data.Time;
-  aPoint:=Data.Point;
-  aNormal:=Data.Normal;
-  aSurfaceNormal:=Data.SurfaceNormal;
+ finally
+  Stack.Finalize;
  end;
 end;
-{$endif}
 
 function TKraft.SphereCast(const aSource:TKraftVector3;const aRadius:TKraftScalar;const aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook):boolean;
 var Len:TKraftScalar;
