@@ -927,13 +927,13 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fCapacityCountItems:TKraftSizeInt;
        fCount:TKraftSizeInt;
       public
-       procedure Initialize;
-       procedure Finalize;
-       procedure Clear;
-       procedure Push(const aItem:T);
-       function PushIndirect:PT;
-       function Pop(out aItem:T):boolean;
-       function PopIndirect(out aItem:PT):boolean;
+       procedure Initialize; inline;
+       procedure Finalize; inline;
+       procedure Clear; inline;
+       procedure Push(const aItem:T); inline;
+       function PushIndirect:PT; inline;
+       function Pop(out aItem:T):boolean; inline;
+       function PopIndirect(out aItem:PT):boolean; inline;
      end;
 
      TKraftStaticAABBTreeProxy=record
