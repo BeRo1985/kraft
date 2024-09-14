@@ -891,12 +891,40 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      { TKraftDynamicFastStack }
      TKraftDynamicFastStack<T>=record
+      // It's a stack with a local buffer for small sizes and a dynamic array for larger sizes, it uses 
+      // RTTI-based reference counted dynamic arrays 
       public
        const LocalSize=32;
        type PT=^T;
       private
        fLocalItems:array[0..LocalSize-1] of T;
        fItems:array of T;
+       fCount:TKraftSizeInt;
+      public
+       procedure Initialize;
+       procedure Finalize;
+       procedure Clear;
+       procedure Push(const aItem:T);
+       function PushIndirect:PT;
+       function Pop(out aItem:T):boolean;
+       function PopIndirect(out aItem:PT):boolean;
+     end;
+
+     { TKraftDynamicFastNonRTTIStack }
+     TKraftDynamicFastNonRTTIStack<T>=record 
+      // Like TKraftDynamicFastStack, but without RTTI usage for performance reasons in performance critical code
+      // So thus no reference counted dynamic array and no dynamic array management, instead manual memory management
+      // so that it can be used in performance critical code where RTTI-based and/or reference counted based stuff 
+      // would be too slow
+      public
+       const LocalSize=32;
+       type PT=^T;
+            TTArray=array[0..65535] of T;
+            PTArray=^TTArray;
+      private
+       fLocalItems:array[0..LocalSize-1] of T;
+       fItems:PTArray;
+       fCapacityCountItems:TKraftSizeInt;
        fCount:TKraftSizeInt;
       public
        procedure Initialize;
@@ -19612,6 +19640,92 @@ begin
  end;
 end;
 
+{ TKraftDynamicFastNonRTTIStack<T> }
+
+procedure TKraftDynamicFastNonRTTIStack<T>.Initialize;
+begin
+ fItems:=nil;
+ fCapacityCountItems:=0;
+ fCount:=0;
+end;
+
+procedure TKraftDynamicFastNonRTTIStack<T>.Finalize;
+begin
+ if assigned(fItems) then begin
+  FreeMem(fItems);
+ end;
+ fItems:=nil;
+ fCapacityCountItems:=0;
+ fCount:=0;
+end;
+
+procedure TKraftDynamicFastNonRTTIStack<T>.Clear;
+begin
+ fCount:=0;
+end;
+
+procedure TKraftDynamicFastNonRTTIStack<T>.Push(const aItem:T);
+var Index,ThresholdedCount:TKraftSizeInt;
+begin
+ Index:=fCount;
+ inc(fCount);
+ if Index<=High(fLocalItems) then begin
+  fLocalItems[Index]:=aItem;
+ end else begin
+  ThresholdedCount:=fCount-Length(fLocalItems);
+  if fCapacityCountItems<ThresholdedCount then begin
+   fCapacityCountItems:=ThresholdedCount+((ThresholdedCount+1) shr 1);
+   ReallocMem(fItems,fCapacityCountItems*SizeOf(T));
+  end;
+  fItems^[Index-Length(fLocalItems)]:=aItem;
+ end;
+end;
+
+function TKraftDynamicFastNonRTTIStack<T>.PushIndirect:PT;
+var Index,ThresholdedCount:TKraftSizeInt;
+begin
+ Index:=fCount;
+ inc(fCount);
+ if Index<=High(fLocalItems) then begin
+  result:=@fLocalItems[Index];
+ end else begin
+  ThresholdedCount:=fCount-Length(fLocalItems);
+  if fCapacityCountItems<ThresholdedCount then begin
+   fCapacityCountItems:=ThresholdedCount+((ThresholdedCount+1) shr 1);
+   ReallocMem(fItems,fCapacityCountItems*SizeOf(T));
+  end;
+  result:=@fItems^[Index-Length(fLocalItems)];
+ end;
+end;
+
+function TKraftDynamicFastNonRTTIStack<T>.Pop(out aItem:T):boolean;
+begin
+ result:=fCount>0;
+ if result then begin
+  dec(fCount);
+  if fCount<=High(fLocalItems) then begin
+   aItem:=fLocalItems[fCount];
+  end else begin
+   aItem:=fItems^[fCount-Length(fLocalItems)];
+  end;
+ end;
+end;
+
+function TKraftDynamicFastNonRTTIStack<T>.PopIndirect(out aItem:PT):boolean;
+begin
+ result:=fCount>0;
+ if result then begin
+  dec(fCount);
+  if fCount<=High(fLocalItems) then begin
+   aItem:=@fLocalItems[fCount];
+  end else begin
+   aItem:=@fItems^[fCount-Length(fLocalItems)];
+  end;
+ end else begin
+  aItem:=nil;
+ end;
+end;
+
 { TKraftStaticAABBTree }
 
 constructor TKraftStaticAABBTree.Create;
@@ -21508,7 +21622,7 @@ type TStackItem=record
       Height:TKraftInt32;
      end;
      PStackItem=^TStackItem;
-     TStack=TKraftDynamicFastStack<TStackItem>;
+     TStack=TKraftDynamicFastNonRTTIStack<TStackItem>;
 var Stack:TStack;
     StackItem:TStackItem;
     NewStackItem:PStackItem;
@@ -21517,7 +21631,7 @@ begin
  result:=0;
  if fRoot>=0 then begin
   Stack.Initialize;
-  try
+//try
    NewStackItem:=pointer(Stack.PushIndirect);
    NewStackItem^.NodeID:=fRoot;
    NewStackItem^.Height:=1;
@@ -21537,9 +21651,9 @@ begin
      end;
     end;
    end;
-  finally
+//finally
    Stack.Finalize;
-  end;
+//end;
  end;
 end;
 
@@ -21590,7 +21704,7 @@ type TStackItem=record
       Parent:TKraftInt32;
      end;
      PStackItem=^TStackItem;
-     TStack=TKraftDynamicFastStack<TStackItem>;
+     TStack=TKraftDynamicFastNonRTTIStack<TStackItem>;
 var Stack:TStack;
     StackItem:TStackItem;
     NewStackItem:PStackItem;
@@ -21599,7 +21713,7 @@ begin
  result:=true;
  if fRoot>=0 then begin
   Stack.Initialize;
-  try
+//try
    NewStackItem:=pointer(Stack.PushIndirect);
    NewStackItem^.NodeID:=fRoot;
    NewStackItem^.Parent:=daabbtNULLNODE;
@@ -21628,9 +21742,9 @@ begin
      break;
     end;
    end;
-  finally
+//finally
    Stack.Finalize;
-  end;
+//end;
  end;
 end;
 
@@ -21639,7 +21753,7 @@ type TStackItem=record
       NodeID:TKraftInt32;
      end;
      PStackItem=^TStackItem;
-     TStack=TKraftDynamicFastStack<TStackItem>;
+     TStack=TKraftDynamicFastNonRTTIStack<TStackItem>;
 var Stack:TStack;
     StackItem:TStackItem;
     NewStackItem:PStackItem;
@@ -21648,7 +21762,7 @@ begin
  result:=true;
  if fRoot>=0 then begin
   Stack.Initialize;
-  try
+//try
    NewStackItem:=pointer(Stack.PushIndirect);
    NewStackItem^.NodeID:=fRoot;
    while Stack.Pop(StackItem) do begin
@@ -21673,9 +21787,9 @@ begin
      end;
     end;
    end;
-  finally
+//finally
    Stack.Finalize;
-  end;
+//end;
  end;
 end;
 
@@ -21705,7 +21819,7 @@ type TStackItem=record
       NodeID:TKraftInt32;
      end;
      PStackItem=^TStackItem;
-     TStack=TKraftDynamicFastStack<TStackItem>;
+     TStack=TKraftDynamicFastNonRTTIStack<TStackItem>;
 var Stack:TStack;
     StackItem:TStackItem;
     NewStackItem:PStackItem;
@@ -21714,7 +21828,7 @@ begin
  result:=nil;
  if fRoot>=0 then begin
   Stack.Initialize;
-  try
+//try
    NewStackItem:=pointer(Stack.PushIndirect);
    NewStackItem.NodeID:=fRoot;
    while Stack.Pop(StackItem) do begin
@@ -21733,9 +21847,9 @@ begin
      end;
     end;
    end;
-  finally
+//finally
    Stack.Finalize;
-  end;
+//end;
  end;
 end;
 
