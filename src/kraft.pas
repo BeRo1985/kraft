@@ -29782,6 +29782,13 @@ begin
    Stack.Finalize;
 //end;
   BestDistance:=sqrt(BestDistance);
+  if fDoubleSided then begin
+   BestDistance:=BestDistance-(2.0*Physics.fLinearSlop);
+  end else begin
+   if assigned(BestTriangle) and (PlaneVectorDistance(BestTriangle^.Plane,Position)<0.0) then begin
+    BestDistance:=-BestDistance;
+   end;
+  end;
   if assigned(BestTriangle) then begin
    if SIMDTriangleClosestPointTo(self,BestTriangle^,Position,Direction) then begin
     Direction:=Vector3Sub(Position,Direction);
@@ -29881,6 +29888,13 @@ begin
    Stack.Finalize;
 //end;
   BestDistance:=sqrt(BestDistance);
+  if fDoubleSided then begin
+   BestDistance:=BestDistance-(2.0*Physics.fLinearSlop);
+  end else begin
+   if assigned(BestTriangle) and (PlaneVectorDistance(BestTriangle^.Plane,Position)<0.0) then begin
+    BestDistance:=-BestDistance;
+   end;
+  end;
   if assigned(BestTriangle) then begin
    if SIMDTriangleClosestPointTo(self,BestTriangle^,Position,aGradient) then begin
     aGradient:=Vector3Sub(Position,aGradient);
@@ -29903,18 +29917,18 @@ begin
 end;
 
 function TKraftMesh.GetLocalSignedDistanceNormal(const Position:TKraftVector3;out aNormal:TKraftVector3):TKraftScalar;
-{$ifdef KraftSingleThreadedUsage}
 type PStackItem=^TStackItem;
      TStackItem=record
       NodeIndex:TKraftInt32;
       SquaredDistance:TKraftScalar;
      end;
-     TStackItems=array[0..31] of TStackItem;
-var LocalStack:TStackItems;
-    LocalStackPointer,TriangleIndex:TKraftInt32;
-    Node:PKraftMeshNode;
+     TStack=TKraftDynamicFastNonRTTIStack<TStackItem>;
+var Stack:TStack;
+    TriangleIndex:TKraftInt32;
+    Node:PKraftMeshTreeNode;
     Triangle,BestTriangle:PKraftMeshTriangle;
-    StackItem:PStackItem;
+    StackItem:TStackItem;
+    NewStackItem:PStackItem;
     SquaredDistances:array[0..1] of TKraftScalar;
     BestDistance,SquaredDistance,SquaredThickness,SquaredThicknessEpsilon:TKraftScalar;
 begin
@@ -29927,129 +29941,58 @@ begin
    SquaredThickness:=0.0;
   end;
   SquaredThicknessEpsilon:=SquaredThickness+sqr(EPSILON);
-  LocalStackPointer:=0;
-  StackItem:=@LocalStack[LocalStackPointer];
-  inc(LocalStackPointer);
-  StackItem^.NodeIndex:=fTreeNodeRoot;
-  StackItem^.SquaredDistance:=SquaredDistanceFromPointToAABB(fTreeNodes[fTreeNodeRoot].AABB,Position);
-  while LocalStackPointer>0 do begin
-   dec(LocalStackPointer);
-   StackItem:=@LocalStack[LocalStackPointer];
-   if (StackItem^.SquaredDistance-SquaredThicknessEpsilon)<BestDistance then begin
-    if StackItem^.NodeIndex>=0 then begin
-     Node:=@fTreeNodes[StackItem^.NodeIndex];
-     if Node^.CountTriangles>0 then begin
-      for TriangleIndex:=Node^.FirstTriangleIndex to Node^.FirstTriangleIndex+(Node^.CountTriangles-1) do begin
-       Triangle:=@fTriangles[TriangleIndex];
-       SquaredDistance:=SquaredDistanceFromPointToTriangle(Position,fVertices[Triangle^.Vertices[0]],fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[2]]);
-       if BestDistance>SquaredDistance then begin
-        BestDistance:=SquaredDistance;
-        BestTriangle:=Triangle;
+  Stack.Initialize;
+//try
+   NewStackItem:=pointer(Stack.PushIndirect);
+   NewStackItem^.NodeIndex:=fTreeNodeRoot;
+   NewStackItem^.SquaredDistance:=SquaredDistanceFromPointToAABB(fTreeNodes[fTreeNodeRoot].AABB,Position);
+   while Stack.Pop(StackItem) do begin
+    if (StackItem.SquaredDistance-SquaredThicknessEpsilon)<BestDistance then begin
+     if StackItem.NodeIndex>=0 then begin
+      Node:=@fTreeNodes[StackItem.NodeIndex];
+      if Node^.CountTriangles>0 then begin
+       for TriangleIndex:=Node^.FirstTriangleIndex to Node^.FirstTriangleIndex+(Node^.CountTriangles-1) do begin
+        Triangle:=@fTriangles[TriangleIndex];
+        SquaredDistance:=SquaredDistanceFromPointToTriangle(Position,fVertices[Triangle^.Vertices[0]],fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[2]]);
+        if BestDistance>SquaredDistance then begin
+         BestDistance:=SquaredDistance;
+         BestTriangle:=Triangle;
+        end;
        end;
       end;
-     end;
-     if Node^.FirstLeftChild>=0 then begin
-      SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fTreeNodes[Node^.FirstLeftChild].AABB,Position);
-      SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fTreeNodes[Node^.FirstLeftChild+1].AABB,Position);
-      if SquaredDistances[0]<SquaredDistances[1] then begin
-       if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
-        StackItem:=@LocalStack[LocalStackPointer];
-        inc(LocalStackPointer);
-        StackItem^.NodeIndex:=Node^.FirstLeftChild;
-        StackItem^.SquaredDistance:=SquaredDistances[0];
-       end;
-       if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
-        StackItem:=@LocalStack[LocalStackPointer];
-        inc(LocalStackPointer);
-        StackItem^.NodeIndex:=Node^.FirstLeftChild+1;
-        StackItem^.SquaredDistance:=SquaredDistances[1];
-       end;
-      end else begin
-       if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
-        StackItem:=@LocalStack[LocalStackPointer];
-        inc(LocalStackPointer);
-        StackItem^.NodeIndex:=Node^.FirstLeftChild+1;
-        StackItem^.SquaredDistance:=SquaredDistances[1];
-       end;
-       if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
-        StackItem:=@LocalStack[LocalStackPointer];
-        inc(LocalStackPointer);
-        StackItem^.NodeIndex:=Node^.FirstLeftChild;
-        StackItem^.SquaredDistance:=SquaredDistances[0];
+      if Node^.FirstLeftChild>=0 then begin
+       SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fTreeNodes[Node^.FirstLeftChild].AABB,Position);
+       SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fTreeNodes[Node^.FirstLeftChild+1].AABB,Position);
+       if SquaredDistances[0]<SquaredDistances[1] then begin
+        if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
+         NewStackItem:=pointer(Stack.PushIndirect);
+         NewStackItem^.NodeIndex:=Node^.FirstLeftChild;
+         NewStackItem^.SquaredDistance:=SquaredDistances[0];
+        end;
+        if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
+         NewStackItem:=pointer(Stack.PushIndirect);
+         NewStackItem^.NodeIndex:=Node^.FirstLeftChild+1;
+         NewStackItem^.SquaredDistance:=SquaredDistances[1];
+        end;
+       end else begin
+        if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
+         NewStackItem:=pointer(Stack.PushIndirect);
+         NewStackItem^.NodeIndex:=Node^.FirstLeftChild+1;
+         NewStackItem^.SquaredDistance:=SquaredDistances[1];
+        end;
+        if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
+         NewStackItem:=pointer(Stack.PushIndirect);
+         NewStackItem^.NodeIndex:=Node^.FirstLeftChild;
+         NewStackItem^.SquaredDistance:=SquaredDistances[0];
+        end;
        end;
       end;
      end;
     end;
    end;
-  end;
-  if assigned(BestTriangle) then begin
-   aNormal:=BestTriangle^.Plane.Normal;
-   if fDoubleSided and assigned(BestTriangle) and (PlaneVectorDistance(BestTriangle^.Plane,Position)<0.0) then begin
-    aNormal:=Vector3Neg(aNormal);
-    result:=BestDistance;
-   end;
-  end else begin
-   aNormal:=Vector3Origin;
-   result:=Infinity;
-  end;
- end else begin
-  aNormal:=Vector3Origin;
-  result:=Infinity;
- end;
-end;
-{$else}
-var BestTriangle:PKraftMeshTriangle;
-    SquaredDistances:array[0..1] of TKraftScalar;
-    BestDistance,SquaredThickness,SquaredThicknessEpsilon:TKraftScalar;
- procedure ProcessNode(const NodeIndex:TKraftInt32;SquaredDistance:TKraftScalar);
- var TriangleIndex:TKraftInt32;
-     Triangle:PKraftMeshTriangle;
-     Node:PKraftMeshTreeNode;
- begin
-  if (NodeIndex>=0) and ((SquaredDistance-SquaredThicknessEpsilon)<BestDistance) then begin
-   Node:=@fTreeNodes[NodeIndex];
-   if Node^.CountTriangles>0 then begin
-    for TriangleIndex:=Node^.FirstTriangleIndex to Node^.FirstTriangleIndex+(Node^.CountTriangles-1) do begin
-     Triangle:=@fTriangles[TriangleIndex];
-     SquaredDistance:=SquaredDistanceFromPointToTriangle(Position,fVertices[Triangle^.Vertices[0]],fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[2]]);
-     if BestDistance>SquaredDistance then begin
-      BestDistance:=SquaredDistance;
-      BestTriangle:=Triangle;
-     end;
-    end;
-   end;
-   if Node^.FirstLeftChild>=0 then begin
-    SquaredDistances[0]:=SquaredDistanceFromPointToAABB(fTreeNodes[Node^.FirstLeftChild].AABB,Position);
-    SquaredDistances[1]:=SquaredDistanceFromPointToAABB(fTreeNodes[Node^.FirstLeftChild+1].AABB,Position);
-    if SquaredDistances[0]<SquaredDistances[1] then begin
-     if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
-      ProcessNode(Node^.FirstLeftChild,SquaredDistances[0]);
-     end;
-     if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
-      ProcessNode(Node^.FirstLeftChild+1,SquaredDistances[1]);
-     end;
-    end else begin
-     if (SquaredDistances[1]-SquaredThicknessEpsilon)<BestDistance then begin
-      ProcessNode(Node^.FirstLeftChild+1,SquaredDistances[1]);
-     end;
-     if (SquaredDistances[0]-SquaredThicknessEpsilon)<BestDistance then begin
-      ProcessNode(Node^.FirstLeftChild,SquaredDistances[0]);
-     end;
-    end;
-   end;
-  end;
- end;
-begin
- if fCountTreeNodes>0 then begin
-  BestDistance:=MAX_SCALAR;
-  BestTriangle:=nil;
-  if fDoubleSided then begin
-   SquaredThickness:=sqr(2.0*Physics.fLinearSlop);
-  end else begin
-   SquaredThickness:=0.0;
-  end;
-  SquaredThicknessEpsilon:=SquaredThickness+sqr(EPSILON);
-  ProcessNode(fTreeNodeRoot,SquaredDistanceFromPointToAABB(fTreeNodes[fTreeNodeRoot].AABB,Position));
+//finally
+   Stack.Finalize;
+//end;
   BestDistance:=sqrt(BestDistance);
   if fDoubleSided then begin
    BestDistance:=BestDistance-(2.0*Physics.fLinearSlop);
@@ -30073,7 +30016,6 @@ begin
   result:=Infinity;
  end;
 end;
-{$endif}
 
 function TKraftMesh.GetLocalClosestPointTo(const Position:TKraftVector3;out aClosestPoint:TKraftVector3):TKraftScalar;
 {$ifdef KraftSingleThreadedUsage}
