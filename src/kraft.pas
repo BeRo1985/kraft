@@ -38317,9 +38317,9 @@ end;
 
 function CompareContactPairs(const a,b:pointer):TKraftInt32;
 begin
- result:=PtrInt(PKraftBroadPhaseContactPair(a)^[0])-PtrInt(PKraftBroadPhaseContactPair(b)^[0]);
+ result:=Sign(TKraftPtrInt(PKraftBroadPhaseContactPair(a)^[0])-TKraftPtrInt(PKraftBroadPhaseContactPair(b)^[0]));
  if result=0 then begin
-  result:=PtrInt(PKraftBroadPhaseContactPair(a)^[1])-PtrInt(PKraftBroadPhaseContactPair(b)^[1]);
+  result:=Sign(TKraftPtrInt(PKraftBroadPhaseContactPair(a)^[1])-TKraftPtrInt(PKraftBroadPhaseContactPair(b)^[1]));
  end;
 end;
 
@@ -38519,7 +38519,8 @@ begin
  // Process the found contact pairs, when there are any...
  if fCountContactPairs[0]>0 then begin
 
-  // Sort pairs to expose duplicates
+  // Sort pairs to expose duplicates and to ensure deterministic order of pairs temporarily, which is important for the solver
+  // for to get deterministic results of the physics simulation
   DirectIntroSort(@fContactPairs[0,0],0,fCountContactPairs[0]-1,SizeOf(TKraftBroadPhaseContactPair),CompareContactPairs);
 
   // Queue manifolds for solving
