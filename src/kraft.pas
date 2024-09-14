@@ -47529,108 +47529,13 @@ var Sphere:TKraftSphere;
    end;
   end;
  end;
-{$ifdef KraftSingleThreadedUsage}
- procedure QueryTree(aAABBTree:TKraftDynamicAABBTree);
- var LocalStack:PKraftDynamicAABBTreeLongintArray;
-     LocalStackPointer,NodeID:TKraftInt32;
-     Node:PKraftDynamicAABBTreeNode;
-     CurrentShape:TKraftShape;
- begin
-  if assigned(aAABBTree) then begin
-   if aAABBTree.fRoot>=0 then begin
-    LocalStack:=aAABBTree.fStack;
-    LocalStack^[0]:=aAABBTree.fRoot;
-    LocalStackPointer:=1;
-    while LocalStackPointer>0 do begin
-     dec(LocalStackPointer);
-     NodeID:=LocalStack^[LocalStackPointer];
-     if NodeID>=0 then begin
-      Node:=@aAABBTree.fNodes[NodeID];
-      if AABBIntersect(Node^.AABB,AABB) then begin
-       if Node^.Children[0]<0 then begin
-        CurrentShape:=Node^.UserData;
-        if assigned(CurrentShape) and
-           (CurrentShape<>aShape) and
-           (assigned(CurrentShape.fRigidBody) and
-            ((CurrentShape.fRigidBody.fCollisionGroups*CollisionGroups)<>[])) and
-           ((not assigned(aKraftOnPushShapeFilterHook)) or
-            aKraftOnPushShapeFilterHook(CurrentShape)) then begin
-         case CurrentShape.fShapeType of
-          kstSignedDistanceField:begin
-           // Ignore
-          end;
-          kstSphere,kstCapsule,kstConvexHull,kstBox,kstPlane,kstTriangle:begin
-           CollideConvex(CurrentShape);
-          end;
-          kstMesh:begin
-           CollideMesh(TKraftShapeMesh(CurrentShape));
-          end;
-          else begin
-          end;
-         end;
-        end;
-       end else begin
-        if aAABBTree.fStackCapacity<=(LocalStackPointer+2) then begin
-         aAABBTree.fStackCapacity:=RoundUpToPowerOfTwo(LocalStackPointer+2);
-         ReallocMem(aAABBTree.fStack,aAABBTree.fStackCapacity*SizeOf(TKraftInt32));
-         LocalStack:=aAABBTree.fStack;
-        end;
-        LocalStack^[LocalStackPointer+0]:=Node^.Children[0];
-        LocalStack^[LocalStackPointer+1]:=Node^.Children[1];
-        inc(LocalStackPointer,2);
-       end;
-      end;
-     end;
-    end;
-   end;
-  end;
- end;
-{$else}
- procedure QueryTree(aAABBTree:TKraftDynamicAABBTree);
-  procedure ProcessNode(aNodeID:TKraftInt32);
-  var Node:PKraftDynamicAABBTreeNode;
-      CurrentShape:TKraftShape;
-  begin
-   while aNodeID>=0 do begin
-    Node:=@aAABBTree.fNodes[aNodeID];
-    if AABBIntersect(Node^.AABB,AABB) then begin
-     if Node^.Children[0]<0 then begin
-      CurrentShape:=Node^.UserData;
-      if assigned(CurrentShape) and
-         (CurrentShape<>aShape) and
-         (assigned(CurrentShape.fRigidBody) and
-          ((CurrentShape.fRigidBody.fCollisionGroups*aCollisionGroups)<>[])) and
-         ((not assigned(aKraftOnPushShapeFilterHook)) or
-          aKraftOnPushShapeFilterHook(CurrentShape)) then begin
-       case CurrentShape.fShapeType of
-        kstSignedDistanceField:begin
-         // Ignore
-        end;
-        kstSphere,kstCapsule,kstConvexHull,kstBox,kstPlane,kstTriangle:begin
-         CollideConvex(CurrentShape);
-        end;
-        kstMesh:begin
-         CollideMesh(TKraftShapeMesh(CurrentShape));
-        end;
-        else begin
-        end;
-       end;
-      end;
-     end else begin
-      ProcessNode(Node^.Children[0]);
-      aNodeID:=Node^.Children[1];
-      continue;
-     end;
-    end;
-    break;
-   end;
-  end;
- begin
-  ProcessNode(aAABBTree.fRoot);
- end;
-{$endif}
-var TryCounter:TKraftInt32;
+type TStack=TKraftDynamicFastNonRTTIStack<TKraftInt32>;
+var TryCounter,AABBTreeIndex,NodeID:TKraftInt32;
     OriginalCenter,Center:TKraftVector3;
+    Stack:TStack;
+    AABBTree:TKraftDynamicAABBTree;
+    Node:PKraftDynamicAABBTreeNode;
+    CurrentShape:TKraftShape;
 begin
  case aShape.fShapeType of
   kstSphere:begin
@@ -47651,70 +47556,124 @@ begin
    result:=false;
   end;
   else begin
-   OriginalCenter:=TKraftVector3(Pointer(@aShape.fWorldTransform[3,0])^);
-   Sphere.Center:=OriginalCenter;
-   Sphere.Radius:=SphereFromAABB(aShape.fWorldAABB).Radius;
-   aSeperation.x:=0;
-   aSeperation.y:=0;
-   aSeperation.z:=0;
-{$ifdef SIMD}
-   aSeperation.w:=0;
-{$endif}
-   result:=false;
-   for TryCounter:=1 to aTryIterations do begin
-    Hit:=false;
-    TransformA:=aShape.fWorldTransform;
-    TransformA[3,0]:=TransformA[3,0]+aSeperation.x;
-    TransformA[3,1]:=TransformA[3,1]+aSeperation.y;
-    TransformA[3,2]:=TransformA[3,2]+aSeperation.z;
-    Sphere.Center:=Vector3Add(OriginalCenter,aSeperation);
-    AABB.Min.x:=Sphere.Center.x-Sphere.Radius;
-    AABB.Min.y:=Sphere.Center.y-Sphere.Radius;
-    AABB.Min.z:=Sphere.Center.z-Sphere.Radius;
-{$ifdef SIMD}
-    AABB.Min.w:=0.0;
-{$endif}
-    AABB.Max.x:=Sphere.Center.x+Sphere.Radius;
-    AABB.Max.y:=Sphere.Center.y+Sphere.Radius;
-    AABB.Max.z:=Sphere.Center.z+Sphere.Radius;
-{$ifdef SIMD}
-    AABB.Max.w:=0.0;
-{$endif}
-    SumMinimumTranslationVector:=Vector3Origin;
-    BestMinimumTranslationVector:=Vector3Origin;
-    BestPenetrationDepth:=0.0;
-    Count:=0;
-    QueryTree(fStaticAABBTree);
-    QueryTree(fSleepingAABBTree);
-    QueryTree(fDynamicAABBTree);
-    QueryTree(fKinematicAABBTree);
-    result:=result or Hit;
-    if aSingleDeepest then begin
-     if Count>0 then begin
-      aSeperation.x:=aSeperation.x+BestMinimumTranslationVector.x;
-      aSeperation.y:=aSeperation.y+BestMinimumTranslationVector.y;
-      aSeperation.z:=aSeperation.z+BestMinimumTranslationVector.z;
-{$ifdef SIMD}
-      aSeperation.w:=0.0;
-{$endif}
-     end else begin
-{$ifdef SIMD}
-      aSeperation.w:=0.0;
-{$endif}
-      break;
+   Stack.Initialize;
+   try
+    OriginalCenter:=TKraftVector3(Pointer(@aShape.fWorldTransform[3,0])^);
+    Sphere.Center:=OriginalCenter;
+    Sphere.Radius:=SphereFromAABB(aShape.fWorldAABB).Radius;
+    aSeperation.x:=0;
+    aSeperation.y:=0;
+    aSeperation.z:=0;
+ {$ifdef SIMD}
+    aSeperation.w:=0;
+ {$endif}
+    result:=false;
+    for TryCounter:=1 to aTryIterations do begin
+     Hit:=false;
+     TransformA:=aShape.fWorldTransform;
+     TransformA[3,0]:=TransformA[3,0]+aSeperation.x;
+     TransformA[3,1]:=TransformA[3,1]+aSeperation.y;
+     TransformA[3,2]:=TransformA[3,2]+aSeperation.z;
+     Sphere.Center:=Vector3Add(OriginalCenter,aSeperation);
+     AABB.Min.x:=Sphere.Center.x-Sphere.Radius;
+     AABB.Min.y:=Sphere.Center.y-Sphere.Radius;
+     AABB.Min.z:=Sphere.Center.z-Sphere.Radius;
+ {$ifdef SIMD}
+     AABB.Min.w:=0.0;
+ {$endif}
+     AABB.Max.x:=Sphere.Center.x+Sphere.Radius;
+     AABB.Max.y:=Sphere.Center.y+Sphere.Radius;
+     AABB.Max.z:=Sphere.Center.z+Sphere.Radius;
+ {$ifdef SIMD}
+     AABB.Max.w:=0.0;
+ {$endif}
+     SumMinimumTranslationVector:=Vector3Origin;
+     BestMinimumTranslationVector:=Vector3Origin;
+     BestPenetrationDepth:=0.0;
+     Count:=0;
+     for AABBTreeIndex:=0 to 3 do begin
+      case AABBTreeIndex of
+       0:begin
+        AABBTree:=fStaticAABBTree;
+       end;
+       1:begin
+        AABBTree:=fSleepingAABBTree;
+       end;
+       2:begin
+        AABBTree:=fDynamicAABBTree;
+       end;
+       else begin
+        AABBTree:=fKinematicAABBTree;
+       end;
+      end;
+      if assigned(AABBTree) and (AABBTree.fRoot>=0) then begin
+       Stack.Clear;
+       Stack.Push(AABBTree.fRoot);
+       while Stack.Pop(NodeID) do begin
+        if NodeID>=0 then begin
+         Node:=@AABBTree.fNodes[NodeID];
+         if AABBIntersect(Node^.AABB,AABB) then begin
+          if Node^.Children[0]<0 then begin
+           CurrentShape:=Node^.UserData;
+           if assigned(CurrentShape) and
+              (CurrentShape<>aShape) and
+              (assigned(CurrentShape.fRigidBody) and
+               ((CurrentShape.fRigidBody.fCollisionGroups*aCollisionGroups)<>[])) and
+              ((not assigned(aKraftOnPushShapeFilterHook)) or
+               aKraftOnPushShapeFilterHook(CurrentShape)) then begin
+            case CurrentShape.fShapeType of
+             kstSignedDistanceField:begin
+              // Ignore
+             end;
+             kstSphere,kstCapsule,kstConvexHull,kstBox,kstPlane,kstTriangle:begin
+              CollideConvex(CurrentShape);
+             end;
+             kstMesh:begin
+              CollideMesh(TKraftShapeMesh(CurrentShape));
+             end;
+             else begin
+             end;
+            end;
+           end;
+          end else begin
+           Stack.Push(Node^.Children[0]);
+           Stack.Push(Node^.Children[1]);
+          end;
+         end;
+        end;
+       end;
+      end;
      end;
-    end else begin
-     if (Count>0) and not IsZero(Vector3LengthSquared(SumMinimumTranslationVector)) then begin
-      aSeperation.x:=aSeperation.x+(SumMinimumTranslationVector.x/Count);
-      aSeperation.y:=aSeperation.y+(SumMinimumTranslationVector.y/Count);
-      aSeperation.z:=aSeperation.z+(SumMinimumTranslationVector.z/Count);
-{$ifdef SIMD}
-      aSeperation.w:=0.0;
-{$endif}
+     result:=result or Hit;
+     if aSingleDeepest then begin
+      if Count>0 then begin
+       aSeperation.x:=aSeperation.x+BestMinimumTranslationVector.x;
+       aSeperation.y:=aSeperation.y+BestMinimumTranslationVector.y;
+       aSeperation.z:=aSeperation.z+BestMinimumTranslationVector.z;
+ {$ifdef SIMD}
+       aSeperation.w:=0.0;
+ {$endif}
+      end else begin
+ {$ifdef SIMD}
+       aSeperation.w:=0.0;
+ {$endif}
+       break;
+      end;
      end else begin
-      break;
+      if (Count>0) and not IsZero(Vector3LengthSquared(SumMinimumTranslationVector)) then begin
+       aSeperation.x:=aSeperation.x+(SumMinimumTranslationVector.x/Count);
+       aSeperation.y:=aSeperation.y+(SumMinimumTranslationVector.y/Count);
+       aSeperation.z:=aSeperation.z+(SumMinimumTranslationVector.z/Count);
+ {$ifdef SIMD}
+       aSeperation.w:=0.0;
+ {$endif}
+      end else begin
+       break;
+      end;
      end;
     end;
+   finally
+    Stack.Finalize;
    end;
   end;
  end;
