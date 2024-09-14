@@ -2746,16 +2746,6 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property Size:TKraftInt32 read fSize;
      end;
 
-{$ifndef KraftSingleThreadedUsage}
-     TKraftBroadPhaseData=record
-      ThreadIndex:TKraftInt32;
-      Shape:TKraftShape;
-      AABBTree:TKraftDynamicAABBTree;
-      ShapeAABB:PKraftAABB;
-     end;
-     PKraftBroadPhaseData=^TKraftBroadPhaseData;
-{$endif}
-
      TKraftBroadPhase=class
       private
 
@@ -2776,10 +2766,6 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fAllMoveBufferSize:TKraftInt32;
 
        procedure AddPair(const ThreadIndex:TKraftInt32;ShapeA,ShapeB:TKraftShape); {$ifdef caninline}inline;{$endif}
-
-{$ifndef KraftSingleThreadedUsage}
-       procedure ProcessNode(const Data:PKraftBroadPhaseData;NodeID:TKraftInt32);
-{$endif}
 
        procedure QueryShapeWithTree(const ThreadIndex:TKraftInt32;const Shape:TKraftShape;const AABBTree:TKraftDynamicAABBTree);
 
@@ -38096,83 +38082,44 @@ begin
  end;
 end;
 
-{$ifndef KraftSingleThreadedUsage}
-procedure TKraftBroadPhase.ProcessNode(const Data:PKraftBroadPhaseData;NodeID:TKraftInt32);
-var Node:PKraftDynamicAABBTreeNode;
-    OtherShape:TKraftShape;
-begin
- while NodeID>=0 do begin
-  Node:=@Data^.AABBTree.fNodes[NodeID];
-  if AABBIntersect(Node^.AABB,Data^.ShapeAABB^) then begin
-   if Node^.Children[0]<0 then begin
-    OtherShape:=Node^.UserData;
-    if assigned(OtherShape) and (Data^.Shape<>OtherShape) then begin
-     AddPair(Data^.ThreadIndex,Data^.Shape,OtherShape);
-    end;
-   end else begin
-    ProcessNode(Data,Node^.Children[0]);
-    NodeID:=Node^.Children[1];
-    continue;
-   end;
-  end;
-  break;
- end;
-end;
-{$endif}
-
 procedure TKraftBroadPhase.QueryShapeWithTree(const ThreadIndex:TKraftInt32;const Shape:TKraftShape;const AABBTree:TKraftDynamicAABBTree);
-{$ifdef KraftSingleThreadedUsage}
 var ShapeAABB:PKraftAABB;
     LocalStack:PKraftDynamicAABBTreeLongintArray;
     LocalStackPointer,NodeID:TKraftInt32;
     Node:PKraftDynamicAABBTreeNode;
     OtherShape:TKraftShape;
 begin
- if assigned(Shape) and assigned(AABBTree) then begin
+ if assigned(Shape) and assigned(AABBTree) and (AABBTree.fRoot>=0) then begin
   ShapeAABB:=Shape.ProxyFatWorldAABB;
-  if AABBTree.fRoot>=0 then begin
-   LocalStack:=fStack[ThreadIndex];
-   LocalStack^[0]:=AABBTree.fRoot;
-   LocalStackPointer:=1;
-   while LocalStackPointer>0 do begin
-    dec(LocalStackPointer);
-    NodeID:=LocalStack^[LocalStackPointer];
-    if NodeID>=0 then begin
-     Node:=@AABBTree.fNodes[NodeID];
-     if AABBIntersect(Node^.AABB,ShapeAABB^) then begin
-      if Node^.Children[0]<0 then begin
-       OtherShape:=Node^.UserData;
-       if assigned(OtherShape) and (Shape<>OtherShape) then begin
-        AddPair(ThreadIndex,Shape,OtherShape);
-       end;
-      end else begin
-       if fStackCapacity[ThreadIndex]<=(LocalStackPointer+2) then begin
-        fStackCapacity[ThreadIndex]:=RoundUpToPowerOfTwo(LocalStackPointer+2);
-        ReallocMem(fStack[ThreadIndex],fStackCapacity[ThreadIndex]*SizeOf(TKraftInt32));
-        LocalStack:=fStack[ThreadIndex];
-       end;
-       LocalStack^[LocalStackPointer+0]:=Node^.Children[0];
-       LocalStack^[LocalStackPointer+1]:=Node^.Children[1];
-       inc(LocalStackPointer,2);
+  LocalStack:=fStack[ThreadIndex];
+  LocalStack^[0]:=AABBTree.fRoot;
+  LocalStackPointer:=1;
+  while LocalStackPointer>0 do begin
+   dec(LocalStackPointer);
+   NodeID:=LocalStack^[LocalStackPointer];
+   if NodeID>=0 then begin
+    Node:=@AABBTree.fNodes[NodeID];
+    if AABBIntersect(Node^.AABB,ShapeAABB^) then begin
+     if Node^.Children[0]<0 then begin
+      OtherShape:=Node^.UserData;
+      if assigned(OtherShape) and (Shape<>OtherShape) then begin
+       AddPair(ThreadIndex,Shape,OtherShape);
       end;
+     end else begin
+      if fStackCapacity[ThreadIndex]<=(LocalStackPointer+2) then begin
+       fStackCapacity[ThreadIndex]:=RoundUpToPowerOfTwo(LocalStackPointer+2);
+       ReallocMem(fStack[ThreadIndex],fStackCapacity[ThreadIndex]*SizeOf(TKraftInt32));
+       LocalStack:=fStack[ThreadIndex];
+      end;
+      LocalStack^[LocalStackPointer+0]:=Node^.Children[0];
+      LocalStack^[LocalStackPointer+1]:=Node^.Children[1];
+      inc(LocalStackPointer,2);
      end;
     end;
    end;
   end;
  end;
 end;
-{$else}
-var Data:TKraftBroadPhaseData;
-begin
- if assigned(Shape) and assigned(AABBTree) and (AABBTree.fRoot>=0) then begin
-  Data.ThreadIndex:=ThreadIndex;
-  Data.Shape:=Shape;
-  Data.AABBTree:=AABBTree;
-  Data.ShapeAABB:=Shape.ProxyFatWorldAABB;
-  ProcessNode(@Data,AABBTree.fRoot);
- end;
-end;
-{$endif}
 
 {$ifdef KraftPasMP}
 procedure TKraftBroadPhase.ProcessMoveBufferItemParallelForFunction(const Job:PPasMPJob;const ThreadIndex:TKraftInt32;const Data:pointer;const FromIndex,ToIndex:TPasMPNativeInt);
