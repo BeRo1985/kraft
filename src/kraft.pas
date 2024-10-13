@@ -38721,7 +38721,7 @@ procedure TKraftRigidBody.Finish;
     end else if Shape is TKraftShapeMesh then begin
      raise EKraftShapeTypeOnlyForStaticRigidBody.Create('Mesh shapes are allowed only at static rigidbodies');
     end;
-    if (ksfMass in Shape.fFlags) and (Shape.fDensity>EPSILON) then begin
+    if (ksfMass in Shape.fFlags) and ((Shape.fDensity>EPSILON) or (Shape.fForcedMass>EPSILON)) then begin
      fMass:=fMass+Shape.fMassData.Mass;
      Matrix3x3Add(fBodyInertiaTensor,Shape.fMassData.Inertia);
      TempLocalCenter:=Vector3Add(TempLocalCenter,Vector3ScalarMul(Shape.fMassData.Center,Shape.fMassData.Mass));
