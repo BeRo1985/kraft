@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2024-09-14-11-36-0000                       *
+ *                        Version 2024-10-14-19-56-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -1144,6 +1144,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
       TimeOfImpact:TKraftScalar;
       Point:TKraftVector3;
       Normal:TKraftVector3;
+      SurfaceNormal:TKraftVector3;
      end;
      PKraftRayCastData=^TKraftRayCastData;
 
@@ -4354,7 +4355,11 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        function RayCast(const aOrigin,aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnRayCastFilterHook:TKraftOnRayCastFilterHook=nil):boolean; overload;
 
+       function RayCast(const aOrigin,aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnRayCastFilterHook:TKraftOnRayCastFilterHook=nil):boolean; overload;
+
        function RayCast(const aSource,aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnRayCastFilterHook:TKraftOnRayCastFilterHook=nil):boolean; overload;
+
+       function RayCast(const aSource,aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnRayCastFilterHook:TKraftOnRayCastFilterHook=nil):boolean; overload;
 
        function SphereCast(const aOrigin:TKraftVector3;const aRadius:TKraftScalar;const aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook=nil):boolean; overload;
 
@@ -31110,6 +31115,7 @@ begin
        RayCastData.TimeOfImpact:=t;
        RayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,t)),fWorldTransform);
        RayCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(Vector3(0.0,-1.0,0.0),fWorldTransform));
+       RayCastData.SurfaceNormal:=RayCastData.Normal;
        result:=true;
        exit;
       end;
@@ -31125,6 +31131,7 @@ begin
        RayCastData.TimeOfImpact:=t;
        RayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,t)),fWorldTransform);
        RayCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(Vector3(0.0,1.0,0.0),fWorldTransform));
+       RayCastData.SurfaceNormal:=RayCastData.Normal;
        result:=true;
        exit;
       end;
@@ -31137,6 +31144,7 @@ begin
      p:=Vector3Add(Origin,Vector3ScalarMul(Direction,t0));
      RayCastData.Point:=Vector3TermMatrixMul(p,fWorldTransform);
      RayCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(p,fWorldTransform));
+     RayCastData.SurfaceNormal:=RayCastData.Normal;
      result:=true;
      exit;
     end;
@@ -31160,6 +31168,7 @@ begin
       RayCastData.TimeOfImpact:=t;
       RayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,t)),fWorldTransform);
       RayCastData.Normal:=Vector3NormEx(Vector3Sub(RayCastData.Point,Vector3TermMatrixMul(Vector3(0.0,-HalfHeight,0.0),fWorldTransform)));
+      RayCastData.SurfaceNormal:=RayCastData.Normal;
       result:=true;
       exit;
      end;
@@ -31184,6 +31193,7 @@ begin
       RayCastData.TimeOfImpact:=t;
       RayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,t)),fWorldTransform);
       RayCastData.Normal:=Vector3NormEx(Vector3Sub(RayCastData.Point,Vector3TermMatrixMul(Vector3(0.0,HalfHeight,0.0),fWorldTransform)));
+      RayCastData.SurfaceNormal:=RayCastData.Normal;
       result:=true;
      end;
     end;
@@ -31461,6 +31471,7 @@ begin
     RayCastData.TimeOfImpact:=TimeFirst;
     RayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,TimeFirst)),fWorldTransform);
     RayCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(fConvexHull.fFaces[BestFaceIndex].Plane.Normal,fWorldTransform));
+    RayCastData.SurfaceNormal:=RayCastData.Normal;
     result:=true;
    end;
   end;
@@ -32236,6 +32247,7 @@ begin
   RayCastData.TimeOfImpact:=Alpha;
   RayCastData.Point:=Vector3Add(RayCastData.Origin,Vector3ScalarMul(RayCastData.Direction,Alpha));
   RayCastData.Normal:=Vector3ScalarMul(Vector3(fWorldTransform[n,0],fWorldTransform[n,1],fWorldTransform[n,2]),sign[n]);
+  RayCastData.SurfaceNormal:=RayCastData.Normal;
   result:=true;
  end;
 end;
@@ -32577,6 +32589,7 @@ begin
       RayCastData.TimeOfImpact:=Time;
       RayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
       RayCastData.Normal:=Vector3TermMatrixMulBasis(fPlane.Normal,fWorldTransform);
+      RayCastData.SurfaceNormal:=RayCastData.Normal;
       result:=true;
      end;
     end;
@@ -33051,6 +33064,7 @@ begin
      aRayCastData.TimeOfImpact:=Time;
      aRayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
      aRayCastData.Normal:=Vector3TermMatrixMulBasis(Vector3NormEx(Vector3Cross(Vector3Sub(Vertices^[1].Position,Vertices^[0].Position),Vector3Sub(Vertices^[2].Position,Vertices^[0].Position))),fWorldTransform);
+     aRayCastData.SurfaceNormal:=aRayCastData.Normal;
      result:=true;
     end;
    end else if RayIntersectTriangle(Origin,Direction,Vertices^[2].Position,Vertices^[1].Position,Vertices^[0].Position,Time,u,v,w) then begin
@@ -33058,6 +33072,7 @@ begin
      aRayCastData.TimeOfImpact:=Time;
      aRayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
      aRayCastData.Normal:=Vector3TermMatrixMulBasis(Vector3NormEx(Vector3Cross(Vector3Sub(Vertices^[1].Position,Vertices^[2].Position),Vector3Sub(Vertices^[0].Position,Vertices^[2].Position))),fWorldTransform);
+     aRayCastData.SurfaceNormal:=aRayCastData.Normal;
      result:=true;
     end;
    end;
@@ -33473,8 +33488,10 @@ begin
              RayCastData.Point:=p;
              if SidePass then begin
               RayCastData.Normal:=Vector3Neg(Normal);
+              RayCastData.SurfaceNormal:=Vector3Neg(Triangle^.Plane.Normal);
              end else begin
               RayCastData.Normal:=Normal;
+              RayCastData.SurfaceNormal:=Triangle^.Plane.Normal;
              end;
              result:=true;
             end;
@@ -33496,6 +33513,7 @@ begin
    if result then begin
     RayCastData.Point:=Vector3TermMatrixMul(RayCastData.Point,fWorldTransform);
     RayCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(RayCastData.Normal,fWorldTransform));
+    RayCastData.SurfaceNormal:=Vector3NormEx(Vector3TermMatrixMulBasis(RayCastData.SurfaceNormal,fWorldTransform));
    end;
   end;
  end;
@@ -34006,6 +34024,7 @@ begin
       RayCastData.Normal.w:=0.0;
 {$endif}
       Vector3Normalize(RayCastData.Normal);
+      RayCastData.SurfaceNormal:=RayCastData.Normal;
       result:=true;
       break;
      end else begin
@@ -46690,11 +46709,90 @@ begin
  end;
 end;
 
+function TKraft.RayCast(const aOrigin,aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnRayCastFilterHook:TKraftOnRayCastFilterHook=nil):boolean;
+type TStack=TKraftDynamicFastNonRTTIStack<TKraftInt32>;
+var AABBTreeIndex:TKraftInt32;
+    AABBTree:TKraftDynamicAABBTree;
+    Stack:TStack;
+    NodeID:TKraftInt32;
+    Node:PKraftDynamicAABBTreeNode;
+    CurrentShape:TKraftShape;
+    RayCastData:TKraftRaycastData;
+begin
+ result:=false;
+ aTime:=aMaxTime;
+ Stack.Initialize;
+ try
+  for AABBTreeIndex:=0 to 3 do begin
+   case AABBTreeIndex of
+    0:begin
+     AABBTree:=fStaticAABBTree;
+    end;
+    1:begin
+     AABBTree:=fSleepingAABBTree;
+    end;
+    2:begin
+     AABBTree:=fDynamicAABBTree;
+    end;
+    else begin
+     AABBTree:=fKinematicAABBTree;
+    end;
+   end;
+   if assigned(AABBTree) and (AABBTree.fRoot>=0) then begin
+    Stack.Clear;
+    Stack.Push(AABBTree.fRoot);
+    while Stack.Pop(NodeID) do begin
+     while NodeID>=0 do begin
+      Node:=@AABBTree.fNodes[NodeID];
+      if AABBRayIntersect(Node^.AABB,aOrigin,aDirection) then begin
+       if Node^.Children[0]<0 then begin
+        CurrentShape:=Node^.UserData;
+        RayCastData.Origin:=aOrigin;
+        RayCastData.Direction:=aDirection;
+        RayCastData.MaxTime:=aMaxTime;
+        if (assigned(CurrentShape) and (assigned(CurrentShape.fRigidBody) and ((CurrentShape.fRigidBody.fCollisionGroups*aCollisionGroups)<>[]))) and CurrentShape.RayCast(RayCastData) then begin
+         if (assigned(aOnRayCastFilterHook) and aOnRayCastFilterHook(RayCastData.Point,RayCastData.Normal,RayCastData.TimeOfImpact,CurrentShape)) or not assigned(aOnRayCastFilterHook) then begin
+          if (result and (RayCastData.TimeOfImpact<aTime)) or not result then begin
+           result:=true;
+           aTime:=RayCastData.TimeOfImpact;
+           aPoint:=RayCastData.Point;
+           aNormal:=RayCastData.Normal;
+           aSurfaceNormal:=RayCastData.SurfaceNormal;
+           aShape:=CurrentShape;
+          end;
+         end;
+        end;
+       end else begin
+        Stack.Push(Node^.Children[1]);
+        NodeID:=Node^.Children[0];
+        continue;
+       end;
+      end;
+      break;
+     end;
+    end;
+   end;
+  end;
+ finally
+  Stack.Finalize;
+ end;
+end;
+
 function TKraft.RayCast(const aSource,aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnRayCastFilterHook:TKraftOnRayCastFilterHook):boolean;
 var Len:TKraftScalar;
 begin
  Len:=Vector3Dist(aSource,aTarget);
  result:=RayCast(aSource,Vector3Norm(Vector3Sub(aTarget,aSource)),Len,aShape,aTime,aPoint,aNormal,aCollisionGroups,aOnRayCastFilterHook);
+ if result then begin
+  aTime:=aTime/Len;
+ end;
+end;
+
+function TKraft.RayCast(const aSource,aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnRayCastFilterHook:TKraftOnRayCastFilterHook):boolean;
+var Len:TKraftScalar;
+begin
+ Len:=Vector3Dist(aSource,aTarget);
+ result:=RayCast(aSource,Vector3Norm(Vector3Sub(aTarget,aSource)),Len,aShape,aTime,aPoint,aNormal,aSurfaceNormal,aCollisionGroups,aOnRayCastFilterHook);
  if result then begin
   aTime:=aTime/Len;
  end;
