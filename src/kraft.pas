@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2024-10-14-19-56-0000                       *
+ *                        Version 2024-10-15-07-44-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -1545,6 +1545,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        procedure Finish;
 
+       function IsPointInside(const Position:TKraftVector3):Boolean;
+
        function GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
 
        function GetLocalSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar;
@@ -1866,6 +1868,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure SaveBVHToOBJ(const aStream:TStream;const aMode:TKraftInt32=0); overload;
        procedure SaveBVHToOBJ(const aFileName:String;const aMode:TKraftInt32=0); overload;
 
+       function IsPointInside(const Position:TKraftVector3):Boolean;
+
        function GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
 
        function GetLocalSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar;
@@ -2024,6 +2028,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        procedure Finish; virtual;
 
+       function IsPointInside(const Position:TKraftVector3):Boolean; virtual;
+
        function GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar; virtual;
 
        function GetLocalSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar; virtual;
@@ -2152,6 +2158,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        destructor Destroy; override;
        procedure UpdateShapeAABB; override;
        procedure CalculateMassData; override;
+       function IsPointInside(const Position:TKraftVector3):Boolean; override;
        function GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar; override;
        function GetLocalSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar; override;
        function GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3; override;
@@ -2179,6 +2186,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        destructor Destroy; override;
        procedure UpdateShapeAABB; override;
        procedure CalculateMassData; override;
+       function IsPointInside(const Position:TKraftVector3):Boolean; override;
        function GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar; override;
        function GetLocalSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar; override;
        function GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3; override;
@@ -2206,6 +2214,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        destructor Destroy; override;
        procedure UpdateShapeAABB; override;
        procedure CalculateMassData; override;
+       function IsPointInside(const Position:TKraftVector3):Boolean; override;
        function GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar; override;
        function GetLocalSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar; override;
        function GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3; override;
@@ -2233,6 +2242,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        destructor Destroy; override;
        procedure UpdateShapeAABB; override;
        procedure CalculateMassData; override;
+       function IsPointInside(const Position:TKraftVector3):Boolean; override;
        function GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar; override;
        function GetLocalSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar; override;
        function GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3; override;
@@ -2262,6 +2272,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        destructor Destroy; override;
        procedure UpdateShapeAABB; override;
        procedure CalculateMassData; override;
+       function IsPointInside(const Position:TKraftVector3):Boolean; override;
        function GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar; override;
        function GetLocalSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar; override;
        function GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3; override;
@@ -2298,6 +2309,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure MarkAsDirty;
        procedure UpdateShapeAABB; override;
        procedure CalculateMassData; override;
+       function IsPointInside(const Position:TKraftVector3):Boolean; override;
        function GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar; override;
        function GetLocalSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar; override;
        function GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3; override;
@@ -2330,6 +2342,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        destructor Destroy; override;
        procedure UpdateShapeAABB; override;
        procedure CalculateMassData; override;
+       function IsPointInside(const Position:TKraftVector3):Boolean; override;
        function GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar; override;
        function GetLocalSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar; override;
        function GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3; override;
@@ -14094,6 +14107,7 @@ type TKraftShapeTriangle=class(TKraftShapeConvexHull)
        destructor Destroy; override;
        procedure UpdateShapeAABB; override;
        procedure CalculateMassData; override;
+       function IsPointInside(const Position:TKraftVector3):Boolean; override;
        function GetLocalSignedDistance(const aPosition:TKraftVector3):TKraftScalar; override;
        function GetLocalSignedDistanceAndDirection(const aPosition:TKraftVector3;out aDirection:TKraftVector3):TKraftScalar; override;
        function GetLocalSignedDistanceGradient(const aPosition:TKraftVector3):TKraftVector3; override;
@@ -26123,6 +26137,18 @@ begin
  end;
 end;}
 
+function TKraftConvexHull.IsPointInside(const Position:TKraftVector3):Boolean;
+var CurrentFaceIndex:TKraftInt32;
+begin
+ result:=true;
+ for CurrentFaceIndex:=0 to fCountFaces-1 do begin
+  if PlaneVectorDistance(fFaces[CurrentFaceIndex].Plane,Position)>=0.0 then begin
+   result:=false;
+   break;
+  end;
+ end;
+end;
+
 function TKraftConvexHull.GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
 var BestFaceIndex,CurrentFaceIndex,NeighbourFaceIndex,NewFaceIndex:TKraftInt32;
     BestDistance,CurrentDistance,NewDistance:TKraftScalar;
@@ -29758,6 +29784,11 @@ begin
 
 end;
 
+function TKraftMesh.IsPointInside(const Position:TKraftVector3):Boolean;
+begin
+ result:=GetLocalSignedDistance(Position)<0.0;
+end;
+
 function TKraftMesh.GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
 type PStackItem=^TStackItem;
      TStackItem=record
@@ -30563,6 +30594,11 @@ begin
  fAngularMotionDisc:=Vector3Length(fShapeSphere.Center)+fShapeSphere.Radius;
 end;
 
+function TKraftShape.IsPointInside(const Position:TKraftVector3):Boolean;
+begin
+ result:=GetLocalSignedDistance(Position)<0.0;
+end;
+
 function TKraftShape.GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
 begin
  result:=MAX_SCALAR;
@@ -30753,6 +30789,11 @@ begin
  fMassData.Inertia:=Matrix3x3TermAdd(InertiaTensorTransform(fMassData.Inertia,Matrix3x3(fLocalTransform)),
                                      InertiaTensorParallelAxisTheorem(fMassData.Center,fMassData.Mass));
 //Matrix3x3Add(fMassData.Inertia,InertiaTensorParallelAxisTheorem(fMassData.Center,fMassData.Mass));
+end;
+
+function TKraftShapeSphere.IsPointInside(const Position:TKraftVector3):Boolean;
+begin
+ result:=Vector3Length(Vector3TermMatrixMulInverted(Position,fWorldTransform))<fRadius;
 end;
 
 function TKraftShapeSphere.GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
@@ -31052,6 +31093,29 @@ begin
                                      InertiaTensorParallelAxisTheorem(fMassData.Center,fMassData.Mass));
 end;
 {$endif}
+
+function TKraftShapeCapsule.IsPointInside(const Position:TKraftVector3):Boolean;
+var p,a,b,pa,ba:TKraftVector3;
+    HalfHeight:TKraftScalar;
+begin
+ HalfHeight:=fHeight*0.5;
+ p:=Position;
+ a.x:=0.0;
+ a.y:=-HalfHeight;
+ a.z:=0.0;
+{$ifdef SIMD}
+ a.w:=0.0;
+{$endif}
+ b.x:=0.0;
+ b.y:=HalfHeight;
+ b.z:=0.0;
+{$ifdef SIMD}
+ b.w:=0.0;
+{$endif}
+ pa:=Vector3Sub(p,a);
+ ba:=Vector3Sub(b,a);
+ result:=Vector3Length(Vector3Sub(pa,Vector3ScalarMul(ba,Min(Max(Vector3Dot(pa,ba)/Vector3Dot(ba,ba),0.0),1.0))))<fRadius;
+end;
 
 function TKraftShapeCapsule.GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
 var p,a,b,pa,ba:TKraftVector3;
@@ -31527,6 +31591,11 @@ begin
                                      InertiaTensorParallelAxisTheorem(Vector3Sub(fMassData.Center,fConvexHull.fMassData.Center),fMassData.Mass));
 end;
 
+function TKraftShapeConvexHull.IsPointInside(const Position:TKraftVector3):Boolean;
+begin
+ result:=fConvexHull.IsPointInside(Position);
+end;
+
 function TKraftShapeConvexHull.GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
 begin
  result:=fConvexHull.GetLocalSignedDistance(Position);
@@ -31949,10 +32018,17 @@ begin
                                      InertiaTensorParallelAxisTheorem(fMassData.Center,fMassData.Mass));
 end;
 
+function TKraftShapeBox.IsPointInside(const Position:TKraftVector3):Boolean;
+var q:TKraftVector3;
+begin
+ q:=Vector3Abs(Vector3Sub(Position,Extents));
+ result:=(q.x<Extents.x) and (q.y<Extents.y) and (q.z<Extents.z);
+end;
+
 function TKraftShapeBox.GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
 var q:TKraftVector3;
 begin
- q:=Vector3Sub(Vector3Abs(Position),Extents);
+ q:=Vector3Abs(Vector3Sub(Position,Extents));
  result:=Vector3Length(Vector3(Max(0.0,q.x),Max(0.0,q.y),Max(0.0,q.z)))*Min(0.0,Max(q.x,Max(q.y,q.z)));
 end;
 
@@ -32645,6 +32721,11 @@ procedure TKraftShapePlane.CalculateMassData;
 begin
 end;
 
+function TKraftShapePlane.IsPointInside(const Position:TKraftVector3):Boolean;
+begin
+ result:=PlaneVectorDistance(Plane,Position)<0;
+end;
+
 function TKraftShapePlane.GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
 begin
  result:=PlaneVectorDistance(Plane,Position);
@@ -33069,6 +33150,11 @@ begin
  fFeatureRadius:=0.0;
 end;
 
+function TKraftShapeTriangle.IsPointInside(const Position:TKraftVector3):Boolean;
+begin
+ result:=PlaneVectorDistance(fConvexHull.fFaces[0].Plane,Position)<0;
+end;
+
 function TKraftShapeTriangle.GetLocalSignedDistance(const aPosition:TKraftVector3):TKraftScalar;
 begin
  result:=(sqrt(SquaredDistanceFromPointToTriangle(aPosition,
@@ -33483,6 +33569,18 @@ end;
 
 procedure TKraftShapeMesh.CalculateMassData;
 begin
+end;
+
+function TKraftShapeMesh.IsPointInside(const Position:TKraftVector3):Boolean;
+var Index:TKraftInt32;
+begin
+ result:=false;
+ for Index:=0 to fCountMeshes-1 do begin
+  if fMeshes[Index].IsPointInside(Position) then begin
+   result:=true;
+   break;
+  end;
+ end;
 end;
 
 function TKraftShapeMesh.GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
@@ -34073,6 +34171,11 @@ begin
 
  end;
 
+end;
+
+function TKraftShapeSignedDistanceField.IsPointInside(const Position:TKraftVector3):Boolean;
+begin
+ result:=GetLocalSignedDistance(Position)<0.0;
 end;
 
 function TKraftShapeSignedDistanceField.GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
