@@ -4135,9 +4135,11 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftOnPushShapeFilterHook=function(const aWithShape:TKraftShape):boolean of object;
 
-     TKraftOnRayCastFilterHook=function(const aPoint,aNormal:TKraftVector3;const aTime:TKraftScalar;const aShape:TKraftShape):boolean of object;
+     TKraftOnCastFilterHook=function(const aPoint,aNormal:TKraftVector3;const aTime:TKraftScalar;const aShape:TKraftShape):boolean of object;
 
-     TKraftOnSphereCastFilterHook=function(const aPoint,aNormal:TKraftVector3;const aTime:TKraftScalar;const aShape:TKraftShape):boolean of object;
+     TKraftOnRayCastFilterHook=TKraftOnCastFilterHook;
+
+     TKraftOnSphereCastFilterHook=TKraftOnCastFilterHook;
 
      TKraftDebugDrawLine=procedure(const aP0,aP1:TKraftVector3;const aColor:TKraftVector4) of object;
 
