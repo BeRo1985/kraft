@@ -1471,6 +1471,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
       Vertices:TKraftInt32DynamicArray;
       CountVertices:TKraftInt32;
       EdgeVertexOffset:TKraftInt32;
+      NeighbourFaces:TKraftInt32DynamicArray;
+      CountNeighbourFaces:TKraftInt32;
      end;
      PKraftConvexHullFace=^TKraftConvexHullFace;
 
@@ -1483,6 +1485,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      PKraftConvexHullEdge=^TKraftConvexHullEdge;
 
      TKraftConvexHullEdges=array of TKraftConvexHullEdge;
+
+     { TKraftConvexHull }
 
      TKraftConvexHull=class(TPersistent)
       private
@@ -1510,6 +1514,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fMassData:TKraftMassData;
 
        fCentroid:TKraftVector3;
+
+       procedure CalculateNeighbourFaces;
 
        procedure CalculateMassData;
 
@@ -4541,7 +4547,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 const KraftSignatureConvexHull:TKraftSignature=('K','R','P','H','C','O','H','U');
       KraftSignatureMesh:TKraftSignature=('K','R','P','H','M','E','S','T');
 
-      KraftFileFormatVersion:TKraftUInt32=3;
+      KraftFileFormatVersion:TKraftUInt32=4;
 
       Vector2Origin:TKraftVector2=(x:0.0;y:0.0);
       Vector2XAxis:TKraftVector2=(x:1.0;y:0.0);
@@ -25007,6 +25013,11 @@ begin
    AStream.ReadBuffer(fFaces[i].Vertices[j],SizeOf(TKraftInt32));
   end;
   AStream.ReadBuffer(fFaces[i].EdgeVertexOffset,SizeOf(TKraftInt32));
+  AStream.ReadBuffer(fFaces[i].CountNeighbourFaces,SizeOf(TKraftInt32));
+  SetLength(fFaces[i].NeighbourFaces,fFaces[i].CountNeighbourFaces);
+  for j:=0 to fFaces[i].CountNeighbourFaces-1 do begin
+   AStream.ReadBuffer(fFaces[i].NeighbourFaces[j],SizeOf(TKraftInt32));
+  end;
  end;
 
  AStream.ReadBuffer(i,SizeOf(TKraftInt32));
@@ -25113,6 +25124,10 @@ begin
    AStream.WriteBuffer(fFaces[i].Vertices[j],SizeOf(TKraftInt32));
   end;
   AStream.WriteBuffer(fFaces[i].EdgeVertexOffset,SizeOf(TKraftInt32));
+  AStream.WriteBuffer(fFaces[i].CountNeighbourFaces,SizeOf(TKraftInt32));
+  for j:=0 to fFaces[i].CountNeighbourFaces-1 do begin
+   AStream.WriteBuffer(fFaces[i].NeighbourFaces[j],SizeOf(TKraftInt32));
+  end;
  end;
 
  i:=fCountEdges;
@@ -25740,6 +25755,10 @@ begin
   //SetLength(TempInputPolygons.Items,0);
   SetLength(TempOutputPolygons.Items,0);
  end;
+
+ // Finding neighbour faces
+ CalculateNeighbourFaces;
+
 end;
 
 procedure TKraftConvexHull.Update;
@@ -25811,6 +25830,74 @@ begin
  end;
 
  fAngularMotionDisc:=Vector3Length(fSphere.Center)+fSphere.Radius;
+
+end;
+
+procedure TKraftConvexHull.CalculateNeighbourFaces;
+type TVertexInfo=record
+      Faces:TKraftInt32DynamicArray;
+      CountFaces:TKraftInt32;
+     end;
+     PVertexInfo=^TVertexInfo;
+     TVertexInfos=array of TVertexInfo;
+var FaceIndex,OtherFaceIndex,VertexIndex:TKraftInt32;
+    VertexInfos:TVertexInfos;
+    VertexInfo:PVertexInfo;
+    Face:PKraftConvexHullFace;
+    Found:boolean;
+begin
+
+ VertexInfos:=nil;
+ try
+
+  // Initialize vertex infos and collect faces for each vertex without duplicates for finding neighbour faces later 
+  SetLength(VertexInfos,fCountVertices);
+  for VertexIndex:=0 to fCountVertices-1 do begin
+   VertexInfos[VertexIndex].CountFaces:=0;
+  end;
+  for FaceIndex:=0 to fCountFaces-1 do begin
+   Face:=@fFaces[FaceIndex];
+   for VertexIndex:=0 to Face^.CountVertices-1 do begin
+    VertexInfo:=@VertexInfos[Face^.Vertices[VertexIndex]];
+    Found:=false;
+    for OtherFaceIndex:=0 to VertexInfo^.CountFaces-1 do begin
+     if VertexInfo^.Faces[OtherFaceIndex]=FaceIndex then begin
+      Found:=true;
+      break;
+     end;
+    end;
+    if not Found then begin
+     if length(VertexInfo^.Faces)<(VertexInfo^.CountFaces+1) then begin
+      SetLength(VertexInfo^.Faces,(VertexInfo^.CountFaces+1)*2);
+     end;
+     VertexInfo^.Faces[VertexInfo^.CountFaces]:=FaceIndex;
+     inc(VertexInfo^.CountFaces);
+    end; 
+   end;
+  end;
+
+  // Find neighbour faces for each face
+  for FaceIndex:=0 to fCountFaces-1 do begin
+   Face:=@fFaces[FaceIndex];
+   Face^.CountNeighbourFaces:=0;
+   for VertexIndex:=0 to Face^.CountVertices-1 do begin
+    VertexInfo:=@VertexInfos[Face^.Vertices[VertexIndex]];
+    for OtherFaceIndex:=0 to VertexInfo^.CountFaces-1 do begin
+     if OtherFaceIndex<>FaceIndex then begin
+      if length(Face^.NeighbourFaces)<(Face^.CountNeighbourFaces+1) then begin
+       SetLength(Face^.NeighbourFaces,(Face^.CountNeighbourFaces+1)*2);
+      end;
+      Face^.NeighbourFaces[Face^.CountNeighbourFaces]:=OtherFaceIndex;
+      inc(Face^.CountNeighbourFaces);
+     end;
+    end;
+   end;
+   SetLength(Face^.NeighbourFaces,Face^.CountNeighbourFaces);
+  end;
+
+ finally
+  VertexInfos:=nil;
+ end;
 
 end;
 
