@@ -26096,62 +26096,116 @@ begin
 
 end;
 
-function TKraftConvexHull.GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
-var Index:TKraftInt32;
-    Distance:TKraftScalar;
+{function TKraftConvexHull.GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
+var AlphaFaceIndex,BetaFaceIndex,NeighbourFaceIndex:TKraftInt32;
+    AlphaFace,BetaFace:PKraftConvexHullFace;
+    AlphaS,BetaS:TKraftScalar;
 begin
  if fCountFaces>0 then begin
-  result:=PlaneVectorDistance(fFaces[0].Plane,Position);
-  for Index:=1 to fCountFaces-1 do begin
-   Distance:=PlaneVectorDistance(fFaces[Index].Plane,Position);
-   if result<Distance then begin
-    result:=Distance;
+  AlphaFaceIndex:=0;
+  AlphaFace:=@fFaces[AlphaFaceIndex];
+  AlphaS:=Vector3Dot(AlphaFace^.Plane.Normal,Position)/(-AlphaFace^.Plane.Distance);
+  repeat
+   for NeighbourFaceIndex:=0 to AlphaFace^.CountNeighbourFaces-1 do begin
+    BetaFaceIndex:=AlphaFace^.NeighbourFaces[NeighbourFaceIndex];
+    BetaFace:=@fFaces[BetaFaceIndex];
+    BetaS:=Vector3Dot(BetaFace^.Plane.Normal,Position)/(-BetaFace^.Plane.Distance);
+    if BetaS>AlphaS then begin
+     AlphaS:=BetaS;
+     AlphaFaceIndex:=BetaFaceIndex;
+     AlphaFace:=BetaFace;
+    end;
    end;
-  end;
-  if result>=0.0 then begin
-   // Point lies on or outside convex hull
-   for Index:=0 to fCountFaces-1 do begin
-    Distance:=PlaneVectorDistance(fFaces[Index].Plane,Position);
-    if result>Distance then begin
-     result:=Distance;
+  until AlphaS>1.0;
+  result:=Vector3Dot(AlphaFace^.Plane.Normal,Position)+AlphaFace^.Plane.Distance;
+ end else begin
+  result:=MAX_SCALAR;
+ end;
+end;}
+
+function TKraftConvexHull.GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
+var BestFaceIndex,CurrentFaceIndex,NeighbourFaceIndex,NewFaceIndex:TKraftInt32;
+    BestDistance,CurrentDistance,NewDistance:TKraftScalar;
+    Face,CurrentFace:PKraftConvexHullFace;
+begin
+ if fCountFaces>0 then begin
+  BestDistance:=PlaneVectorDistance(fFaces[0].Plane,Position);
+  if fCountFaces<8 then begin
+   for CurrentFaceIndex:=1 to fCountFaces-1 do begin
+    CurrentDistance:=PlaneVectorDistance(fFaces[CurrentFaceIndex].Plane,Position);
+    if BestDistance<CurrentDistance then begin
+     BestDistance:=CurrentDistance;
     end;
    end;
   end else begin
-   // Point lies inside convex hull
+   BestFaceIndex:=0;
+   repeat
+    NewFaceIndex:=BestFaceIndex;
+    NewDistance:=BestDistance;
+    Face:=@fFaces[BestFaceIndex];
+    for NeighbourFaceIndex:=0 to Face^.CountNeighbourFaces-1 do begin
+     CurrentFaceIndex:=Face^.NeighbourFaces[NeighbourFaceIndex];
+     CurrentFace:=@fFaces[CurrentFaceIndex];
+     CurrentDistance:=PlaneVectorDistance(CurrentFace^.Plane,Position);
+     if NewDistance<CurrentDistance then begin
+      NewFaceIndex:=CurrentFaceIndex;
+      NewDistance:=CurrentDistance;
+     end;
+    end;
+    if NewFaceIndex=BestFaceIndex then begin
+     break;
+    end else begin
+     BestFaceIndex:=NewFaceIndex;
+     BestDistance:=NewDistance;
+    end;
+   until false;
   end;
+  result:=BestDistance;
  end else begin
   result:=MAX_SCALAR;
  end;
 end;
 
 function TKraftConvexHull.GetLocalSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar;
-var Index,BestIndex:TKraftInt32;
-    BestDistance,Distance:TKraftScalar;
+var BestFaceIndex,CurrentFaceIndex,NeighbourFaceIndex,NewFaceIndex:TKraftInt32;
+    BestDistance,CurrentDistance,NewDistance:TKraftScalar;
+    Face,CurrentFace:PKraftConvexHullFace;
 begin
  if fCountFaces>0 then begin
+  BestFaceIndex:=0;
   BestDistance:=PlaneVectorDistance(fFaces[0].Plane,Position);
-  BestIndex:=0;
-  for Index:=1 to fCountFaces-1 do begin
-   Distance:=PlaneVectorDistance(fFaces[Index].Plane,Position);
-   if BestDistance<Distance then begin
-    BestDistance:=Distance;
-    BestIndex:=Index;
-   end;
-  end;
-  if BestDistance>=0.0 then begin
-   // Point lies on or outside convex hull
-   for Index:=0 to fCountFaces-1 do begin
-    Distance:=PlaneVectorDistance(fFaces[Index].Plane,Position);
-    if BestDistance>Distance then begin
-     BestDistance:=Distance;
-     BestIndex:=Index;
+  if fCountFaces<8 then begin
+   for CurrentFaceIndex:=1 to fCountFaces-1 do begin
+    CurrentDistance:=PlaneVectorDistance(fFaces[CurrentFaceIndex].Plane,Position);
+    if BestDistance<CurrentDistance then begin
+     BestFaceIndex:=CurrentFaceIndex;
+     BestDistance:=CurrentDistance;
     end;
    end;
   end else begin
-   // Point lies inside convex hull
+   repeat
+    NewFaceIndex:=BestFaceIndex;
+    NewDistance:=BestDistance;
+    Face:=@fFaces[BestFaceIndex];
+    for NeighbourFaceIndex:=0 to Face^.CountNeighbourFaces-1 do begin
+     CurrentFaceIndex:=Face^.NeighbourFaces[NeighbourFaceIndex];
+     CurrentFace:=@fFaces[CurrentFaceIndex];
+     CurrentDistance:=PlaneVectorDistance(CurrentFace^.Plane,Position);
+     if NewDistance<CurrentDistance then begin
+      NewFaceIndex:=CurrentFaceIndex;
+      NewDistance:=CurrentDistance;
+     end;
+    end;
+    if NewFaceIndex=BestFaceIndex then begin
+     break;
+    end else begin
+     BestFaceIndex:=NewFaceIndex;
+     BestDistance:=NewDistance;
+    end;
+   until false;
   end;
-  Direction:=fFaces[BestIndex].Plane.Normal;
-  result:=Distance;
+  Direction:=fFaces[BestFaceIndex].Plane.Normal;
+  result:=BestDistance;
  end else begin
   Direction:=Vector3XAxis;
   result:=MAX_SCALAR;
@@ -26159,65 +26213,89 @@ begin
 end;
 
 function TKraftConvexHull.GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3;
-var Index,BestIndex:TKraftInt32;
-    BestDistance,Distance:TKraftScalar;
+var BestFaceIndex,CurrentFaceIndex,NeighbourFaceIndex,NewFaceIndex:TKraftInt32;
+    BestDistance,CurrentDistance,NewDistance:TKraftScalar;
+    Face,CurrentFace:PKraftConvexHullFace;
 begin
  if fCountFaces>0 then begin
+  BestFaceIndex:=0;
   BestDistance:=PlaneVectorDistance(fFaces[0].Plane,Position);
-  BestIndex:=0;
-  for Index:=1 to fCountFaces-1 do begin
-   Distance:=PlaneVectorDistance(fFaces[Index].Plane,Position);
-   if BestDistance<Distance then begin
-    BestDistance:=Distance;
-    BestIndex:=Index;
-   end;
-  end;
-  if BestDistance>=0.0 then begin
-   // Point lies on or outside convex hull
-   for Index:=0 to fCountFaces-1 do begin
-    Distance:=PlaneVectorDistance(fFaces[Index].Plane,Position);
-    if BestDistance>Distance then begin
-     BestDistance:=Distance;
-     BestIndex:=Index;
+  if fCountFaces<8 then begin
+   for CurrentFaceIndex:=1 to fCountFaces-1 do begin
+    CurrentDistance:=PlaneVectorDistance(fFaces[CurrentFaceIndex].Plane,Position);
+    if BestDistance<CurrentDistance then begin
+     BestFaceIndex:=CurrentFaceIndex;
+     BestDistance:=CurrentDistance;
     end;
    end;
   end else begin
-   // Point lies inside convex hull
+   repeat
+    NewFaceIndex:=BestFaceIndex;
+    NewDistance:=BestDistance;
+    Face:=@fFaces[BestFaceIndex];
+    for NeighbourFaceIndex:=0 to Face^.CountNeighbourFaces-1 do begin
+     CurrentFaceIndex:=Face^.NeighbourFaces[NeighbourFaceIndex];
+     CurrentFace:=@fFaces[CurrentFaceIndex];
+     CurrentDistance:=PlaneVectorDistance(CurrentFace^.Plane,Position);
+     if NewDistance<CurrentDistance then begin
+      NewFaceIndex:=CurrentFaceIndex;
+      NewDistance:=CurrentDistance;
+     end;
+    end;
+    if NewFaceIndex=BestFaceIndex then begin
+     break;
+    end else begin
+     BestFaceIndex:=NewFaceIndex;
+     BestDistance:=NewDistance;
+    end;
+   until false;
   end;
 //result:=Vector3ScalarMul(Vector3Norm(Vector3Sub(Position,Vector3Sub(Position,Vector3ScalarMul(fFaces[BestIndex].Plane.Normal,PlaneVectorDistance(fFaces[Index].Plane,Position))))),Delta);
-  result:=Faces[BestIndex].Plane.Normal;
+  result:=Vector3ScalarMul(Faces[BestFaceIndex].Plane.Normal,BestDistance);
  end else begin
   result:=Vector3(MAX_SCALAR,MAX_SCALAR,MAX_SCALAR);
  end;
 end;
 
 function TKraftConvexHull.GetLocalSignedDistanceNormal(const Position:TKraftVector3):TKraftVector3;
-var Index,BestIndex:TKraftInt32;
-    BestDistance,Distance:TKraftScalar;
+var BestFaceIndex,CurrentFaceIndex,NeighbourFaceIndex,NewFaceIndex:TKraftInt32;
+    BestDistance,CurrentDistance,NewDistance:TKraftScalar;
+    Face,CurrentFace:PKraftConvexHullFace;
 begin
  if fCountFaces>0 then begin
+  BestFaceIndex:=0;
   BestDistance:=PlaneVectorDistance(fFaces[0].Plane,Position);
-  BestIndex:=0;
-  for Index:=1 to fCountFaces-1 do begin
-   Distance:=PlaneVectorDistance(fFaces[Index].Plane,Position);
-   if BestDistance<Distance then begin
-    BestDistance:=Distance;
-    BestIndex:=Index;
-   end;
-  end;
-  if BestDistance>=0.0 then begin
-   // Point lies on or outside convex hull
-   for Index:=0 to fCountFaces-1 do begin
-    Distance:=PlaneVectorDistance(fFaces[Index].Plane,Position);
-    if BestDistance>Distance then begin
-     BestDistance:=Distance;
-     BestIndex:=Index;
+  if fCountFaces<8 then begin
+   for CurrentFaceIndex:=1 to fCountFaces-1 do begin
+    CurrentDistance:=PlaneVectorDistance(fFaces[CurrentFaceIndex].Plane,Position);
+    if BestDistance<CurrentDistance then begin
+     BestFaceIndex:=CurrentFaceIndex;
+     BestDistance:=CurrentDistance;
     end;
    end;
   end else begin
-   // Point lies inside convex hull
+   repeat
+    NewFaceIndex:=BestFaceIndex;
+    NewDistance:=BestDistance;
+    Face:=@fFaces[BestFaceIndex];
+    for NeighbourFaceIndex:=0 to Face^.CountNeighbourFaces-1 do begin
+     CurrentFaceIndex:=Face^.NeighbourFaces[NeighbourFaceIndex];
+     CurrentFace:=@fFaces[CurrentFaceIndex];
+     CurrentDistance:=PlaneVectorDistance(CurrentFace^.Plane,Position);
+     if NewDistance<CurrentDistance then begin
+      NewFaceIndex:=CurrentFaceIndex;
+      NewDistance:=CurrentDistance;
+     end;
+    end;
+    if NewFaceIndex=BestFaceIndex then begin
+     break;
+    end else begin
+     BestFaceIndex:=NewFaceIndex;
+     BestDistance:=NewDistance;
+    end;
+   until false;
   end;
-  result:=fFaces[BestIndex].Plane.Normal;
+  result:=fFaces[BestFaceIndex].Plane.Normal;
  end else begin
   result:=Vector3Origin;
  end;
@@ -26228,27 +26306,16 @@ var Index,BestIndex:TKraftInt32;
     BestDistance,Distance:TKraftScalar;
 begin
  if fCountFaces>0 then begin
-  BestDistance:=PlaneVectorDistance(fFaces[0].Plane,Position);
+  BestDistance:=abs(PlaneVectorDistance(fFaces[0].Plane,Position));
   BestIndex:=0;
   for Index:=1 to fCountFaces-1 do begin
    Distance:=PlaneVectorDistance(fFaces[Index].Plane,Position);
-   if BestDistance<Distance then begin
-    BestDistance:=Distance;
+   if BestDistance<abs(Distance) then begin
+    BestDistance:=abs(Distance);
     BestIndex:=Index;
    end;
   end;
-  if BestDistance>=0.0 then begin
-   // Point lies on or outside convex hull
-   for Index:=0 to fCountFaces-1 do begin
-    Distance:=PlaneVectorDistance(fFaces[Index].Plane,Position);
-    if BestDistance>Distance then begin
-     BestDistance:=Distance;
-     BestIndex:=Index;
-    end;
-   end;
-  end else begin
-   // Point lies inside convex hull
-  end;
+  Distance:=PlaneVectorDistance(fFaces[BestIndex].Plane,Position);
   result:=Vector3Sub(Position,Vector3ScalarMul(fFaces[BestIndex].Plane.Normal,Distance));
  end else begin
   result:=Vector3Origin;
