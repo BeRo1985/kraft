@@ -1589,6 +1589,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      end;
 
+     TKraftConvexHulls=array of TKraftConvexHull;
+
      { TKraftMeshSimplificationVector3 }
      TKraftMeshSimplificationVector3=record
       public
@@ -2232,6 +2234,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 {$endif}
        property ConvexHull:TKraftConvexHull read fConvexHull;
      end;
+
+     TKraftShapeConvexHulls=array of TKraftShapeConvexHull;
 
      TKraftShapeBox=class(TKraftShapeConvexHull)
       private
