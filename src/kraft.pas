@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2024-10-15-07-44-0000                       *
+ *                        Version 2024-10-16-15-54-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -2714,9 +2714,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure DebugDraw(const CameraMatrix:TKraftMatrix4x4);
 {$endif}
 
-       function ReduceContacts(const AInputContacts:PKraftContacts;const ACountInputContacts:TKraftInt32;const AOutputContacts:PKraftContacts):TKraftInt32;
+       function ReduceContacts(const AInputContacts:PKraftContacts;const ACountInputContacts:TKraftInt32;const AOutputContacts:PKraftContacts;const aNormal:TKraftVector3):TKraftInt32;
 
-       function GetMaximizedAreaReducedContactIndices(const AInputContactPositions:PPKraftVector3s;const ACountInputContactPositions:TKraftInt32;var AOutputContactIndices:TKraftContactIndices):TKraftInt32;
+//     function GetMaximizedAreaReducedContactIndices(const AInputContactPositions:PPKraftVector3s;const ACountInputContactPositions:TKraftInt32;var AOutputContactIndices:TKraftContactIndices):TKraftInt32;
 
        property ContactPairFirst:PKraftContactPair read fContactPairFirst write fContactPairFirst;
        property ContactPairLast:PKraftContactPair read fContactPairLast write fContactPairLast;
@@ -14694,14 +14694,14 @@ begin
  end;
 end;
 
-function CalculateAreaFromThreePoints(const p0,p1,p2:TKraftVector3):TKraftScalar; overload;
+function CalculateAreaFromThreePoints(const p0,p1,p2:TKraftVector3):TKraftScalar;
 begin
  result:=Vector3LengthSquared(Vector3Cross(Vector3Sub(p1,p0),Vector3Sub(p2,p0)));
 end;
 
-function CalculateAreaFromFourPoints(const p0,p1,p2,p3:TKraftVector3):TKraftScalar; overload;
+function CalculateAreaFromFourPoints(const p0,p1,p2,p3:TKraftVector3):TKraftScalar;
 begin
- result:=Max(Max(Vector3LengthSquared(Vector3Cross(Vector3Sub(p0,p1),Vector3Sub(p3,p3))),
+ result:=Max(Max(Vector3LengthSquared(Vector3Cross(Vector3Sub(p0,p1),Vector3Sub(p2,p3))),
                  Vector3LengthSquared(Vector3Cross(Vector3Sub(p0,p2),Vector3Sub(p1,p3)))),
                  Vector3LengthSquared(Vector3Cross(Vector3Sub(p0,p3),Vector3Sub(p1,p2))));
 end;
@@ -36083,7 +36083,7 @@ var OldManifoldCountContacts:TKraftInt32;
 
    if ContactManager.fCountTemporaryContacts[ThreadIndex]>0 then begin
     // Contacts found, reduce these down to four contacts with the largest area
-    Manifold.CountContacts:=ContactManager.ReduceContacts(pointer(@ContactManager.fTemporaryContacts[ThreadIndex,0]),ContactManager.fCountTemporaryContacts[ThreadIndex],pointer(@Manifold.Contacts[0]));
+    Manifold.CountContacts:=ContactManager.ReduceContacts(pointer(@ContactManager.fTemporaryContacts[ThreadIndex,0]),ContactManager.fCountTemporaryContacts[ThreadIndex],pointer(@Manifold.Contacts[0]),Manifold.LocalNormal);
    end;
 
   end;
@@ -36205,7 +36205,7 @@ var OldManifoldCountContacts:TKraftInt32;
    end;
 
    if ContactManager.fCountTemporaryContacts[ThreadIndex]>0 then begin
-    Manifold.CountContacts:=ContactManager.ReduceContacts(pointer(@ContactManager.fTemporaryContacts[ThreadIndex,0]),ContactManager.fCountTemporaryContacts[ThreadIndex],pointer(@Manifold.Contacts[0]));
+    Manifold.CountContacts:=ContactManager.ReduceContacts(pointer(@ContactManager.fTemporaryContacts[ThreadIndex,0]),ContactManager.fCountTemporaryContacts[ThreadIndex],pointer(@Manifold.Contacts[0]),Manifold.LocalNormal);
     Manifold.ContactManifoldType:=kcmtPersistentImplicit;
     Manifold.LocalRadius[0]:=0.0;
     Manifold.LocalRadius[1]:=0.0;
@@ -38030,17 +38030,51 @@ begin
 end;
 {$endif}
 
-function TKraftContactManager.ReduceContacts(const AInputContacts:PKraftContacts;const ACountInputContacts:TKraftInt32;const AOutputContacts:PKraftContacts):TKraftInt32;
+function TKraftContactManager.ReduceContacts(const AInputContacts:PKraftContacts;const ACountInputContacts:TKraftInt32;const AOutputContacts:PKraftContacts;const aNormal:TKraftVector3):TKraftInt32;
+// This function reduces a set of contact points to a maximum of MAX_CONTACTS by selecting
+// the most significant contacts based on penetration depth, distance, and area calculations.
+// The algorithm ensures that the resulting contacts maintain a consistent winding order and
+// are coherent between frames, which is crucial for stable and accurate physics simulations.
+//
+// Algorithm Overview:
+// 1. Select the initial contact point (Contacts[0]) with the maximum penetration depth.
+//    - This ensures the deepest point is always included, aiding continuous collision detection (CCD).
+// 2. Select the second contact point (Contacts[1]) that is farthest from Contacts[0].
+//    - Maximizes the coverage area and helps in forming a large base for the contact manifold.
+// 3. Select the third contact point (Contacts[2]) that forms the triangle with the largest positive signed area.
+//    - Ensures consistent winding order by considering the sign of the area.
+//    - A positive area indicates a counter-clockwise winding with respect to the normal (ANormal).
+// 4. Select the fourth contact point (Contacts[3]) that adds the largest negative area when combined with the triangle edges.
+//    - Expands the contact manifold by including a point outside the current triangle.
+//    - Only triangles with negative areas are considered, indicating points on the outside of the edge.
+// 5. Collect the selected contacts and assign them to the output array.
+//
+// Key Concepts:
+// - Signed Area: Calculated using the cross product and dot product with the face normal (ANormal).
+//   The sign indicates the orientation (winding order) of the triangle formed by the points.
+// - Winding Order: Consistent winding (counter-clockwise) ensures normals are correctly calculated,
+//   which is vital for accurate collision response.
+//
+// Assumptions:
+// - All contact points are approximately in the same plane.
+//
 var Index,MaxPenetrationIndex:TKraftInt32;
-    MaxPenetration,MaxDistance,Distance,MaxArea,Area:TKraftScalar;
+    MaxPenetration,MaxDistance,Distance,MinArea,MaxArea,Area:TKraftScalar;
     Contact:PKraftContact;
     Contacts:array[0..MAX_CONTACTS-1] of PKraftContact;
 begin
+
+ // Step 0: Handle cases where the number of input contacts is less than or equal to MAX_CONTACTS
+
  if ACountInputContacts<=0 then begin
+
+  // No contacts to process
 
   result:=0;
 
  end else if ACountInputContacts<=MAX_CONTACTS then begin
+
+  // The number of contacts is already within the limit; copy them directly
 
   result:=ACountInputContacts;
 
@@ -38050,8 +38084,12 @@ begin
 
  end else begin
 
-  result:=MAX_CONTACTS;
+  // Begin reducing contacts to MAX_CONTACTS
+  // The algorithm assumes all contact points are approximately in the same plane
 
+  // Step 1: Select the initial point (Contacts[0])
+  // - We choose the contact with the maximum penetration depth
+  // - This ensures consistency between frames and helps with continuous collision detection (CCD)
   MaxPenetrationIndex:=0;
   MaxPenetration:=AInputContacts^[0].Penetration;
   for Index:=1 to ACountInputContacts-1 do begin
@@ -38063,6 +38101,9 @@ begin
   end;
   Contacts[0]:=@AInputContacts^[MaxPenetrationIndex];
 
+  // Step 2: Select the second point (Contacts[1])
+  // - Find the contact point farthest from Contacts[0]
+  // - This helps in covering the maximum area
   Contacts[1]:=nil;
   MaxDistance:=0.0;
   for Index:=0 to ACountInputContacts-1 do begin
@@ -38076,12 +38117,17 @@ begin
    end;
   end;
 
+  // Step 3: Select the third point (Contacts[2])
+  // - Find the contact that forms the triangle with the largest positive signed area with Contacts[0] and Contacts[1]
+  // - The signed area is computed using the cross product and dot product with the face normal (ANormal)
+  // - A positive area indicates the point is on one side of the edge (consistent winding)
+  // - This helps in maintaining the winding order and ensuring stability
   Contacts[2]:=nil;
-  MaxArea:=0.0;
+  MaxArea:=0.0; // Initialize to zero to leverage sign checks (only positive areas considered)
   for Index:=0 to ACountInputContacts-1 do begin
    Contact:=@AInputContacts^[Index];
    if (Contact<>Contacts[0]) and (Contact<>Contacts[1]) then begin
-    Area:=CalculateAreaFromThreePoints(Contact^.LocalPoints[0],Contacts[0]^.LocalPoints[0],Contacts[1]^.LocalPoints[0]);
+    Area:=Vector3Dot(Vector3Cross(Vector3Sub(Contacts[0]^.LocalPoints[0],Contact^.LocalPoints[0]),Vector3Sub(Contacts[1]^.LocalPoints[0],Contact^.LocalPoints[0])),ANormal);
     if (not assigned(Contacts[2])) or (MaxArea<Area) then begin
      MaxArea:=Area;
      Contacts[2]:=Contact;
@@ -38089,27 +38135,50 @@ begin
    end;
   end;
 
+  // Step 4: Select the fourth point (Contacts[3])
+  // - Find the contact that adds the largest negative area (most negative) when combined with the triangle edges
+  // - This point lies outside the current triangle and helps in expanding the contact manifold
+  // - We consider the minimum signed area with each edge of the triangle
+  // - Only negative areas are considered (points outside the edge)
   Contacts[3]:=nil;
-  MaxArea:=0.0;
+  MinArea:=0.0; // Initialize to zero to leverage sign checks (only negative areas considered)
   for Index:=0 to ACountInputContacts-1 do begin
    Contact:=@AInputContacts^[Index];
    if (Contact<>Contacts[0]) and (Contact<>Contacts[1]) and (Contact<>Contacts[2]) then begin
-    Area:=CalculateAreaFromFourPoints(Contact^.LocalPoints[0],Contacts[0]^.LocalPoints[0],Contacts[1]^.LocalPoints[0],Contacts[2]^.LocalPoints[0]);
-    if (not assigned(Contacts[3])) or (MaxArea<Area) then begin
-     MaxArea:=Area;
+    // Compute the signed area with each edge of the triangle
+    // The Min function selects the most negative area among the three
+    Area:=Min(Vector3Dot(Vector3Cross(Vector3Sub(Contacts[0]^.LocalPoints[0],Contact^.LocalPoints[0]),Vector3Sub(Contacts[1]^.LocalPoints[0],Contact^.LocalPoints[0])),ANormal),
+              Min(Vector3Dot(Vector3Cross(Vector3Sub(Contacts[1]^.LocalPoints[0],Contact^.LocalPoints[0]),Vector3Sub(Contacts[2]^.LocalPoints[0],Contact^.LocalPoints[0])),ANormal),
+                  Vector3Dot(Vector3Cross(Vector3Sub(Contacts[2]^.LocalPoints[0],Contact^.LocalPoints[0]),Vector3Sub(Contacts[0]^.LocalPoints[0],Contact^.LocalPoints[0])),ANormal)));
+    if (not assigned(Contacts[3])) or (Area<MinArea) then begin
+     // Select the contact with the most negative area (largest negative value)
+     MinArea:=Area;
      Contacts[3]:=Contact;
     end;
    end;
   end;
 
+  // Note on Winding Order and Signed Area:
+  // - The sign of the area indicates the relative orientation (winding) of the points with respect to the normal
+  // - Positive area: points are in counter-clockwise order (consistent with the normal direction)
+  // - Negative area: points are in clockwise order (opposite to the normal direction)
+  // - By considering the sign, we ensure that we maintain a consistent winding order, which is crucial for physics simulations
+
+  // Step 5: Assign the selected contacts to the output array
+  result:=0;
   for Index:=0 to MAX_CONTACTS-1 do begin
-   AOutputContacts^[Index]:=Contacts[Index]^;
+   Contact:=Contacts[Index];
+   if assigned(Contact) then begin
+    AOutputContacts^[result]:=Contact^;
+    inc(result);
+   end;
   end;
 
  end;
+
 end;
 
-function TKraftContactManager.GetMaximizedAreaReducedContactIndices(const AInputContactPositions:PPKraftVector3s;const ACountInputContactPositions:TKraftInt32;var AOutputContactIndices:TKraftContactIndices):TKraftInt32;
+{function TKraftContactManager.GetMaximizedAreaReducedContactIndices(const AInputContactPositions:PPKraftVector3s;const ACountInputContactPositions:TKraftInt32;var AOutputContactIndices:TKraftContactIndices):TKraftInt32;
 var Index,StartIndex:TKraftInt32;
     MaxDistance,Distance,MaxArea,Area:TKraftScalar;
     Position:PKraftVector3;
@@ -38189,7 +38258,7 @@ begin
   end;
 
  end;
-end;
+end;}
 
 constructor TKraftBroadPhaseMoveBuffer.Create(const aAABBTree:TKraftDynamicAABBTree);
 begin
