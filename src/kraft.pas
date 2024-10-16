@@ -35517,7 +35517,7 @@ var OldManifoldCountContacts:TKraftInt32;
    DBA:=Vector3Dot(D,B_x_A);
    ADC:=Vector3Dot(A,D_x_C);
    BDC:=Vector3Dot(B,D_x_C);
-   result:=((CBA*DBA<0.0)) and ((ADC*BDC)<0.0) and ((CBA*BDC)>0.0);
+   result:=(((CBA*DBA)<0.0)) and ((ADC*BDC)<0.0) and ((CBA*BDC)>0.0);
   end;
   function TestEarlyFaceDirection(const HullA,HullB:TKraftShapeConvexHull;var FaceQuery:TKraftContactFaceQuery):boolean;
   var Plane:TKraftPlane;
@@ -35651,9 +35651,9 @@ var OldManifoldCountContacts:TKraftInt32;
        MaxIndexA:=IndexA;
        MaxIndexB:=IndexB;
        MaxNormal:=Normal;
-       if MaxSeparation>0.0 then begin
+{      if MaxSeparation>0.0 then begin
         break;
-       end;
+       end;}
       end;
 
      end;
