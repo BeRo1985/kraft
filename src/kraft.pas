@@ -35590,9 +35590,9 @@ var OldManifoldCountContacts:TKraftInt32;
     if (Index=0) or (MaxSeparation<Separation) then begin
      MaxSeparation:=Separation;
      MaxIndex:=Index;
-     if MaxSeparation>0.0 then begin
+{    if MaxSeparation>0.0 then begin
       break;
-     end;
+     end;}
     end;
    end;
    OutFaceQuery.Index:=MaxIndex;
@@ -35707,7 +35707,7 @@ var OldManifoldCountContacts:TKraftInt32;
   end;
   procedure ClipFaceContactPoints(const ReferenceHull:TKraftShapeConvexHull;const ReferenceFaceIndex:TKraftInt32;const IncidentHull:TKraftShapeConvexHull;const IncidentFaceIndex:TKraftInt32;const Flip:boolean);
   var Contact:PKraftContact;
-      ReferenceVertexIndex,OtherReferenceVertexIndex,IncidentVertexIndex,CliVertexIndex,
+      ReferenceVertexIndex,OtherReferenceVertexIndex,IncidentVertexIndex,ClipVertexIndex,
       ReferenceEdgeIndexOffset,IncidentEdgeIndexOffset{$ifdef DebugDraw},
       DebugClipVertexListIndex{$endif}:TKraftInt32;
       {$ifdef DebugDraw}DebugClipVertexListOK:boolean;{$endif}
@@ -35757,8 +35757,8 @@ var OldManifoldCountContacts:TKraftInt32;
       ContactManager.fDebugClipVertexLists[DebugClipVertexListIndex].fColor.b:=0.5;
       ContactManager.fDebugClipVertexLists[DebugClipVertexListIndex].fColor.a:=1.0;
       ContactManager.fDebugClipVertexLists[DebugClipVertexListIndex].Clear;
-      for CliVertexIndex:=0 to ClipVertices[0].Count-1 do begin
-       ContactManager.fDebugClipVertexLists[DebugClipVertexListIndex].Add(ClipVertices[0].Vertices[CliVertexIndex]);
+      for ClipVertexIndex:=0 to ClipVertices[0].Count-1 do begin
+       ContactManager.fDebugClipVertexLists[DebugClipVertexListIndex].Add(ClipVertices[0].Vertices[ClipVertexIndex]);
       end;
      end;
      inc(DebugClipVertexListIndex);
@@ -35791,8 +35791,8 @@ var OldManifoldCountContacts:TKraftInt32;
      PreviousClipVertex:=@ClipVertices[0].Vertices[ClipVertices[0].Count-1];
      CurrentClipVertex:=@ClipVertices[0].Vertices[0];
      PreviousClipVertexDistance:=PlaneVectorDistance(ReferenceEdgePlane,PreviousClipVertex^.Position);
-     for CliVertexIndex:=0 to ClipVertices[0].Count-1 do begin
-      CurrentClipVertex:=@ClipVertices[0].Vertices[CliVertexIndex];
+     for ClipVertexIndex:=0 to ClipVertices[0].Count-1 do begin
+      CurrentClipVertex:=@ClipVertices[0].Vertices[ClipVertexIndex];
       CurrentClipVertexDistance:=PlaneVectorDistance(ReferenceEdgePlane,CurrentClipVertex^.Position);
       if PreviousClipVertexDistance<=0.0 then begin
        if CurrentClipVertexDistance<=0.0 then begin
@@ -35843,15 +35843,15 @@ var OldManifoldCountContacts:TKraftInt32;
      ContactManager.fDebugClipVertexLists[DebugClipVertexListIndex].fColor.b:=1.0;
      ContactManager.fDebugClipVertexLists[DebugClipVertexListIndex].fColor.a:=1.0;
      ContactManager.fDebugClipVertexLists[DebugClipVertexListIndex].Clear;
-     for CliVertexIndex:=0 to ClipVertices[0].Count-1 do begin
-      ContactManager.fDebugClipVertexLists[DebugClipVertexListIndex].Add(ClipVertices[0].Vertices[CliVertexIndex]);
+     for ClipVertexIndex:=0 to ClipVertices[0].Count-1 do begin
+      ContactManager.fDebugClipVertexLists[DebugClipVertexListIndex].Add(ClipVertices[0].Vertices[ClipVertexIndex]);
      end;
     end;
    end;
 {$endif}
 
-   for CliVertexIndex:=0 to ClipVertices[0].Count-1 do begin
-    ClipVertex:=@ClipVertices[0].Vertices[CliVertexIndex];
+   for ClipVertexIndex:=0 to ClipVertices[0].Count-1 do begin
+    ClipVertex:=@ClipVertices[0].Vertices[ClipVertexIndex];
     Distance:=PlaneVectorDistance(ReferenceWorldPlane,ClipVertex^.Position);
     if Distance<0.0 then begin
      if ContactManager.fCountTemporaryContacts[ThreadIndex]<MAX_TEMPORARY_CONTACTS then begin
