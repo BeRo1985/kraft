@@ -18503,41 +18503,6 @@ const Delta=1e-3;
       DescentRate=1e-1;
       Epsilon=1e-3;
       MaxIterations=128;
- function Map(const aPosition:TKraftVector3):TKraftScalar;
- begin
-  result:=Min(ShapeA.GetLocalSignedDistance(Vector3TermMatrixMulInverted(aPosition,TransformA)),
-              ShapeB.GetLocalSignedDistance(Vector3TermMatrixMulInverted(aPosition,TransformB)));
- end;
- function GetNormal(const aPosition:TKraftVector3):TKraftVector3;
- const Epsilon=1e-3;
- var Center:TKraftScalar;
- begin
-  Center:=Map(aPosition);
-  result:=Vector3Norm(Vector3(Map(Vector3(aPosition.x+Epsilon,aPosition.y,aPosition.z))-Center,
-                              Map(Vector3(aPosition.x,aPosition.y+Epsilon,aPosition.z))-Center,
-                              Map(Vector3(aPosition.x,aPosition.y,aPosition.z+Epsilon))-Center));
- end;
- function MaxMap(const aPosition:TKraftVector3):TKraftScalar;
- begin
-  result:=Max(ShapeA.GetLocalSignedDistance(Vector3TermMatrixMulInverted(aPosition,TransformA)),
-              ShapeB.GetLocalSignedDistance(Vector3TermMatrixMulInverted(aPosition,TransformB)));
- end;
- function GetGradient(const aPosition:TKraftVector3):TKraftVector3;
- begin
-  result:=Vector3ScalarMul(Vector3(MaxMap(Vector3(aPosition.x+Delta,aPosition.y,aPosition.z))-MaxMap(Vector3(aPosition.x-Delta,aPosition.y,aPosition.z)),
-                                   MaxMap(Vector3(aPosition.x,aPosition.y+Delta,aPosition.z))-MaxMap(Vector3(aPosition.x,aPosition.y-Delta,aPosition.z)),
-                                   MaxMap(Vector3(aPosition.x,aPosition.y,aPosition.z+Delta))-MaxMap(Vector3(aPosition.x,aPosition.y,aPosition.z-Delta))),OneOverTwoDelta);
- end;{}
- function ComputeSDFGradient(const Shape:TKraftShape;const Point:TKraftVector3):TKraftVector3;
- begin
-  // Compute partial derivatives using central differences
-  result.x:=(Shape.GetLocalSignedDistance(Vector3(Point.x+Delta,Point.y,Point.z))-Shape.GetLocalSignedDistance(Vector3(Point.x-Delta,Point.y,Point.z)))*OneOverTwoDelta;
-  result.y:=(Shape.GetLocalSignedDistance(Vector3(Point.x,Point.y+Delta,Point.z))-Shape.GetLocalSignedDistance(Vector3(Point.x,Point.y-Delta,Point.z)))*OneOverTwoDelta;
-  result.z:=(Shape.GetLocalSignedDistance(Vector3(Point.x,Point.y,Point.z+Delta))-Shape.GetLocalSignedDistance(Vector3(Point.x,Point.y,Point.z-Delta)))*OneOverTwoDelta;
-{$ifdef SIMD}
-  result.w:=0.0;
-{$endif}
- end;
  function GetWorldDistance(const Shape:TKraftShape;const CurrentPosition:TKraftVector3;const Transform:TKraftMatrix4x4):TKraftScalar;
  begin
   result:=Shape.GetLocalSignedDistance(Vector3TermMatrixMulInverted(CurrentPosition,Transform));
@@ -18572,35 +18537,37 @@ begin
   DistanceA:=GetWorldDistance(ShapeA,CurrentPosition,TransformA);
   DistanceB:=GetWorldDistance(ShapeB,CurrentPosition,TransformB);
 
-  if (DistanceA>0.0) or (DistanceB>0.0) then begin
-
-   if DistanceA>0.0 then begin
-
-    // Move towards the surface of A
-    NewPosition:=Vector3Sub(CurrentPosition,Vector3ScalarMul(Vector3Norm(GetWorldGradient(ShapeA,CurrentPosition,TransformA)),DistanceA));
-
-   end else begin
-
-    // Move towards the surface of B
-    NewPosition:=Vector3Sub(CurrentPosition,Vector3ScalarMul(Vector3Norm(GetWorldGradient(ShapeB,CurrentPosition,TransformB)),DistanceB));
-
-    DistanceA:=GetWorldDistance(ShapeA,NewPosition,TransformA);
-    if DistanceA>0.0 then begin
-     // Perform a projection onto A’s surface
-     NewPosition:=Vector3Sub(NewPosition,Vector3ScalarMul(Vector3Norm(GetWorldGradient(ShapeA,NewPosition,TransformA)),DistanceA));
-    end;
-
-   end;
-
-   if Vector3Dist(CurrentPosition,NewPosition)<Epsilon then begin
-    break;
-   end else begin
-    CurrentPosition:=NewPosition;
-   end;
-
-  end else begin
+  // Check if both shapes are not intersecting
+  if (DistanceA<=0.0) and (DistanceB<=0.0) then begin
+   // Both shapes are intersecting, so we have found the closest point or at least an intersection point
    break;
   end;
+
+  if DistanceA>0.0 then begin
+
+   // Move towards the surface of A
+   NewPosition:=Vector3Sub(CurrentPosition,Vector3ScalarMul(Vector3Norm(GetWorldGradient(ShapeA,CurrentPosition,TransformA)),DistanceA));
+
+  end else begin
+
+   // Move towards the surface of B
+   NewPosition:=Vector3Sub(CurrentPosition,Vector3ScalarMul(Vector3Norm(GetWorldGradient(ShapeB,CurrentPosition,TransformB)),DistanceB));
+
+   DistanceA:=GetWorldDistance(ShapeA,NewPosition,TransformA);
+   if DistanceA>0.0 then begin
+    // Perform a projection onto A’s surface
+    NewPosition:=Vector3Sub(NewPosition,Vector3ScalarMul(Vector3Norm(GetWorldGradient(ShapeA,NewPosition,TransformA)),DistanceA));
+   end;
+
+  end;
+
+  // Check for convergence
+  if Vector3Dist(CurrentPosition,NewPosition)<Epsilon then begin
+   break;
+  end;
+
+  // Update the current position 
+  CurrentPosition:=NewPosition;
 
  end;
 
@@ -18621,26 +18588,28 @@ begin
     DistanceA:=GetWorldDistance(ShapeA,CurrentPosition,TransformA);
     DistanceB:=GetWorldDistance(ShapeB,CurrentPosition,TransformB);
 
-    if (DistanceA<=0.0) and (DistanceB<=0.0) then begin
-
-     // Move towards the surface of B
-     NewPosition:=Vector3Sub(CurrentPosition,Vector3ScalarMul(Vector3Norm(GetWorldGradient(ShapeB,CurrentPosition,TransformB)),DescentRate));
-
-     DistanceA:=GetWorldDistance(ShapeA,NewPosition,TransformA);
-     if DistanceA>0.0 then begin
-      // Perform a projection onto A’s surface
-      NewPosition:=Vector3Sub(NewPosition,Vector3ScalarMul(Vector3Norm(GetWorldGradient(ShapeA,NewPosition,TransformA)),DistanceA));
-     end;
-
-     if Vector3Dist(CurrentPosition,NewPosition)<Epsilon then begin
-      break;
-     end else begin
-      CurrentPosition:=NewPosition;
-     end;
-
-    end else begin
+    // Check if both shapes are intersecting
+    if (DistanceA>0.0) or (DistanceB>0.0) then begin
+     // At least one shape is not intersecting, so abort
      break;
     end;
+
+    // Move towards the surface of B
+    NewPosition:=Vector3Sub(CurrentPosition,Vector3ScalarMul(Vector3Norm(GetWorldGradient(ShapeB,CurrentPosition,TransformB)),DescentRate));
+
+    DistanceA:=GetWorldDistance(ShapeA,NewPosition,TransformA);
+    if DistanceA>0.0 then begin
+     // Perform a projection onto A’s surface
+     NewPosition:=Vector3Sub(NewPosition,Vector3ScalarMul(Vector3Norm(GetWorldGradient(ShapeA,NewPosition,TransformA)),DistanceA));
+    end;
+
+    // Check for convergence
+    if Vector3Dist(CurrentPosition,NewPosition)<Epsilon then begin
+     break;
+    end;
+
+    // Update the current position 
+    CurrentPosition:=NewPosition;
 
    end;
 
@@ -18659,26 +18628,27 @@ begin
     DistanceA:=GetWorldDistance(ShapeA,CurrentPosition,TransformA);
     DistanceB:=GetWorldDistance(ShapeB,CurrentPosition,TransformB);
 
-    if (DistanceA<=0.0) and (DistanceB<=0.0) then begin
-
-     // Move towards the surface of A
-     NewPosition:=Vector3Sub(CurrentPosition,Vector3ScalarMul(Vector3Norm(GetWorldGradient(ShapeA,CurrentPosition,TransformA)),DescentRate));
-
-     DistanceB:=GetWorldDistance(ShapeB,NewPosition,TransformB);
-     if DistanceB>0.0 then begin
-      // Perform a projection onto B’s surface
-      NewPosition:=Vector3Sub(NewPosition,Vector3ScalarMul(Vector3Norm(GetWorldGradient(ShapeB,NewPosition,TransformB)),DistanceB));
-     end;
-
-     if Vector3Dist(CurrentPosition,NewPosition)<Epsilon then begin
-      break;
-     end else begin
-      CurrentPosition:=NewPosition;
-     end;
-
-    end else begin
+    // Check if both shapes are intersecting 
+    if (DistanceA>0.0) or (DistanceB>0.0) then begin
      break;
     end;
+
+    // Move towards the surface of A
+    NewPosition:=Vector3Sub(CurrentPosition,Vector3ScalarMul(Vector3Norm(GetWorldGradient(ShapeA,CurrentPosition,TransformA)),DescentRate));
+
+    DistanceB:=GetWorldDistance(ShapeB,NewPosition,TransformB);
+    if DistanceB>0.0 then begin
+     // Perform a projection onto B’s surface
+     NewPosition:=Vector3Sub(NewPosition,Vector3ScalarMul(Vector3Norm(GetWorldGradient(ShapeB,NewPosition,TransformB)),DistanceB));
+    end;
+
+    // Check for convergence
+    if Vector3Dist(CurrentPosition,NewPosition)<Epsilon then begin
+     break;
+    end;
+
+    // Update the current position 
+    CurrentPosition:=NewPosition;
 
    end;
 
