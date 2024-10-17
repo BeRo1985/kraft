@@ -30520,8 +30520,21 @@ begin
 end;
 
 function TKraftSignedDistanceField.GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3;
+const DescentRate=0.95;
+      MaxIterations=16;
+      Epsilon=1e-3;
+var Iteration:TKraftInt32;
+    CurrentPosition,NewPosition:TKraftVector3;
 begin
- result:=Vector3Origin;
+ CurrentPosition:=Vector3Norm(Direction);
+ for Iteration:=1 to MaxIterations do begin
+  NewPosition:=Vector3Sub(CurrentPosition,Vector3ScalarMul(GetLocalSignedDistanceNormalizedGradient(CurrentPosition),GetLocalSignedDistance(CurrentPosition)*DescentRate));
+  if Vector3Dist(CurrentPosition,NewPosition)<Epsilon then begin
+   break;
+  end;
+  CurrentPosition:=NewPosition;
+ end;
+ result:=CurrentPosition;
 end;
 
 function TKraftSignedDistanceField.GetLocalFeatureSupportVertex(const Index:TKraftInt32):TKraftVector3;
