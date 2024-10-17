@@ -18661,7 +18661,7 @@ begin
 
   PenetrationDepth:=GetWorldDistance(ShapeB,PositionA,TransformB);
 
-  writeln(PositionA.x:4:3,' ',PositionA.y:4:3,' ',PositionA.z:4:3,' - ',Normal.x:4:3,' ',Normal.y:4:3,' ',Normal.z:4:3,' - ',PenetrationDepth:4:3);
+  //writeln(PositionA.x:4:3,' ',PositionA.y:4:3,' ',PositionA.z:4:3,' - ',Normal.x:4:3,' ',Normal.y:4:3,' ',Normal.z:4:3,' - ',PenetrationDepth:4:3);
 
   result:=true;
 
