@@ -18500,7 +18500,7 @@ end;  *)
 const Delta=1e-3;
       OneOverDelta=1.0/Delta;
       OneOverTwoDelta=0.5/Delta; // 1.0/(2.0*Delta)
-      DescentRate=1e-1;
+      DescentRate=5e-2;
       Epsilon=1e-3;
       MaxIterations=128;
  function GetWorldDistance(const Shape:TKraftShape;const CurrentPosition:TKraftVector3;const Transform:TKraftMatrix4x4):TKraftScalar;
@@ -18669,9 +18669,7 @@ var CurrentPosition:TKraftVector3;
 begin
 
  // Initialize the current position to the midpoint between the shapes
- CurrentPosition:=Vector3Avg(Vector3(TransformA[3,0],TransformA[3,1],TransformA[3,2]),
-                             Vector3(TransformB[3,0],TransformB[3,1],TransformB[3,2]));
-
+ CurrentPosition:=Vector3Avg(ShapeA.GetCenter(TransformA),ShapeB.GetCenter(TransformB));
 
  Converged:=false;
  for Iteration:=1 to MaxIterations do begin
@@ -33617,7 +33615,7 @@ begin
  HullPlaneVertices[5]:=Vector3Sub(fPlaneVertices[1],b);
  HullPlaneVertices[6]:=Vector3Sub(fPlaneVertices[2],b);
  HullPlaneVertices[7]:=Vector3Sub(fPlaneVertices[3],b);
-//PlaneCenter:=Vector3Avg(@HullPlaneVertices[0],length(HullPlaneVertices));
+ fPlaneCenter:=Vector3Avg(@HullPlaneVertices[0],4);//length(HullPlaneVertices));
  fShapeConvexHull:=TKraftConvexHull.Create(aPhysics);
  fShapeConvexHull.Load(pointer(@HullPlaneVertices[0]),length(HullPlaneVertices));
  fShapeConvexHull.Build;
