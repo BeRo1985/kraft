@@ -18465,7 +18465,7 @@ const DescentRate=5e-2;
  end;
 
 var CurrentPosition,NewPosition,ClosestOrIntersectionPoint,NormalA,NormalB:TKraftVector3;
-    DistanceA,DistanceB:TKraftScalar;
+    DistanceA,DistanceB,PenetrationDepthA,PenetrationDepthB:TKraftScalar;
     Iteration:TKraftInt32;
 begin
 
@@ -18531,11 +18531,36 @@ begin
   // First loop to find contact point pb
   GetContactPositionNormal(ShapeB,ShapeA,ClosestOrIntersectionPoint,TransformB,TransformA,PositionB,NormalB);
 
-{ Normal:=NormalA;
-  PenetrationDepth:=ShapeA.GetSignedDistance(PositionB,TransformA);}
+  PenetrationDepthA:=ShapeA.GetSignedDistance(PositionB,TransformA);
+  PenetrationDepthB:=ShapeB.GetSignedDistance(PositionA,TransformB);
 
-  Normal:=Vector3Neg(NormalB);
-  PenetrationDepth:=Min(ShapeA.GetSignedDistance(PositionB,TransformA),-ShapeB.GetSignedDistance(PositionA,TransformB));
+  Normal:=NormalA;
+  PenetrationDepth:=PenetrationDepthA;
+
+{ if PenetrationDepthA<PenetrationDepthB then begin
+   Normal:=NormalA;
+   PenetrationDepth:=PenetrationDepthA;
+  end else begin
+   Normal:=Vector3Neg(NormalB);
+   PenetrationDepth:=PenetrationDepthB;
+  end;}
+
+{ Normal:=Vector3Neg(NormalB);
+  PenetrationDepth:=Min(,-ShapeB.GetSignedDistance(PositionA,TransformB));}
+
+
+{
+  PositionA:=Vector3Sub(CurrentPosition,Vector3ScalarMul(ShapeA.GetSignedDistanceNormalizedGradient(CurrentPosition,TransformA),DistanceA));
+  PositionB:=Vector3Sub(CurrentPosition,Vector3ScalarMul(ShapeB.GetSignedDistanceNormalizedGradient(CurrentPosition,TransformB),DistanceB));
+//PositionB:=CurrentPosition;
+
+  if DistanceA<DistanceB then begin
+   Normal:=Vector3Neg(ShapeA.GetSignedDistanceNormalizedGradient(CurrentPosition,TransformA));
+   PenetrationDepth:=-DistanceA;
+  end else begin
+   Normal:=ShapeB.GetSignedDistanceNormalizedGradient(CurrentPosition,TransformB);
+   PenetrationDepth:=DistanceB;
+  end;         //}
 
 //writeln(PositionA.x:4:3,' ',PositionA.y:4:3,' ',PositionA.z:4:3,' - ',Normal.x:4:3,' ',Normal.y:4:3,' ',Normal.z:4:3,' - ',PenetrationDepth:4:3);
 
