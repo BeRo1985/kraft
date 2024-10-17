@@ -18410,8 +18410,6 @@ begin
 
  result:=false;
 
- result:=false;
-
  PositionA:=Vector3Origin;
  PositionB:=Vector3Origin;
  Normal:=Vector3Origin;
