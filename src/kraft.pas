@@ -30793,9 +30793,9 @@ end;
  end;
  procedure GetNormal(out n:TKraftVector3;const p:TKraftVector3;const Scale:TKraftScalar);
  begin
-  n:=Vector3Norm(Vector3(GetLocalSignedDistance(Vector3(p.x-Scale,p.y,p.z))-GetLocalSignedDistance(Vector3(p.x+Scale,p.y,p.z)),
-                         GetLocalSignedDistance(Vector3(p.x,p.y-Scale,p.z))-GetLocalSignedDistance(Vector3(p.x,p.y+Scale,p.z)),
-                         GetLocalSignedDistance(Vector3(p.x,p.y,p.z-Scale))-GetLocalSignedDistance(Vector3(p.x,p.y,p.z+Scale))));
+  n:=Vector3Norm(Vector3(GetLocalSignedDistance(Vector3(p.x+Scale,p.y,p.z))-GetLocalSignedDistance(Vector3(p.x-Scale,p.y,p.z)),
+                         GetLocalSignedDistance(Vector3(p.x,p.y+Scale,p.z))-GetLocalSignedDistance(Vector3(p.x,p.y-Scale,p.z)),
+                         GetLocalSignedDistance(Vector3(p.x,p.y,p.z+Scale))-GetLocalSignedDistance(Vector3(p.x,p.y,p.z-Scale))));
  end;
  procedure MarchTetrahedron(const fX,fY,fZ,Scale,Threshold:TKraftScalar);
  const TetrahedronEdgeFlags:array[$0..$f] of TKraftUInt8=($00,$0d,$13,$1e,
@@ -30862,7 +30862,7 @@ end;
     if TetrahedronTriangles[Flags,3*Triangle]<0 then begin
      break;
     end;
-    for Corner:=0 to 2 do begin
+    for Corner:=2 downto 0 do begin
      Vertex:=TetrahedronTriangles[Flags,(3*Triangle)+Corner];
      glNormal3f(EdgeNormal[Vertex].x,EdgeNormal[Vertex].y,EdgeNormal[Vertex].z);
      glVertex3f(EdgeVertex[Vertex].x,EdgeVertex[Vertex].y,EdgeVertex[Vertex].z);
