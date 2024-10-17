@@ -18417,6 +18417,127 @@ begin
 end;
 
 function SignedDistanceFieldPenetration(const ShapeA,ShapeB:TKraftShape;const TransformA,TransformB:TKraftMatrix4x4;out PositionA,PositionB,Normal:TKraftVector3;out PenetrationDepth:TKraftScalar):boolean;
+{$define SignedDistanceFieldPenetrationEx}
+{$ifdef SignedDistanceFieldPenetrationEx}
+const DescentRate=5e-2;
+      Epsilon=1e-3;
+      MaxIterations=2048;
+var CurrentPosition:TKraftVector3;
+    DistanceA,DistanceB,TotalDistance:TKraftScalar;
+    GradientA,GradientB,GradientTotal:TKraftVector3;
+    LocalPositionA,LocalPositionB:TKraftVector3;
+    Iteration:TKraftInt32;
+    Converged:Boolean;
+    Distance:TKraftScalar;
+    Center,SphereCenter:TKraftVector3;
+begin
+
+{if ShapeB is TKraftShapePlane then begin
+  result:=false;
+  Center:=Vector3TermMatrixMul(ShapeA.fLocalCentroid,ShapeA.fWorldTransform);
+  SphereCenter:=Vector3TermMatrixMulInverted(Center,ShapeB.fWorldTransform);
+  Distance:=PlaneVectorDistance(TKraftShapePlane(ShapeB).fPlane,SphereCenter);
+  if Distance<=1.0 then begin
+   Normal:=TKraftShapePlane(ShapeB).fPlane.Normal;
+   PositionA:=Center;
+   PositionB:=Vector3TermMatrixMul(Vector3Sub(SphereCenter,Vector3ScalarMul(Normal,Distance)),ShapeB.fWorldTransform);
+   PenetrationDepth:=Vector3Dot(Vector3Sub(PositionB,PositionA),Normal);
+ //  AddFaceBContact(Normal,Center,Vector3TermMatrixMul(Vector3Sub(SphereCenter,Vector3ScalarMul(Normal,Distance)),ShapeB.fWorldTransform),ShapeA.fRadius,0.0,CreateFeatureID(0),false);
+   result:=true;
+  end;
+  exit;
+ end;//}
+
+ // Initialize the current position to the midpoint between the shapes
+ CurrentPosition:=Vector3Avg(ShapeA.GetCenter(TransformA),ShapeB.GetCenter(TransformB));
+
+ Converged:=false;
+ for Iteration:=1 to MaxIterations do begin
+
+  // Compute signed distances
+  DistanceA:=ShapeA.GetSignedDistance(CurrentPosition,TransformA);
+  DistanceB:=ShapeB.GetSignedDistance(CurrentPosition,TransformB);
+
+  // Determine the maximum distance
+  TotalDistance:=Max(DistanceA,DistanceB);
+
+  // Check for convergence (penetration detected)
+  if TotalDistance<=Epsilon then begin
+   Converged:=true;
+   break;
+  end;
+
+  // Compute gradients (normals), Transform gradients to world space and normalize these gradients
+  GradientA:=ShapeA.GetSignedDistanceNormalizedGradient(CurrentPosition,TransformA);
+  GradientB:=ShapeB.GetSignedDistanceNormalizedGradient(CurrentPosition,TransformB);
+
+  if DistanceA>DistanceB then begin
+   GradientTotal:=GradientA;
+  end else begin
+   GradientTotal:=GradientB;
+  end;
+
+  // Update the current position
+  Vector3DirectSub(CurrentPosition,Vector3ScalarMul(GradientTotal,TotalDistance*DescentRate));
+
+ end;
+
+ if Converged then begin
+
+  // Penetration detected
+  result:=true;
+
+{ if ShapeB is TKraftShapePlane then begin
+   Center:=Vector3TermMatrixMul(ShapeA.fLocalCentroid,ShapeA.fWorldTransform);
+   SphereCenter:=Vector3TermMatrixMulInverted(Center,ShapeB.fWorldTransform);
+   Distance:=PlaneVectorDistance(TKraftShapePlane(ShapeB).fPlane,SphereCenter);
+   if Distance<=1.0 then begin
+    Normal:=TKraftShapePlane(ShapeB).fPlane.Normal;
+    PositionA:=Center;
+    PositionB:=Vector3TermMatrixMul(Vector3Sub(SphereCenter,Vector3ScalarMul(Normal,Distance)),ShapeB.fWorldTransform);
+    PenetrationDepth:=Vector3Dot(Vector3Sub(PositionB,PositionA),Normal);
+    exit;
+   end;
+  end;  ///}
+
+  // Compute contact positions on both shapes
+  PositionA:=CurrentPosition;//Vector3Sub(CurrentPosition,Vector3ScalarMul(ShapeA.GetSignedDistanceNormalizedGradient(CurrentPosition,TransformA),DistanceA));
+  PositionB:=Vector3Sub(CurrentPosition,Vector3ScalarMul(ShapeB.GetSignedDistanceNormalizedGradient(CurrentPosition,TransformB),DistanceB));
+
+  // Compute the normal vector
+// Normal:=Vector3Neg(Vector3Norm(Vector3TermMatrixMulBasis(ShapeA.GetLocalSignedDistanceNormal(Vector3TermMatrixMulInverted(PositionB,TransformA)),TransformA)));
+  ///Normal:=Vector3Norm(Vector3TermMatrixMulBasis(ShapeB.GetLocalSignedDistanceNormalizedGradient(Vector3TermMatrixMulInverted(PositionA,TransformB)),TransformB));
+//Normal:=Vector3Norm(Vector3Sub(PositionB,PositionA));
+  Normal:=ShapeB.GetSignedDistanceNormalizedGradient(CurrentPosition,TransformB);
+  //Normal:=Vector3Neg(GetNormal(CurrentPosition));
+
+//PositionA:=ShapeA.GetCenter(TransformA);
+//PositionB:=Vector3Sub(ShapeB.GetCenter(TransformB),Vector3ScalarMul(Normal,-TotalDistance));
+// PositionA:=CurrentPosition;
+//PositionB:=Vector3Add(CurrentPosition,Vector3ScalarMul(Normal,TotalDistance));
+
+   PenetrationDepth:=Min(ShapeA.GetSignedDistance(CurrentPosition,TransformA),ShapeB.GetSignedDistance(CurrentPosition,TransformB));
+  //PenetrationDepth:=0.0;//ShapeB.GetLocalSignedDistance(Vector3TermMatrixMulInverted(PositionA,TransformB));
+///  PenetrationDepth:=-TotalDistance;
+
+//  writeln(Normal.x:4:3,' ',Normal.y:4:3,' ',Normal.z:4:3,' ',PenetrationDepth:4:3);
+
+ end else begin
+
+  // No penetration detected
+  result:=false;
+
+  PenetrationDepth:=0.0;
+
+  PositionA:=Vector3Origin;
+  PositionB:=Vector3Origin;
+  Normal:=Vector3Origin;
+
+ end;
+
+end;
+
+{$else}
 const DescentRate=5e-2;
       Epsilon=1e-3;
       MaxIterations=128;
@@ -18534,33 +18655,13 @@ begin
   PenetrationDepthA:=ShapeA.GetSignedDistance(PositionB,TransformA);
   PenetrationDepthB:=ShapeB.GetSignedDistance(PositionA,TransformB);
 
-  Normal:=NormalA;
-  PenetrationDepth:=PenetrationDepthA;
-
-{ if PenetrationDepthA<PenetrationDepthB then begin
+  if PenetrationDepthA<PenetrationDepthB then begin
    Normal:=NormalA;
    PenetrationDepth:=PenetrationDepthA;
   end else begin
    Normal:=Vector3Neg(NormalB);
    PenetrationDepth:=PenetrationDepthB;
-  end;}
-
-{ Normal:=Vector3Neg(NormalB);
-  PenetrationDepth:=Min(,-ShapeB.GetSignedDistance(PositionA,TransformB));}
-
-
-{
-  PositionA:=Vector3Sub(CurrentPosition,Vector3ScalarMul(ShapeA.GetSignedDistanceNormalizedGradient(CurrentPosition,TransformA),DistanceA));
-  PositionB:=Vector3Sub(CurrentPosition,Vector3ScalarMul(ShapeB.GetSignedDistanceNormalizedGradient(CurrentPosition,TransformB),DistanceB));
-//PositionB:=CurrentPosition;
-
-  if DistanceA<DistanceB then begin
-   Normal:=Vector3Neg(ShapeA.GetSignedDistanceNormalizedGradient(CurrentPosition,TransformA));
-   PenetrationDepth:=-DistanceA;
-  end else begin
-   Normal:=ShapeB.GetSignedDistanceNormalizedGradient(CurrentPosition,TransformB);
-   PenetrationDepth:=DistanceB;
-  end;         //}
+  end;
 
 //writeln(PositionA.x:4:3,' ',PositionA.y:4:3,' ',PositionA.z:4:3,' - ',Normal.x:4:3,' ',Normal.y:4:3,' ',Normal.z:4:3,' - ',PenetrationDepth:4:3);
 
@@ -18569,6 +18670,7 @@ begin
  end;
 
 end;
+{$endif}
 
 function AABBHasPoint(const aAABBOrigin,aAABBExtents,aPoint:TKraftVector3):boolean;
 begin
@@ -36386,11 +36488,7 @@ var OldManifoldCountContacts:TKraftInt32;
    Manifold.Persistent:=true;
 
    if (ShapeA.ShapeType=kstSignedDistanceField) or (ShapeB.ShapeType=kstSignedDistanceField) then begin
-    WorldPositions[0]:=Vector3Origin;
-    WorldPositions[1]:=Vector3Origin;
-    Normal:=Vector3Origin;
-    PenetrationDepth:=0.0;
-    OK:=false;
+    OK:=SignedDistanceFieldPenetration(ShapeA,ShapeB,ShapeA.fWorldTransform,ShapeB.fWorldTransform,WorldPositions[0],WorldPositions[1],Normal,PenetrationDepth);
    end else begin
     OK:=MPRPenetration(ShapeA,ShapeB,ShapeA.fWorldTransform,ShapeB.fWorldTransform,WorldPositions[0],WorldPositions[1],Normal,PenetrationDepth);
    end;
