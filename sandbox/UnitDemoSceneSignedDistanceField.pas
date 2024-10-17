@@ -34,7 +34,7 @@ type { TSignedDistanceField }
       private
       public
        function GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar; override;
-{$ifdef DebugDrawa}
+{$ifdef DebugDraw}
        procedure Draw(const WorldTransform,CameraMatrix:TKraftMatrix4x4); override;
 {$endif}
      end;
@@ -44,7 +44,7 @@ begin
  result:=Vector3Length(Position)-1.0;
 end;
 
-{$ifdef DebugDrawa}
+{$ifdef DebugDraw}
 procedure TSignedDistanceField.Draw(const WorldTransform,CameraMatrix:TKraftMatrix4x4);
 {$ifdef NoOpenGL}
 begin
