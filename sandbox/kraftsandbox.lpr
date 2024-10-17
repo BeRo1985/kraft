@@ -41,6 +41,7 @@ uses
   UnitDemoSceneDomino in 'UnitDemoSceneDomino.pas',
   UnitDemoSceneChairAndTable in 'UnitDemoSceneChairAndTable.pas',
   UnitDemoSceneConvexHull in 'UnitDemoSceneConvexHull.pas',
+  UnitDemoSceneSignedDistanceField in 'UnitDemoSceneSignedDistanceField.pas',
   UnitDemoSceneConstraintVehicle in 'UnitDemoSceneConstraintVehicle.pas',
   UnitDemoSceneRaycastArcadeVehicle in 'UnitDemoSceneRaycastArcadeVehicle.pas',
   UnitDemoSceneRaycastVehicle;

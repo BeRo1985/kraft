@@ -20,6 +20,7 @@ type TDemoScene=class;
        GarbageCollector:TList;
        MeshGarbageCollector:TList;
        ConvexHullGarbageCollector:TList;
+       SignedDistanceFieldGarbageCollector:TList;
        constructor Create(const AKraftPhysics:TKraft); virtual;
        destructor Destroy; override;
        procedure Step(const DeltaTime:double); virtual;
@@ -48,6 +49,7 @@ begin
  GarbageCollector:=TList.Create;
  MeshGarbageCollector:=TList.Create;
  ConvexHullGarbageCollector:=TList.Create;
+ SignedDistanceFieldGarbageCollector:=TList.Create;
 end;
 
 destructor TDemoScene.Destroy;
@@ -77,6 +79,11 @@ begin
   TObject(ConvexHullGarbageCollector[Index]).Free;
  end;
  ConvexHullGarbageCollector.Free;
+
+ for Index:=0 to SignedDistanceFieldGarbageCollector.Count-1 do begin
+  TObject(SignedDistanceFieldGarbageCollector[Index]).Free;
+ end;
+ SignedDistanceFieldGarbageCollector.Free;
 
  //wglMakeCurrent(0,0);
 
