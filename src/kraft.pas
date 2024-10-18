@@ -1800,6 +1800,14 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fAABB:TKraftAABB;
 
+       fSphere:TKraftSphere;
+
+       fAngularMotionDisc:TKraftScalar;
+
+       fMassData:TKraftMassData;
+
+       fCentroid:TKraftVector3;
+
        fDoubleSided:boolean;
 
        fSmoothSphereCastNormals:boolean;
@@ -1835,6 +1843,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 {$ifdef KraftPasMP}
        procedure BuildJob(const Job:PPasMPJob;const ThreadIndex:TPasMPInt32);
 {$endif}
+
+       procedure CalculateMassData;
 
        procedure CalculateNormals;
 
@@ -1908,6 +1918,14 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property CountSkipListNodes:TKraftInt32 read fCountSkipListNodes;
 
        property AABB:TKraftAABB read fAABB;
+
+       property Sphere:TKraftSphere read fSphere;
+
+       property AngularMotionDisc:TKraftScalar read fAngularMotionDisc;
+
+       property MassData:TKraftMassData read fMassData;
+
+       property Centroid:TKraftVector3 read fCentroid;
 
       published
 
@@ -4642,7 +4660,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 const KraftSignatureConvexHull:TKraftSignature=('K','R','P','H','C','O','H','U');
       KraftSignatureMesh:TKraftSignature=('K','R','P','H','M','E','S','T');
 
-      KraftFileFormatVersion:TKraftUInt32=6;
+      KraftFileFormatVersion:TKraftUInt32=7;
 
       Vector2Origin:TKraftVector2=(x:0.0;y:0.0);
       Vector2XAxis:TKraftVector2=(x:1.0;y:0.0);
@@ -27561,6 +27579,12 @@ begin
  fSkipListNodes:=nil;
  fCountSkipListNodes:=0;
 
+ FillChar(fSphere,SizeOf(TKraftSphere),AnsiChar(#0));
+
+ FillChar(fAABB,SizeOf(TKraftAABB),AnsiChar(#0));
+
+ fAngularMotionDisc:=0.0;
+
  fDoubleSided:=true;
 
  fSmoothSphereCastNormals:=true;
@@ -27694,9 +27718,67 @@ begin
  fSmoothSphereCastNormals:=(Flags and 2)<>0;
  SIMD:=(Flags and 4)<>0;
 
- if SIMD=KraftSIMD then begin
+ AStream.ReadBuffer(fAABB.Min.x,SizeOf(TKraftScalar));
+ AStream.ReadBuffer(fAABB.Min.y,SizeOf(TKraftScalar));
+ AStream.ReadBuffer(fAABB.Min.z,SizeOf(TKraftScalar));
+{$ifdef SIMD}
+ fAABB.Min.w:=0.0;
+{$endif}
+ AStream.ReadBuffer(fAABB.Max.x,SizeOf(TKraftScalar));
+ AStream.ReadBuffer(fAABB.Max.y,SizeOf(TKraftScalar));
+ AStream.ReadBuffer(fAABB.Max.z,SizeOf(TKraftScalar));
+{$ifdef SIMD}
+ fAABB.Max.w:=0.0;
+{$endif}
 
-  AStream.ReadBuffer(fAABB,SizeOf(TKraftAABB));
+ AStream.ReadBuffer(fSphere.Center.x,SizeOf(TKraftScalar));
+ AStream.ReadBuffer(fSphere.Center.y,SizeOf(TKraftScalar));
+ AStream.ReadBuffer(fSphere.Center.z,SizeOf(TKraftScalar));
+{$ifdef SIMD}
+ fSphere.Center.w:=0.0;
+{$endif}
+ AStream.ReadBuffer(fSphere.Radius,SizeOf(TKraftScalar));
+
+ AStream.ReadBuffer(fAngularMotionDisc,SizeOf(TKraftScalar));
+
+ AStream.ReadBuffer(fMassData.Inertia[0,0],SizeOf(TKraftScalar));
+ AStream.ReadBuffer(fMassData.Inertia[0,1],SizeOf(TKraftScalar));
+ AStream.ReadBuffer(fMassData.Inertia[0,2],SizeOf(TKraftScalar));
+{$ifdef SIMD}
+ fMassData.Inertia[0,3]:=0.0;
+{$endif}
+ AStream.ReadBuffer(fMassData.Inertia[1,0],SizeOf(TKraftScalar));
+ AStream.ReadBuffer(fMassData.Inertia[1,1],SizeOf(TKraftScalar));
+ AStream.ReadBuffer(fMassData.Inertia[1,2],SizeOf(TKraftScalar));
+{$ifdef SIMD}
+ fMassData.Inertia[1,3]:=0.0;
+{$endif}
+ AStream.ReadBuffer(fMassData.Inertia[2,0],SizeOf(TKraftScalar));
+ AStream.ReadBuffer(fMassData.Inertia[2,1],SizeOf(TKraftScalar));
+ AStream.ReadBuffer(fMassData.Inertia[2,2],SizeOf(TKraftScalar));
+{$ifdef SIMD}
+ fMassData.Inertia[2,3]:=0.0;
+{$endif}
+
+ AStream.ReadBuffer(fMassData.Center.x,SizeOf(TKraftScalar));
+ AStream.ReadBuffer(fMassData.Center.y,SizeOf(TKraftScalar));
+ AStream.ReadBuffer(fMassData.Center.z,SizeOf(TKraftScalar));
+{$ifdef SIMD}
+ fMassData.Center.w:=0.0;
+{$endif}
+
+ AStream.ReadBuffer(fMassData.Mass,SizeOf(TKraftScalar));
+
+ AStream.ReadBuffer(fMassData.Volume,SizeOf(TKraftScalar));
+
+ AStream.ReadBuffer(fCentroid.x,SizeOf(TKraftScalar));
+ AStream.ReadBuffer(fCentroid.y,SizeOf(TKraftScalar));
+ AStream.ReadBuffer(fCentroid.z,SizeOf(TKraftScalar));
+{$ifdef SIMD}
+ fCentroid.w:=0.0;
+{$endif}
+
+ if SIMD=KraftSIMD then begin
 
   AStream.ReadBuffer(fCountVertices,SizeOf(TKraftInt32));
   SetLength(fVertices,fCountVertices);
@@ -27730,15 +27812,6 @@ begin
   end;
 
  end else begin
-
-  AStream.ReadBuffer(fAABB.Min,3*SizeOf(TKraftScalar));
-  if SIMD then begin
-   AStream.ReadBuffer(Dummy,SizeOf(TKraftScalar));
-  end;
-  AStream.ReadBuffer(fAABB.Max,3*SizeOf(TKraftScalar));
-  if SIMD then begin
-   AStream.ReadBuffer(Dummy,SizeOf(TKraftScalar));
-  end;
 
   AStream.ReadBuffer(fCountVertices,SizeOf(TKraftInt32));
   SetLength(fVertices,fCountVertices);
@@ -27852,7 +27925,38 @@ begin
 
  AStream.WriteBuffer(Flags,SizeOf(TKraftUInt32));
 
- AStream.WriteBuffer(fAABB,SizeOf(TKraftAABB));
+ AStream.WriteBuffer(fAABB.Min.x,SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fAABB.Min.y,SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fAABB.Min.z,SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fAABB.Max.x,SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fAABB.Max.y,SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fAABB.Max.z,SizeOf(TKraftScalar));
+
+ AStream.WriteBuffer(fSphere.Center.x,SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fSphere.Center.y,SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fSphere.Center.z,SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fSphere.Radius,SizeOf(TKraftScalar));
+
+ AStream.WriteBuffer(fAngularMotionDisc,SizeOf(TKraftScalar));
+
+ AStream.WriteBuffer(fMassData.Inertia[0,0],SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fMassData.Inertia[0,1],SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fMassData.Inertia[0,2],SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fMassData.Inertia[1,0],SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fMassData.Inertia[1,1],SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fMassData.Inertia[1,2],SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fMassData.Inertia[2,0],SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fMassData.Inertia[2,1],SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fMassData.Inertia[2,2],SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fMassData.Center.x,SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fMassData.Center.y,SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fMassData.Center.z,SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fMassData.Mass,SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fMassData.Volume,SizeOf(TKraftScalar));
+
+ AStream.WriteBuffer(fCentroid.x,SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fCentroid.y,SizeOf(TKraftScalar));
+ AStream.WriteBuffer(fCentroid.z,SizeOf(TKraftScalar));
 
  AStream.WriteBuffer(fCountVertices,SizeOf(TKraftInt32));
  if fCountVertices>0 then begin
@@ -29418,6 +29522,130 @@ begin
 
 end;
 
+procedure TKraftMesh.CalculateMassData;
+const ModuloThree:array[0..5] of TKraftInt32=(0,1,2,0,1,2);
+      Density=1.0;
+var TriangleIndex,CoordinateIndex,SecondCoordinateIndex,ThirdCoordinateIndex:TKraftInt32;
+    Triangle:PKraftMeshTriangle;
+    vU,vV,vW:PKraftVector3;
+    CurrentVolume,CentroidX,CentroidY,CentroidZ,Volume,Denominator:double;
+    Diag,OffDiag,u,v,w:array[0..2] of double;
+begin
+
+ CentroidX:=0.0;
+ CentroidY:=0.0;
+ CentroidZ:=0.0;
+
+ Volume:=0.0;
+
+ Diag[0]:=0.0;
+ Diag[1]:=0.0;
+ Diag[2]:=0.0;
+
+ OffDiag[0]:=0.0;
+ OffDiag[1]:=0.0;
+ OffDiag[2]:=0.0;
+
+ for TriangleIndex:=0 to fCountTriangles-1 do begin
+
+  Triangle:=@fTriangles[TriangleIndex];
+
+  vU:=@fVertices[Triangle^.Vertices[0]];
+  u[0]:=vU^.x;
+  u[1]:=vU^.y;
+  u[2]:=vU^.z;
+
+  vV:=@fVertices[Triangle^.Vertices[1]];
+  v[0]:=vV^.x;
+  v[1]:=vV^.y;
+  v[2]:=vV^.z;
+
+  vW:=@fVertices[Triangle^.Vertices[2]];
+  w[0]:=vW^.x;
+  w[1]:=vW^.y;
+  w[2]:=vW^.z;
+
+  CurrentVolume:=Vector3Dot(vU^,Vector3Cross(vV^,vW^));
+
+  Volume:=Volume+CurrentVolume;
+
+  CentroidX:=CentroidX+((vU^.x+vV^.x+vW^.x)*CurrentVolume);
+  CentroidY:=CentroidY+((vU^.y+vV^.y+vW^.y)*CurrentVolume);
+  CentroidZ:=CentroidZ+((vU^.z+vV^.z+vW^.z)*CurrentVolume);
+
+  for CoordinateIndex:=0 to 2 do begin
+
+   SecondCoordinateIndex:=ModuloThree[CoordinateIndex+1];
+   ThirdCoordinateIndex:=ModuloThree[CoordinateIndex+2];
+
+   Diag[CoordinateIndex]:=Diag[CoordinateIndex]+(((u[CoordinateIndex]*v[CoordinateIndex])+
+                                                  (v[CoordinateIndex]*w[CoordinateIndex])+
+                                                  (w[CoordinateIndex]*u[CoordinateIndex])+
+                                                  (u[CoordinateIndex]*u[CoordinateIndex])+
+                                                  (v[CoordinateIndex]*v[CoordinateIndex])+
+                                                  (w[CoordinateIndex]*w[CoordinateIndex]))*CurrentVolume);
+
+   OffDiag[CoordinateIndex]:=OffDiag[CoordinateIndex]+(((u[SecondCoordinateIndex]*v[ThirdCoordinateIndex])+
+                                                        (v[SecondCoordinateIndex]*w[ThirdCoordinateIndex])+
+                                                        (w[SecondCoordinateIndex]*u[ThirdCoordinateIndex])+
+                                                        (u[SecondCoordinateIndex]*w[ThirdCoordinateIndex])+
+                                                        (v[SecondCoordinateIndex]*u[ThirdCoordinateIndex])+
+                                                        (w[SecondCoordinateIndex]*v[ThirdCoordinateIndex])+
+                                                        (u[SecondCoordinateIndex]*u[ThirdCoordinateIndex]*2.0)+
+                                                        (v[SecondCoordinateIndex]*v[ThirdCoordinateIndex]*2.0)+
+                                                        (w[SecondCoordinateIndex]*w[ThirdCoordinateIndex]*2.0))*CurrentVolume);
+
+  end;
+
+ end;
+
+ Denominator:=Volume*4.0;
+ fCentroid.x:=CentroidX/Denominator;
+ fCentroid.y:=CentroidY/Denominator;
+ fCentroid.z:=CentroidZ/Denominator;
+{$ifdef SIMD}
+ fCentroid.w:=0.0;
+{$endif}
+
+ Volume:=Volume/6.0;
+
+ Denominator:=Volume*60.0;
+ Diag[0]:=Diag[0]/Denominator;
+ Diag[1]:=Diag[1]/Denominator;
+ Diag[2]:=Diag[2]/Denominator;
+
+ Denominator:=Volume*120.0;
+ OffDiag[0]:=OffDiag[0]/Denominator;
+ OffDiag[1]:=OffDiag[1]/Denominator;
+ OffDiag[2]:=OffDiag[2]/Denominator;
+
+ fMassData.Volume:=Volume;
+ fMassData.Mass:=Volume*Density;
+
+ if fMassData.Mass>EPSILON then begin
+  fMassData.Inertia[0,0]:=(Diag[1]+Diag[2])*fMassData.Mass;
+  fMassData.Inertia[0,1]:=(-OffDiag[2])*fMassData.Mass;
+  fMassData.Inertia[0,2]:=(-OffDiag[1])*fMassData.Mass;
+  fMassData.Inertia[1,0]:=(-OffDiag[2])*fMassData.Mass;
+  fMassData.Inertia[1,1]:=(Diag[0]+Diag[2])*fMassData.Mass;
+  fMassData.Inertia[1,2]:=(-OffDiag[0])*fMassData.Mass;
+  fMassData.Inertia[2,0]:=(-OffDiag[1])*fMassData.Mass;
+  fMassData.Inertia[2,1]:=(-OffDiag[0])*fMassData.Mass;
+  fMassData.Inertia[2,2]:=(Diag[0]+Diag[1])*fMassData.Mass;
+ end else begin
+  fMassData.Inertia[0,0]:=0.0;
+  fMassData.Inertia[0,1]:=0.0;
+  fMassData.Inertia[0,2]:=0.0;
+  fMassData.Inertia[1,0]:=0.0;
+  fMassData.Inertia[1,1]:=0.0;
+  fMassData.Inertia[1,2]:=0.0;
+  fMassData.Inertia[2,0]:=0.0;
+  fMassData.Inertia[2,1]:=0.0;
+  fMassData.Inertia[2,2]:=0.0;
+ end;
+
+end;
+
 procedure TKraftMesh.Finish;
 type TDynamicAABBTreeNode=record
       AABB:TKraftAABB;
@@ -29493,6 +29721,8 @@ begin
  end;
 
  if fCountSkipListNodes=0 then begin
+
+  CalculateMassData;
 
   for Index:=0 to fCountTriangles-1 do begin
    Triangle:=@fTriangles[Index];
@@ -30034,6 +30264,32 @@ begin
     fAABB:=AABBCombineVector3(fAABB,fVertices[Index]);
    end;
   end;
+
+  fSphere.Center.x:=0.0;
+  fSphere.Center.y:=0.0;
+  fSphere.Center.z:=0.0;
+ {$ifdef SIMD}
+  fSphere.Center.w:=0.0;
+ {$endif}
+  fSphere.Radius:=0.0;
+  if fCountVertices>0 then begin
+   v0:=@fVertices[0];
+   fSphere.Center:=v0^;
+   for VertexIndex:=1 to fCountVertices-1 do begin
+    v0:=@fVertices[VertexIndex];
+    fSphere.Center.x:=fSphere.Center.x+v0^.x;
+    fSphere.Center.y:=fSphere.Center.y+v0^.y;
+    fSphere.Center.z:=fSphere.Center.z+v0^.z;
+   end;
+   fSphere.Center.x:=fSphere.Center.x/fCountVertices;
+   fSphere.Center.y:=fSphere.Center.y/fCountVertices;
+   fSphere.Center.z:=fSphere.Center.z/fCountVertices;
+   for VertexIndex:=0 to fCountVertices-1 do begin
+    fSphere.Radius:=Max(fSphere.Radius,Vector3Length(Vector3Sub(fSphere.Center,fVertices[VertexIndex])));
+   end;
+  end;
+
+  fAngularMotionDisc:=Vector3Length(fSphere.Center)+fSphere.Radius;
 
  end;
 
