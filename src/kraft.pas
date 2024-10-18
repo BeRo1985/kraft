@@ -46067,18 +46067,33 @@ var Iteration,TryIteration,RootIteration,SeparationFunctionMode:TKraftInt32;
  end;
  function FindMinSeparation:TKraftScalar;
  begin
-  case SeparationFunctionMode of
-   sfmVERTICES:begin
-    WitnessPoints[0]:=Shapes[0].GetLocalFeatureSupportVertex(Shapes[0].GetLocalFeatureSupportIndex(Vector3TermMatrixMulTransposedBasis(Axis,Transforms[0])));
-    WitnessPoints[1]:=Shapes[1].GetLocalFeatureSupportVertex(Shapes[1].GetLocalFeatureSupportIndex(Vector3TermMatrixMulTransposedBasis(Vector3Neg(Axis),Transforms[1])));
+//if true then begin
+   case SeparationFunctionMode of
+    sfmVERTICES:begin
+     WitnessPoints[0]:=Shapes[0].GetLocalFeatureSupportVertex(Shapes[0].GetLocalFeatureSupportIndex(Vector3TermMatrixMulTransposedBasis(Axis,Transforms[0])));
+     WitnessPoints[1]:=Shapes[1].GetLocalFeatureSupportVertex(Shapes[1].GetLocalFeatureSupportIndex(Vector3TermMatrixMulTransposedBasis(Vector3Neg(Axis),Transforms[1])));
+    end;
+    sfmEDGEA,sfmFACEA,sfmEDGES:begin
+     WitnessPoints[1]:=Shapes[1].GetLocalFeatureSupportVertex(Shapes[1].GetLocalFeatureSupportIndex(Vector3Neg(Vector3TermMatrixMulTransposedBasis(Vector3TermMatrixMulBasis(Axis,Transforms[0]),Transforms[1]))));
+    end;
+    sfmEDGEB,sfmFACEB:begin
+     WitnessPoints[0]:=Shapes[0].GetLocalFeatureSupportVertex(Shapes[0].GetLocalFeatureSupportIndex(Vector3Neg(Vector3TermMatrixMulTransposedBasis(Vector3TermMatrixMulBasis(Axis,Transforms[1]),Transforms[0]))));
+    end;
    end;
-   sfmEDGEA,sfmFACEA,sfmEDGES:begin
-    WitnessPoints[1]:=Shapes[1].GetLocalFeatureSupportVertex(Shapes[1].GetLocalFeatureSupportIndex(Vector3Neg(Vector3TermMatrixMulTransposedBasis(Vector3TermMatrixMulBasis(Axis,Transforms[0]),Transforms[1]))));
+{ end else begin
+   case SeparationFunctionMode of
+    sfmVERTICES:begin
+     WitnessPoints[0]:=Shapes[0].GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Axis,Transforms[0]));
+     WitnessPoints[1]:=Shapes[1].GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(Axis),Transforms[1]));
+    end;
+    sfmEDGEA,sfmFACEA,sfmEDGES:begin
+     WitnessPoints[1]:=Shapes[1].GetLocalFullSupport(Vector3Neg(Vector3TermMatrixMulTransposedBasis(Vector3TermMatrixMulBasis(Axis,Transforms[0]),Transforms[1])));
+    end;
+    sfmEDGEB,sfmFACEB:begin
+     WitnessPoints[0]:=Shapes[0].GetLocalFullSupport(Vector3Neg(Vector3TermMatrixMulTransposedBasis(Vector3TermMatrixMulBasis(Axis,Transforms[1]),Transforms[0])));
+    end;
    end;
-   sfmEDGEB,sfmFACEB:begin
-    WitnessPoints[0]:=Shapes[0].GetLocalFeatureSupportVertex(Shapes[0].GetLocalFeatureSupportIndex(Vector3Neg(Vector3TermMatrixMulTransposedBasis(Vector3TermMatrixMulBasis(Axis,Transforms[1]),Transforms[0]))));
-   end;
-  end;
+  end;}
   result:=Evaluate;
  end;
 begin
