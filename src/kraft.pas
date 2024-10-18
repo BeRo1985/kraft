@@ -1725,6 +1725,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
       Vertices:TKraftMeshTriangleVertices;
       Normals:TKraftMeshTriangleVertices;
       Center:TKraftVector3;
+      Radius:TKraftScalar;
       Plane:TKraftPlane;
       EdgePlanes:TKraftMeshTriangleEdgePlanes;
       AABB:TKraftAABB;
@@ -4641,7 +4642,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 const KraftSignatureConvexHull:TKraftSignature=('K','R','P','H','C','O','H','U');
       KraftSignatureMesh:TKraftSignature=('K','R','P','H','M','E','S','T');
 
-      KraftFileFormatVersion:TKraftUInt32=5;
+      KraftFileFormatVersion:TKraftUInt32=6;
 
       Vector2Origin:TKraftVector2=(x:0.0;y:0.0);
       Vector2XAxis:TKraftVector2=(x:1.0;y:0.0);
@@ -27767,6 +27768,7 @@ begin
    if SIMD then begin
     AStream.ReadBuffer(Dummy,SizeOf(TKraftScalar));
    end;
+   AStream.ReadBuffer(fTriangles[Index].Radius,SizeOf(TKraftScalar));
    begin
     AStream.ReadBuffer(fTriangles[Index].Plane.Normal,3*SizeOf(TKraftScalar));
     if SIMD then begin
@@ -27897,8 +27899,15 @@ begin
   AStream.WriteBuffer(fTriangles[Index].Vertices[0],3*SizeOf(TKraftInt32));
   AStream.WriteBuffer(fTriangles[Index].Normals[0],3*SizeOf(TKraftInt32));
   AStream.WriteBuffer(fTriangles[Index].Center,3*SizeOf(TKraftScalar));
+  AStream.WriteBuffer(fTriangles[Index].Radius,SizeOf(TKraftScalar));
   AStream.WriteBuffer(fTriangles[Index].Plane.Normal,3*SizeOf(TKraftScalar));
   AStream.WriteBuffer(fTriangles[Index].Plane.Distance,SizeOf(TKraftScalar));
+  AStream.WriteBuffer(fTriangles[Index].EdgePlanes[0].Normal,3*SizeOf(TKraftScalar));
+  AStream.WriteBuffer(fTriangles[Index].EdgePlanes[0].Distance,SizeOf(TKraftScalar));
+  AStream.WriteBuffer(fTriangles[Index].EdgePlanes[1].Normal,3*SizeOf(TKraftScalar));
+  AStream.WriteBuffer(fTriangles[Index].EdgePlanes[1].Distance,SizeOf(TKraftScalar));
+  AStream.WriteBuffer(fTriangles[Index].EdgePlanes[2].Normal,3*SizeOf(TKraftScalar));
+  AStream.WriteBuffer(fTriangles[Index].EdgePlanes[2].Distance,SizeOf(TKraftScalar));
   AStream.WriteBuffer(fTriangles[Index].AABB.Min,3*SizeOf(TKraftScalar));
   AStream.WriteBuffer(fTriangles[Index].AABB.Max,3*SizeOf(TKraftScalar));
  end;
@@ -28004,6 +28013,7 @@ begin
    Triangle^.Normals[1]:=ANormalIndex1;
    Triangle^.Normals[2]:=ANormalIndex2;
    Triangle^.Center:=Vector3Avg(Vertices[Triangle^.Vertices[0]],Vertices[Triangle^.Vertices[1]],Vertices[Triangle^.Vertices[2]]);
+   Triangle^.Radius:=Max(Vector3Dist(Triangle^.Center,Vertices[Triangle^.Vertices[0]]),Max(Vector3Dist(Triangle^.Center,Vertices[Triangle^.Vertices[1]]),Vector3Dist(Triangle^.Center,Vertices[Triangle^.Vertices[2]])));
    Triangle^.Plane.Normal:=Vector3NormEx(Vector3Cross(Vector3Sub(fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[0]]),Vector3Sub(fVertices[Triangle^.Vertices[2]],fVertices[Triangle^.Vertices[0]])));
    Triangle^.Plane.Distance:=-Vector3Dot(Triangle^.Plane.Normal,fVertices[Triangle^.Vertices[0]]);
    Triangle^.Next:=-1;
@@ -28089,6 +28099,7 @@ begin
    Triangle^.Normals[2]:=-1;
   end;
   Triangle^.Center:=Vector3Avg(Vertices[Triangle^.Vertices[0]],Vertices[Triangle^.Vertices[1]],Vertices[Triangle^.Vertices[2]]);
+  Triangle^.Radius:=Max(Vector3Dist(Triangle^.Center,Vertices[Triangle^.Vertices[0]]),Max(Vector3Dist(Triangle^.Center,Vertices[Triangle^.Vertices[1]]),Vector3Dist(Triangle^.Center,Vertices[Triangle^.Vertices[2]])));
   Triangle^.Plane.Normal:=Vector3NormEx(Vector3Cross(Vector3Sub(fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[0]]),Vector3Sub(fVertices[Triangle^.Vertices[2]],fVertices[Triangle^.Vertices[0]])));
   Triangle^.Plane.Distance:=-Vector3Dot(Triangle^.Plane.Normal,fVertices[Triangle^.Vertices[0]]);
   begin
@@ -28173,6 +28184,7 @@ var SrcPos:TKraftInt32;
    for Counter:=0 to fCountTriangles-1 do begin
     Triangle:=@fTriangles[Counter];
     Triangle^.Center:=Vector3Avg(Vertices[Triangle^.Vertices[0]],Vertices[Triangle^.Vertices[1]],Vertices[Triangle^.Vertices[2]]);
+    Triangle^.Radius:=Max(Vector3Dist(Triangle^.Center,Vertices[Triangle^.Vertices[0]]),Max(Vector3Dist(Triangle^.Center,Vertices[Triangle^.Vertices[1]]),Vector3Dist(Triangle^.Center,Vertices[Triangle^.Vertices[2]])));
     Triangle^.Plane.Normal:=Vector3NormEx(Vector3Cross(Vector3Sub(fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[0]]),Vector3Sub(fVertices[Triangle^.Vertices[2]],fVertices[Triangle^.Vertices[0]])));
     Triangle^.Plane.Distance:=-Vector3Dot(Triangle^.Plane.Normal,fVertices[Triangle^.Vertices[0]]);
     begin
