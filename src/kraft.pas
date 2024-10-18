@@ -10907,38 +10907,62 @@ begin
  if AMatrix[2,2]<0.0 then begin
   if AMatrix[0,0]>AMatrix[1,1] then begin
    t:=((1.0+AMatrix[0,0])-AMatrix[1,1])-AMatrix[2,2];
-   result.x:=t;
-   result.y:=AMatrix[0,1]+AMatrix[1,0];
-   result.z:=AMatrix[2,0]+AMatrix[0,2];
-   result.w:=AMatrix[1,2]-AMatrix[2,1];
+   s:=2.0*sqrt(t);
+   if AMatrix[1,2]<AMatrix[2,1] then begin
+    s:=-s;
+   end;
+   result.x:=0.25*s;
+   s:=1.0/s;
+   result.y:=(AMatrix[0,1]+AMatrix[1,0])*s;
+   result.z:=(AMatrix[2,0]+AMatrix[0,2])*s;
+   result.w:=(AMatrix[1,2]-AMatrix[2,1])*s;
+   if (t=1.0) and (result.y=0.0) and (result.z=0.0) and (result.w=0.0) then begin
+    result.x:=1.0;
+   end;
   end else begin
    t:=((1.0-AMatrix[0,0])+AMatrix[1,1])-AMatrix[2,2];
-   result.x:=AMatrix[0,1]+AMatrix[1,0];
-   result.y:=t;
-   result.z:=AMatrix[1,2]+AMatrix[2,1];
-   result.w:=AMatrix[2,0]-AMatrix[0,2];
+   s:=2.0*sqrt(t);
+   if AMatrix[2,0]<AMatrix[0,2] then begin
+    s:=-s;
+   end;
+   result.y:=0.25*s;
+   s:=1.0/s;
+   result.x:=(AMatrix[0,1]+AMatrix[1,0])*s;
+   result.z:=(AMatrix[1,2]+AMatrix[2,1])*s;
+   result.w:=(AMatrix[2,0]-AMatrix[0,2])*s;
+   if (t=1.0) and (result.x=0.0) and (result.z=0.0) and (result.w=0.0) then begin
+    result.y:=1.0;
+   end;
   end;
  end else begin
   if AMatrix[0,0]<-AMatrix[1,1] then begin
    t:=((1.0-AMatrix[0,0])-AMatrix[1,1])+AMatrix[2,2];
-   result.x:=AMatrix[2,0]+AMatrix[0,2];
-   result.y:=AMatrix[1,2]+AMatrix[2,1];
-   result.z:=t;
-   result.w:=AMatrix[0,1]-AMatrix[1,0];
+   s:=2.0*sqrt(t);
+   if AMatrix[0,1]<AMatrix[1,0] then begin
+    s:=-s;
+   end;
+   result.z:=0.25*s;
+   s:=1.0/s;
+   result.x:=(AMatrix[2,0]+AMatrix[0,2])*s;
+   result.y:=(AMatrix[1,2]+AMatrix[2,1])*s;
+   result.w:=(AMatrix[0,1]-AMatrix[1,0])*s;
+   if (t=1.0) and (result.x=0.0) and (result.y=0.0) and (result.w=0.0) then begin
+    result.z:=1.0;
+   end;
   end else begin
    t:=((1.0+AMatrix[0,0])+AMatrix[1,1])+AMatrix[2,2];
-   result.x:=AMatrix[1,2]-AMatrix[2,1];
-   result.y:=AMatrix[2,0]-AMatrix[0,2];
-   result.z:=AMatrix[0,1]-AMatrix[1,0];
-   result.w:=t;
+   s:=2.0*sqrt(t);
+   result.w:=0.25*s;
+   s:=1.0/s;
+   result.x:=(AMatrix[1,2]-AMatrix[2,1])*s;
+   result.y:=(AMatrix[2,0]-AMatrix[0,2])*s;
+   result.z:=(AMatrix[0,1]-AMatrix[1,0])*s;
+   if (t=1.0) and (result.x=0.0) and (result.y=0.0) and (result.z=0.0) then begin
+    result.w:=1.0;
+   end;
   end;
  end;
- s:=0.5/sqrt(t);
- result.x:=result.x*s;
- result.y:=result.y*s;
- result.z:=result.z*s;
- result.w:=result.w*s;
-end;}
+end;//}
 var t,s:TKraftScalar;
 begin
  t:=AMatrix[0,0]+(AMatrix[1,1]+AMatrix[2,2]);
