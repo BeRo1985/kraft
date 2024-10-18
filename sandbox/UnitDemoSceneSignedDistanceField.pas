@@ -34,17 +34,22 @@ type { TSignedDistanceField }
       private
       public
        function GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar; override;
-{$ifdef DebugDraw}
+{$ifdef DebugDrawNo}
        procedure Draw(const WorldTransform,CameraMatrix:TKraftMatrix4x4); override;
 {$endif}
      end;
 
 function TSignedDistanceField.GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
+var b,q:TKraftVector3;
+    r:TKraftScalar;
 begin
- result:=Vector3Length(Position)-1.0;
+ b:=Vector3(0.5,0.5,0.5);
+ r:=0.25;
+ q:=Vector3Add(Vector3Sub(Vector3Abs(Position),b),Vector3(r,r,r));
+ result:=(Vector3Length(Vector3(Max(0.0,q.x),Max(0.0,q.y),Max(0.0,q.z)))+Min(Max(q.x,Max(q.y,q.z)),0.0))-r;
 end;
 
-{$ifdef DebugDraw}
+{$ifdef DebugDrawNo}
 procedure TSignedDistanceField.Draw(const WorldTransform,CameraMatrix:TKraftMatrix4x4);
 {$ifdef NoOpenGL}
 begin
@@ -127,7 +132,7 @@ begin
  Shape.Restitution:=0.3;
  Shape.Density:=1.0;
  RigidBody.Finish;
- RigidBody.SetWorldTransformation(Matrix4x4TermMul(Matrix4x4RotateZ(pi*0.25),Matrix4x4Translate(0.0,4.0,0.0)));
+ RigidBody.SetWorldTransformation(Matrix4x4TermMul(Matrix4x4RotateZ(pi*0.0),Matrix4x4Translate(0.0,4.0,0.0)));
  RigidBody.CollisionGroups:=[0];
 
 end;
@@ -142,5 +147,5 @@ begin
 end;
 
 initialization
- RegisterDemoScene('Signed distance field',TDemoSceneSignedDistanceField);
+// RegisterDemoScene('Signed distance field',TDemoSceneSignedDistanceField);
 end.
