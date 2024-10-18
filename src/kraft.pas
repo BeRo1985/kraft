@@ -1718,12 +1718,15 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      TKraftMeshTriangleVertices=array[0..2] of TKraftInt32;
      PKraftMeshTriangleVertices=^TKraftMeshTriangleVertices;
 
+     TKraftMeshTriangleEdgePlanes=array[0..2] of TKraftPlane;
+
      TKraftMeshTriangle=packed record
       Next:TKraftInt32;
       Vertices:TKraftMeshTriangleVertices;
       Normals:TKraftMeshTriangleVertices;
       Center:TKraftVector3;
       Plane:TKraftPlane;
+      EdgePlanes:TKraftMeshTriangleEdgePlanes;
       AABB:TKraftAABB;
      end;
      PKraftMeshTriangle=^TKraftMeshTriangle;
@@ -4638,7 +4641,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 const KraftSignatureConvexHull:TKraftSignature=('K','R','P','H','C','O','H','U');
       KraftSignatureMesh:TKraftSignature=('K','R','P','H','M','E','S','T');
 
-      KraftFileFormatVersion:TKraftUInt32=4;
+      KraftFileFormatVersion:TKraftUInt32=5;
 
       Vector2Origin:TKraftVector2=(x:0.0;y:0.0);
       Vector2XAxis:TKraftVector2=(x:1.0;y:0.0);
@@ -27666,7 +27669,7 @@ begin
 end;
 
 procedure TKraftMesh.LoadFromStream(const AStream:TStream);
-var Index:TKraftInt32;
+var Index,EdgeIndex:TKraftInt32;
     Flags:TKraftUInt32;
     Signature:TKraftSignature;
     FileFormatVersion:TKraftUInt32;
@@ -27764,11 +27767,20 @@ begin
    if SIMD then begin
     AStream.ReadBuffer(Dummy,SizeOf(TKraftScalar));
    end;
-   AStream.ReadBuffer(fTriangles[Index].Plane.Normal,3*SizeOf(TKraftScalar));
-   if SIMD then begin
-    AStream.ReadBuffer(Dummy,SizeOf(TKraftScalar));
+   begin
+    AStream.ReadBuffer(fTriangles[Index].Plane.Normal,3*SizeOf(TKraftScalar));
+    if SIMD then begin
+     AStream.ReadBuffer(Dummy,SizeOf(TKraftScalar));
+    end;
+    AStream.ReadBuffer(fTriangles[Index].Plane.Distance,SizeOf(TKraftScalar));
    end;
-   AStream.ReadBuffer(fTriangles[Index].Plane.Distance,SizeOf(TKraftScalar));
+   for EdgeIndex:=0 to 2 do begin
+    AStream.ReadBuffer(fTriangles[Index].EdgePlanes[EdgeIndex].Normal,3*SizeOf(TKraftScalar));
+    if SIMD then begin
+     AStream.ReadBuffer(Dummy,SizeOf(TKraftScalar));
+    end;
+    AStream.ReadBuffer(fTriangles[Index].EdgePlanes[EdgeIndex].Distance,SizeOf(TKraftScalar));
+   end;
    AStream.ReadBuffer(fTriangles[Index].AABB.Min,3*SizeOf(TKraftScalar));
    if SIMD then begin
     AStream.ReadBuffer(Dummy,SizeOf(TKraftScalar));
@@ -28007,6 +28019,18 @@ begin
      Triangle^.Plane.Distance:=-Vector3Dot(Triangle^.Plane.Normal,fVertices[Triangle^.Vertices[0]]);
     end;
    end;
+   begin
+    Triangle^.EdgePlanes[0].Normal:=Vector3Cross(Triangle^.Plane.Normal,Vector3Sub(fVertices[Triangle^.Vertices[0]],fVertices[Triangle^.Vertices[2]]));
+    Triangle^.EdgePlanes[0].Distance:=-Vector3Dot(Triangle^.EdgePlanes[0].Normal,fVertices[Triangle^.Vertices[0]]);
+   end;
+   begin
+    Triangle^.EdgePlanes[1].Normal:=Vector3Cross(Triangle^.Plane.Normal,Vector3Sub(fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[0]]));
+    Triangle^.EdgePlanes[1].Distance:=-Vector3Dot(Triangle^.EdgePlanes[1].Normal,fVertices[Triangle^.Vertices[1]]);
+   end;
+   begin
+    Triangle^.EdgePlanes[2].Normal:=Vector3Cross(Triangle^.Plane.Normal,Vector3Sub(fVertices[Triangle^.Vertices[2]],fVertices[Triangle^.Vertices[1]]));
+    Triangle^.EdgePlanes[2].Distance:=-Vector3Dot(Triangle^.EdgePlanes[2].Normal,fVertices[Triangle^.Vertices[2]]);
+   end;
    fTriangleVerticesHashMap.Add(TriangleVertices,result);
   end;
  end;
@@ -28067,6 +28091,18 @@ begin
   Triangle^.Center:=Vector3Avg(Vertices[Triangle^.Vertices[0]],Vertices[Triangle^.Vertices[1]],Vertices[Triangle^.Vertices[2]]);
   Triangle^.Plane.Normal:=Vector3NormEx(Vector3Cross(Vector3Sub(fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[0]]),Vector3Sub(fVertices[Triangle^.Vertices[2]],fVertices[Triangle^.Vertices[0]])));
   Triangle^.Plane.Distance:=-Vector3Dot(Triangle^.Plane.Normal,fVertices[Triangle^.Vertices[0]]);
+  begin
+   Triangle^.EdgePlanes[0].Normal:=Vector3Cross(Triangle^.Plane.Normal,Vector3Sub(fVertices[Triangle^.Vertices[0]],fVertices[Triangle^.Vertices[2]]));
+   Triangle^.EdgePlanes[0].Distance:=-Vector3Dot(Triangle^.EdgePlanes[0].Normal,fVertices[Triangle^.Vertices[0]]);
+  end;
+  begin
+   Triangle^.EdgePlanes[1].Normal:=Vector3Cross(Triangle^.Plane.Normal,Vector3Sub(fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[0]]));
+   Triangle^.EdgePlanes[1].Distance:=-Vector3Dot(Triangle^.EdgePlanes[1].Normal,fVertices[Triangle^.Vertices[1]]);
+  end;
+  begin
+   Triangle^.EdgePlanes[2].Normal:=Vector3Cross(Triangle^.Plane.Normal,Vector3Sub(fVertices[Triangle^.Vertices[2]],fVertices[Triangle^.Vertices[1]]));
+   Triangle^.EdgePlanes[2].Distance:=-Vector3Dot(Triangle^.EdgePlanes[2].Normal,fVertices[Triangle^.Vertices[2]]);
+  end;
   Triangle^.Next:=-1;
  end;
 
@@ -28139,6 +28175,18 @@ var SrcPos:TKraftInt32;
     Triangle^.Center:=Vector3Avg(Vertices[Triangle^.Vertices[0]],Vertices[Triangle^.Vertices[1]],Vertices[Triangle^.Vertices[2]]);
     Triangle^.Plane.Normal:=Vector3NormEx(Vector3Cross(Vector3Sub(fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[0]]),Vector3Sub(fVertices[Triangle^.Vertices[2]],fVertices[Triangle^.Vertices[0]])));
     Triangle^.Plane.Distance:=-Vector3Dot(Triangle^.Plane.Normal,fVertices[Triangle^.Vertices[0]]);
+    begin
+     Triangle^.EdgePlanes[0].Normal:=Vector3Cross(Triangle^.Plane.Normal,Vector3Sub(fVertices[Triangle^.Vertices[0]],fVertices[Triangle^.Vertices[2]]));
+     Triangle^.EdgePlanes[0].Distance:=-Vector3Dot(Triangle^.EdgePlanes[0].Normal,fVertices[Triangle^.Vertices[0]]);
+    end;
+    begin
+     Triangle^.EdgePlanes[1].Normal:=Vector3Cross(Triangle^.Plane.Normal,Vector3Sub(fVertices[Triangle^.Vertices[1]],fVertices[Triangle^.Vertices[0]]));
+     Triangle^.EdgePlanes[1].Distance:=-Vector3Dot(Triangle^.EdgePlanes[1].Normal,fVertices[Triangle^.Vertices[1]]);
+    end;
+    begin
+     Triangle^.EdgePlanes[2].Normal:=Vector3Cross(Triangle^.Plane.Normal,Vector3Sub(fVertices[Triangle^.Vertices[2]],fVertices[Triangle^.Vertices[1]]));
+     Triangle^.EdgePlanes[2].Distance:=-Vector3Dot(Triangle^.EdgePlanes[2].Normal,fVertices[Triangle^.Vertices[2]]);
+    end;
     Triangle^.Next:=-1;
    end;
   end;
