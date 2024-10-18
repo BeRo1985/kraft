@@ -147,5 +147,5 @@ begin
 end;
 
 initialization
-// RegisterDemoScene('Signed distance field',TDemoSceneSignedDistanceField);
+ RegisterDemoScene('Signed distance field',TDemoSceneSignedDistanceField);
 end.

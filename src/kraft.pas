@@ -1940,6 +1940,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fAABB:TKraftAABB;
 
+       fExtents:TKraftVector3;
+
+       fMaxAxisLength:TKraftScalar;
+
        fIsForStaticRigidBodies:Boolean;
 
        fMassData:TKraftMassData;
@@ -30473,6 +30477,8 @@ begin
   fAABB.Min:=Vector3(-Project(Vector3(-1.0,0.0,0.0)),-Project(Vector3(0.0,-1.0,0.0)),-Project(Vector3(0.0,0.0,-1.0)));
   fAABB.Max:=Vector3(Project(Vector3(1.0,0.0,0.0)),Project(Vector3(0.0,1.0,0.0)),Project(Vector3(0.0,0.0,1.0)));
  end;
+ fExtents:=Vector3ScalarMul(Vector3Sub(fAABB.Max,fAABB.Min),0.5);
+ fMaxAxisLength:=Max(Max(fExtents.x,fExtents.y),fExtents.z);
 end;
 
 procedure TKraftSignedDistanceField.CalculateMassData;
@@ -30681,24 +30687,28 @@ end;
 function TKraftSignedDistanceField.GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3;
 {begin
  // Given that it is convex in any case
- result:=Vector3Norm(Direction);
+ result:=Vector3ScalarMul(Vector3Norm(Direction),fMaxAxisLength*64.0);
  result:=Vector3Sub(result,Vector3ScalarMul(GetLocalSignedDistanceNormalizedGradient(result),GetLocalSignedDistance(result)));
 end;}
 const DescentRate=1.0;
       MaxIterations=64;
       Epsilon=1e-3;
 var Iteration:TKraftInt32;
-    CurrentPosition,NewPosition:TKraftVector3;
+    Distance:TKraftScalar;
+    NormalizedDirection:TKraftVector3;
 begin
- CurrentPosition:=Vector3Norm(Direction);
+ NormalizedDirection:=Vector3Norm(Direction);
+ result:=Vector3ScalarMul(NormalizedDirection,fMaxAxisLength*2.0);
+ Vector3DirectSub(result,Vector3ScalarMul(NormalizedDirection,GetLocalSignedDistance(result)));
  for Iteration:=1 to MaxIterations do begin
-  NewPosition:=Vector3Sub(CurrentPosition,Vector3ScalarMul(GetLocalSignedDistanceNormalizedGradient(CurrentPosition),GetLocalSignedDistance(CurrentPosition)*DescentRate));
-  if Vector3Dist(CurrentPosition,NewPosition)<Epsilon then begin
+  Distance:=GetLocalSignedDistance(result);
+  if abs(Distance)<Epsilon then begin
    break;
+  end else begin
+   Vector3DirectSub(result,Vector3ScalarMul(NormalizedDirection,Distance));
+// Vector3DirectSub(result,Vector3ScalarMul(GetLocalSignedDistanceNormalizedGradient(result),Distance*DescentRate));
   end;
-  CurrentPosition:=NewPosition;
  end;
- result:=CurrentPosition;
 end;
 
 function TKraftSignedDistanceField.GetLocalFeatureSupportVertex(const Index:TKraftInt32):TKraftVector3;
