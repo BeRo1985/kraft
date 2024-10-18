@@ -30690,23 +30690,34 @@ function TKraftSignedDistanceField.GetLocalFullSupport(const Direction:TKraftVec
  result:=Vector3ScalarMul(Vector3Norm(Direction),fMaxAxisLength*64.0);
  result:=Vector3Sub(result,Vector3ScalarMul(GetLocalSignedDistanceNormalizedGradient(result),GetLocalSignedDistance(result)));
 end;}
+ function GetGradient(const Position:TKraftVector3):TKraftVector3;
+ const Delta=1e-4;
+ begin
+  result.x:=GetLocalSignedDistance(Vector3(Position.x+Delta,Position.y,Position.z))-GetLocalSignedDistance(Vector3(Position.x-Delta,Position.y,Position.z));
+  result.y:=GetLocalSignedDistance(Vector3(Position.x,Position.y+Delta,Position.z))-GetLocalSignedDistance(Vector3(Position.x,Position.y-Delta,Position.z));
+  result.z:=GetLocalSignedDistance(Vector3(Position.x,Position.y,Position.z+Delta))-GetLocalSignedDistance(Vector3(Position.x,Position.y,Position.z-Delta));
+ {$ifdef SIMD}
+  result.w:=0.0;
+ {$endif}
+  Vector3Normalize(result);
+ end;
 const DescentRate=1.0;
       MaxIterations=64;
-      Epsilon=1e-3;
+      Epsilon=1e-4;
 var Iteration:TKraftInt32;
     Distance:TKraftScalar;
     NormalizedDirection:TKraftVector3;
 begin
  NormalizedDirection:=Vector3Norm(Direction);
  result:=Vector3ScalarMul(NormalizedDirection,fMaxAxisLength*2.0);
- Vector3DirectSub(result,Vector3ScalarMul(NormalizedDirection,GetLocalSignedDistance(result)));
+//Vector3DirectSub(result,Vector3ScalarMul(NormalizedDirection,GetLocalSignedDistance(result)));
  for Iteration:=1 to MaxIterations do begin
   Distance:=GetLocalSignedDistance(result);
   if abs(Distance)<Epsilon then begin
    break;
   end else begin
    Vector3DirectSub(result,Vector3ScalarMul(NormalizedDirection,Distance));
-// Vector3DirectSub(result,Vector3ScalarMul(GetLocalSignedDistanceNormalizedGradient(result),Distance*DescentRate));
+// Vector3DirectSub(result,Vector3ScalarMul(GetGradient(result),Distance*DescentRate));
   end;
  end;
 end;
