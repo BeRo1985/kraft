@@ -13135,6 +13135,52 @@ begin
 end;
 {$ifend}
 
+function OctahedralProjectionMappingSignedEncode(const aVector:TKraftVector3):TKraftVector2;
+var Vector:TKraftVector3;
+    s:TKraftScalar;
+begin
+ Vector:=Vector3Norm(aVector);
+ s:=abs(Vector.x)+abs(Vector.y)+abs(Vector.z);
+ result.x:=Vector.x/s;
+ result.y:=Vector.y/s;
+ if Vector.z<0.0 then begin
+  result:=Vector2((1.0-abs(result.y))*SignNonZero(result.x),
+                  (1.0-abs(result.x))*SignNonZero(result.y));
+ end;
+end;
+
+function OctahedralProjectionMappingSignedDecode(const aVector:TKraftVector2):TKraftVector3;
+var t:TKraftVector3;
+begin
+ result.x:=aVector.x;
+ result.y:=aVector.y;
+ result.z:=(1.0-abs(aVector.x))-abs(aVector.y);
+ if result.z<0 then begin
+  t:=result;
+  result.x:=(1.0-abs(t.y))*SignNonZero(t.x);
+  result.y:=(1.0-abs(t.x))*SignNonZero(t.y);
+ end;
+ Vector3Normalize(result);
+end;
+
+function NormalToUInt32(const aVector:TKraftVector3):TKraftUInt32;
+var Octahedral:TKraftVector2;
+    x,y:TKraftUInt32;
+begin
+ Octahedral:=OctahedralProjectionMappingSignedEncode(aVector);
+ x:=Min(Max(round((Octahedral.x*32767.0)+32768.0),0),65535);
+ y:=Min(Max(round((Octahedral.y*32767.0)+32768.0),0),65535);
+ result:=(TKraftUInt32(y) shl 16) or (TKraftUInt32(x) and TKraftUInt32($ffff));
+end;
+
+function UInt32ToNormal(const aValue:TKraftUInt32):TKraftVector3;
+var Octahedral:TKraftVector2;
+begin
+ Octahedral.x:=(TKraftInt32(TKraftUInt32(aValue and TKraftUInt32($ffff)))-32768)/32767.0;
+ Octahedral.y:=(TKraftInt32(TKraftUInt32(aValue shr 16))-32768)/32767.0;
+ result:=OctahedralProjectionMappingSignedDecode(Octahedral);
+end;
+
 { TKraftStack<T> }
 
 constructor TKraftStack<T>.Create;
@@ -30657,12 +30703,12 @@ end;
 
 function TKraftSignedDistanceField.GetLocalFeatureSupportVertex(const Index:TKraftInt32):TKraftVector3;
 begin
- result:=Vector3Origin;
+ result:=GetLocalFullSupport(UInt32ToNormal(TKraftUInt32(Index)));
 end;
 
 function TKraftSignedDistanceField.GetLocalFeatureSupportIndex(const Direction:TKraftVector3):TKraftInt32;
 begin
- result:=-1;
+ result:=TKraftInt32(TKraftUInt32(NormalToUInt32(Direction)));
 end;
 
 function TKraftSignedDistanceField.GetCenter(const Transform:TKraftMatrix4x4):TKraftVector3;
