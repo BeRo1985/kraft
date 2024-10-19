@@ -34761,6 +34761,10 @@ begin
 
    end else begin
 
+    fLocalCentroid:=Vector3Origin;
+
+    fLocalCenterOfMass:=Vector3Origin;
+
     fMassData.Inertia:=Matrix3x3Identity;
     fMassData.Center:=Vector3Origin;
     fMassData.Mass:=1.0;
@@ -34771,6 +34775,10 @@ begin
   end;
 
   else begin
+
+   fLocalCentroid:=Vector3Origin;
+
+   fLocalCenterOfMass:=Vector3Origin;
 
    fMassData.Inertia:=Matrix3x3Identity;
    fMassData.Center:=Vector3Origin;
