@@ -34693,7 +34693,119 @@ begin
 end;
 
 procedure TKraftShapeMesh.CalculateMassData;
+var Index:TKraftInt32;
+    Mass,Volume,Scale:TKraftScalar;
+    Center:TKraftVector3;
+    BodyInertiaTensor:TKraftMatrix3x3;
+    Mesh:TKraftMesh;
 begin
+
+ case fCountMeshes of
+
+  1:begin
+
+   fLocalCentroid:=fMeshes[0].fCentroid;
+
+   fLocalCenterOfMass:=fMeshes[0].fMassData.Center;
+
+   fAngularMotionDisc:=fMeshes[0].fAngularMotionDisc;
+
+   fMassData:=fMeshes[0].fMassData;
+
+  end;
+
+  2..TKraftInt32($7fffffff):begin
+
+   FillChar(BodyInertiaTensor,SizeOf(TKraftMatrix3x3),AnsiChar(#0));
+
+   Mass:=0.0;
+
+   Volume:=0.0;
+
+   for Index:=0 to fCountMeshes-1 do begin
+
+    Mesh:=fMeshes[Index];
+
+    Mass:=Mass+Mesh.fMassData.Mass;
+
+    Volume:=Volume+(Mesh.fMassData.Volume*Mesh.fMassData.Mass);
+
+    Vector3DirectAdd(fLocalCentroid,Vector3ScalarMul(Mesh.fCentroid,Mesh.fMassData.Mass));
+
+    Vector3DirectAdd(fLocalCenterOfMass,Vector3ScalarMul(Mesh.fMassData.Center,Mesh.fMassData.Mass));
+
+    fAngularMotionDisc:=Max(fAngularMotionDisc,Mesh.fAngularMotionDisc);
+
+    Matrix3x3Add(BodyInertiaTensor,Mesh.fMassData.Inertia);
+
+   end;
+
+   if Mass>EPSILON then begin
+
+    fLocalCentroid.x:=fLocalCentroid.x/Mass;
+    fLocalCentroid.y:=fLocalCentroid.y/Mass;
+    fLocalCentroid.z:=fLocalCentroid.z/Mass;
+
+    fLocalCenterOfMass.x:=fLocalCenterOfMass.x/Mass;
+    fLocalCenterOfMass.y:=fLocalCenterOfMass.y/Mass;
+    fLocalCenterOfMass.z:=fLocalCenterOfMass.z/Mass;
+
+    Volume:=Volume/Mass;
+
+    Matrix3x3Sub(BodyInertiaTensor,InertiaTensorParallelAxisTheorem(fLocalCenterOfMass,Mass));
+
+    fMassData.Inertia:=BodyInertiaTensor;
+    fMassData.Center:=fLocalCenterOfMass;
+    fMassData.Mass:=Mass;
+    fMassData.Volume:=Volume;
+
+   end else begin
+
+    fMassData.Inertia:=Matrix3x3Identity;
+    fMassData.Center:=Vector3Origin;
+    fMassData.Mass:=1.0;
+    fMassData.Volume:=1.0;
+
+   end;
+
+  end;
+
+  else begin
+
+   fMassData.Inertia:=Matrix3x3Identity;
+   fMassData.Center:=Vector3Origin;
+   fMassData.Mass:=1.0;
+   fMassData.Volume:=1.0;
+
+  end;
+
+ end;
+
+ Mass:=fMassData.Mass;
+ Center:=fMassData.Center;
+ if fForcedMass>EPSILON then begin
+  fMassData.Mass:=fForcedMass;
+ end else begin
+  fMassData.Mass:=fMassData.Volume*fDensity;
+ end;
+ Scale:=fMassData.Mass/Mass;
+ fMassData.Inertia[0,0]:=fMassData.Inertia[0,0]*Scale;
+ fMassData.Inertia[0,1]:=fMassData.Inertia[0,1]*Scale;
+ fMassData.Inertia[0,2]:=fMassData.Inertia[0,2]*Scale;
+ fMassData.Inertia[1,0]:=fMassData.Inertia[1,0]*Scale;
+ fMassData.Inertia[1,1]:=fMassData.Inertia[1,1]*Scale;
+ fMassData.Inertia[1,2]:=fMassData.Inertia[1,2]*Scale;
+ fMassData.Inertia[2,0]:=fMassData.Inertia[2,0]*Scale;
+ fMassData.Inertia[2,1]:=fMassData.Inertia[2,1]*Scale;
+ fMassData.Inertia[2,2]:=fMassData.Inertia[2,2]*Scale;
+ if ksfHasForcedCenterOfMass in fFlags then begin
+  fMassData.Center:=Vector3TermMatrixMul(fForcedCenterOfMass,fLocalTransform);
+ end else begin
+  fMassData.Center:=Vector3TermMatrixMul(fMassData.Center,fLocalTransform);
+ end;
+ fMassData.Inertia:=Matrix3x3TermAdd(InertiaTensorTransform(fMassData.Inertia,Matrix3x3(fLocalTransform)),
+                                     InertiaTensorParallelAxisTheorem(Vector3Sub(fMassData.Center,Center),fMassData.Mass));
+
 end;
 
 function TKraftShapeMesh.GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
