@@ -10978,7 +10978,7 @@ const XMPMMP:array[0..3] of TKraftFloat=(1.0,-1.0,-1.0,1.0);
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
-{$endif}
+{$ifend}
  sub rsp,72
  movups xmm1,xmmword ptr [rdx+16]
  movups xmm0,xmmword ptr [rdx+32]
@@ -11221,7 +11221,7 @@ const VecMaskXYZ:array[0..3] of TKraftUInt32=(TKraftUInt32($ffffffff),TKraftUInt
 asm
 {$if defined(cpuamd64) and not defined(fpc)}
  .noframe
-{$endif}
+{$ifend}
  movups xmm0,xmmword ptr [rdx]
  movups xmm2,xmmword ptr [rip+VecMaskXYZ]
  mov rax,rcx
