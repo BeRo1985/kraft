@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2024-10-26-14-07-0000                       *
+ *                        Version 2024-10-26-14-16-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -47792,23 +47792,66 @@ begin
 
 end;
 
+{$ifdef KraftPasMP}
+procedure TKraft_StoreWorldTransforms_ParallelLoopProcedure(const aJob:PPasMPJob;const aThreadIndex:TPasMPInt32;const aData:pointer;const aFromIndex,aToIndex:TPasMPNativeInt);
+var Index:TPasMPNativeInt;
+begin
+ for Index:=aFromIndex to aToIndex do begin
+  TKraft(aData).fRigidBodies[Index].StoreWorldTransform;
+ end;
+end;
+{$endif}
+
 procedure TKraft.StoreWorldTransforms;
 var RigidBody:TKraftRigidBody;
 begin
- RigidBody:=fRigidBodyFirst;
- while assigned(RigidBody) do begin
-  RigidBody.StoreWorldTransform;
-  RigidBody:=RigidBody.fRigidBodyNext;
+{$ifdef KraftPasMP}
+ if assigned(fPasMP) and (fPasMP.CountJobWorkerThreads>1) and not fSingleThreaded then begin
+  fPasMP.Invoke(fPasMP.ParallelFor(self,0,fCountRigidBodies-1,TKraft_StoreWorldTransforms_ParallelLoopProcedure,1,PasMPDefaultDepth));
+ end else{$endif}begin
+  RigidBody:=fRigidBodyFirst;
+  while assigned(RigidBody) do begin
+   RigidBody.StoreWorldTransform;
+   RigidBody:=RigidBody.fRigidBodyNext;
+  end;
  end;
 end;
 
+{$ifdef KraftPasMP}
+type TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_Parameters=record
+      Physics:TKraft;
+      Alpha:TKraftScalar;
+     end;
+     PKraft_InterpolateWorldTransforms_ParallelLoopProcedure_Parameters=^TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_Parameters; 
+
+procedure TKraft_InterpolateWorldTransforms_ParallelLoopProcedure(const aJob:PPasMPJob;const aThreadIndex:TPasMPInt32;const aData:pointer;const aFromIndex,aToIndex:TPasMPNativeInt);
+var Index:TPasMPNativeInt;
+    Parameters:PKraft_InterpolateWorldTransforms_ParallelLoopProcedure_Parameters;
+begin
+ Parameters:=PKraft_InterpolateWorldTransforms_ParallelLoopProcedure_Parameters(aData);
+ for Index:=aFromIndex to aToIndex do begin
+  Parameters^.Physics.fRigidBodies[Index].InterpolateWorldTransform(Parameters^.Alpha);
+ end;
+end;
+{$endif}
+
 procedure TKraft.InterpolateWorldTransforms(const aAlpha:TKraftScalar);
 var RigidBody:TKraftRigidBody;
+{$ifdef KraftPasMP}
+    Parameters:TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_Parameters;
+{$endif} 
 begin
- RigidBody:=fRigidBodyFirst;
- while assigned(RigidBody) do begin
-  RigidBody.InterpolateWorldTransform(aAlpha);
-  RigidBody:=RigidBody.fRigidBodyNext;
+{$ifdef KraftPasMP}
+ if assigned(fPasMP) and (fPasMP.CountJobWorkerThreads>1) and not fSingleThreaded then begin
+  Parameters.Physics:=self;
+  Parameters.Alpha:=aAlpha;
+  fPasMP.Invoke(fPasMP.ParallelFor(@Parameters,0,fCountRigidBodies-1,TKraft_InterpolateWorldTransforms_ParallelLoopProcedure,1,PasMPDefaultDepth));
+ end else{$endif}begin
+  RigidBody:=fRigidBodyFirst;
+  while assigned(RigidBody) do begin
+   RigidBody.InterpolateWorldTransform(aAlpha);
+   RigidBody:=RigidBody.fRigidBodyNext;
+  end;
  end;
 end;
 
