@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2024-10-16-15-54-0000                       *
+ *                        Version 2024-10-26-13-51-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -4807,6 +4807,7 @@ function Vector3TermMatrixMulHomogen({$ifdef USE_CONSTREF_EX}constref{$else}cons
 function Vector3Perpendicular(v:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
 function Vector3Orthogonal(v:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
 function Vector3Lerp({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3;const w:TKraftScalar):TKraftVector3; {$ifdef caninline}inline;{$endif}
+function Vector3LerpEx({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3;const w:TKraftScalar):TKraftVector3; {$ifdef caninline}inline;{$endif}
 function Vector3Nlerp({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3;const w:TKraftScalar):TKraftVector3;
 function Vector3Slerp({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3;const w:TKraftScalar):TKraftVector3;
 function Vector3TermQuaternionRotate({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} q:TKraftQuaternion):TKraftVector3; {$if defined(caninline) and not defined(SIMDASM)}inline;{$ifend} {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
@@ -4899,6 +4900,7 @@ function Matrix4x4TermMulSimpleInverted({$ifdef USE_CONSTREF_EX}constref{$else}c
 function Matrix4x4TermMulTranspose({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m1,m2:TKraftMatrix4x4):TKraftMatrix4x4; {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function Matrix4x4Lerp({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} a,b:TKraftMatrix4x4;const x:TKraftScalar):TKraftMatrix4x4; {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function Matrix4x4Slerp({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} a,b:TKraftMatrix4x4;const x:TKraftScalar):TKraftMatrix4x4; {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
+function Matrix4x4TransformSlerp({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} a,b:TKraftMatrix4x4;const x:TKraftScalar):TKraftMatrix4x4; {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 procedure Matrix4x4ScalarMul(var m:TKraftMatrix4x4;const s:TKraftScalar); {$ifdef caninline}inline;{$endif}
 procedure Matrix4x4Transpose(var m:TKraftMatrix4x4); {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function Matrix4x4TermTranspose({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix4x4):TKraftMatrix4x4; {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
@@ -4967,7 +4969,11 @@ function QuaternionToMatrix3x3(AQuaternion:TKraftQuaternion):TKraftMatrix3x3; {$
 function QuaternionFromTangentSpaceMatrix3x3(AMatrix:TKraftMatrix3x3):TKraftQuaternion; {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function QuaternionToTangentSpaceMatrix3x3(AQuaternion:TKraftQuaternion):TKraftMatrix3x3; {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function QuaternionFromMatrix4x4({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} AMatrix:TKraftMatrix4x4):TKraftQuaternion; {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
+{$if defined(SIMD) and defined(SIMDASM) and defined(fpc) and defined(cpuamd64)}
+function QuaternionToMatrix4x4(const AQuaternion:TKraftQuaternion):TKraftMatrix4x4; {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
+{$else}
 function QuaternionToMatrix4x4(AQuaternion:TKraftQuaternion):TKraftMatrix4x4; {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
+{$ifend}
 function QuaternionToEuler({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} AQuaternion:TKraftQuaternion):TKraftVector3; {$ifdef caninline}inline;{$endif}
 procedure QuaternionToAxisAngle(AQuaternion:TKraftQuaternion;out Axis:TKraftVector3;out Angle:TKraftScalar); {$ifdef caninline}inline;{$endif}
 function QuaternionGenerator(AQuaternion:TKraftQuaternion):TKraftVector3; {$ifdef caninline}inline;{$endif}
@@ -7042,6 +7048,18 @@ begin
 {$endif}
 end;
 
+function Vector3LerpEx({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3;const w:TKraftScalar):TKraftVector3;
+var iw:TKraftScalar;
+begin
+ iw:=1.0-w;
+ result.x:=(iw*v1.x)+(w*v2.x);
+ result.y:=(iw*v1.y)+(w*v2.y);
+ result.z:=(iw*v1.z)+(w*v2.z);
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
+end;
+
 function Vector3Nlerp({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3;const w:TKraftScalar):TKraftVector3;
 begin
  if w<0.0 then begin
@@ -8788,6 +8806,29 @@ begin
   result[2,2]:=m[2,2];
 
  end;
+end;
+
+function Matrix4x4TransformSlerp({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} a,b:TKraftMatrix4x4;const x:TKraftScalar):TKraftMatrix4x4;
+begin
+
+ if x<=0.0 then begin
+
+  result:=a;
+
+ end else if x>=1.0 then begin
+
+  result:=b;
+
+ end else begin
+
+  result:=QuaternionToMatrix4x4(QuaternionSlerp(QuaternionFromMatrix4x4(a),QuaternionFromMatrix4x4(b),x));
+  PKraftVector3(@result[3,0])^:=Vector3LerpEx(PKraftVector3(@a[3,0])^,PKraftVector3(@b[3,0])^,x);
+{$ifdef SIMD}
+  result[3,3]:=1.0; // Restore 1.0 at [3,3] which gets overwritten by Vector3LerpEx
+{$endif}
+
+ end;
+
 end;
 
 procedure Matrix4x4ScalarMul(var m:TKraftMatrix4x4;const s:TKraftScalar);
@@ -10923,7 +10964,93 @@ begin
 {$endif}
 end;
 
-function QuaternionFromMatrix4x4({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} AMatrix:TKraftMatrix4x4):TKraftQuaternion;
+function QuaternionFromMatrix4x4({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} AMatrix:TKraftMatrix4x4):TKraftQuaternion; {$if defined(SIMD) and defined(SIMDASM) and defined(fpc) and defined(cpuamd64)}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
+const XMPMMP:array[0..3] of TKraftFloat=(1.0,-1.0,-1.0,1.0);
+      XMMMPP:array[0..3] of TKraftFloat=(-1.0,-1.0,1.0,1.0);
+      XPPMMM:array[0..3] of TKraftFloat=(1.0,1.0,-1.0,-1.0);
+      XPMMPM:array[0..3] of TKraftFloat=(-1.0,1.0,-1.0,1.0);
+asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$endif}
+ sub rsp,72
+ movups xmm1,xmmword ptr [rdx+16]
+ movups xmm0,xmmword ptr [rdx+32]
+ mov rax,rcx
+ movaps xmmword ptr [rsp+16],xmm7
+ movups xmm7,xmmword ptr [rdx]
+ movaps xmm5,xmm1
+ movaps xmmword ptr [rsp],xmm6
+ movaps xmm2,xmm7
+ shufps xmm5,xmm1,85
+ movaps xmm6,xmm5
+ movaps xmmword ptr [rsp+32],xmm8
+ shufps xmm2,xmm7,0
+ movaps xmm4,xmm2
+ subps xmm6,xmm2
+ movaps xmm8,xmm0
+ movups xmm3,xmmword ptr [rip+XMPMMP]
+ mulps xmm2,xmm3
+ addps xmm4,xmm5
+ movaps xmmword ptr [rsp+48],xmm9
+ shufps xmm8,xmm0,170
+ pxor xmm9,xmm9
+ movaps xmm3,xmm8
+ cmpleps xmm6,xmm9
+ cmpleps xmm3,xmm9
+ movups xmm10,xmmword ptr [rip+XMMMPP]
+ mulps xmm8,xmm10
+ cmpleps xmm4,xmm9
+ movss xmm9,DWORD ptr [rip+XPPMMM]
+ shufps xmm9,xmm9,0
+ addps xmm2,xmm9
+ movaps xmm9,xmm1
+ unpcklps xmm9,xmm0
+ shufps xmm0,xmm1,1
+ shufps xmm9,xmm9,52
+ addps xmm2,xmm8
+ movups xmm8,xmmword ptr [rip+XPMMPM]
+ mulps xmm5,xmm8
+ addps xmm5,xmm2
+ movaps xmm2,xmm7
+ shufps xmm2,xmm1,105
+ shufps xmm1,xmm7,106
+ shufps xmm1,xmm1,120
+ subps xmm0,xmm1
+ addps xmm2,xmm9
+ movaps xmm9,xmmword ptr [rsp+48]
+ movaps xmm7,xmm5
+ mulps xmm0,xmm8
+ shufps xmm7,xmm2,4
+ movaps xmm8,xmm2
+ movaps xmm1,xmm7
+ shufps xmm8,xmm0,73
+ shufps xmm7,xmm8,214
+ shufps xmm1,xmm8,136
+ andps xmm1,xmm6
+ andnps xmm6,xmm7
+ shufps xmm5,xmm0,46
+ shufps xmm0,xmm5,100
+ shufps xmm2,xmm5,137
+ orps xmm1,xmm6
+ andps xmm2,xmm4
+ andnps xmm4,xmm0
+ movaps xmm6,xmmword ptr [rsp]
+ movaps xmm0,xmm1
+ orps xmm2,xmm4
+ movaps xmm7,xmmword ptr [rsp+16]
+ movaps xmm8,xmmword ptr [rsp+32]
+ andps xmm0,xmm3
+ andnps xmm3,xmm2
+ orps xmm0,xmm3
+ movaps xmm1,xmm0
+ dpps xmm1,xmm0,255
+ sqrtps xmm1,xmm1
+ divps xmm0,xmm1
+ movups xmmword ptr [rcx],xmm0
+ add rsp,72
+end;
+{$else}
 {var t,s:TKraftScalar;
 begin
  if AMatrix[2,2]<0.0 then begin
@@ -11078,8 +11205,64 @@ begin
   result.w:=TempZ;
  end;
 end;{}
+{$ifend}
 
-function QuaternionToMatrix4x4(AQuaternion:TKraftQuaternion):TKraftMatrix4x4;
+{$if defined(SIMD) and defined(SIMDASM) and defined(fpc) and defined(cpuamd64)}
+function QuaternionToMatrix4x4(const AQuaternion:TKraftQuaternion):TKraftMatrix4x4; assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
+const VecMaskXYZ:array[0..3] of TKraftUInt32=(TKraftUInt32($ffffffff),TKraftUInt32($ffffffff),TKraftUInt32($ffffffff),TKraftUInt32($00000000));
+      MatIdentityRow3:array[0..3] of TKraftFloat=(0.0,0.0,0.0,1.0);
+      XYZOnesWZero:array[0..3] of TKraftFloat=(1.0,1.0,1.0,0.0);
+asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$endif}
+ movups xmm0,xmmword ptr [rdx]
+ movups xmm2,xmmword ptr [rip+VecMaskXYZ]
+ mov rax,rcx
+ movaps xmm4,xmm0
+ addps xmm4,xmm0
+ movaps xmm1,xmm4
+ mulps xmm1,xmm0
+ movaps xmm3,xmm1
+ shufps xmm3,xmm1,193
+ shufps xmm1,xmm1,218
+ andps xmm3,xmm2
+ andps xmm2,xmm1
+ movups xmm1,xmmword ptr [rip+XYZOnesWZero]
+ subps xmm1,xmm3
+ movaps xmm3,xmm0
+ shufps xmm3,xmm0,208
+ shufps xmm0,xmm0,255
+ subps xmm1,xmm2
+ movaps xmm2,xmm4
+ shufps xmm2,xmm4,230
+ mulps xmm3,xmm2
+ shufps xmm4,xmm4,201
+ mulps xmm0,xmm4
+ movaps xmm2,xmm3
+ addps xmm2,xmm0
+ subps xmm3,xmm0
+ movaps xmm0,xmm2
+ shufps xmm0,xmm3,73
+ shufps xmm0,xmm0,120
+ movaps xmm4,xmm0
+ shufps xmm4,xmm0,208
+ blendps xmm4,xmm1,9
+ shufps xmm0,xmm0,246
+ movups xmmword ptr [rcx],xmm4
+ movaps xmm4,xmm1
+ blendps xmm4,xmm0,5
+ movdqa xmm0,xmm2
+ palignr xmm0,xmm3,8
+ movups xmmword ptr [rcx+16],xmm4
+ shufps xmm0,xmm0,34
+ blendps xmm1,xmm0,3
+ movups xmm0,xmmword ptr [rip+MatIdentityRow3]
+ movups xmmword ptr [rcx+32],xmm1
+ movups xmmword ptr [rcx+48],xmm0
+end;
+{$else}
+function QuaternionToMatrix4x4(const AQuaternion:TKraftQuaternion):TKraftMatrix4x4;
 var qx2,qy2,qz2,qxqx2,qxqy2,qxqz2,qxqw2,qyqy2,qyqz2,qyqw2,qzqz2,qzqw2:TKraftScalar;
 begin
  QuaternionNormalize(AQuaternion);
@@ -11112,6 +11295,7 @@ begin
  result[3,2]:=0.0;
  result[3,3]:=1.0;
 end;
+{$ifend}
 
 function QuaternionToEuler({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} AQuaternion:TKraftQuaternion):TKraftVector3;
 begin
@@ -31869,7 +32053,7 @@ end;
 
 procedure TKraftShape.InterpolateWorldTransform(const Alpha:TKraftScalar);
 begin
- fInterpolatedWorldTransform:=Matrix4x4Slerp(fLastWorldTransform,fWorldTransform,Alpha);
+ fInterpolatedWorldTransform:=Matrix4x4TransformSlerp(fLastWorldTransform,fWorldTransform,Alpha);
 end;
 
 {$ifdef DebugDraw}
@@ -39803,7 +39987,7 @@ end;
 procedure TKraftRigidBody.InterpolateWorldTransform(const Alpha:TKraftScalar);
 var Shape:TKraftShape;
 begin
- fInterpolatedWorldTransform:=Matrix4x4Slerp(fLastWorldTransform,fWorldTransform,Alpha);
+ fInterpolatedWorldTransform:=Matrix4x4TransformSlerp(fLastWorldTransform,fWorldTransform,Alpha);
  Shape:=fShapeFirst;
  while assigned(Shape) do begin
   Shape.InterpolateWorldTransform(Alpha);
