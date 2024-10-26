@@ -11268,7 +11268,7 @@ asm
  movups xmmword ptr [rcx+48],xmm0
 end;
 {$else}
-function QuaternionToMatrix4x4(const AQuaternion:TKraftQuaternion):TKraftMatrix4x4;
+function QuaternionToMatrix4x4(AQuaternion:TKraftQuaternion):TKraftMatrix4x4;
 var qx2,qy2,qz2,qxqx2,qxqy2,qxqz2,qxqw2,qyqy2,qyqz2,qyqw2,qzqz2,qzqw2:TKraftScalar;
 begin
  QuaternionNormalize(AQuaternion);
