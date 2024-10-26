@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2024-10-26-13-51-0000                       *
+ *                        Version 2024-10-26-14-07-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -2925,11 +2925,13 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fPhysics:TKraft;
 
+       fIndex:TKraftInt32;
+
        fIsland:TKraftIsland;
 
        fIslandIndices:TKraftRigidBodyIslandIndices;
 
-       fID:uint64;
+       fID:TKraftUInt64;
 
        fRigidBodyType:TKraftRigidBodyType;
 
@@ -4296,6 +4298,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fRigidBodyFirst:TKraftRigidBody;
        fRigidBodyLast:TKraftRigidBody;
 
+       fRigidBodies:TKraftRigidBodies;
+
        fStaticRigidBodyCount:TKraftInt32;
 
        fStaticRigidBodyFirst:TKraftRigidBody;
@@ -4533,6 +4537,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        property RigidBodyFirst:TKraftRigidBody read fRigidBodyFirst;
        property RigidBodyLast:TKraftRigidBody read fRigidBodyLast;
+
+       property RigidBodies:TKraftRigidBodies read fRigidBodies;
 
        property StaticRigidBodyCount:TKraftInt32 read fStaticRigidBodyCount;
 
@@ -39572,7 +39578,13 @@ begin
  fIslandIndices:=nil;
  SetLength(fIslandIndices,4);
 
+ fIndex:=fPhysics.fCountRigidBodies;
  inc(fPhysics.fCountRigidBodies);
+
+ if length(fPhysics.fRigidBodies)<fPhysics.fCountRigidBodies then begin
+  SetLength(fPhysics.fRigidBodies,fPhysics.fCountRigidBodies+((fPhysics.fCountRigidBodies+1) shr 1));
+ end;
+ fPhysics.fRigidBodies[fIndex]:=self;
 
  fID:=fPhysics.fRigidBodyIDCounter;
  inc(fPhysics.fRigidBodyIDCounter);
@@ -39705,6 +39717,7 @@ end;
 destructor TKraftRigidBody.Destroy;
 var ConstraintEdge,NextConstraintEdge:PKraftConstraintEdge;
     Constraint:TKraftConstraint;
+    OtherRigidBody:TKraftRigidBody;
 begin
 
  ConstraintEdge:=fConstraintEdgeFirst;
@@ -39737,6 +39750,19 @@ begin
  end;
  fRigidBodyPrevious:=nil;
  fRigidBodyNext:=nil;
+
+ if fIndex>=0 then begin
+  if (fIndex+1)<fPhysics.fCountRigidBodies then begin
+   OtherRigidBody:=fPhysics.fRigidBodies[fPhysics.fCountRigidBodies-1];
+   OtherRigidBody.fIndex:=fIndex;
+   fPhysics.fRigidBodies[fIndex]:=OtherRigidBody;
+   fIndex:=fPhysics.fCountRigidBodies-1;
+  end;
+  fPhysics.fRigidBodies[fIndex]:=nil;
+  fIndex:=-1;
+ end;
+
+ dec(fPhysics.fCountRigidBodies);
 
  if fStaticRigidBodyIsOnList then begin
   fStaticRigidBodyIsOnList:=false;
@@ -46187,6 +46213,9 @@ begin
  fRigidBodyFirst:=nil;
  fRigidBodyLast:=nil;
 
+ fRigidBodies:=nil;
+ fCountRigidBodies:=0;
+
  fStaticRigidBodyCount:=0;
 
  fStaticRigidBodyFirst:=nil;
@@ -46384,6 +46413,8 @@ begin
  FreeAndNil(fHighResolutionTimer);
 
  FreeAndNil(fGravityProperty);
+
+ fRigidBodies:=nil;
 
  inherited Destroy;
 
