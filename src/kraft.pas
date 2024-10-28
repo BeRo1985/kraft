@@ -47792,7 +47792,7 @@ begin
 
 end;
 
-{$ifdef KraftPasMP}
+{$if defined(KraftPasMP) and not defined(KraftNoParallelTransforming)}
 procedure TKraft_StoreWorldTransforms_ParallelLoopProcedure(const aJob:PPasMPJob;const aThreadIndex:TPasMPInt32;const aData:pointer;const aFromIndex,aToIndex:TPasMPNativeInt);
 var Index:TPasMPNativeInt;
 begin
@@ -47800,15 +47800,15 @@ begin
   TKraft(aData).fRigidBodies[Index].StoreWorldTransform;
  end;
 end;
-{$endif}
+{$ifend}
 
 procedure TKraft.StoreWorldTransforms;
 var RigidBody:TKraftRigidBody;
 begin
-{$ifdef KraftPasMP}
+{$if defined(KraftPasMP) and not defined(KraftNoParallelTransforming)}
  if assigned(fPasMP) and (fPasMP.CountJobWorkerThreads>1) and not fSingleThreaded then begin
   fPasMP.Invoke(fPasMP.ParallelFor(self,0,fCountRigidBodies-1,TKraft_StoreWorldTransforms_ParallelLoopProcedure,1,PasMPDefaultDepth));
- end else{$endif}begin
+ end else{$ifend}begin
   RigidBody:=fRigidBodyFirst;
   while assigned(RigidBody) do begin
    RigidBody.StoreWorldTransform;
@@ -47817,7 +47817,7 @@ begin
  end;
 end;
 
-{$ifdef KraftPasMP}
+{$if defined(KraftPasMP) and not defined(KraftNoParallelTransforming)}
 type TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_Parameters=record
       Physics:TKraft;
       Alpha:TKraftScalar;
@@ -47833,20 +47833,20 @@ begin
   Parameters^.Physics.fRigidBodies[Index].InterpolateWorldTransform(Parameters^.Alpha);
  end;
 end;
-{$endif}
+{$ifend}
 
 procedure TKraft.InterpolateWorldTransforms(const aAlpha:TKraftScalar);
 var RigidBody:TKraftRigidBody;
-{$ifdef KraftPasMP}
+{$if defined(KraftPasMP) and not defined(KraftNoParallelTransforming)}
     Parameters:TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_Parameters;
-{$endif} 
+{$ifend}
 begin
-{$ifdef KraftPasMP}
+{$if defined(KraftPasMP) and not defined(KraftNoParallelTransforming)}
  if assigned(fPasMP) and (fPasMP.CountJobWorkerThreads>1) and not fSingleThreaded then begin
   Parameters.Physics:=self;
   Parameters.Alpha:=aAlpha;
   fPasMP.Invoke(fPasMP.ParallelFor(@Parameters,0,fCountRigidBodies-1,TKraft_InterpolateWorldTransforms_ParallelLoopProcedure,1,PasMPDefaultDepth));
- end else{$endif}begin
+ end else{$ifend}begin
   RigidBody:=fRigidBodyFirst;
   while assigned(RigidBody) do begin
    RigidBody.InterpolateWorldTransform(aAlpha);
