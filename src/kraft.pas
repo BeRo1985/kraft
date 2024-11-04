@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2024-10-26-14-16-0000                       *
+ *                        Version 2024-11-03-13-49-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -224,7 +224,7 @@ const EPSILON={$ifdef KraftUseDouble}1e-14{$else}1e-5{$endif}; // actually {$ifd
 
       MAX_TEMPORARY_CONTACTS=256; // Before largest-area contact reduction
 
-      MAX_THREADS=32;
+      MAX_THREADS=256;            // Should be more than enough :-)
 
       MaxSATSupportVertices=64;
       MaxSATContacts=64;
