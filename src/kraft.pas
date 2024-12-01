@@ -49530,8 +49530,8 @@ var Hit:Boolean;
   GeometryDirectionA:=Vector3(PKraftRawVector3(pointer(@aShapeA.fWorldTransform[1,0]))^);
   GeometryDirectionB:=Vector3(PKraftRawVector3(pointer(@aShapeB.fWorldTransform[1,0]))^);
 {$else}
-  GeometryDirectionA:=PKraftVector3(pointer(@ShapeA.fWorldTransform[1,0]))^;
-  GeometryDirectionB:=PKraftVector3(pointer(@ShapeB.fWorldTransform[1,0]))^;
+  GeometryDirectionA:=PKraftVector3(pointer(@aShapeA.fWorldTransform[1,0]))^;
+  GeometryDirectionB:=PKraftVector3(pointer(@aShapeB.fWorldTransform[1,0]))^;
 {$endif}
 
   RadiusA:=aShapeA.fRadius;
