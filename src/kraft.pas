@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2025-02-18-14-37-0000                       *
+ *                        Version 2025-02-18-17-02-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -178,10 +178,6 @@ unit kraft;
  {$undef USE_CONSTREF} // For to avoid "then other" FPC codegen issues in this case with constref in connection with "function result is also a function argument" and so on => physics simulation explodes in some cases
 {$ifend}
 
-{$ifndef KraftPasMP}
- {$undef KraftPasMPThreadSafeBVH}
-{$endif}
-
 interface
 
 uses {$ifdef windows}
@@ -212,9 +208,9 @@ uses {$ifdef windows}
      SysUtils,
      Classes,
      SyncObjs,
-{$ifdef KraftPasMP}
+{$if defined(KraftPasMP) or defined(KraftPasMPThreadSafeBVH)}
      PasMP,
-{$endif}
+{$ifend}
      Math;
 
 const EPSILON={$ifdef KraftUseDouble}1e-14{$else}1e-5{$endif}; // actually {$ifdef KraftUseDouble}1e-16{$else}1e-7{$endif}; but we are conservative here
