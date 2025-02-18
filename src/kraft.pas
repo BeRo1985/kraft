@@ -1,12 +1,12 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2024-11-03-13-49-0000                       *
+ *                        Version 2025-02-18-03-25-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
  *                                                                            *
- * Copyright (c) 2015-2024, Benjamin Rosseaux (benjamin@rosseaux.de)          *
+ * Copyright (c) 2015-2025, Benjamin Rosseaux (benjamin@rosseaux.de)          *
  *                                                                            *
  * This software is provided 'as-is', without any express or implied          *
  * warranty. In no event will the authors be held liable for any damages      *
@@ -2959,6 +2959,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fWorldDisplacement:TKraftVector3;
 
+       fWorldBoundExpansion:TKraftVector3;
+
        fLastWorldTransform:TKraftMatrix4x4;
 
        fInterpolatedWorldTransform:TKraftMatrix4x4;
@@ -3181,6 +3183,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property ContactPairEdgeLast:PKraftContactPairEdge read fContactPairEdgeLast write fContactPairEdgeLast;
 
        property WorldDisplacement:TKraftVector3 read fWorldDisplacement;
+
+       property WorldBoundExpansion:TKraftVector3 read fWorldBoundExpansion write fWorldBoundExpansion;
 
        property Sweep:TKraftSweep read fSweep write fSweep;
 
@@ -31846,7 +31850,7 @@ begin
    WorldDisplacement:=fRigidBody.fWorldDisplacement;
   end;
 
-  WorldBoundsExpansion:=Vector3ScalarMul(Vector3(fAngularMotionDisc,fAngularMotionDisc,fAngularMotionDisc),Vector3Length(fRigidBody.fAngularVelocity)*fPhysics.fWorldDeltaTime);
+  WorldBoundsExpansion:=Vector3Add(fRigidBody.fWorldBoundExpansion,Vector3ScalarMul(Vector3(fAngularMotionDisc,fAngularMotionDisc,fAngularMotionDisc),Vector3Length(fRigidBody.fAngularVelocity)*fPhysics.fWorldDeltaTime));
 
   if (fRigidBody.fRigidBodyType<>krbtStatic) and (fStaticAABBTreeProxy>=0) then begin
    fPhysics.fBroadPhase.StaticMoveBuffer.Remove(fStaticAABBTreeProxy);
@@ -31894,7 +31898,7 @@ begin
     fKinematicAABBTreeProxy:=fPhysics.fKinematicAABBTree.CreateProxy(fWorldAABB,self);
     NeedUpdate:=true;
    end;
-   if fPhysics.fKinematicAABBTree.MoveProxy(fKinematicAABBTreeProxy,fWorldAABB,fRigidBody.fWorldDisplacement,Vector3Origin,not fPhysics.fRegularPartialRebuildAABBTrees) then begin
+   if fPhysics.fKinematicAABBTree.MoveProxy(fKinematicAABBTreeProxy,fWorldAABB,fRigidBody.fWorldDisplacement,fRigidBody.fWorldBoundExpansion,not fPhysics.fRegularPartialRebuildAABBTrees) then begin
     NeedUpdate:=true;
    end;
    if NeedUpdate then begin
@@ -39622,6 +39626,8 @@ begin
 
  fWorldDisplacement:=Vector3Origin;
 
+ fWorldBoundExpansion:=Vector3Origin;
+
  fSweep.LocalCenter:=Vector3Origin;
  fSweep.c0:=Vector3Origin;
  fSweep.c:=Vector3Origin;
@@ -40281,13 +40287,13 @@ begin
  fWorldDisplacement:=Vector3Origin;
 end;
 
-procedure TKraftRigidBody.SetWorldTransformation(const AWorldTransformation:TKraftMatrix4x4);
+procedure TKraftRigidBody.SetWorldTransformation(const aWorldTransformation:TKraftMatrix4x4);
 begin
  fWorldTransform:=AWorldTransformation;
  UpdateWorldInertiaTensor;
- fSweep.c0:=Vector3TermMatrixMul(fSweep.LocalCenter,fWorldTransform);
+ fSweep.c0:=Vector3TermMatrixMul(fSweep.LocalCenter,aWorldTransformation);
  fSweep.c:=fSweep.c0;
- fSweep.q0:=QuaternionFromMatrix4x4(fWorldTransform);
+ fSweep.q0:=QuaternionFromMatrix4x4(aWorldTransformation);
  fSweep.q:=fSweep.q0;
  SynchronizeProxies;
  SetToAwake;
