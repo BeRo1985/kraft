@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2025-02-18-03-25-0000                       *
+ *                        Version 2025-02-18-14-37-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -177,6 +177,10 @@ unit kraft;
 {$else}
  {$undef USE_CONSTREF} // For to avoid "then other" FPC codegen issues in this case with constref in connection with "function result is also a function argument" and so on => physics simulation explodes in some cases
 {$ifend}
+
+{$ifndef KraftPasMP}
+ {$undef KraftPasMPThreadSafeBVH}
+{$endif}
 
 interface
 
@@ -1043,6 +1047,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fNodeCenters:TKraftVector3DynamicArray;
        fNodeBinIndices:array[0..2] of TKraftSizeIntDynamicArray;
        fRebuildDirty:Boolean;
+{$ifdef KraftPasMPThreadSafeBVH}
+       fMultipleReaderSingleWriterLockState:TPasMPInt32;
+{$endif}
       public
        constructor Create;
        destructor Destroy; override;
@@ -1059,7 +1066,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure EnlargeProxy(aNodeID:TKraftInt32;const aAABB:TKraftAABB);
        procedure Rebalance(Iterations:TKraftInt32);
        procedure RebuildBottomUp;
-       procedure RebuildTopDown(const aFull:Boolean=false);
+       procedure RebuildTopDown(const aFull:Boolean=false{$ifdef KraftPasMPThreadSafeBVH};const aLock:Boolean=true{$endif});
        procedure Rebuild(const aFull:Boolean=false;const aForce:Boolean=false);
        function ComputeHeight:TKraftInt32;
        function GetHeight:TKraftInt32;
@@ -2847,6 +2854,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fAABBTree:TKraftDynamicAABBTree;
        fItems:TKraftBroadPhaseMoveBufferItems;
        fSize:TKraftInt32;
+{$ifdef KraftPasMPThreadSafeBVH}
+       fMultipleReaderSingleWriterLockState:TPasMPInt32;
+{$endif}
        function GetItem(const aIndex:TKraftInt32):TKraftInt32; {$ifdef caninline}inline;{$endif}
       public
        constructor Create(const aAABBTree:TKraftDynamicAABBTree);
@@ -20489,6 +20499,9 @@ begin
  fNodeBinIndices[1]:=nil;
  fNodeBinIndices[2]:=nil;
  fRebuildDirty:=false;
+{$ifdef KraftPasMPThreadSafeBVH}
+ fMultipleReaderSingleWriterLockState:=0;
+{$endif}
 end;
 
 destructor TKraftDynamicAABBTree.Destroy;
@@ -21300,6 +21313,10 @@ var Node,ParentNode:PKraftDynamicAABBTreeNode;
     ParentIndex:TKraftInt32;
 begin
 
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.AcquireWrite(fMultipleReaderSingleWriterLockState);
+{$endif}
+
  result:=AllocateNode;
 
  Node:=@fNodes^[result];
@@ -21328,14 +21345,24 @@ begin
 
  fRebuildDirty:=true;
 
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.ReleaseWrite(fMultipleReaderSingleWriterLockState);
+{$endif}
+
 end;
 
 procedure TKraftDynamicAABBTree.DestroyProxy(aNodeID:TKraftInt32);
 begin
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.AcquireWrite(fMultipleReaderSingleWriterLockState);
+{$endif}
  dec(fProxyCount);
  RemoveLeaf(aNodeID);
  FreeNode(aNodeID);
  fRebuildDirty:=true;
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.ReleaseWrite(fMultipleReaderSingleWriterLockState);
+{$endif}
 end;
 
 function TKraftDynamicAABBTree.MoveProxy(aNodeID:TKraftInt32;const aAABB:TKraftAABB;const aDisplacement,aBoundsExpansion:TKraftVector3;const aShouldRotate:boolean):boolean;
@@ -21343,11 +21370,19 @@ var Node,ParentNode:PKraftDynamicAABBTreeNode;
     ParentIndex:TKraftInt32;
 begin
 
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.AcquireRead(fMultipleReaderSingleWriterLockState);
+{$endif}
+
  Node:=@fNodes^[aNodeID];
 
  result:=not AABBContains(Node^.AABB,aAABB);
 
  if result then begin
+
+{$ifdef KraftPasMPThreadSafeBVH}
+  TPasMPMultipleReaderSingleWriterSpinLock.ReadToWrite(fMultipleReaderSingleWriterLockState);
+{$endif}
 
   RemoveLeaf(aNodeID);
 
@@ -21372,6 +21407,16 @@ begin
 
   fRebuildDirty:=true;
 
+{$ifdef KraftPasMPThreadSafeBVH}
+  TPasMPMultipleReaderSingleWriterSpinLock.ReleaseWrite(fMultipleReaderSingleWriterLockState);
+{$endif}
+
+ end else begin
+
+{$ifdef KraftPasMPThreadSafeBVH}
+  TPasMPMultipleReaderSingleWriterSpinLock.ReleaseRead(fMultipleReaderSingleWriterLockState);
+{$endif}
+
  end;
 
 end;
@@ -21381,6 +21426,10 @@ var Node,ParentNode:PKraftDynamicAABBTreeNode;
     ParentIndex:TKraftInt32;
     Changed:boolean;
 begin
+
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.AcquireWrite(fMultipleReaderSingleWriterLockState);
+{$endif}
 
  if (aNodeID>=0) and (aNodeID<fNodeCapacity) then begin
   
@@ -21412,6 +21461,10 @@ begin
 
  end;
 
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.ReleaseWrite(fMultipleReaderSingleWriterLockState);
+{$endif}
+
 end;
 
 procedure TKraftDynamicAABBTree.Rebalance(Iterations:TKraftInt32);
@@ -21419,6 +21472,9 @@ var Counter,Node:TKraftInt32;
     Bit:TKraftUInt32;
 //  Children:PKraftDynamicAABBTreeLongintArray;
 begin
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.AcquireWrite(fMultipleReaderSingleWriterLockState);
+{$endif}
  if (fRoot>=0) and (fRoot<fNodeCapacity) then begin
   for Counter:=1 to Iterations do begin
    Bit:=0;
@@ -21436,6 +21492,9 @@ begin
    end;
   end;
  end;
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.ReleaseWrite(fMultipleReaderSingleWriterLockState);
+{$endif}
 end;
 
 procedure TKraftDynamicAABBTree.RebuildBottomUp;
@@ -21448,6 +21507,9 @@ var NewNodes:PKraftDynamicAABBTreeLongintArray;
     AABB:TKraftAABB;
     First:boolean;
 begin
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.AcquireWrite(fMultipleReaderSingleWriterLockState);
+{$endif}
  if fNodeCount>0 then begin
   NewNodes:=nil;
   GetMem(NewNodes,fNodeCount*SizeOf(TKraftInt32));
@@ -21505,9 +21567,12 @@ begin
   fRoot:=NewNodes^[0];
   FreeMem(NewNodes);
  end;
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.ReleaseWrite(fMultipleReaderSingleWriterLockState);
+{$endif}
 end;
 
-procedure TKraftDynamicAABBTree.RebuildTopDown(const aFull:Boolean);
+procedure TKraftDynamicAABBTree.RebuildTopDown(const aFull:Boolean{$ifdef KraftPasMPThreadSafeBVH};const aLock:Boolean{$endif});
 {$define TKraftDynamicAABBTreeRebuildTopDownSAH}
 {$define TKraftDynamicAABBTreeRebuildTopDownQuickSortStylePartitioning}
 {$ifdef TKraftDynamicAABBTreeRebuildTopDownSAH}
@@ -21570,6 +21635,12 @@ var Count,Index,ParentIndex,NodeIndex,TempIndex,
     NodeStackItem:TNodeStackItem;
     Node:PKraftDynamicAABBTreeNode;
 begin
+
+{$ifdef KraftPasMPThreadSafeBVH}
+ if aLock then begin
+  TPasMPMultipleReaderSingleWriterSpinLock.AcquireWrite(fMultipleReaderSingleWriterLockState);
+ end;
+{$endif}
 
  if (NodeCount>0) and (fRoot>=0) then begin
 
@@ -22024,17 +22095,29 @@ begin
 
  end;
 
+{$ifdef KraftPasMPThreadSafeBVH}
+ if aLock then begin
+  TPasMPMultipleReaderSingleWriterSpinLock.ReleaseWrite(fMultipleReaderSingleWriterLockState);
+ end;
+{$endif}
+
 end;
 
 procedure TKraftDynamicAABBTree.Rebuild(const aFull:Boolean;const aForce:Boolean);
 begin
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.AcquireWrite(fMultipleReaderSingleWriterLockState);
+{$endif}
  if fRebuildDirty or aForce then begin
   fRebuildDirty:=false;
   if fProxyCount>0 then begin
-   RebuildTopDown(aFull);
+   RebuildTopDown(aFull{$ifdef KraftPasMPThreadSafeBVH},false{$endif});
  //Assert(Validate);
   end;
  end;
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.ReleaseWrite(fMultipleReaderSingleWriterLockState);
+{$endif}
 end;
 
 function TKraftDynamicAABBTree.ComputeHeight:TKraftInt32;
@@ -22049,6 +22132,9 @@ var Stack:TStack;
     NewStackItem:PStackItem;
     Node:PKraftDynamicAABBTreeNode;
 begin
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.AcquireRead(fMultipleReaderSingleWriterLockState);
+{$endif}
  result:=0;
  if fRoot>=0 then begin
   Stack.Initialize;
@@ -22076,21 +22162,33 @@ begin
    Stack.Finalize;
 //end;
  end;
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.ReleaseRead(fMultipleReaderSingleWriterLockState);
+{$endif}
 end;
 
 function TKraftDynamicAABBTree.GetHeight:TKraftInt32;
 begin
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.AcquireRead(fMultipleReaderSingleWriterLockState);
+{$endif}
  if fRoot>=0 then begin
   result:=fNodes[fRoot].Height;
  end else begin
   result:=0;
  end;
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.ReleaseRead(fMultipleReaderSingleWriterLockState);
+{$endif}
 end;
 
 function TKraftDynamicAABBTree.GetAreaRatio:TKraftScalar;
 var NodeID:TKraftInt32;
     Node:PKraftDynamicAABBTreeNode;
 begin
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.AcquireRead(fMultipleReaderSingleWriterLockState);
+{$endif}
  result:=0;
  if fRoot>=0 then begin
   for NodeID:=0 to fNodeCapacity-1 do begin
@@ -22101,12 +22199,18 @@ begin
   end;
   result:=result/AABBCost(fNodes[fRoot].AABB);
  end;
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.ReleaseRead(fMultipleReaderSingleWriterLockState);
+{$endif}
 end;
 
 function TKraftDynamicAABBTree.GetMaxBalance:TKraftInt32;
 var NodeID,Balance:TKraftInt32;
     Node:PKraftDynamicAABBTreeNode;
 begin
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.AcquireRead(fMultipleReaderSingleWriterLockState);
+{$endif}
  result:=0;
  for NodeID:=0 to fNodeCapacity-1 do begin
   Node:=@fNodes[NodeID];
@@ -22117,6 +22221,9 @@ begin
    end;
   end;
  end;
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.ReleaseRead(fMultipleReaderSingleWriterLockState);
+{$endif}
 end;
 
 function TKraftDynamicAABBTree.ValidateStructure:boolean;
@@ -22131,6 +22238,9 @@ var Stack:TStack;
     NewStackItem:PStackItem;
     Node:PKraftDynamicAABBTreeNode;
 begin
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.AcquireRead(fMultipleReaderSingleWriterLockState);
+{$endif}
  result:=true;
  if fRoot>=0 then begin
   Stack.Initialize;
@@ -22167,6 +22277,9 @@ begin
    Stack.Finalize;
 //end;
  end;
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.ReleaseRead(fMultipleReaderSingleWriterLockState);
+{$endif}
 end;
 
 function TKraftDynamicAABBTree.ValidateMetrics:boolean;
@@ -22180,6 +22293,9 @@ var Stack:TStack;
     NewStackItem:PStackItem;
     Node:PKraftDynamicAABBTreeNode;
 begin
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.AcquireRead(fMultipleReaderSingleWriterLockState);
+{$endif}
  result:=true;
  if fRoot>=0 then begin
   Stack.Initialize;
@@ -22212,6 +22328,9 @@ begin
    Stack.Finalize;
 //end;
  end;
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.ReleaseRead(fMultipleReaderSingleWriterLockState);
+{$endif}
 end;
 
 function TKraftDynamicAABBTree.Validate:boolean;
@@ -22246,6 +22365,9 @@ var Stack:TStack;
     NewStackItem:PStackItem;
     Node:PKraftDynamicAABBTreeNode;
 begin
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.AcquireRead(fMultipleReaderSingleWriterLockState);
+{$endif}
  result:=nil;
  if fRoot>=0 then begin
   Stack.Initialize;
@@ -22272,6 +22394,9 @@ begin
    Stack.Finalize;
 //end;
  end;
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.ReleaseRead(fMultipleReaderSingleWriterLockState);
+{$endif}
 end;
 
 procedure TKraftDynamicAABBTree.GetSkipListNodes(var aSkipListNodes:TKraftDynamicAABBTreeSkipListNodes);
@@ -22288,6 +22413,9 @@ var CountSkipListNodes,StackPointer:TKraftSizeInt;
     SkipListNode:PKraftDynamicAABBTreeSkipListNode;
     SkipListNodeIndex:TKraftSizeInt;
 begin
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.AcquireRead(fMultipleReaderSingleWriterLockState);
+{$endif}
  CountSkipListNodes:=0;
  try
   if Root>=0 then begin
@@ -22363,6 +22491,9 @@ begin
  finally
   SetLength(aSkipListNodes,CountSkipListNodes);
  end;
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.ReleaseRead(fMultipleReaderSingleWriterLockState);
+{$endif}
 end;
 
 type PConvexHullVector=^TConvexHullVector;
@@ -39258,6 +39389,9 @@ begin
  fItems:=nil;
  SetLength(fItems,64);
  fSize:=0;
+{$ifdef KraftPasMPThreadSafeBVH}
+ fMultipleReaderSingleWriterLockState:=0;
+{$endif}
 end;
 
 destructor TKraftBroadPhaseMoveBuffer.Destroy;
@@ -39268,7 +39402,13 @@ end;
 
 procedure TKraftBroadPhaseMoveBuffer.Clear;
 begin
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.AcquireWrite(fMultipleReaderSingleWriterLockState);
+{$endif}
  fSize:=0;
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.ReleaseWrite(fMultipleReaderSingleWriterLockState);
+{$endif}
 end;
 
 function TKraftBroadPhaseMoveBuffer.GetItem(const aIndex:TKraftInt32):TKraftInt32;
@@ -39280,6 +39420,9 @@ procedure TKraftBroadPhaseMoveBuffer.Add(const aProxyID:TKraftInt32);
 var Index:TKraftInt32;
     Node:PKraftDynamicAABBTreeNode;
 begin
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.AcquireRead(fMultipleReaderSingleWriterLockState);
+{$endif}
  if (aProxyID>=0) and (aProxyID<fAABBTree.fNodeCapacity) then begin
   Node:=@fAABBTree.fNodes^[aProxyID];
  end else begin
@@ -39290,16 +39433,25 @@ begin
     (Node^.MoveBufferIndex<fSize) and
     (fItems[Node^.MoveBufferIndex]=aProxyID) then begin
   // Already added
-  exit;
- end;
- Index:=fSize;
- inc(fSize);
- if length(fItems)<fSize then begin
-  SetLength(fItems,fSize+((fSize+1) shr 1));
- end;
- fItems[Index]:=aProxyID;
- if assigned(Node) then begin
-  Node^.MoveBufferIndex:=Index;
+{$ifdef KraftPasMPThreadSafeBVH}
+  TPasMPMultipleReaderSingleWriterSpinLock.ReleaseRead(fMultipleReaderSingleWriterLockState);
+{$endif}
+ end else begin
+{$ifdef KraftPasMPThreadSafeBVH}
+  TPasMPMultipleReaderSingleWriterSpinLock.ReadToWrite(fMultipleReaderSingleWriterLockState);
+{$endif}
+  Index:=fSize;
+  inc(fSize);
+  if length(fItems)<fSize then begin
+   SetLength(fItems,fSize+((fSize+1) shr 1));
+  end;
+  fItems[Index]:=aProxyID;
+  if assigned(Node) then begin
+   Node^.MoveBufferIndex:=Index;
+  end;
+{$ifdef KraftPasMPThreadSafeBVH}
+  TPasMPMultipleReaderSingleWriterSpinLock.ReleaseWrite(fMultipleReaderSingleWriterLockState);
+{$endif}
  end;
 end;
 
@@ -39307,6 +39459,9 @@ procedure TKraftBroadPhaseMoveBuffer.Remove(const aProxyID:TKraftInt32);
 var Index,SearchIndex:TKraftInt32;
     Node:PKraftDynamicAABBTreeNode;
 begin
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.AcquireWrite(fMultipleReaderSingleWriterLockState);
+{$endif}
  // The order of the items is irrelevant in this case, so that we can simply
  // overwrite the to be removed item with the the last array item, while
  // decrementing the size of the array in the process at the same time.
@@ -39336,6 +39491,9 @@ begin
    fItems[Index]:=fItems[fSize];
   end;
  end;
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.ReleaseWrite(fMultipleReaderSingleWriterLockState);
+{$endif}
 end;
 
 constructor TKraftBroadPhase.Create(const aPhysics:TKraft);
