@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2025-02-26-20-48-0000                       *
+ *                        Version 2025-02-26-23-58-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -2107,6 +2107,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fIsMesh:boolean;
 
+       fTag:TKraftPtrUInt;
+
        function GetProxyFatWorldAABB:PKraftAABB;
 
       public
@@ -2227,6 +2229,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 {$endif}
 
        property IsMesh:boolean read fIsMesh write fIsMesh;
+
+       property Tag:TKraftPtrUInt read fTag write fTag;
 
       published
 
@@ -16143,6 +16147,8 @@ begin
     end else begin
      result:=false;
     end;
+   end else begin
+    result:=false;
    end;
   end;
  end;
@@ -31828,6 +31834,8 @@ begin
  fOnContactStay:=nil;
 
  fOnCanCollideWith:=nil;
+
+ fTag:=0;
 
 end;
 
