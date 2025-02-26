@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2025-02-18-17-40-0000                       *
+ *                        Version 2025-02-26-20-48-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -3058,7 +3058,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        constructor Create(const aPhysics:TKraft);
        destructor Destroy; override;
 
-       function SetRigidBodyType(ARigidBodyType:TKraftRigidBodyType):TKraftRigidBody;
+       procedure SetRigidBodyType(const aRigidBodyType:TKraftRigidBodyType);
 
        function IsStatic:boolean;
        function IsDynamic:boolean;
@@ -3212,7 +3212,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
       published
 
-       property RigidBodyType:TKraftRigidBodyType read fRigidBodyType write fRigidBodyType;
+       property RigidBodyType:TKraftRigidBodyType read fRigidBodyType write SetRigidBodyType;
 
        property Flags:TKraftRigidBodyFlags read fFlags write fFlags;
 
@@ -39984,11 +39984,11 @@ begin
  inherited Destroy;
 end;
 
-function TKraftRigidBody.SetRigidBodyType(ARigidBodyType:TKraftRigidBodyType):TKraftRigidBody;
+procedure TKraftRigidBody.SetRigidBodyType(const aRigidBodyType:TKraftRigidBodyType);
 var Shape:TKraftShape;
 begin
 
- if fRigidBodyType<>ARigidBodyType then begin
+ if fRigidBodyType<>aRigidBodyType then begin
 
   case fRigidBodyType of
 
@@ -40060,7 +40060,7 @@ begin
 
   end;
 
-  fRigidBodyType:=ARigidBodyType;
+  fRigidBodyType:=aRigidBodyType;
 
   case fRigidBodyType of
 
@@ -40125,7 +40125,6 @@ begin
 
  end;
 
- result:=self;
 end;
 
 function TKraftRigidBody.IsStatic:boolean;
@@ -46698,7 +46697,7 @@ begin
 
   if (krbfIslandVisited in SeedRigidBody.fFlags) or                               // Seed can't be visited and apart of an island already
      ((SeedRigidBody.fFlags*[krbfAwake,krbfActive])<>[krbfAwake,krbfActive]) or   // Seed must be awake
-     (SeedRigidBody.fRigidBodyType=krbtStatic) then begin                         // Seed can't be a static body in order to keep islands as small as possible
+     (SeedRigidBody.fRigidBodyType in [krbtUnknown,krbtStatic]) then begin        // Seed can't be a unknown/static body in order to keep islands as small as possible
    SeedRigidBody:=SeedRigidBody.fRigidBodyNext;
    continue;
   end;
@@ -46731,14 +46730,21 @@ begin
    SeedRigidBodyStack:=CurrentRigidBody.fNextOnIslandBuildStack;
    CurrentRigidBody.fNextOnIslandBuildStack:=nil;
 
+   // Do not search across inactive or unknown bodies to keep island formations as
+   // small as possible, these are just ignored and skipped.
+   if (CurrentRigidBody.fRigidBodyType=krbtUnknown) or not (krbfActive in CurrentRigidBody.fFlags) then begin
+    continue;
+   end;
+
    // Add to the island
    Island.AddRigidBody(CurrentRigidBody);
 
    // Awaken all bodies connected to the island
    CurrentRigidBody.SetToAwake;
 
-   // Do not search across static bodies to keep island formations as small as possible, however the static
-   // body itself should be apart of the island in order to properly represent a full contact
+   // Do not search across static bodies to keep island formations as small as possible,
+   // however the static body itself should be apart of the island in order to properly
+   // represent a full contact.
    if CurrentRigidBody.fRigidBodyType=krbtStatic then begin
 
     if not (krbfIslandStatic in CurrentRigidBody.fFlags) then begin
@@ -46748,6 +46754,7 @@ begin
     end;
 
     continue;
+
    end;
 
    // Process all contact pairs
@@ -47553,13 +47560,13 @@ begin
  RigidBody:=fDynamicRigidBodyFirst;
  while assigned(RigidBody) do begin
   RigidBody.SynchronizeProxies;
-  RigidBody:=RigidBody.fRigidBodyNext;
+  RigidBody:=RigidBody.fDynamicRigidBodyNext;
  end;
 
  RigidBody:=fKinematicRigidBodyFirst;
  while assigned(RigidBody) do begin
   RigidBody.SynchronizeProxies;
-  RigidBody:=RigidBody.fRigidBodyNext;
+  RigidBody:=RigidBody.fKinematicRigidBodyNext;
  end;
 
  fContactManager.DoBroadPhase;
