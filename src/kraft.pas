@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2025-02-27-02-03-0000                       *
+ *                        Version 2025-02-27-02-21-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -4277,6 +4277,12 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
 {$ifdef KraftPasMP}
        fPasMP:TPasMP;
+
+       fLock:TPasMPCriticalSection;
+{$else}
+
+       fLock:TCriticalSection;
+
 {$endif}
 
        fSingleThreaded:boolean;
@@ -40005,138 +40011,149 @@ begin
 
  if fRigidBodyType<>aRigidBodyType then begin
 
-  case fRigidBodyType of
+{$ifdef KraftPasMPThreadSafeBVH}
+  fPhysics.fLock.Acquire;
+  try
+{$endif}
 
-   krbtStatic:begin
+   case fRigidBodyType of
 
-    dec(fPhysics.fStaticRigidBodyCount);
+    krbtStatic:begin
 
-    if fStaticRigidBodyIsOnList then begin
-     fStaticRigidBodyIsOnList:=false;
-     if assigned(fStaticRigidBodyPrevious) then begin
-      fStaticRigidBodyPrevious.fStaticRigidBodyNext:=fStaticRigidBodyNext;
-     end else if fPhysics.fStaticRigidBodyFirst=self then begin
-      fPhysics.fStaticRigidBodyFirst:=fStaticRigidBodyNext;
+     dec(fPhysics.fStaticRigidBodyCount);
+
+     if fStaticRigidBodyIsOnList then begin
+      fStaticRigidBodyIsOnList:=false;
+      if assigned(fStaticRigidBodyPrevious) then begin
+       fStaticRigidBodyPrevious.fStaticRigidBodyNext:=fStaticRigidBodyNext;
+      end else if fPhysics.fStaticRigidBodyFirst=self then begin
+       fPhysics.fStaticRigidBodyFirst:=fStaticRigidBodyNext;
+      end;
+      if assigned(fStaticRigidBodyNext) then begin
+       fStaticRigidBodyNext.fStaticRigidBodyPrevious:=fStaticRigidBodyPrevious;
+      end else if fPhysics.fStaticRigidBodyLast=self then begin
+       fPhysics.fStaticRigidBodyLast:=fStaticRigidBodyPrevious;
+      end;
+      fStaticRigidBodyPrevious:=nil;
+      fStaticRigidBodyNext:=nil;
      end;
-     if assigned(fStaticRigidBodyNext) then begin
-      fStaticRigidBodyNext.fStaticRigidBodyPrevious:=fStaticRigidBodyPrevious;
-     end else if fPhysics.fStaticRigidBodyLast=self then begin
-      fPhysics.fStaticRigidBodyLast:=fStaticRigidBodyPrevious;
+
+    end;
+
+    krbtDynamic:begin
+
+     dec(fPhysics.fDynamicRigidBodyCount);
+
+     if fDynamicRigidBodyIsOnList then begin
+      fDynamicRigidBodyIsOnList:=false;
+      if assigned(fDynamicRigidBodyPrevious) then begin
+       fDynamicRigidBodyPrevious.fDynamicRigidBodyNext:=fDynamicRigidBodyNext;
+      end else if fPhysics.fDynamicRigidBodyFirst=self then begin
+       fPhysics.fDynamicRigidBodyFirst:=fDynamicRigidBodyNext;
+      end;
+      if assigned(fDynamicRigidBodyNext) then begin
+       fDynamicRigidBodyNext.fDynamicRigidBodyPrevious:=fDynamicRigidBodyPrevious;
+      end else if fPhysics.fDynamicRigidBodyLast=self then begin
+       fPhysics.fDynamicRigidBodyLast:=fDynamicRigidBodyPrevious;
+      end;
+      fDynamicRigidBodyPrevious:=nil;
+      fDynamicRigidBodyNext:=nil;
      end;
-     fStaticRigidBodyPrevious:=nil;
+
+    end;
+
+    krbtKinematic:begin
+
+     dec(fPhysics.fKinematicRigidBodyCount);
+
+     if fKinematicRigidBodyIsOnList then begin
+      fKinematicRigidBodyIsOnList:=false;
+      if assigned(fKinematicRigidBodyPrevious) then begin
+       fKinematicRigidBodyPrevious.fKinematicRigidBodyNext:=fKinematicRigidBodyNext;
+      end else if fPhysics.fKinematicRigidBodyFirst=self then begin
+       fPhysics.fKinematicRigidBodyFirst:=fKinematicRigidBodyNext;
+      end;
+      if assigned(fKinematicRigidBodyNext) then begin
+       fKinematicRigidBodyNext.fKinematicRigidBodyPrevious:=fKinematicRigidBodyPrevious;
+      end else if fPhysics.fKinematicRigidBodyLast=self then begin
+       fPhysics.fKinematicRigidBodyLast:=fKinematicRigidBodyPrevious;
+      end;
+      fKinematicRigidBodyPrevious:=nil;
+      fKinematicRigidBodyNext:=nil;
+     end;
+
+    end;
+
+   end;
+
+   fRigidBodyType:=aRigidBodyType;
+
+   case fRigidBodyType of
+
+    krbtStatic:begin
+
+     if assigned(fPhysics.fStaticRigidBodyLast) then begin
+      fPhysics.fStaticRigidBodyLast.fStaticRigidBodyNext:=self;
+      fStaticRigidBodyPrevious:=fPhysics.fStaticRigidBodyLast;
+     end else begin
+      fPhysics.fStaticRigidBodyFirst:=self;
+      fStaticRigidBodyPrevious:=nil;
+     end;
+     fPhysics.fStaticRigidBodyLast:=self;
      fStaticRigidBodyNext:=nil;
+     fStaticRigidBodyIsOnList:=true;
+
+     inc(fPhysics.fStaticRigidBodyCount);
+
     end;
 
-   end;
+    krbtDynamic:begin
 
-   krbtDynamic:begin
-
-    dec(fPhysics.fDynamicRigidBodyCount);
-
-    if fDynamicRigidBodyIsOnList then begin
-     fDynamicRigidBodyIsOnList:=false;
-     if assigned(fDynamicRigidBodyPrevious) then begin
-      fDynamicRigidBodyPrevious.fDynamicRigidBodyNext:=fDynamicRigidBodyNext;
-     end else if fPhysics.fDynamicRigidBodyFirst=self then begin
-      fPhysics.fDynamicRigidBodyFirst:=fDynamicRigidBodyNext;
+     if assigned(fPhysics.fDynamicRigidBodyLast) then begin
+      fPhysics.fDynamicRigidBodyLast.fDynamicRigidBodyNext:=self;
+      fDynamicRigidBodyPrevious:=fPhysics.fDynamicRigidBodyLast;
+     end else begin
+      fPhysics.fDynamicRigidBodyFirst:=self;
+      fDynamicRigidBodyPrevious:=nil;
      end;
-     if assigned(fDynamicRigidBodyNext) then begin
-      fDynamicRigidBodyNext.fDynamicRigidBodyPrevious:=fDynamicRigidBodyPrevious;
-     end else if fPhysics.fDynamicRigidBodyLast=self then begin
-      fPhysics.fDynamicRigidBodyLast:=fDynamicRigidBodyPrevious;
-     end;
-     fDynamicRigidBodyPrevious:=nil;
+     fPhysics.fDynamicRigidBodyLast:=self;
      fDynamicRigidBodyNext:=nil;
+     fDynamicRigidBodyIsOnList:=true;
+
+     inc(fPhysics.fDynamicRigidBodyCount);
+
     end;
 
-   end;
+    krbtKinematic:begin
 
-   krbtKinematic:begin
-
-    dec(fPhysics.fKinematicRigidBodyCount);
-
-    if fKinematicRigidBodyIsOnList then begin
-     fKinematicRigidBodyIsOnList:=false;
-     if assigned(fKinematicRigidBodyPrevious) then begin
-      fKinematicRigidBodyPrevious.fKinematicRigidBodyNext:=fKinematicRigidBodyNext;
-     end else if fPhysics.fKinematicRigidBodyFirst=self then begin
-      fPhysics.fKinematicRigidBodyFirst:=fKinematicRigidBodyNext;
+     if assigned(fPhysics.fKinematicRigidBodyLast) then begin
+      fPhysics.fKinematicRigidBodyLast.fKinematicRigidBodyNext:=self;
+      fKinematicRigidBodyPrevious:=fPhysics.fKinematicRigidBodyLast;
+     end else begin
+      fPhysics.fKinematicRigidBodyFirst:=self;
+      fKinematicRigidBodyPrevious:=nil;
      end;
-     if assigned(fKinematicRigidBodyNext) then begin
-      fKinematicRigidBodyNext.fKinematicRigidBodyPrevious:=fKinematicRigidBodyPrevious;
-     end else if fPhysics.fKinematicRigidBodyLast=self then begin
-      fPhysics.fKinematicRigidBodyLast:=fKinematicRigidBodyPrevious;
-     end;
-     fKinematicRigidBodyPrevious:=nil;
+     fPhysics.fKinematicRigidBodyLast:=self;
      fKinematicRigidBodyNext:=nil;
+     fKinematicRigidBodyIsOnList:=true;
+
+     inc(fPhysics.fKinematicRigidBodyCount);
+
     end;
 
    end;
 
+   Shape:=fShapeFirst;
+   while assigned(Shape) do begin
+    Shape.SynchronizeProxies;
+    Shape:=Shape.fShapeNext;
+   end;
+
+{$ifdef KraftPasMPThreadSafeBVH}
+  finally
+   fPhysics.fLock.Release;
   end;
-
-  fRigidBodyType:=aRigidBodyType;
-
-  case fRigidBodyType of
-
-   krbtStatic:begin
-
-    if assigned(fPhysics.fStaticRigidBodyLast) then begin
-     fPhysics.fStaticRigidBodyLast.fStaticRigidBodyNext:=self;
-     fStaticRigidBodyPrevious:=fPhysics.fStaticRigidBodyLast;
-    end else begin
-     fPhysics.fStaticRigidBodyFirst:=self;
-     fStaticRigidBodyPrevious:=nil;
-    end;
-    fPhysics.fStaticRigidBodyLast:=self;
-    fStaticRigidBodyNext:=nil;
-    fStaticRigidBodyIsOnList:=true;
-
-    inc(fPhysics.fStaticRigidBodyCount);
-
-   end;
-
-   krbtDynamic:begin
-
-    if assigned(fPhysics.fDynamicRigidBodyLast) then begin
-     fPhysics.fDynamicRigidBodyLast.fDynamicRigidBodyNext:=self;
-     fDynamicRigidBodyPrevious:=fPhysics.fDynamicRigidBodyLast;
-    end else begin
-     fPhysics.fDynamicRigidBodyFirst:=self;
-     fDynamicRigidBodyPrevious:=nil;
-    end;
-    fPhysics.fDynamicRigidBodyLast:=self;
-    fDynamicRigidBodyNext:=nil;
-    fDynamicRigidBodyIsOnList:=true;
-
-    inc(fPhysics.fDynamicRigidBodyCount);
-
-   end;
-
-   krbtKinematic:begin
-
-    if assigned(fPhysics.fKinematicRigidBodyLast) then begin
-     fPhysics.fKinematicRigidBodyLast.fKinematicRigidBodyNext:=self;
-     fKinematicRigidBodyPrevious:=fPhysics.fKinematicRigidBodyLast;
-    end else begin
-     fPhysics.fKinematicRigidBodyFirst:=self;
-     fKinematicRigidBodyPrevious:=nil;
-    end;
-    fPhysics.fKinematicRigidBodyLast:=self;
-    fKinematicRigidBodyNext:=nil;
-    fKinematicRigidBodyIsOnList:=true;
-
-    inc(fPhysics.fKinematicRigidBodyCount);
-
-   end;
-
-  end;
-
-  Shape:=fShapeFirst;
-  while assigned(Shape) do begin
-   Shape.SynchronizeProxies;
-   Shape:=Shape.fShapeNext;
-  end;
+{$endif}
 
  end;
 
@@ -46340,6 +46357,9 @@ begin
  end else begin
   fCountThreads:=1;
  end;
+
+ fLock:=TPasMPCriticalSection.Create;
+
 {$else}
 
  fCountThreads:=aCountThreads;
@@ -46366,6 +46386,9 @@ begin
 {$endif}
 
  fCountThreads:=Min(Max(fCountThreads,0),MAX_THREADS);
+
+ fLock:=TCriticalSection.Create;
+
 {$endif}
 
  fNewShapes:=false;
@@ -46593,6 +46616,8 @@ begin
  FreeAndNil(fHighResolutionTimer);
 
  FreeAndNil(fGravityProperty);
+
+ FreeAndNil(fLock);
 
  fRigidBodies:=nil;
 
