@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2025-02-26-23-58-0000                       *
+ *                        Version 2025-02-27-02-03-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -4314,6 +4314,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fRigidBodies:TKraftRigidBodies;
 
+       fActiveRigidBodies:TKraftRigidBodies;
+       fCountActiveRigidBodies:TKraftInt32;
+
        fStaticRigidBodyCount:TKraftInt32;
 
        fStaticRigidBodyFirst:TKraftRigidBody;
@@ -4452,6 +4455,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        function GetBilateralAdvancementTimeOfImpact(const aShapeA:TKraftShape;const aSweepA:TKraftSweep;const aShapeB:TKraftShape;const aShapeBMeshIndex,aShapeBTriangleIndex:TKraftInt32;const aSweepB:TKraftSweep;const aTimeStep:TKraftTimeStep;const aThreadIndex:TKraftInt32;var aBeta:TKraftScalar):boolean;
 
        function GetTimeOfImpact(const aShapeA:TKraftShape;const aSweepA:TKraftSweep;const aShapeB:TKraftShape;const aShapeBMeshIndex,aShapeBTriangleIndex:TKraftInt32;const aSweepB:TKraftSweep;const aTimeStep:TKraftTimeStep;const aThreadIndex:TKraftInt32;var aBeta:TKraftScalar):boolean;
+
+       procedure SetupAndClearActiveRigidBodies;
+
+       procedure SynchronizeActiveRigidBodies;
 
        procedure Solve(const aTimeStep:TKraftTimeStep);
 
@@ -46384,6 +46391,9 @@ begin
  fRigidBodies:=nil;
  fCountRigidBodies:=0;
 
+ fActiveRigidBodies:=nil;
+ fCountActiveRigidBodies:=0;
+
  fStaticRigidBodyCount:=0;
 
  fStaticRigidBodyFirst:=nil;
@@ -46542,7 +46552,7 @@ begin
  for Index:=0 to length(fTriangleShapes)-1 do begin
   FreeAndNil(fTriangleShapes[Index]);
  end;
- SetLength(fTriangleShapes,0);
+ fTriangleShapes:=nil;
 
  while assigned(fConstraintLast) do begin
   fConstraintLast.Free;
@@ -46574,7 +46584,9 @@ begin
  for Index:=0 to length(fIslands)-1 do begin
   FreeAndNil(fIslands[Index]);
  end;
- SetLength(fIslands,0);
+ fIslands:=nil;
+
+ fActiveRigidBodies:=nil;
 
  FreeAndNil(fContactManager);
 
@@ -46669,7 +46681,7 @@ var IslandIndex,LastCount,SubIndex:TKraftInt32;
     ContactPair:PKraftContactPair;
 begin
 
- if fCountRigidBodies>length(fIslands) then begin
+ if length(fIslands)<fCountRigidBodies then begin
   LastCount:=length(fIslands);
   SetLength(fIslands,fCountRigidBodies*2);
   for SubIndex:=LastCount to length(fIslands)-1 do begin
@@ -46805,6 +46817,10 @@ begin
     end;
     CurrentConstraintEdge:=CurrentConstraintEdge^.Next;
    end;
+
+   // Add to active rigidbody list
+   fActiveRigidBodies[fCountActiveRigidBodies]:=CurrentRigidBody;
+   inc(fCountActiveRigidBodies);
 
   end;
 
@@ -47557,25 +47573,34 @@ begin
  end;
 end;
 
-procedure TKraft.Solve(const aTimeStep:TKraftTimeStep);
-var RigidBody:TKraftRigidBody;
+procedure TKraft.SetupAndClearActiveRigidBodies;
 begin
+ if length(fActiveRigidBodies)<fCountRigidBodies then begin
+  SetLength(fActiveRigidBodies,fCountRigidBodies*2);
+ end;
+ fCountActiveRigidBodies:=0;
+end;
+
+procedure TKraft.SynchronizeActiveRigidBodies;
+var Index:TKraftInt32;
+begin
+ if fCountActiveRigidBodies>0 then begin
+  for Index:=0 to fCountActiveRigidBodies-1 do begin
+   fActiveRigidBodies[Index].SynchronizeProxies;
+  end;
+ end;
+end;
+
+procedure TKraft.Solve(const aTimeStep:TKraftTimeStep);
+begin
+
+ SetupAndClearActiveRigidBodies;
 
  BuildIslands;
 
  SolveIslands(aTimeStep);
 
- RigidBody:=fDynamicRigidBodyFirst;
- while assigned(RigidBody) do begin
-  RigidBody.SynchronizeProxies;
-  RigidBody:=RigidBody.fDynamicRigidBodyNext;
- end;
-
- RigidBody:=fKinematicRigidBodyFirst;
- while assigned(RigidBody) do begin
-  RigidBody.SynchronizeProxies;
-  RigidBody:=RigidBody.fKinematicRigidBodyNext;
- end;
+ SynchronizeActiveRigidBodies;
 
  fContactManager.DoBroadPhase;
 
