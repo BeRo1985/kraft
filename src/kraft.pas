@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2025-02-27-02-21-0000                       *
+ *                        Version 2025-02-27-03-37-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -46849,7 +46849,23 @@ begin
 
   end;
 
-  Island.MergeContactPairs;
+  // Check if the island contains only a single kinematic rigidbody, if yes, then remove the island, as it is a unnecessary island,
+  // which would only slow down the simulation.
+  if (Island.fCountRigidBodies=1) and (Island.fRigidBodies[0].fRigidBodyType=krbtKinematic) then begin
+  
+   // Remove last island
+   Island.Clear;
+   dec(fCountIslands);
+
+   // Remove last active rigidbody
+   dec(fCountActiveRigidBodies);
+
+  end else begin
+
+   // Merge contact pairs
+   Island.MergeContactPairs;
+
+  end; 
 
   // Allow static bodies and with these collected constraints to participate in other islands
   while assigned(StaticRigidBodiesList) do begin
