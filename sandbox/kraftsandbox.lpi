@@ -255,8 +255,8 @@
     <Version Value="11"/>
     <PathDelim Value="\"/>
     <SearchPaths>
-      <IncludeFiles Value="..\src;..\..\..\PASMP.github\trunk\src;$(ProjOutDir)"/>
-      <OtherUnitFiles Value="..\src;..\..\..\PASMP.github\trunk\src"/>
+      <IncludeFiles Value="..\src;..\..\pasmp\src;$(ProjOutDir)"/>
+      <OtherUnitFiles Value="..\src;..\..\pasmp\src"/>
     </SearchPaths>
     <Parsing>
       <SyntaxOptions>

@@ -551,7 +551,7 @@ begin
  OpenGLInitialized:=false;
 
 {$ifdef KraftPasMP}
- PasMPInstance:=TPasMP.Create(-1,0,false);
+ PasMPInstance:=TPasMP.Create(-1,-1,-1,0,false);
 
  KraftPhysics:=TKraft.Create(PasMPInstance);
 {$else}

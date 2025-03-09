@@ -4,7 +4,7 @@ object FormMain: TFormMain
   Top = -8
   Width = 1009
   Caption = 'Kraft physics engine sandbox - Copyright (C) 2015-2023, Benjamin ''BeRo'' Rosseaux'
-  ClientHeight = 210
+  ClientHeight = 211
   ClientWidth = 320
   Color = clBtnFace
   Font.Color = clWindowText
