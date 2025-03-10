@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2025-02-27-03-37-0000                       *
+ *                        Version 2025-03-10-01-39-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -4752,6 +4752,12 @@ const KraftSignatureConvexHull:TKraftSignature=('K','R','P','H','C','O','H','U')
         MoveBufferIndex:-1;
         Parent:-1;
        );
+
+       KraftAllContactFlags=[kcfColliding,kcfWasColliding];
+       KraftNoContactFlags=[];
+       KraftBeginContactFlags=[kcfColliding];
+       KraftStayContactFlags=[kcfColliding,kcfWasColliding];
+       KraftEndContactFlags=[kcfWasColliding];
 
 function SpatialHashVector(const aX,aY,aZ:TKraftInt32{;const aW:TKraftInt32=0}):TKraftUInt32;
 
@@ -37823,17 +37829,27 @@ begin
  end;
 
  if HasContact then begin
+
   if kcfColliding in Flags then begin
-   Include(Flags,kcfWasColliding);
+   if not (kcfWasColliding in Flags) then begin
+    // [kcfColliding] => [kcfColliding,kcfWasColliding]
+    Include(Flags,kcfWasColliding);
+   end;
   end else begin
+   // [] => [kcfColliding]
    Include(Flags,kcfColliding);
   end;
+
  end else begin
+
   if kcfColliding in Flags then begin
+   // [kcfColliding] / [kcfColliding,kcfWasColliding] => [kcfWasColliding]
    Flags:=(Flags-[kcfColliding])+[kcfWasColliding];
   end else begin
+   // [kcfWasColliding] => []
    Exclude(Flags,kcfWasColliding);
   end;
+
  end;
 
 {if ShapeB.fShapeType=kstPlane then begin
@@ -38805,8 +38821,8 @@ begin
 
    ActionRemove:begin
 
-    if (ContactPair^.Flags*[kcfColliding,kcfWasColliding])<>[] then begin
-     if (ContactPair^.Flags*[kcfColliding,kcfWasColliding])=[kcfColliding] then begin
+    if (ContactPair^.Flags*KraftAllContactFlags)<>KraftNoContactFlags then begin
+     if (ContactPair^.Flags*KraftAllContactFlags)=KraftBeginContactFlags then begin
       if assigned(fOnContactBegin) then begin
        fOnContactBegin(ContactPair);
       end;
@@ -38863,8 +38879,8 @@ begin
 
  for ActiveContactPairIndex:=0 to fCountActiveContactPairs-1 do begin
   ContactPair:=fActiveContactPairs[ActiveContactPairIndex];
-  Flags:=ContactPair^.Flags*[kcfColliding,kcfWasColliding];
-  if Flags=[kcfColliding] then begin
+  Flags:=ContactPair^.Flags*KraftAllContactFlags;
+  if Flags=KraftBeginContactFlags then begin
    if assigned(fOnContactBegin) then begin
     fOnContactBegin(ContactPair);
    end;
@@ -38874,7 +38890,7 @@ begin
    if assigned(ContactPair^.Shapes[1]) and assigned(ContactPair^.Shapes[1].fOnContactBegin) then begin
     ContactPair^.Shapes[1].fOnContactBegin(ContactPair,ContactPair^.Shapes[0]);
    end;
-  end else if Flags=[kcfWasColliding] then begin
+  end else if Flags=KraftEndContactFlags then begin
    if assigned(fOnContactEnd) then begin
     fOnContactEnd(ContactPair);
    end;
@@ -38884,7 +38900,7 @@ begin
    if assigned(ContactPair^.Shapes[1]) and assigned(ContactPair^.Shapes[1].fOnContactEnd) then begin
     ContactPair^.Shapes[1].fOnContactEnd(ContactPair,ContactPair^.Shapes[0]);
    end;
-  end else if Flags=[kcfColliding,kcfWasColliding] then begin
+  end else if Flags=KraftStayContactFlags then begin
    if assigned(fOnContactStay) then begin
     fOnContactStay(ContactPair);
    end;
