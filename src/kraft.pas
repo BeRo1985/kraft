@@ -2937,6 +2937,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fIndex:TKraftInt32;
 
+       fVisitedIndex:TKraftInt32;
+
        fIsland:TKraftIsland;
 
        fIslandIndices:TKraftRigidBodyIslandIndices;
@@ -4323,6 +4325,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fActiveRigidBodies:TKraftRigidBodies;
        fCountActiveRigidBodies:TKraftInt32;
 
+       fVisitedRigidBodies:TKraftRigidBodies;
+       fCountVisitedRigidBodies:TKraftInt32;
+
        fStaticRigidBodyCount:TKraftInt32;
 
        fStaticRigidBodyFirst:TKraftRigidBody;
@@ -4449,6 +4454,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure Integrate(var aPosition:TKraftVector3;var aOrientation:TKraftQuaternion;const aLinearVelocity,aAngularVelocity:TKraftVector3;const aDeltaTime:TKraftScalar);
 
        procedure BuildIslands;
+       procedure CleanIslands;
 {$ifdef KraftPasMP}
        procedure ProcessSolveIslandParallelForFunction(const aJob:PPasMPJob;const aThreadIndex:TKraftInt32;const aData:pointer;const aFromIndex,aToIndex:TPasMPNativeInt);
 {$else}
@@ -4463,6 +4469,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        function GetTimeOfImpact(const aShapeA:TKraftShape;const aSweepA:TKraftSweep;const aShapeB:TKraftShape;const aShapeBMeshIndex,aShapeBTriangleIndex:TKraftInt32;const aSweepB:TKraftSweep;const aTimeStep:TKraftTimeStep;const aThreadIndex:TKraftInt32;var aBeta:TKraftScalar):boolean;
 
        procedure SetupAndClearActiveRigidBodies;
+
+       procedure SetupAndClearVisitedRigidBodies;
 
        procedure SynchronizeActiveRigidBodies;
 
@@ -39782,6 +39790,12 @@ begin
  end;
  fPhysics.fRigidBodies[fIndex]:=self;
 
+ fVisitedIndex:=-1;
+
+ if length(fPhysics.fVisitedRigidBodies)<length(fPhysics.fRigidBodies) then begin
+  SetLength(fPhysics.fVisitedRigidBodies,length(fPhysics.fRigidBodies));
+ end;
+
  fID:=fPhysics.fRigidBodyIDCounter;
  inc(fPhysics.fRigidBodyIDCounter);
 
@@ -39961,6 +39975,18 @@ begin
  end;
 
  dec(fPhysics.fCountRigidBodies);
+
+ if fVisitedIndex>=0 then begin
+  if (fVisitedIndex+1)<fPhysics.fCountVisitedRigidBodies then begin
+   OtherRigidBody:=fPhysics.fVisitedRigidBodies[fPhysics.fCountVisitedRigidBodies-1];
+   OtherRigidBody.fVisitedIndex:=fVisitedIndex;
+   fPhysics.fVisitedRigidBodies[fVisitedIndex]:=OtherRigidBody;
+   fVisitedIndex:=fPhysics.fCountVisitedRigidBodies-1;
+  end;
+  fPhysics.fVisitedRigidBodies[fVisitedIndex]:=nil;
+  fVisitedIndex:=-1;
+  dec(fPhysics.fCountVisitedRigidBodies);
+ end;
 
  if fStaticRigidBodyIsOnList then begin
   fStaticRigidBodyIsOnList:=false;
@@ -46461,6 +46487,9 @@ begin
  fActiveRigidBodies:=nil;
  fCountActiveRigidBodies:=0;
 
+ fVisitedRigidBodies:=nil;
+ fCountVisitedRigidBodies:=0;
+
  fStaticRigidBodyCount:=0;
 
  fStaticRigidBodyFirst:=nil;
@@ -46741,7 +46770,7 @@ begin
 end;
 
 procedure TKraft.BuildIslands;
-var IslandIndex,LastCount,SubIndex:TKraftInt32;
+var IslandIndex,LastCount,SubIndex,Index:TKraftInt32;
     SeedRigidBody,SeedRigidBodyStack,CurrentRigidBody,OtherRigidBody,StaticRigidBodiesList:TKraftRigidBody;
     CurrentConstraintEdge:PKraftConstraintEdge;
     CurrentConstraint:TKraftConstraint;
@@ -46756,14 +46785,6 @@ begin
   for SubIndex:=LastCount to length(fIslands)-1 do begin
    fIslands[SubIndex]:=TKraftIsland.Create(self,SubIndex);
   end;
- end;
-
- CurrentRigidBody:=fRigidBodyFirst;
- while assigned(CurrentRigidBody) do begin
-  CurrentRigidBody.fIsland:=nil;
-  CurrentRigidBody.fFlags:=CurrentRigidBody.fFlags-[krbfIslandVisited,krbfIslandStatic];
-//Exclude(ContactPair^.Flags,[krbfIslandVisited,krbfIslandStatic]);
-  CurrentRigidBody:=CurrentRigidBody.fRigidBodyNext;
  end;
 
  CurrentConstraint:=fConstraintFirst;
@@ -46810,6 +46831,13 @@ begin
   Include(SeedRigidBody.fFlags,krbfIslandVisited);
   SeedRigidBody.fNextOnIslandBuildStack:=nil;
   SeedRigidBodyStack:=SeedRigidBody;
+
+  // Add to visited list
+  if SeedRigidBody.fVisitedIndex<0 then begin
+   SeedRigidBody.fVisitedIndex:=fCountVisitedRigidBodies;
+   inc(fCountVisitedRigidBodies);
+   fVisitedRigidBodies[SeedRigidBody.fVisitedIndex]:=SeedRigidBody;
+  end;
 
   // Process seed rigid body loop
   while assigned(SeedRigidBodyStack) do begin
@@ -46864,6 +46892,11 @@ begin
        Include(OtherRigidBody.fFlags,krbfIslandVisited);
        OtherRigidBody.fNextOnIslandBuildStack:=SeedRigidBodyStack;
        SeedRigidBodyStack:=OtherRigidBody;
+       if OtherRigidBody.fVisitedIndex<0 then begin
+        OtherRigidBody.fVisitedIndex:=fCountVisitedRigidBodies;
+        inc(fCountVisitedRigidBodies);
+        fVisitedRigidBodies[OtherRigidBody.fVisitedIndex]:=OtherRigidBody;
+       end;
       end;
      end;
      ContactPairEdge:=ContactPairEdge^.Next;
@@ -46882,6 +46915,11 @@ begin
       Include(OtherRigidBody.fFlags,krbfIslandVisited);
       OtherRigidBody.fNextOnIslandBuildStack:=SeedRigidBodyStack;
       SeedRigidBodyStack:=OtherRigidBody;
+      if OtherRigidBody.fVisitedIndex<0 then begin
+       OtherRigidBody.fVisitedIndex:=fCountVisitedRigidBodies;
+       inc(fCountVisitedRigidBodies);
+       fVisitedRigidBodies[OtherRigidBody.fVisitedIndex]:=OtherRigidBody;
+      end;
      end;
     end;
     CurrentConstraintEdge:=CurrentConstraintEdge^.Next;
@@ -46930,6 +46968,23 @@ begin
 
  end;
 
+end;
+
+procedure TKraft.CleanIslands;
+var Index:TKraftInt32;
+    CurrentRigidBody:TKraftRigidBody;
+begin
+ if fCountVisitedRigidBodies>0 then begin
+  for Index:=0 to fCountVisitedRigidBodies-1 do begin
+   CurrentRigidBody:=fVisitedRigidBodies[Index];
+   if assigned(CurrentRigidBody) then begin
+    CurrentRigidBody.fVisitedIndex:=-1;
+    CurrentRigidBody.fIsland:=nil;
+    CurrentRigidBody.fFlags:=CurrentRigidBody.fFlags-[krbfIslandVisited,krbfIslandStatic];
+   end;
+  end;
+  fCountVisitedRigidBodies:=0;
+ end;
 end;
 
 {$ifdef KraftPasMP}
@@ -47666,6 +47721,14 @@ begin
  fCountActiveRigidBodies:=0;
 end;
 
+procedure TKraft.SetupAndClearVisitedRigidBodies;
+begin
+ if length(fVisitedRigidBodies)<fCountRigidBodies then begin
+  SetLength(fVisitedRigidBodies,fCountRigidBodies*2);
+ end;
+ fCountVisitedRigidBodies:=0;
+end;
+
 procedure TKraft.SynchronizeActiveRigidBodies;
 var Index:TKraftInt32;
 begin
@@ -47677,19 +47740,118 @@ begin
 end;
 
 procedure TKraft.Solve(const aTimeStep:TKraftTimeStep);
+{$ifdef KraftProfilingTimes}
+var TimeA,TimeB,StartTime,EndTime,Duration:TKraftInt64;
+{$endif}
 begin
 
+{$ifdef KraftProfilingTimes}
+ TimeA:=HighResolutionTimer.GetTime;
+{$endif}
+
+{$ifdef KraftProfilingTimes}
+ StartTime:=HighResolutionTimer.GetTime;
+{$endif}
  SetupAndClearActiveRigidBodies;
+{$ifdef KraftProfilingTimes}
+ EndTime:=HighResolutionTimer.GetTime;
+ Duration:=HighResolutionTimer.ToMilliseconds(EndTime-StartTime);
+ if Duration>0 then begin
+  Duration:=HighResolutionTimer.ToMilliseconds(EndTime-StartTime);
+ end;
+{$endif}
 
+{$ifdef KraftProfilingTimes}
+ StartTime:=HighResolutionTimer.GetTime;
+{$endif}
+ SetupAndClearVisitedRigidBodies;
+{$ifdef KraftProfilingTimes}
+ EndTime:=HighResolutionTimer.GetTime;
+ Duration:=HighResolutionTimer.ToMilliseconds(EndTime-StartTime);
+ if Duration>0 then begin
+  Duration:=HighResolutionTimer.ToMilliseconds(EndTime-StartTime);
+ end;
+{$endif}
+
+{$ifdef KraftProfilingTimes}
+ StartTime:=HighResolutionTimer.GetTime;
+{$endif}
  BuildIslands;
+{$ifdef KraftProfilingTimes}
+ EndTime:=HighResolutionTimer.GetTime;
+ Duration:=HighResolutionTimer.ToMilliseconds(EndTime-StartTime);
+ if Duration>0 then begin
+  Duration:=HighResolutionTimer.ToMilliseconds(EndTime-StartTime);
+ end;
+{$endif}
 
+{$ifdef KraftProfilingTimes}
+ StartTime:=HighResolutionTimer.GetTime;
+{$endif}
  SolveIslands(aTimeStep);
+{$ifdef KraftProfilingTimes}
+ EndTime:=HighResolutionTimer.GetTime;
+ Duration:=HighResolutionTimer.ToMilliseconds(EndTime-StartTime);
+ if Duration>0 then begin
+  Duration:=HighResolutionTimer.ToMilliseconds(EndTime-StartTime);
+ end;
+{$endif}
 
+{$ifdef KraftProfilingTimes}
+ StartTime:=HighResolutionTimer.GetTime;
+{$endif}
+ CleanIslands;
+{$ifdef KraftProfilingTimes}
+ EndTime:=HighResolutionTimer.GetTime;
+ Duration:=HighResolutionTimer.ToMilliseconds(EndTime-StartTime);
+ if Duration>0 then begin
+  Duration:=HighResolutionTimer.ToMilliseconds(EndTime-StartTime);
+ end;
+{$endif}
+
+{$ifdef KraftProfilingTimes}
+ StartTime:=HighResolutionTimer.GetTime;
+{$endif}
  SynchronizeActiveRigidBodies;
+{$ifdef KraftProfilingTimes}
+ EndTime:=HighResolutionTimer.GetTime;
+ Duration:=HighResolutionTimer.ToMilliseconds(EndTime-StartTime);
+ if Duration>0 then begin
+  Duration:=HighResolutionTimer.ToMilliseconds(EndTime-StartTime);
+ end;
+{$endif}
 
+{$ifdef KraftProfilingTimes}
+ StartTime:=HighResolutionTimer.GetTime;
+{$endif}
  fContactManager.DoBroadPhase;
+{$ifdef KraftProfilingTimes}
+ EndTime:=HighResolutionTimer.GetTime;
+ Duration:=HighResolutionTimer.ToMilliseconds(EndTime-StartTime);
+ if Duration>0 then begin
+  Duration:=HighResolutionTimer.ToMilliseconds(EndTime-StartTime);
+ end;
+{$endif}
 
+{$ifdef KraftProfilingTimes}
+ StartTime:=HighResolutionTimer.GetTime;
+{$endif}
  fContactManager.DoMidPhase;
+{$ifdef KraftProfilingTimes}
+ EndTime:=HighResolutionTimer.GetTime;
+ Duration:=HighResolutionTimer.ToMilliseconds(EndTime-StartTime);
+ if Duration>0 then begin
+  Duration:=HighResolutionTimer.ToMilliseconds(EndTime-StartTime);
+ end;
+{$endif}
+
+{$ifdef KraftProfilingTimes}
+ TimeB:=HighResolutionTimer.GetTime;
+ Duration:=HighResolutionTimer.ToMilliseconds(TimeB-TimeA);
+ if Duration>0 then begin
+  Duration:=HighResolutionTimer.ToMilliseconds(TimeB-TimeA);
+ end;
+{$endif}
 
 end;
 
