@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2025-03-10-04-42-0000                       *
+ *                        Version 2025-04-22-18-59-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -50624,6 +50624,7 @@ begin
    for IterationIndex:=0 to aCountVelocityIterations-1 do begin
     OK:=false;
     for ContactIndex:=0 to aCountContacts-1 do begin
+     Contact:=@aContacts[ContactIndex];
      TargetVelocity:=Vector3ScalarMul(Vector3Sub(NormalizedOriginalVelocity,Vector3ScalarMul(Contact^.Normal,Vector3Dot(NormalizedOriginalVelocity,Contact^.Normal))),OriginalVelocityLength);
      VelocityNormal:=Vector3Norm(Vector3Sub(TargetVelocity,OriginalVelocity));
      Dot:=Vector3Dot(VelocityNormal,Vector3Sub(aVelocity,TargetVelocity));
