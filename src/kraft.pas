@@ -2947,6 +2947,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fNonStaticRigidBodyIndex:TKraftInt32;
 
+       fUpdatedStaticRigidBodyIndex:TKraftInt32;
+
        fVisitedIndex:TKraftInt32;
 
        fPreStepHookIndex:TKraftInt32;
@@ -4355,6 +4357,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fNonStaticRigidBodies:TKraftRigidBodies; // combined static and kinematic rigid bodies for traversing in a single loop
        fCountNonStaticRigidBodies:TKraftInt32;
+
+       fUpdatedStaticRigidBodies:TKraftRigidBodies; // static rigid bodies that have been updated in the last step, for interpolation
+       fCountUpdatedStaticRigidBodies:TKraftInt32;
 
        fActiveRigidBodies:TKraftRigidBodies;
        fCountActiveRigidBodies:TKraftInt32;
@@ -32011,10 +32016,6 @@ procedure TKraftShape.SynchronizeTransform;
 begin
  if assigned(fRigidBody) then begin
   fWorldTransform:=Matrix4x4TermMul(fLocalTransform,fRigidBody.fWorldTransform);
-  if fRigidBody.fRigidBodyType in [krbtUnknown,krbtStatic] then begin
-   fLastWorldTransform:=fWorldTransform;
-   fInterpolatedWorldTransform:=fWorldTransform;
-  end;
  end else begin
   fWorldTransform:=fLocalTransform;
  end;
@@ -39861,6 +39862,11 @@ begin
   SetLength(fPhysics.fNonStaticRigidBodies,length(fPhysics.fRigidBodies));
  end;
 
+ fUpdatedStaticRigidBodyIndex:=-1;
+ if length(fPhysics.fUpdatedStaticRigidBodies)<length(fPhysics.fRigidBodies) then begin
+  SetLength(fPhysics.fUpdatedStaticRigidBodies,length(fPhysics.fRigidBodies));
+ end;
+
  fVisitedIndex:=-1;
  if length(fPhysics.fVisitedRigidBodies)<length(fPhysics.fRigidBodies) then begin
   SetLength(fPhysics.fVisitedRigidBodies,length(fPhysics.fRigidBodies));
@@ -40114,6 +40120,18 @@ begin
   fPhysics.fNonStaticRigidBodies[fNonStaticRigidBodyIndex]:=nil;
   fNonStaticRigidBodyIndex:=-1;
   dec(fPhysics.fCountNonStaticRigidBodies);
+ end;
+
+ if fUpdatedStaticRigidBodyIndex>=0 then begin
+  if (fUpdatedStaticRigidBodyIndex+1)<fPhysics.fCountUpdatedStaticRigidBodies then begin
+   OtherRigidBody:=fPhysics.fUpdatedStaticRigidBodies[fPhysics.fCountUpdatedStaticRigidBodies-1];
+   OtherRigidBody.fUpdatedStaticRigidBodyIndex:=fUpdatedStaticRigidBodyIndex;
+   fPhysics.fUpdatedStaticRigidBodies[fUpdatedStaticRigidBodyIndex]:=OtherRigidBody;
+   fUpdatedStaticRigidBodyIndex:=fPhysics.fCountUpdatedStaticRigidBodies-1;
+  end;
+  fPhysics.fUpdatedStaticRigidBodies[fUpdatedStaticRigidBodyIndex]:=nil;
+  fUpdatedStaticRigidBodyIndex:=-1;
+  dec(fPhysics.fCountUpdatedStaticRigidBodies);
  end;
 
  if fVisitedIndex>=0 then begin
@@ -40913,11 +40931,34 @@ begin
 end;
 
 procedure TKraftRigidBody.UpdateWorldTransformation;
+var Shape:TKraftShape;
 begin
  if fRigidBodyType in [krbtUnknown,krbtStatic] then begin
+
   SynchronizeTransformIncludingShapes;
-  fLastWorldTransform:=fWorldTransform;
-  fInterpolatedWorldTransform:=fWorldTransform;
+
+  if fUpdatedStaticRigidBodyIndex<0 then begin
+
+   // Store the last world transform (catch up, since StoreWorldTransform didn't the work yet, because the rigid body is static)
+   fLastWorldTransform:=fWorldTransform;
+   fInterpolatedWorldTransform:=fWorldTransform;
+   Shape:=fShapeFirst;
+   while assigned(Shape) do begin
+    Shape.fLastWorldTransform:=Shape.fWorldTransform;
+    Shape.fInterpolatedWorldTransform:=Shape.fWorldTransform;
+    Shape:=Shape.fShapeNext;
+   end;
+
+   // Insert the static rigid body into the list of updated static rigid bodies, so that InterpolateWorldTransform updates the static rigid body
+   // and all its shapes in their fInterpolatedWorldTransform fields.
+   fUpdatedStaticRigidBodyIndex:=fPhysics.fCountUpdatedStaticRigidBodies;
+   inc(fPhysics.fCountUpdatedStaticRigidBodies);
+   if length(fPhysics.fUpdatedStaticRigidBodies)<fPhysics.fCountUpdatedStaticRigidBodies then begin
+    SetLength(fPhysics.fUpdatedStaticRigidBodies,fPhysics.fCountUpdatedStaticRigidBodies+((fPhysics.fCountUpdatedStaticRigidBodies+1) shr 1));
+   end;
+   fPhysics.fUpdatedStaticRigidBodies[fUpdatedStaticRigidBodyIndex]:=self;
+
+  end;
  end;
 end;
 
@@ -46913,6 +46954,9 @@ begin
  fNonStaticRigidBodies:=nil;
  fCountNonStaticRigidBodies:=0;
 
+ fUpdatedStaticRigidBodies:=nil;
+ fCountUpdatedStaticRigidBodies:=0;
+
  fVisitedRigidBodies:=nil;
  fCountVisitedRigidBodies:=0;
 
@@ -47127,6 +47171,8 @@ begin
  fDynamicRigidBodies:=nil;
 
  fNonStaticRigidBodies:=nil;
+
+ fUpdatedStaticRigidBodies:=nil;
 
  fVisitedRigidBodies:=nil;
 
@@ -48693,11 +48739,19 @@ begin
 end;
 
 {$if defined(KraftPasMP) and not defined(KraftNoParallelTransforming)}
-procedure TKraft_StoreWorldTransforms_ParallelLoopProcedure(const aJob:PPasMPJob;const aThreadIndex:TPasMPInt32;const aData:pointer;const aFromIndex,aToIndex:TPasMPNativeInt);
+procedure TKraft_StoreWorldTransforms_ParallelLoopProcedure_NonStatic(const aJob:PPasMPJob;const aThreadIndex:TPasMPInt32;const aData:pointer;const aFromIndex,aToIndex:TPasMPNativeInt);
 var Index:TPasMPNativeInt;
 begin
  for Index:=aFromIndex to aToIndex do begin
   TKraft(aData).fNonStaticRigidBodies[Index].StoreWorldTransform;
+ end;
+end;
+
+procedure TKraft_StoreWorldTransforms_ParallelLoopProcedure_UpdatedStatic(const aJob:PPasMPJob;const aThreadIndex:TPasMPInt32;const aData:pointer;const aFromIndex,aToIndex:TPasMPNativeInt);
+var Index:TPasMPNativeInt;
+begin
+ for Index:=aFromIndex to aToIndex do begin
+  TKraft(aData).fUpdatedStaticRigidBodies[Index].StoreWorldTransform;
  end;
 end;
 {$ifend}
@@ -48707,10 +48761,30 @@ var Index:TPasMPNativeInt;
 begin
 {$if defined(KraftPasMP) and not defined(KraftNoParallelTransforming)}
  if assigned(fPasMP) and (fPasMP.CountJobWorkerThreads>1) and not fSingleThreaded then begin
-  fPasMP.Invoke(fPasMP.ParallelFor(self,0,fCountNonStaticRigidBodies-1,TKraft_StoreWorldTransforms_ParallelLoopProcedure,1,4,nil,0,0,true));
+  if fCountNonStaticRigidBodies>0 then begin
+   if fCountUpdatedStaticRigidBodies>0 then begin
+    fPasMP.Invoke(
+     [
+      fPasMP.ParallelFor(self,0,fCountNonStaticRigidBodies-1,TKraft_StoreWorldTransforms_ParallelLoopProcedure_NonStatic,1,4,nil,0,0,true),
+      fPasMP.ParallelFor(self,0,fCountUpdatedStaticRigidBodies-1,TKraft_StoreWorldTransforms_ParallelLoopProcedure_UpdatedStatic,1,4,nil,0,0,true)
+     ]
+    );
+   end else begin
+    fPasMP.Invoke(
+     fPasMP.ParallelFor(self,0,fCountNonStaticRigidBodies-1,TKraft_StoreWorldTransforms_ParallelLoopProcedure_NonStatic,1,4,nil,0,0,true)
+    );
+   end;
+  end else if fCountUpdatedStaticRigidBodies>0 then begin
+   fPasMP.Invoke(
+    fPasMP.ParallelFor(self,0,fCountUpdatedStaticRigidBodies-1,TKraft_StoreWorldTransforms_ParallelLoopProcedure_UpdatedStatic,1,4,nil,0,0,true)
+   );
+  end;
  end else{$ifend}begin
   for Index:=0 to fCountNonStaticRigidBodies-1 do begin
    fNonStaticRigidBodies[Index].StoreWorldTransform;
+  end;
+  for Index:=0 to fCountUpdatedStaticRigidBodies-1 do begin
+   fUpdatedStaticRigidBodies[Index].StoreWorldTransform;
   end;
  end;
 end;
@@ -48722,7 +48796,7 @@ type TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_Parameters=record
      end;
      PKraft_InterpolateWorldTransforms_ParallelLoopProcedure_Parameters=^TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_Parameters;
 
-procedure TKraft_InterpolateWorldTransforms_ParallelLoopProcedure(const aJob:PPasMPJob;const aThreadIndex:TPasMPInt32;const aData:pointer;const aFromIndex,aToIndex:TPasMPNativeInt);
+procedure TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_NonStatic(const aJob:PPasMPJob;const aThreadIndex:TPasMPInt32;const aData:pointer;const aFromIndex,aToIndex:TPasMPNativeInt);
 var Index:TPasMPNativeInt;
     Parameters:PKraft_InterpolateWorldTransforms_ParallelLoopProcedure_Parameters;
 begin
@@ -48731,10 +48805,24 @@ begin
   Parameters^.Physics.fNonStaticRigidBodies[Index].InterpolateWorldTransform(Parameters^.Alpha);
  end;
 end;
+
+procedure TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_UpdatedStatic(const aJob:PPasMPJob;const aThreadIndex:TPasMPInt32;const aData:pointer;const aFromIndex,aToIndex:TPasMPNativeInt);
+var Index:TPasMPNativeInt;
+    Parameters:PKraft_InterpolateWorldTransforms_ParallelLoopProcedure_Parameters;
+    RigidBody:TKraftRigidBody;
+begin
+ Parameters:=PKraft_InterpolateWorldTransforms_ParallelLoopProcedure_Parameters(aData);
+ for Index:=aFromIndex to aToIndex do begin
+  RigidBody:=Parameters^.Physics.fUpdatedStaticRigidBodies[Index];
+  RigidBody.InterpolateWorldTransform(Parameters^.Alpha);
+  RigidBody.fUpdatedStaticRigidBodyIndex:=-1;
+ end;
+end;
 {$ifend}
 
 procedure TKraft.InterpolateWorldTransforms(const aAlpha:TKraftScalar);
 var Index:TKraftInt32;
+    RigidBody:TKraftRigidBody;
 {$if defined(KraftPasMP) and not defined(KraftNoParallelTransforming)}
     Parameters:TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_Parameters;
 {$ifend}
@@ -48743,12 +48831,35 @@ begin
  if assigned(fPasMP) and (fPasMP.CountJobWorkerThreads>1) and not fSingleThreaded then begin
   Parameters.Physics:=self;
   Parameters.Alpha:=aAlpha;
-  fPasMP.Invoke(fPasMP.ParallelFor(@Parameters,0,fCountNonStaticRigidBodies-1,TKraft_InterpolateWorldTransforms_ParallelLoopProcedure,1,4,nil,0,0,true));
+  if fCountNonStaticRigidBodies>0 then begin
+   if fCountUpdatedStaticRigidBodies>0 then begin
+    fPasMP.Invoke(
+     [
+      fPasMP.ParallelFor(@Parameters,0,fCountNonStaticRigidBodies-1,TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_NonStatic,1,4,nil,0,0,true),
+      fPasMP.ParallelFor(@Parameters,0,fCountUpdatedStaticRigidBodies-1,TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_UpdatedStatic,1,4,nil,0,0,true)
+     ]
+    );
+   end else begin
+    fPasMP.Invoke(
+     fPasMP.ParallelFor(@Parameters,0,fCountNonStaticRigidBodies-1,TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_NonStatic,1,4,nil,0,0,true)
+    );
+   end;
+  end else if fCountUpdatedStaticRigidBodies>0 then begin
+    fPasMP.Invoke(
+     fPasMP.ParallelFor(@Parameters,0,fCountUpdatedStaticRigidBodies-1,TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_UpdatedStatic,1,4,nil,0,0,true)
+    );
+  end;
  end else{$ifend}begin
   for Index:=0 to fCountNonStaticRigidBodies-1 do begin
    fNonStaticRigidBodies[Index].InterpolateWorldTransform(aAlpha);
   end;
+  for Index:=0 to fCountUpdatedStaticRigidBodies-1 do begin
+   RigidBody:=fUpdatedStaticRigidBodies[Index];
+   RigidBody.InterpolateWorldTransform(aAlpha);
+   RigidBody.fUpdatedStaticRigidBodyIndex:=-1;
+  end;
  end;
+ fCountUpdatedStaticRigidBodies:=0;
 end;
 
 procedure TKraft.InvalidateShapes;
@@ -51299,3 +51410,4 @@ end;
 initialization
  CheckCPU;
 end.
+
