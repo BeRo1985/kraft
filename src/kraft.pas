@@ -892,8 +892,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      { TKraftDynamicFastStack }
      TKraftDynamicFastStack<T>=record
-      // It's a stack with a local buffer for small sizes and a dynamic array for larger sizes, it uses 
-      // RTTI-based reference counted dynamic arrays 
+      // It's a stack with a local buffer for small sizes and a dynamic array for larger sizes, it uses
+      // RTTI-based reference counted dynamic arrays
       public
        const LocalSize=32;
        type PT=^T;
@@ -912,10 +912,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      end;
 
      { TKraftDynamicFastNonRTTIStack }
-     TKraftDynamicFastNonRTTIStack<T>=record 
+     TKraftDynamicFastNonRTTIStack<T>=record
       // Like TKraftDynamicFastStack, but without RTTI usage for performance reasons in performance critical code
       // So thus no reference counted dynamic array and no dynamic array management, instead manual memory management
-      // so that it can be used in performance critical code where RTTI-based and/or reference counted based stuff 
+      // so that it can be used in performance critical code where RTTI-based and/or reference counted based stuff
       // would be too slow
       public
        const LocalSize=32;
@@ -19064,7 +19064,7 @@ begin
    break;
   end;
 
-  // Update the current position 
+  // Update the current position
   CurrentPosition:=NewPosition;
 
  end;
@@ -20756,14 +20756,14 @@ begin
  NodeC:=@fNodes^[IndexC];
 
  if NodeB^.Height=0 then begin
-  
+
   // B is a leaf and C is internal
 
   Assert(NodeC^.Height>0);
-  
+
   IndexF:=NodeC^.Children[0];
   IndexG:=NodeC^.Children[1];
-  
+
   if (IndexF<0) or (IndexF>=fNodeCapacity) or (IndexG<0) or (IndexG>=fNodeCapacity) then begin
    exit;
   end;
@@ -20791,15 +20791,15 @@ begin
 
    NodeA^.Children[0]:=IndexF;
    NodeC^.Children[0]:=IndexB;
-  
+
    NodeB^.Parent:=IndexC;
    NodeF^.Parent:=IndexA;
-  
+
    NodeC^.AABB:=AABBBG;
-  
+
    NodeC^.Height:=Max(NodeB^.Height,NodeG^.Height)+1;
    NodeA^.Height:=Max(NodeC^.Height,NodeF^.Height)+1;
-  
+
    NodeC^.CategoryBits:=NodeB^.CategoryBits or NodeG^.CategoryBits;
    NodeA^.CategoryBits:=NodeC^.CategoryBits or NodeF^.CategoryBits;
 
@@ -20809,18 +20809,18 @@ begin
   end else begin
 
    // Swap B and G
-  
+
    NodeA^.Children[0]:=IndexG;
    NodeC^.Children[1]:=IndexB;
-  
+
    NodeB^.Parent:=IndexC;
    NodeG^.Parent:=IndexA;
-  
+
    NodeC^.AABB:=AABBBF;
-  
+
    NodeC^.Height:=Max(NodeB^.Height,NodeF^.Height)+1;
    NodeA^.Height:=Max(NodeC^.Height,NodeG^.Height)+1;
-  
+
    NodeC^.CategoryBits:=NodeB^.CategoryBits or NodeF^.CategoryBits;
    NodeA^.CategoryBits:=NodeC^.CategoryBits or NodeG^.CategoryBits;
 
@@ -20881,7 +20881,7 @@ begin
    NodeA^.Flags:=NodeB^.Flags or NodeD^.Flags;
 
   end else begin
-   
+
    // Swap C and E
 
    NodeA^.Children[1]:=IndexE;
@@ -20922,7 +20922,7 @@ begin
 
   CostBase:=AABBCost(NodeB^.AABB)+AABBCost(NodeC^.AABB);
 
-  // Base cost 
+  // Base cost
   AreaB:=AABBCost(NodeB^.AABB);
   AreaC:=AABBCost(NodeC^.AABB);
   CostBase:=AreaB+AreaC;
@@ -20962,23 +20962,23 @@ begin
   end;
 
   case BestRotation of
-   
+
    RotateNone:begin
    end;
-   
+
    RotateBF:begin
 
     NodeA^.Children[0]:=IndexF;
     NodeC^.Children[0]:=IndexB;
-   
+
     NodeB^.Parent:=IndexC;
     NodeF^.Parent:=IndexA;
-   
+
     NodeC^.AABB:=AABBBG;
-   
+
     NodeC^.Height:=Max(NodeB^.Height,NodeG^.Height)+1;
     NodeA^.Height:=Max(NodeC^.Height,NodeF^.Height)+1;
-   
+
     NodeC^.CategoryBits:=NodeB^.CategoryBits or NodeG^.CategoryBits;
     NodeA^.CategoryBits:=NodeC^.CategoryBits or NodeF^.CategoryBits;
 
@@ -20986,20 +20986,20 @@ begin
     NodeA^.Flags:=NodeC^.Flags or NodeF^.Flags;
 
    end;
-   
+
    RotateBG:begin
-   
+
     NodeA^.Children[0]:=IndexG;
     NodeC^.Children[1]:=IndexB;
-   
+
     NodeB^.Parent:=IndexC;
     NodeG^.Parent:=IndexA;
-   
+
     NodeC^.AABB:=AABBBF;
-   
+
     NodeC^.Height:=Max(NodeB^.Height,NodeF^.Height)+1;
     NodeA^.Height:=Max(NodeC^.Height,NodeG^.Height)+1;
-   
+
     NodeC^.CategoryBits:=NodeB^.CategoryBits or NodeF^.CategoryBits;
     NodeA^.CategoryBits:=NodeC^.CategoryBits or NodeG^.CategoryBits;
 
@@ -21007,20 +21007,20 @@ begin
     NodeA^.Flags:=NodeC^.Flags or NodeG^.Flags;
 
    end;
-   
+
    RotateCD:begin
-   
+
     NodeA^.Children[1]:=IndexD;
     NodeB^.Children[0]:=IndexC;
-   
+
     NodeC^.Parent:=IndexB;
     NodeD^.Parent:=IndexA;
-   
+
     NodeB^.AABB:=AABBCE;
-   
+
     NodeB^.Height:=Max(NodeC^.Height,NodeE^.Height)+1;
     NodeA^.Height:=Max(NodeB^.Height,NodeD^.Height)+1;
-   
+
     NodeB^.CategoryBits:=NodeC^.CategoryBits or NodeE^.CategoryBits;
     NodeA^.CategoryBits:=NodeB^.CategoryBits or NodeD^.CategoryBits;
 
@@ -21030,18 +21030,18 @@ begin
    end;
 
    RotateCE:begin
-   
+
     NodeA^.Children[1]:=IndexE;
     NodeB^.Children[1]:=IndexC;
-   
+
     NodeC^.Parent:=IndexB;
     NodeE^.Parent:=IndexA;
-   
+
     NodeB^.AABB:=AABBCD;
-   
+
     NodeB^.Height:=Max(NodeC^.Height,NodeD^.Height)+1;
     NodeA^.Height:=Max(NodeB^.Height,NodeE^.Height)+1;
-   
+
     NodeB^.CategoryBits:=NodeC^.CategoryBits or NodeD^.CategoryBits;
     NodeA^.CategoryBits:=NodeB^.CategoryBits or NodeE^.CategoryBits;
 
@@ -21502,13 +21502,13 @@ begin
 {$endif}
 
  if (aNodeID>=0) and (aNodeID<fNodeCapacity) then begin
-  
+
   Node:=@fNodes^[aNodeID];
-  
+
   if Node^.Height=0 then begin
-  
+
    Node^.AABB:=aAABB;
-  
+
    ParentIndex:=Node^.Parent;
 
    while ParentIndex>=0 do begin
@@ -26476,7 +26476,7 @@ begin
  VertexInfos:=nil;
  try
 
-  // Initialize vertex infos and collect faces for each vertex without duplicates for finding neighbour faces later 
+  // Initialize vertex infos and collect faces for each vertex without duplicates for finding neighbour faces later
   SetLength(VertexInfos,fCountVertices);
   for VertexIndex:=0 to fCountVertices-1 do begin
    VertexInfos[VertexIndex].CountFaces:=0;
@@ -26498,7 +26498,7 @@ begin
      end;
      VertexInfo^.Faces[VertexInfo^.CountFaces]:=FaceIndex;
      inc(VertexInfo^.CountFaces);
-    end; 
+    end;
    end;
   end;
 
@@ -39839,13 +39839,13 @@ begin
  if length(fPhysics.fStaticRigidBodies)<length(fPhysics.fRigidBodies) then begin
   SetLength(fPhysics.fStaticRigidBodies,length(fPhysics.fRigidBodies));
  end;
- 
+
  fKinematicRigidBodyIndex:=-1;
  if length(fPhysics.fKinematicRigidBodies)<length(fPhysics.fRigidBodies) then begin
   SetLength(fPhysics.fKinematicRigidBodies,length(fPhysics.fRigidBodies));
  end;
 
- fDynamicRigidBodyIndex:=-1; 
+ fDynamicRigidBodyIndex:=-1;
  if length(fPhysics.fDynamicRigidBodies)<length(fPhysics.fRigidBodies) then begin
   SetLength(fPhysics.fDynamicRigidBodies,length(fPhysics.fRigidBodies));
  end;
@@ -40072,7 +40072,7 @@ begin
   fPhysics.fStaticRigidBodies[fStaticRigidBodyIndex]:=nil;
   fStaticRigidBodyIndex:=-1;
   dec(fPhysics.fCountStaticRigidBodies);
- end; 
+ end;
 
  if fKinematicRigidBodyIndex>=0 then begin
   if (fKinematicRigidBodyIndex+1)<fPhysics.fCountKinematicRigidBodies then begin
@@ -40120,7 +40120,7 @@ begin
   fPhysics.fVisitedRigidBodies[fVisitedIndex]:=nil;
   fVisitedIndex:=-1;
   dec(fPhysics.fCountVisitedRigidBodies);
- end; 
+ end;
 
  if fPreStepHookIndex>=0 then begin
   if (fPreStepHookIndex+1)<fPhysics.fCountPreStepHookRigidBodies then begin
@@ -40215,7 +40215,7 @@ begin
    TPasMP.Yield;
 {$else}
    Sleep(0);
-{$endif}  
+{$endif}
   end;
   try
    if assigned(fOnPreStep) then begin
@@ -40252,7 +40252,7 @@ begin
    TPasMP.Yield;
 {$else}
    Sleep(0);
-{$endif}  
+{$endif}
   end;
   try
    if assigned(fOnPostStep) then begin
@@ -40290,7 +40290,7 @@ begin
   fPhysics.fLock.Acquire;
   try
 {$endif}
-    
+
    case fRigidBodyType of
 
     krbtStatic:begin
@@ -40522,7 +40522,7 @@ begin
        SetLength(fPhysics.fNonStaticRigidBodies,fPhysics.fCountNonStaticRigidBodies+((fPhysics.fCountNonStaticRigidBodies+1) shr 1));
       end;
       fPhysics.fNonStaticRigidBodies[fNonStaticRigidBodyIndex]:=self;
-     end; 
+     end;
 
     end;
 
@@ -40557,7 +40557,7 @@ begin
        SetLength(fPhysics.fNonStaticRigidBodies,fPhysics.fCountNonStaticRigidBodies+((fPhysics.fCountNonStaticRigidBodies+1) shr 1));
       end;
       fPhysics.fNonStaticRigidBodies[fNonStaticRigidBodyIndex]:=self;
-     end; 
+     end;
 
     end;
 
@@ -46886,7 +46886,7 @@ begin
 
  fKinematicRigidBodies:=nil;
  fCountKinematicRigidBodies:=0;
- 
+
  fDynamicRigidBodies:=nil;
  fCountDynamicRigidBodies:=0;
 
@@ -47364,7 +47364,7 @@ begin
   // Check if the island contains only a single non-moved kinematic rigidbody, if yes, then remove the island, as it is a unnecessary island,
   // which would only slow down the simulation.
   if (Island.fCountRigidBodies=1) and (Island.fRigidBodies[0].fRigidBodyType=krbtKinematic) and (Vector3LengthSquared(Island.fRigidBodies[0].LinearVelocity)=0.0) and (Vector3LengthSquared(Island.fRigidBodies[0].AngularVelocity)=0.0) then begin
-  
+
    // Remove last island
    Island.Clear;
    dec(fCountIslands);
@@ -47377,7 +47377,7 @@ begin
    // Merge contact pairs
    Island.MergeContactPairs;
 
-  end; 
+  end;
 
   // Allow static bodies and with these collected constraints to participate in other islands
   while assigned(StaticRigidBodiesList) do begin
@@ -48677,22 +48677,20 @@ procedure TKraft_StoreWorldTransforms_ParallelLoopProcedure(const aJob:PPasMPJob
 var Index:TPasMPNativeInt;
 begin
  for Index:=aFromIndex to aToIndex do begin
-  TKraft(aData).fRigidBodies[Index].StoreWorldTransform;
+  TKraft(aData).fNonStaticRigidBodies[Index].StoreWorldTransform;
  end;
 end;
 {$ifend}
 
 procedure TKraft.StoreWorldTransforms;
-var RigidBody:TKraftRigidBody;
+var Index:TPasMPNativeInt;
 begin
 {$if defined(KraftPasMP) and not defined(KraftNoParallelTransforming)}
  if assigned(fPasMP) and (fPasMP.CountJobWorkerThreads>1) and not fSingleThreaded then begin
-  fPasMP.Invoke(fPasMP.ParallelFor(self,0,fCountRigidBodies-1,TKraft_StoreWorldTransforms_ParallelLoopProcedure,1,4,nil,0,0,true));
+  fPasMP.Invoke(fPasMP.ParallelFor(self,0,fCountNonStaticRigidBodies-1,TKraft_StoreWorldTransforms_ParallelLoopProcedure,1,4,nil,0,0,true));
  end else{$ifend}begin
-  RigidBody:=fRigidBodyFirst;
-  while assigned(RigidBody) do begin
-   RigidBody.StoreWorldTransform;
-   RigidBody:=RigidBody.fRigidBodyNext;
+  for Index:=0 to fCountNonStaticRigidBodies-1 do begin
+   fNonStaticRigidBodies[Index].StoreWorldTransform;
   end;
  end;
 end;
@@ -48702,7 +48700,7 @@ type TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_Parameters=record
       Physics:TKraft;
       Alpha:TKraftScalar;
      end;
-     PKraft_InterpolateWorldTransforms_ParallelLoopProcedure_Parameters=^TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_Parameters; 
+     PKraft_InterpolateWorldTransforms_ParallelLoopProcedure_Parameters=^TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_Parameters;
 
 procedure TKraft_InterpolateWorldTransforms_ParallelLoopProcedure(const aJob:PPasMPJob;const aThreadIndex:TPasMPInt32;const aData:pointer;const aFromIndex,aToIndex:TPasMPNativeInt);
 var Index:TPasMPNativeInt;
@@ -48710,13 +48708,13 @@ var Index:TPasMPNativeInt;
 begin
  Parameters:=PKraft_InterpolateWorldTransforms_ParallelLoopProcedure_Parameters(aData);
  for Index:=aFromIndex to aToIndex do begin
-  Parameters^.Physics.fRigidBodies[Index].InterpolateWorldTransform(Parameters^.Alpha);
+  Parameters^.Physics.fNonStaticRigidBodies[Index].InterpolateWorldTransform(Parameters^.Alpha);
  end;
 end;
 {$ifend}
 
 procedure TKraft.InterpolateWorldTransforms(const aAlpha:TKraftScalar);
-var RigidBody:TKraftRigidBody;
+var Index:TKraftInt32;
 {$if defined(KraftPasMP) and not defined(KraftNoParallelTransforming)}
     Parameters:TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_Parameters;
 {$ifend}
@@ -48725,12 +48723,10 @@ begin
  if assigned(fPasMP) and (fPasMP.CountJobWorkerThreads>1) and not fSingleThreaded then begin
   Parameters.Physics:=self;
   Parameters.Alpha:=aAlpha;
-  fPasMP.Invoke(fPasMP.ParallelFor(@Parameters,0,fCountRigidBodies-1,TKraft_InterpolateWorldTransforms_ParallelLoopProcedure,1,4,nil,0,0,true));
+  fPasMP.Invoke(fPasMP.ParallelFor(@Parameters,0,fCountNonStaticRigidBodies-1,TKraft_InterpolateWorldTransforms_ParallelLoopProcedure,1,4,nil,0,0,true));
  end else{$ifend}begin
-  RigidBody:=fRigidBodyFirst;
-  while assigned(RigidBody) do begin
-   RigidBody.InterpolateWorldTransform(aAlpha);
-   RigidBody:=RigidBody.fRigidBodyNext;
+  for Index:=0 to fCountNonStaticRigidBodies-1 do begin
+   fNonStaticRigidBodies[Index].InterpolateWorldTransform(aAlpha);
   end;
  end;
 end;
