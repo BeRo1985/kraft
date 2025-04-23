@@ -2937,7 +2937,21 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fIndex:TKraftInt32;
 
+       fUnknownRigidBodyIndex:TKraftInt32;
+
+       fStaticRigidBodyIndex:TKraftInt32;
+
+       fKinematicRigidBodyIndex:TKraftInt32;
+
+       fDynamicRigidBodyIndex:TKraftInt32;
+
+       fNonStaticRigidBodyIndex:TKraftInt32;
+
        fVisitedIndex:TKraftInt32;
+
+       fPreStepHookIndex:TKraftInt32;
+
+       fPostStepHookIndex:TKraftInt32;
 
        fIsland:TKraftIsland;
 
@@ -3058,6 +3072,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        function GetAngularMomentum:TKraftVector3;
        procedure SetAngularMomentum(const NewAngularMomentum:TKraftVector3);
+
+       procedure SetOnPreStep(aOnPreStep:TKraftRigidBodyOnStep);
+       procedure SetOnPostStep(aOnPostStep:TKraftRigidBodyOnStep);
 
       public
 
@@ -3258,8 +3275,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        property OnDamping:TKraftRigidBodyOnDamping read fOnDamping write fOnDamping;
 
-       property OnPreStep:TKraftRigidBodyOnStep read fOnPreStep write fOnPreStep;
-       property OnPostStep:TKraftRigidBodyOnStep read fOnPostStep write fOnPostStep;
+       property OnPreStep:TKraftRigidBodyOnStep read fOnPreStep write SetOnPreStep;
+       property OnPostStep:TKraftRigidBodyOnStep read fOnPostStep write SetOnPostStep;
 
      end;
 
@@ -4322,11 +4339,34 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fRigidBodies:TKraftRigidBodies;
 
+       fUnknownRigidBodies:TKraftRigidBodies;
+       fCountUnknownRigidBodies:TKraftInt32;
+
+       fStaticRigidBodies:TKraftRigidBodies;
+       fCountStaticRigidBodies:TKraftInt32;
+
+       fKinematicRigidBodies:TKraftRigidBodies;
+       fCountKinematicRigidBodies:TKraftInt32;
+
+       fDynamicRigidBodies:TKraftRigidBodies;
+       fCountDynamicRigidBodies:TKraftInt32;
+
+       fNonStaticRigidBodies:TKraftRigidBodies; // combined static and kinematic rigid bodies for traversing in a single loop
+       fCountNonStaticRigidBodies:TKraftInt32;
+
        fActiveRigidBodies:TKraftRigidBodies;
        fCountActiveRigidBodies:TKraftInt32;
 
        fVisitedRigidBodies:TKraftRigidBodies;
        fCountVisitedRigidBodies:TKraftInt32;
+
+       fPreStepHookRigidBodies:TKraftRigidBodies;
+       fCountPreStepHookRigidBodies:TKraftInt32;
+       fPreStepHookRigidBodiesLock:{$ifdef KraftPasMP}TPasMPInt32{$else}TKraftInt32{$endif};
+
+       fPostStepHookRigidBodies:TKraftRigidBodies;
+       fCountPostStepHookRigidBodies:TKraftInt32;
+       fPostStepHookRigidBodiesLock:{$ifdef KraftPasMP}TPasMPInt32{$else}TKraftInt32{$endif};
 
        fStaticRigidBodyCount:TKraftInt32;
 
@@ -39790,10 +39830,44 @@ begin
  end;
  fPhysics.fRigidBodies[fIndex]:=self;
 
- fVisitedIndex:=-1;
+ fUnknownRigidBodyIndex:=-1;
+ if length(fPhysics.fUnknownRigidBodies)<length(fPhysics.fRigidBodies) then begin
+  SetLength(fPhysics.fUnknownRigidBodies,length(fPhysics.fRigidBodies));
+ end;
 
+ fStaticRigidBodyIndex:=-1;
+ if length(fPhysics.fStaticRigidBodies)<length(fPhysics.fRigidBodies) then begin
+  SetLength(fPhysics.fStaticRigidBodies,length(fPhysics.fRigidBodies));
+ end;
+ 
+ fKinematicRigidBodyIndex:=-1;
+ if length(fPhysics.fKinematicRigidBodies)<length(fPhysics.fRigidBodies) then begin
+  SetLength(fPhysics.fKinematicRigidBodies,length(fPhysics.fRigidBodies));
+ end;
+
+ fDynamicRigidBodyIndex:=-1; 
+ if length(fPhysics.fDynamicRigidBodies)<length(fPhysics.fRigidBodies) then begin
+  SetLength(fPhysics.fDynamicRigidBodies,length(fPhysics.fRigidBodies));
+ end;
+
+ fNonStaticRigidBodyIndex:=-1;
+ if length(fPhysics.fNonStaticRigidBodies)<length(fPhysics.fRigidBodies) then begin
+  SetLength(fPhysics.fNonStaticRigidBodies,length(fPhysics.fRigidBodies));
+ end;
+
+ fVisitedIndex:=-1;
  if length(fPhysics.fVisitedRigidBodies)<length(fPhysics.fRigidBodies) then begin
   SetLength(fPhysics.fVisitedRigidBodies,length(fPhysics.fRigidBodies));
+ end;
+
+ fPreStepHookIndex:=-1;
+ if length(fPhysics.fPreStepHookRigidBodies)<length(fPhysics.fRigidBodies) then begin
+  SetLength(fPhysics.fPreStepHookRigidBodies,length(fPhysics.fRigidBodies));
+ end;
+
+ fPostStepHookIndex:=-1;
+ if length(fPhysics.fPostStepHookRigidBodies)<length(fPhysics.fRigidBodies) then begin
+  SetLength(fPhysics.fPostStepHookRigidBodies,length(fPhysics.fRigidBodies));
  end;
 
  fID:=fPhysics.fRigidBodyIDCounter;
@@ -39976,6 +40050,66 @@ begin
 
  dec(fPhysics.fCountRigidBodies);
 
+ if fUnknownRigidBodyIndex>=0 then begin
+  if (fUnknownRigidBodyIndex+1)<fPhysics.fCountUnknownRigidBodies then begin
+   OtherRigidBody:=fPhysics.fUnknownRigidBodies[fPhysics.fCountUnknownRigidBodies-1];
+   OtherRigidBody.fUnknownRigidBodyIndex:=fUnknownRigidBodyIndex;
+   fPhysics.fUnknownRigidBodies[fUnknownRigidBodyIndex]:=OtherRigidBody;
+   fUnknownRigidBodyIndex:=fPhysics.fCountUnknownRigidBodies-1;
+  end;
+  fPhysics.fUnknownRigidBodies[fUnknownRigidBodyIndex]:=nil;
+  fUnknownRigidBodyIndex:=-1;
+  dec(fPhysics.fCountUnknownRigidBodies);
+ end;
+
+ if fStaticRigidBodyIndex>=0 then begin
+  if (fStaticRigidBodyIndex+1)<fPhysics.fCountStaticRigidBodies then begin
+   OtherRigidBody:=fPhysics.fStaticRigidBodies[fPhysics.fCountStaticRigidBodies-1];
+   OtherRigidBody.fStaticRigidBodyIndex:=fStaticRigidBodyIndex;
+   fPhysics.fStaticRigidBodies[fStaticRigidBodyIndex]:=OtherRigidBody;
+   fStaticRigidBodyIndex:=fPhysics.fCountStaticRigidBodies-1;
+  end;
+  fPhysics.fStaticRigidBodies[fStaticRigidBodyIndex]:=nil;
+  fStaticRigidBodyIndex:=-1;
+  dec(fPhysics.fCountStaticRigidBodies);
+ end; 
+
+ if fKinematicRigidBodyIndex>=0 then begin
+  if (fKinematicRigidBodyIndex+1)<fPhysics.fCountKinematicRigidBodies then begin
+   OtherRigidBody:=fPhysics.fKinematicRigidBodies[fPhysics.fCountKinematicRigidBodies-1];
+   OtherRigidBody.fKinematicRigidBodyIndex:=fKinematicRigidBodyIndex;
+   fPhysics.fKinematicRigidBodies[fKinematicRigidBodyIndex]:=OtherRigidBody;
+   fKinematicRigidBodyIndex:=fPhysics.fCountKinematicRigidBodies-1;
+  end;
+  fPhysics.fKinematicRigidBodies[fKinematicRigidBodyIndex]:=nil;
+  fKinematicRigidBodyIndex:=-1;
+  dec(fPhysics.fCountKinematicRigidBodies);
+ end;
+
+ if fDynamicRigidBodyIndex>=0 then begin
+  if (fDynamicRigidBodyIndex+1)<fPhysics.fCountDynamicRigidBodies then begin
+   OtherRigidBody:=fPhysics.fDynamicRigidBodies[fPhysics.fCountDynamicRigidBodies-1];
+   OtherRigidBody.fDynamicRigidBodyIndex:=fDynamicRigidBodyIndex;
+   fPhysics.fDynamicRigidBodies[fDynamicRigidBodyIndex]:=OtherRigidBody;
+   fDynamicRigidBodyIndex:=fPhysics.fCountDynamicRigidBodies-1;
+  end;
+  fPhysics.fDynamicRigidBodies[fDynamicRigidBodyIndex]:=nil;
+  fDynamicRigidBodyIndex:=-1;
+  dec(fPhysics.fCountDynamicRigidBodies);
+ end;
+
+ if fNonStaticRigidBodyIndex>=0 then begin
+  if (fNonStaticRigidBodyIndex+1)<fPhysics.fCountNonStaticRigidBodies then begin
+   OtherRigidBody:=fPhysics.fNonStaticRigidBodies[fPhysics.fCountNonStaticRigidBodies-1];
+   OtherRigidBody.fNonStaticRigidBodyIndex:=fNonStaticRigidBodyIndex;
+   fPhysics.fNonStaticRigidBodies[fNonStaticRigidBodyIndex]:=OtherRigidBody;
+   fNonStaticRigidBodyIndex:=fPhysics.fCountNonStaticRigidBodies-1;
+  end;
+  fPhysics.fNonStaticRigidBodies[fNonStaticRigidBodyIndex]:=nil;
+  fNonStaticRigidBodyIndex:=-1;
+  dec(fPhysics.fCountNonStaticRigidBodies);
+ end;
+
  if fVisitedIndex>=0 then begin
   if (fVisitedIndex+1)<fPhysics.fCountVisitedRigidBodies then begin
    OtherRigidBody:=fPhysics.fVisitedRigidBodies[fPhysics.fCountVisitedRigidBodies-1];
@@ -39986,6 +40120,30 @@ begin
   fPhysics.fVisitedRigidBodies[fVisitedIndex]:=nil;
   fVisitedIndex:=-1;
   dec(fPhysics.fCountVisitedRigidBodies);
+ end; 
+
+ if fPreStepHookIndex>=0 then begin
+  if (fPreStepHookIndex+1)<fPhysics.fCountPreStepHookRigidBodies then begin
+   OtherRigidBody:=fPhysics.fPreStepHookRigidBodies[fPhysics.fCountPreStepHookRigidBodies-1];
+   OtherRigidBody.fPreStepHookIndex:=fPreStepHookIndex;
+   fPhysics.fPreStepHookRigidBodies[fPreStepHookIndex]:=OtherRigidBody;
+   fPreStepHookIndex:=fPhysics.fCountPreStepHookRigidBodies-1;
+  end;
+  fPhysics.fPreStepHookRigidBodies[fPreStepHookIndex]:=nil;
+  fPreStepHookIndex:=-1;
+  dec(fPhysics.fCountPreStepHookRigidBodies);
+ end;
+
+ if fPostStepHookIndex>=0 then begin
+  if (fPostStepHookIndex+1)<fPhysics.fCountPostStepHookRigidBodies then begin
+   OtherRigidBody:=fPhysics.fPostStepHookRigidBodies[fPhysics.fCountPostStepHookRigidBodies-1];
+   OtherRigidBody.fPostStepHookIndex:=fPostStepHookIndex;
+   fPhysics.fPostStepHookRigidBodies[fPostStepHookIndex]:=OtherRigidBody;
+   fPostStepHookIndex:=fPhysics.fCountPostStepHookRigidBodies-1;
+  end;
+  fPhysics.fPostStepHookRigidBodies[fPostStepHookIndex]:=nil;
+  fPostStepHookIndex:=-1;
+  dec(fPhysics.fCountPostStepHookRigidBodies);
  end;
 
  if fStaticRigidBodyIsOnList then begin
@@ -40047,8 +40205,83 @@ begin
  inherited Destroy;
 end;
 
+procedure TKraftRigidBody.SetOnPreStep(aOnPreStep:TKraftRigidBodyOnStep);
+var OtherRigidBody:TKraftRigidBody;
+begin
+ if @fOnPreStep<>@aOnPreStep then begin
+  fOnPreStep:=aOnPreStep;
+  while {$ifdef KraftPasMP}TPasMPInterlocked.CompareExchange{$else}InterlockedCompareExchange{$endif}(fPhysics.fPreStepHookRigidBodiesLock,1,0)<>0 do begin
+{$ifdef KraftPasMP}
+   TPasMP.Yield;
+{$else}
+   Sleep(0);
+{$endif}  
+  end;
+  try
+   if assigned(fOnPreStep) then begin
+    fPreStepHookIndex:=fPhysics.fCountPreStepHookRigidBodies;
+    inc(fPhysics.fCountPreStepHookRigidBodies);
+    if length(fPhysics.fPreStepHookRigidBodies)<fPhysics.fCountPreStepHookRigidBodies then begin
+     SetLength(fPhysics.fPreStepHookRigidBodies,fPhysics.fCountPreStepHookRigidBodies+((fPhysics.fCountPreStepHookRigidBodies+1) shr 1));
+    end;
+    fPhysics.fPreStepHookRigidBodies[fPreStepHookIndex]:=self;
+   end else if fPreStepHookIndex>=0 then begin
+    if (fPreStepHookIndex+1)<fPhysics.fCountPreStepHookRigidBodies then begin
+     OtherRigidBody:=fPhysics.fPreStepHookRigidBodies[fPhysics.fCountPreStepHookRigidBodies-1];
+     OtherRigidBody.fPreStepHookIndex:=fPreStepHookIndex;
+     fPhysics.fPreStepHookRigidBodies[fPreStepHookIndex]:=OtherRigidBody;
+     fPreStepHookIndex:=fPhysics.fCountPreStepHookRigidBodies-1;
+    end;
+    fPhysics.fPreStepHookRigidBodies[fPreStepHookIndex]:=nil;
+    dec(fPhysics.fCountPreStepHookRigidBodies);
+    fPreStepHookIndex:=-1;
+   end;
+  finally
+   {$ifdef KraftPasMP}TPasMPInterlocked.Exchange{$else}InterlockedExchange{$endif}(fPhysics.fPreStepHookRigidBodiesLock,0);
+  end;
+ end;
+end;
+
+procedure TKraftRigidBody.SetOnPostStep(aOnPostStep:TKraftRigidBodyOnStep);
+var OtherRigidBody:TKraftRigidBody;
+begin
+ if @fOnPostStep<>@aOnPostStep then begin
+  fOnPostStep:=aOnPostStep;
+  while {$ifdef KraftPasMP}TPasMPInterlocked.CompareExchange{$else}InterlockedCompareExchange{$endif}(fPhysics.fPostStepHookRigidBodiesLock,1,0)<>0 do begin
+{$ifdef KraftPasMP}
+   TPasMP.Yield;
+{$else}
+   Sleep(0);
+{$endif}  
+  end;
+  try
+   if assigned(fOnPostStep) then begin
+    fPostStepHookIndex:=fPhysics.fCountPostStepHookRigidBodies;
+    inc(fPhysics.fCountPostStepHookRigidBodies);
+    if length(fPhysics.fPostStepHookRigidBodies)<fPhysics.fCountPostStepHookRigidBodies then begin
+     SetLength(fPhysics.fPostStepHookRigidBodies,fPhysics.fCountPostStepHookRigidBodies+((fPhysics.fCountPostStepHookRigidBodies+1) shr 1));
+    end;
+    fPhysics.fPostStepHookRigidBodies[fPostStepHookIndex]:=self;
+   end else if fPostStepHookIndex>=0 then begin
+    if (fPostStepHookIndex+1)<fPhysics.fCountPostStepHookRigidBodies then begin
+     OtherRigidBody:=fPhysics.fPostStepHookRigidBodies[fPhysics.fCountPostStepHookRigidBodies-1];
+     OtherRigidBody.fPostStepHookIndex:=fPostStepHookIndex;
+     fPhysics.fPostStepHookRigidBodies[fPostStepHookIndex]:=OtherRigidBody;
+     fPostStepHookIndex:=fPhysics.fCountPostStepHookRigidBodies-1;
+    end;
+    fPhysics.fPostStepHookRigidBodies[fPostStepHookIndex]:=nil;
+    dec(fPhysics.fCountPostStepHookRigidBodies);
+    fPostStepHookIndex:=-1;
+   end;
+  finally
+   {$ifdef KraftPasMP}TPasMPInterlocked.Exchange{$else}InterlockedExchange{$endif}(fPhysics.fPostStepHookRigidBodiesLock,0);
+  end;
+ end;
+end;
+
 procedure TKraftRigidBody.SetRigidBodyType(const aRigidBodyType:TKraftRigidBodyType);
 var Shape:TKraftShape;
+    OtherRigidBody:TKraftRigidBody;
 begin
 
  if fRigidBodyType<>aRigidBodyType then begin
@@ -40057,7 +40290,7 @@ begin
   fPhysics.fLock.Acquire;
   try
 {$endif}
-
+    
    case fRigidBodyType of
 
     krbtStatic:begin
@@ -40078,6 +40311,30 @@ begin
       end;
       fStaticRigidBodyPrevious:=nil;
       fStaticRigidBodyNext:=nil;
+     end;
+
+     if fStaticRigidBodyIndex>=0 then begin
+      if (fStaticRigidBodyIndex+1)<fPhysics.fCountStaticRigidBodies then begin
+       OtherRigidBody:=fPhysics.fStaticRigidBodies[fPhysics.fCountStaticRigidBodies-1];
+       OtherRigidBody.fStaticRigidBodyIndex:=fStaticRigidBodyIndex;
+       fPhysics.fStaticRigidBodies[fStaticRigidBodyIndex]:=OtherRigidBody;
+       fStaticRigidBodyIndex:=fPhysics.fCountStaticRigidBodies-1;
+      end;
+      fPhysics.fStaticRigidBodies[fStaticRigidBodyIndex]:=nil;
+      fStaticRigidBodyIndex:=-1;
+      dec(fPhysics.fCountStaticRigidBodies);
+     end;
+
+     if fNonStaticRigidBodyIndex>=0 then begin
+      if (fNonStaticRigidBodyIndex+1)<fPhysics.fCountNonStaticRigidBodies then begin
+       OtherRigidBody:=fPhysics.fNonStaticRigidBodies[fPhysics.fCountNonStaticRigidBodies-1];
+       OtherRigidBody.fNonStaticRigidBodyIndex:=fNonStaticRigidBodyIndex;
+       fPhysics.fNonStaticRigidBodies[fNonStaticRigidBodyIndex]:=OtherRigidBody;
+       fNonStaticRigidBodyIndex:=fPhysics.fCountNonStaticRigidBodies-1;
+      end;
+      fPhysics.fNonStaticRigidBodies[fNonStaticRigidBodyIndex]:=nil;
+      fNonStaticRigidBodyIndex:=-1;
+      dec(fPhysics.fCountNonStaticRigidBodies);
      end;
 
     end;
@@ -40102,6 +40359,30 @@ begin
       fDynamicRigidBodyNext:=nil;
      end;
 
+     if fDynamicRigidBodyIndex>=0 then begin
+      if (fDynamicRigidBodyIndex+1)<fPhysics.fCountDynamicRigidBodies then begin
+       OtherRigidBody:=fPhysics.fDynamicRigidBodies[fPhysics.fCountDynamicRigidBodies-1];
+       OtherRigidBody.fDynamicRigidBodyIndex:=fDynamicRigidBodyIndex;
+       fPhysics.fDynamicRigidBodies[fDynamicRigidBodyIndex]:=OtherRigidBody;
+       fDynamicRigidBodyIndex:=fPhysics.fCountDynamicRigidBodies-1;
+      end;
+      fPhysics.fDynamicRigidBodies[fDynamicRigidBodyIndex]:=nil;
+      fDynamicRigidBodyIndex:=-1;
+      dec(fPhysics.fCountDynamicRigidBodies);
+     end;
+
+     if fNonStaticRigidBodyIndex>=0 then begin
+      if (fNonStaticRigidBodyIndex+1)<fPhysics.fCountNonStaticRigidBodies then begin
+       OtherRigidBody:=fPhysics.fNonStaticRigidBodies[fPhysics.fCountNonStaticRigidBodies-1];
+       OtherRigidBody.fNonStaticRigidBodyIndex:=fNonStaticRigidBodyIndex;
+       fPhysics.fNonStaticRigidBodies[fNonStaticRigidBodyIndex]:=OtherRigidBody;
+       fNonStaticRigidBodyIndex:=fPhysics.fCountNonStaticRigidBodies-1;
+      end;
+      fPhysics.fNonStaticRigidBodies[fNonStaticRigidBodyIndex]:=nil;
+      fNonStaticRigidBodyIndex:=-1;
+      dec(fPhysics.fCountNonStaticRigidBodies);
+     end;
+
     end;
 
     krbtKinematic:begin
@@ -40122,6 +40403,58 @@ begin
       end;
       fKinematicRigidBodyPrevious:=nil;
       fKinematicRigidBodyNext:=nil;
+     end;
+
+     if fKinematicRigidBodyIndex>=0 then begin
+      if (fKinematicRigidBodyIndex+1)<fPhysics.fCountKinematicRigidBodies then begin
+       OtherRigidBody:=fPhysics.fKinematicRigidBodies[fPhysics.fCountKinematicRigidBodies-1];
+       OtherRigidBody.fKinematicRigidBodyIndex:=fKinematicRigidBodyIndex;
+       fPhysics.fKinematicRigidBodies[fKinematicRigidBodyIndex]:=OtherRigidBody;
+       fKinematicRigidBodyIndex:=fPhysics.fCountKinematicRigidBodies-1;
+      end;
+      fPhysics.fKinematicRigidBodies[fKinematicRigidBodyIndex]:=nil;
+      fKinematicRigidBodyIndex:=-1;
+      dec(fPhysics.fCountKinematicRigidBodies);
+     end;
+
+     if fNonStaticRigidBodyIndex>=0 then begin
+      if (fNonStaticRigidBodyIndex+1)<fPhysics.fCountNonStaticRigidBodies then begin
+       OtherRigidBody:=fPhysics.fNonStaticRigidBodies[fPhysics.fCountNonStaticRigidBodies-1];
+       OtherRigidBody.fNonStaticRigidBodyIndex:=fNonStaticRigidBodyIndex;
+       fPhysics.fNonStaticRigidBodies[fNonStaticRigidBodyIndex]:=OtherRigidBody;
+       fNonStaticRigidBodyIndex:=fPhysics.fCountNonStaticRigidBodies-1;
+      end;
+      fPhysics.fNonStaticRigidBodies[fNonStaticRigidBodyIndex]:=nil;
+      fNonStaticRigidBodyIndex:=-1;
+      dec(fPhysics.fCountNonStaticRigidBodies);
+     end;
+
+    end;
+
+    else begin
+
+     if fUnknownRigidBodyIndex>=0 then begin
+      if (fUnknownRigidBodyIndex+1)<fPhysics.fCountUnknownRigidBodies then begin
+       OtherRigidBody:=fPhysics.fUnknownRigidBodies[fPhysics.fCountUnknownRigidBodies-1];
+       OtherRigidBody.fUnknownRigidBodyIndex:=fUnknownRigidBodyIndex;
+       fPhysics.fUnknownRigidBodies[fUnknownRigidBodyIndex]:=OtherRigidBody;
+       fUnknownRigidBodyIndex:=fPhysics.fCountUnknownRigidBodies-1;
+      end;
+      fPhysics.fUnknownRigidBodies[fUnknownRigidBodyIndex]:=nil;
+      fUnknownRigidBodyIndex:=-1;
+      dec(fPhysics.fCountUnknownRigidBodies);
+     end;
+
+     if fNonStaticRigidBodyIndex>=0 then begin
+      if (fNonStaticRigidBodyIndex+1)<fPhysics.fCountNonStaticRigidBodies then begin
+       OtherRigidBody:=fPhysics.fNonStaticRigidBodies[fPhysics.fCountNonStaticRigidBodies-1];
+       OtherRigidBody.fNonStaticRigidBodyIndex:=fNonStaticRigidBodyIndex;
+       fPhysics.fNonStaticRigidBodies[fNonStaticRigidBodyIndex]:=OtherRigidBody;
+       fNonStaticRigidBodyIndex:=fPhysics.fCountNonStaticRigidBodies-1;
+      end;
+      fPhysics.fNonStaticRigidBodies[fNonStaticRigidBodyIndex]:=nil;
+      fNonStaticRigidBodyIndex:=-1;
+      dec(fPhysics.fCountNonStaticRigidBodies);
      end;
 
     end;
@@ -40147,6 +40480,15 @@ begin
 
      inc(fPhysics.fStaticRigidBodyCount);
 
+     if fStaticRigidBodyIndex<0 then begin
+      fStaticRigidBodyIndex:=fPhysics.fCountStaticRigidBodies;
+      inc(fPhysics.fCountStaticRigidBodies);
+      if length(fPhysics.fStaticRigidBodies)<fPhysics.fCountStaticRigidBodies then begin
+       SetLength(fPhysics.fStaticRigidBodies,fPhysics.fCountStaticRigidBodies+((fPhysics.fCountStaticRigidBodies+1) shr 1));
+      end;
+      fPhysics.fStaticRigidBodies[fStaticRigidBodyIndex]:=self;
+     end;
+
     end;
 
     krbtDynamic:begin
@@ -40164,6 +40506,24 @@ begin
 
      inc(fPhysics.fDynamicRigidBodyCount);
 
+     if fDynamicRigidBodyIndex<0 then begin
+      fDynamicRigidBodyIndex:=fPhysics.fCountDynamicRigidBodies;
+      inc(fPhysics.fCountDynamicRigidBodies);
+      if length(fPhysics.fDynamicRigidBodies)<fPhysics.fCountDynamicRigidBodies then begin
+       SetLength(fPhysics.fDynamicRigidBodies,fPhysics.fCountDynamicRigidBodies+((fPhysics.fCountDynamicRigidBodies+1) shr 1));
+      end;
+      fPhysics.fDynamicRigidBodies[fDynamicRigidBodyIndex]:=self;
+     end;
+
+     if fNonStaticRigidBodyIndex<0 then begin
+      fNonStaticRigidBodyIndex:=fPhysics.fCountNonStaticRigidBodies;
+      inc(fPhysics.fCountNonStaticRigidBodies);
+      if length(fPhysics.fNonStaticRigidBodies)<fPhysics.fCountNonStaticRigidBodies then begin
+       SetLength(fPhysics.fNonStaticRigidBodies,fPhysics.fCountNonStaticRigidBodies+((fPhysics.fCountNonStaticRigidBodies+1) shr 1));
+      end;
+      fPhysics.fNonStaticRigidBodies[fNonStaticRigidBodyIndex]:=self;
+     end; 
+
     end;
 
     krbtKinematic:begin
@@ -40180,6 +40540,37 @@ begin
      fKinematicRigidBodyIsOnList:=true;
 
      inc(fPhysics.fKinematicRigidBodyCount);
+
+     if fKinematicRigidBodyIndex<0 then begin
+      fKinematicRigidBodyIndex:=fPhysics.fCountKinematicRigidBodies;
+      inc(fPhysics.fCountKinematicRigidBodies);
+      if length(fPhysics.fKinematicRigidBodies)<fPhysics.fCountKinematicRigidBodies then begin
+       SetLength(fPhysics.fKinematicRigidBodies,fPhysics.fCountKinematicRigidBodies+((fPhysics.fCountKinematicRigidBodies+1) shr 1));
+      end;
+      fPhysics.fKinematicRigidBodies[fKinematicRigidBodyIndex]:=self;
+     end;
+
+     if fNonStaticRigidBodyIndex<0 then begin
+      fNonStaticRigidBodyIndex:=fPhysics.fCountNonStaticRigidBodies;
+      inc(fPhysics.fCountNonStaticRigidBodies);
+      if length(fPhysics.fNonStaticRigidBodies)<fPhysics.fCountNonStaticRigidBodies then begin
+       SetLength(fPhysics.fNonStaticRigidBodies,fPhysics.fCountNonStaticRigidBodies+((fPhysics.fCountNonStaticRigidBodies+1) shr 1));
+      end;
+      fPhysics.fNonStaticRigidBodies[fNonStaticRigidBodyIndex]:=self;
+     end; 
+
+    end;
+
+    else begin
+
+     if fUnknownRigidBodyIndex<0 then begin
+      fUnknownRigidBodyIndex:=fPhysics.fCountUnknownRigidBodies;
+      inc(fPhysics.fCountUnknownRigidBodies);
+      if length(fPhysics.fUnknownRigidBodies)<fPhysics.fCountUnknownRigidBodies then begin
+       SetLength(fPhysics.fUnknownRigidBodies,fPhysics.fCountUnknownRigidBodies+((fPhysics.fCountUnknownRigidBodies+1) shr 1));
+      end;
+      fPhysics.fUnknownRigidBodies[fUnknownRigidBodyIndex]:=self;
+     end;
 
     end;
 
@@ -46487,8 +46878,31 @@ begin
  fActiveRigidBodies:=nil;
  fCountActiveRigidBodies:=0;
 
+ fUnknownRigidBodies:=nil;
+ fCountUnknownRigidBodies:=0;
+
+ fStaticRigidBodies:=nil;
+ fCountStaticRigidBodies:=0;
+
+ fKinematicRigidBodies:=nil;
+ fCountKinematicRigidBodies:=0;
+ 
+ fDynamicRigidBodies:=nil;
+ fCountDynamicRigidBodies:=0;
+
+ fNonStaticRigidBodies:=nil;
+ fCountNonStaticRigidBodies:=0;
+
  fVisitedRigidBodies:=nil;
  fCountVisitedRigidBodies:=0;
+
+ fPreStepHookRigidBodies:=nil;
+ fCountPreStepHookRigidBodies:=0;
+ fPreStepHookRigidBodiesLock:=0;
+
+ fPostStepHookRigidBodies:=nil;
+ fCountPostStepHookRigidBodies:=0;
+ fPostStepHookRigidBodiesLock:=0;
 
  fStaticRigidBodyCount:=0;
 
@@ -46684,6 +47098,18 @@ begin
 
  fActiveRigidBodies:=nil;
 
+ fUnknownRigidBodies:=nil;
+
+ fStaticRigidBodies:=nil;
+
+ fKinematicRigidBodies:=nil;
+
+ fDynamicRigidBodies:=nil;
+
+ fNonStaticRigidBodies:=nil;
+
+ fVisitedRigidBodies:=nil;
+
  FreeAndNil(fContactManager);
 
  FreeAndNil(fHighResolutionTimer);
@@ -46802,13 +47228,17 @@ begin
 
  fCountIslands:=0;
 
- SeedRigidBody:=fRigidBodyFirst;
- while assigned(SeedRigidBody) do begin
+ for Index:=0 to fCountNonStaticRigidBodies-1 do begin
+
+  SeedRigidBody:=fNonStaticRigidBodies[Index];
+
+{SeedRigidBody:=fRigidBodyFirst;
+ while assigned(SeedRigidBody) do begin}
 
   if (krbfIslandVisited in SeedRigidBody.fFlags) or                               // Seed can't be visited and apart of an island already
      ((SeedRigidBody.fFlags*[krbfAwake,krbfActive])<>[krbfAwake,krbfActive]) or   // Seed must be awake
      (SeedRigidBody.fRigidBodyType in [krbtUnknown,krbtStatic]) then begin        // Seed can't be a unknown/static body in order to keep islands as small as possible
-   SeedRigidBody:=SeedRigidBody.fRigidBodyNext;
+// SeedRigidBody:=SeedRigidBody.fRigidBodyNext;
    continue;
   end;
 
@@ -46964,7 +47394,7 @@ begin
    CurrentRigidBody.fFlags:=CurrentRigidBody.fFlags-[krbfIslandVisited,krbfIslandStatic];
   end;
 
-  SeedRigidBody:=SeedRigidBody.fRigidBodyNext;
+//SeedRigidBody:=SeedRigidBody.fRigidBodyNext;
 
  end;
 
@@ -48311,7 +48741,8 @@ begin
 end;
 
 procedure TKraft.Step(const aDeltaTime:TKraftScalar=0);
-var RigidBody:TKraftRigidBody;
+var Index:TKraftInt32;
+    RigidBody:TKraftRigidBody;
     Constraint,NextConstraint:TKraftConstraint;
     OldFPUPrecisionMode:TFPUPrecisionMode;
     OldFPUExceptionMask:TFPUExceptionMask;
@@ -48358,12 +48789,11 @@ begin
 
  SIMDSetOurFlags;
 
- RigidBody:=fRigidBodyFirst;
- while assigned(RigidBody) do begin
-  if assigned(RigidBody.fOnPreStep) then begin
+ for Index:=0 to fCountPreStepHookRigidBodies-1 do begin
+  RigidBody:=fPreStepHookRigidBodies[Index];
+  if assigned(RigidBody) and assigned(RigidBody.fOnPreStep) then begin
    RigidBody.fOnPreStep(RigidBody,TimeStep);
   end;
-  RigidBody:=RigidBody.fRigidBodyNext;
  end;
 
  if fNewShapes then begin
@@ -48411,16 +48841,19 @@ begin
   Constraint:=NextConstraint;
  end;
 
- RigidBody:=fRigidBodyFirst;
- while assigned(RigidBody) do begin
-  if RigidBody.fRigidBodyType<>krbtStatic then begin
+ for Index:=0 to fCountPostStepHookRigidBodies-1 do begin
+  RigidBody:=fPostStepHookRigidBodies[Index];
+  if assigned(RigidBody) and assigned(RigidBody.fOnPostStep) then begin
+   RigidBody.fOnPostStep(RigidBody,TimeStep);
+  end;
+ end;
+
+ for Index:=0 to fCountNonStaticRigidBodies-1 do begin
+  RigidBody:=fNonStaticRigidBodies[Index];
+  if assigned(RigidBody) then begin
    RigidBody.fForce:=Vector3Origin;
    RigidBody.fTorque:=Vector3Origin;
   end;
-  if assigned(RigidBody.fOnPostStep) then begin
-   RigidBody.fOnPostStep(RigidBody,TimeStep);
-  end;
-  RigidBody:=RigidBody.fRigidBodyNext;
  end;
 
  if TimeStep.DeltaTime>0.0 then begin
