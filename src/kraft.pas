@@ -3076,6 +3076,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure SetOnPreStep(aOnPreStep:TKraftRigidBodyOnStep);
        procedure SetOnPostStep(aOnPostStep:TKraftRigidBodyOnStep);
 
+       procedure UpdateWorldTransformation;
+
       public
 
        constructor Create(const aPhysics:TKraft);
@@ -32009,6 +32011,10 @@ procedure TKraftShape.SynchronizeTransform;
 begin
  if assigned(fRigidBody) then begin
   fWorldTransform:=Matrix4x4TermMul(fLocalTransform,fRigidBody.fWorldTransform);
+  if fRigidBody.fRigidBodyType in [krbtUnknown,krbtStatic] then begin
+   fLastWorldTransform:=fWorldTransform;
+   fInterpolatedWorldTransform:=fWorldTransform;
+  end;
  end else begin
   fWorldTransform:=fLocalTransform;
  end;
@@ -40906,6 +40912,15 @@ begin
  fWorldDisplacement:=Vector3Origin;
 end;
 
+procedure TKraftRigidBody.UpdateWorldTransformation;
+begin
+ if fRigidBodyType in [krbtUnknown,krbtStatic] then begin
+  SynchronizeTransformIncludingShapes;
+  fLastWorldTransform:=fWorldTransform;
+  fInterpolatedWorldTransform:=fWorldTransform;
+ end;
+end;
+
 procedure TKraftRigidBody.SetWorldTransformation(const aWorldTransformation:TKraftMatrix4x4);
 begin
  fWorldTransform:=AWorldTransformation;
@@ -40916,6 +40931,7 @@ begin
  fSweep.q:=fSweep.q0;
  SynchronizeProxies;
  SetToAwake;
+ UpdateWorldTransformation;
 end;
 
 procedure TKraftRigidBody.SetWorldPosition(const AWorldPosition:TKraftVector3);
@@ -40925,6 +40941,7 @@ begin
  fSweep.c:=fSweep.c0;
  SynchronizeProxies;
  SetToAwake;
+ UpdateWorldTransformation;
 end;
 
 procedure TKraftRigidBody.SetOrientation(const AOrientation:TKraftMatrix3x3);
@@ -40937,6 +40954,7 @@ begin
  fSweep.q:=fSweep.q0;
  SynchronizeProxies;
  SetToAwake;
+ UpdateWorldTransformation;
 end;
 
 procedure TKraftRigidBody.SetOrientation(const x,y,z:TKraftScalar);
@@ -40953,6 +40971,7 @@ begin
  fSweep.q:=fSweep.q0;
  SynchronizeProxies;
  SetToAwake;
+ UpdateWorldTransformation;
 end;
 
 procedure TKraftRigidBody.AddOrientation(const x,y,z:TKraftScalar);
@@ -40970,6 +40989,7 @@ begin
  fSweep.q:=fSweep.q0;
  SynchronizeProxies;
  SetToAwake;
+ UpdateWorldTransformation;
 end;
 
 procedure TKraftRigidBody.LimitVelocities;
