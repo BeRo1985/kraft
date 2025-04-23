@@ -4360,6 +4360,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fUpdatedStaticRigidBodies:TKraftRigidBodies; // static rigid bodies that have been updated in the last step, for interpolation
        fCountUpdatedStaticRigidBodies:TKraftInt32;
+       fUpdatedStaticRigidBodiesLock:{$ifdef KraftPasMP}TPasMPInt32{$else}TKraftInt32{$endif};
 
        fActiveRigidBodies:TKraftRigidBodies;
        fCountActiveRigidBodies:TKraftInt32;
@@ -40933,6 +40934,7 @@ end;
 procedure TKraftRigidBody.UpdateWorldTransformation;
 var Shape:TKraftShape;
 begin
+
  if fRigidBodyType in [krbtUnknown,krbtStatic] then begin
 
   SynchronizeTransformIncludingShapes;
@@ -40951,15 +40953,28 @@ begin
 
    // Insert the static rigid body into the list of updated static rigid bodies, so that InterpolateWorldTransform updates the static rigid body
    // and all its shapes in their fInterpolatedWorldTransform fields.
-   fUpdatedStaticRigidBodyIndex:=fPhysics.fCountUpdatedStaticRigidBodies;
-   inc(fPhysics.fCountUpdatedStaticRigidBodies);
-   if length(fPhysics.fUpdatedStaticRigidBodies)<fPhysics.fCountUpdatedStaticRigidBodies then begin
-    SetLength(fPhysics.fUpdatedStaticRigidBodies,fPhysics.fCountUpdatedStaticRigidBodies+((fPhysics.fCountUpdatedStaticRigidBodies+1) shr 1));
+   while {$ifdef KraftPasMP}TPasMPInterlocked.CompareExchange{$else}InterlockedCompareExchange{$endif}(fPhysics.fUpdatedStaticRigidBodiesLock,1,0)<>0 do begin
+ {$ifdef KraftPasMP}
+    TPasMP.Yield;
+ {$else}
+    Sleep(0);
+ {$endif}
    end;
-   fPhysics.fUpdatedStaticRigidBodies[fUpdatedStaticRigidBodyIndex]:=self;
+   try
+    fUpdatedStaticRigidBodyIndex:=fPhysics.fCountUpdatedStaticRigidBodies;
+    inc(fPhysics.fCountUpdatedStaticRigidBodies);
+    if length(fPhysics.fUpdatedStaticRigidBodies)<fPhysics.fCountUpdatedStaticRigidBodies then begin
+     SetLength(fPhysics.fUpdatedStaticRigidBodies,fPhysics.fCountUpdatedStaticRigidBodies+((fPhysics.fCountUpdatedStaticRigidBodies+1) shr 1));
+    end;
+    fPhysics.fUpdatedStaticRigidBodies[fUpdatedStaticRigidBodyIndex]:=self;
+   finally
+    {$ifdef KraftPasMP}TPasMPInterlocked.Exchange{$else}InterlockedExchange{$endif}(fPhysics.fUpdatedStaticRigidBodiesLock,0);
+   end;
 
   end;
+ 
  end;
+
 end;
 
 procedure TKraftRigidBody.SetWorldTransformation(const aWorldTransformation:TKraftMatrix4x4);
@@ -40972,7 +40987,9 @@ begin
  fSweep.q:=fSweep.q0;
  SynchronizeProxies;
  SetToAwake;
- UpdateWorldTransformation;
+ if fRigidBodyType in [krbtUnknown,krbtStatic] then begin
+  UpdateWorldTransformation;
+ end; 
 end;
 
 procedure TKraftRigidBody.SetWorldPosition(const AWorldPosition:TKraftVector3);
@@ -40982,7 +40999,9 @@ begin
  fSweep.c:=fSweep.c0;
  SynchronizeProxies;
  SetToAwake;
- UpdateWorldTransformation;
+ if fRigidBodyType in [krbtUnknown,krbtStatic] then begin
+  UpdateWorldTransformation;
+ end; 
 end;
 
 procedure TKraftRigidBody.SetOrientation(const AOrientation:TKraftMatrix3x3);
@@ -40995,7 +41014,9 @@ begin
  fSweep.q:=fSweep.q0;
  SynchronizeProxies;
  SetToAwake;
- UpdateWorldTransformation;
+ if fRigidBodyType in [krbtUnknown,krbtStatic] then begin
+  UpdateWorldTransformation;
+ end; 
 end;
 
 procedure TKraftRigidBody.SetOrientation(const x,y,z:TKraftScalar);
@@ -41012,7 +41033,9 @@ begin
  fSweep.q:=fSweep.q0;
  SynchronizeProxies;
  SetToAwake;
- UpdateWorldTransformation;
+ if fRigidBodyType in [krbtUnknown,krbtStatic] then begin
+  UpdateWorldTransformation;
+ end; 
 end;
 
 procedure TKraftRigidBody.AddOrientation(const x,y,z:TKraftScalar);
@@ -41030,7 +41053,9 @@ begin
  fSweep.q:=fSweep.q0;
  SynchronizeProxies;
  SetToAwake;
- UpdateWorldTransformation;
+ if fRigidBodyType in [krbtUnknown,krbtStatic] then begin
+  UpdateWorldTransformation;
+ end; 
 end;
 
 procedure TKraftRigidBody.LimitVelocities;
@@ -46956,6 +46981,7 @@ begin
 
  fUpdatedStaticRigidBodies:=nil;
  fCountUpdatedStaticRigidBodies:=0;
+ fUpdatedStaticRigidBodiesLock:=0;
 
  fVisitedRigidBodies:=nil;
  fCountVisitedRigidBodies:=0;
