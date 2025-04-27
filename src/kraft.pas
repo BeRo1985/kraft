@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2025-04-22-18-59-0000                       *
+ *                        Version 2025-04-27-02-58-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -1230,7 +1230,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftQuickHull=class;
 
-     TKraftQuickHullVector3D=object
+     TKraftQuickHullVector3D=record
       public
        x:double;
        y:double;
@@ -1290,7 +1290,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      TKraftQuickHullThreeVertices=array[0..2] of TKraftQuickHullVertex;
      PKraftQuickHullThreeVertices=^TKraftQuickHullThreeVertices;
 
-     TKraftQuickHullVertexList=object
+     TKraftQuickHullVertexList=record
       public
        Head:TKraftQuickHullVertex;
        Tail:TKraftQuickHullVertex;
@@ -1305,7 +1305,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      end;
      PKraftQuickHullVertexList=^TKraftQuickHullVertexList;
 
-     TKraftQuickHullFaceList=object
+     TKraftQuickHullFaceList=record
       public
        Head:TKraftQuickHullFace;
        Tail:TKraftQuickHullFace;
@@ -2514,7 +2514,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      TKraftGJKClosestPoints=array[0..1] of TKraftVector3;
 
      PKraftGJK=^TKraftGJK;
-     TKraftGJK=object
+     TKraftGJK=record
       public
        Distance:TKraftScalar;
        Iterations:TKraftInt32;
@@ -2615,7 +2615,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      PKraftContactPairContactManifoldMode=^TKraftContactPairContactManifoldMode;
      TKraftContactPairContactManifoldMode=(kcpcmmVelocitySolver,kcpcmmPositionSolver,kcpcmmBaumgarte,kcpcmmTemporalCoherence);
 
-     TKraftContactPair=object
+     TKraftContactPair=record
       public
        Previous:PKraftContactPair;
        Next:PKraftContactPair;
@@ -14780,27 +14780,53 @@ end;
 {$else}
 function InterlockedDecrement(var Target:TKraftInt32):TKraftInt32; {$ifdef caninline}inline;{$endif}
 begin
+{$ifdef Windows}
  result:=Windows.InterlockedDecrement(Target);
+{$else}
+ result:=AtomicDecrement(Target);
+{$endif}
 end;
 
 function InterlockedIncrement(var Target:TKraftInt32):TKraftInt32; {$ifdef caninline}inline;{$endif}
 begin
+{$ifdef Windows}
  result:=Windows.InterlockedIncrement(Target);
+{$else}
+ result:=AtomicIncrement(Target);
+{$endif}
 end;
 
 function InterlockedExchange(var Target:TKraftInt32;Source:TKraftInt32):TKraftInt32; {$ifdef caninline}inline;{$endif}
 begin
+{$ifdef Windows}
  result:=Windows.InterlockedExchange(Target,Source);
+{$else}
+ result:=AtomicExchange(Target);
+{$endif}
 end;
 
 function InterlockedExchangeAdd(var Target:TKraftInt32;Source:TKraftInt32):TKraftInt32; {$ifdef caninline}inline;{$endif}
+{$ifdef Windows}
 begin
  result:=Windows.InterlockedExchangeAdd(Target,Source);
 end;
+{$else}
+var NewValue:TKraftInt32;
+begin
+ repeat
+  result:=Target;
+  NewValue:=result+Source;
+ until AtomicCmpExchange(Target,NewValue,result)=result;
+end;
+{$ifend}
 
 function InterlockedCompareExchange(var Target:TKraftInt32;NewValue,Comperand:TKraftInt32):TKraftInt32; {$ifdef caninline}inline;{$endif}
 begin
+{$ifdef Windows}
  result:=Windows.InterlockedCompareExchange(Target,NewValue,Comperand);
+{$else}
+ result:=AtomicCmpExchange(Target,NewValue,Comperand);
+{$endif}
 end;
 {$endif}
 {$else}
@@ -15972,9 +15998,9 @@ begin
  // two spherical caps is checked for intersections, which is a nice optimization.
  ba:=Vector3Sub(aPB,aPA);
  oa:=Vector3Sub(aRayOrigin,aPA);
+ baba:=Vector3Dot(ba,ba);
  t:=Vector3Dot(ba,oa);
  if t>0.0 then begin
-  baba:=Vector3Dot(ba,ba);
   if t<baba then begin
    l:=Vector3Length(Vector3Sub(oa,Vector3ScalarMul(ba,t/baba)))-aRadius;
   end else begin
@@ -16004,7 +16030,6 @@ begin
     // Reuse the already existent oa result, since the ray origin isn't touched here in this case
    end;
   end;
-  baba:=Vector3Dot(ba,ba);
   bard:=Vector3Dot(ba,aRayDirection);
   baoa:=Vector3Dot(ba,oa);
   rdoa:=Vector3Dot(aRayDirection,oa);
@@ -21912,7 +21937,7 @@ begin
          MinCenterValue:=CentroidAABB.Min.xyz[AxisIndex];
          for Index:=0 to FillStackItem.CountLeafNodes-1 do begin
           Center:=@fNodeCenters[fLeafNodes[FillStackItem.FirstLeafNode+Index]];
-          BinIndex:=Min(Max(trunc((((Center^.xyz[AxisIndex]-MinCenterValue)*InvAxisLength))*CountBins),0),CountBins-1);
+          BinIndex:=Min(Max(trunc(Min(Max((Center^.xyz[AxisIndex]-MinCenterValue)*InvAxisLength,0.0),1.0)*CountBins),0),CountBins-1);
           fNodeBinIndices[AxisIndex,fLeafNodes[FillStackItem.FirstLeafNode+Index]]:=BinIndex;
           Bin:=@Bins[BinIndex];
           if Bin^.Count=0 then begin
