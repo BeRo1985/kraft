@@ -48824,7 +48824,7 @@ end;
 {$ifend}
 
 procedure TKraft.StoreWorldTransforms;
-var Index:TPasMPNativeInt;
+var Index:TKraftSizeInt;
 begin
 {$if defined(KraftPasMP) and not defined(KraftNoParallelTransforming)}
  if assigned(fPasMP) and (fPasMP.CountJobWorkerThreads>1) and not fSingleThreaded then begin
