@@ -14818,7 +14818,7 @@ begin
   NewValue:=result+Source;
  until AtomicCmpExchange(Target,NewValue,result)=result;
 end;
-{$ifend}
+{$endif}
 
 function InterlockedCompareExchange(var Target:TKraftInt32;NewValue,Comperand:TKraftInt32):TKraftInt32; {$ifdef caninline}inline;{$endif}
 begin
