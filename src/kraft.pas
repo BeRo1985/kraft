@@ -1426,7 +1426,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure DeleteFacePoints(Face,AbsorbingFace:TKraftQuickHullFace);
        procedure CalculateHorizon(const EyePoint:TKraftQuickHullVector3D;Edge0:TKraftQuickHullHalfEdge;const Face:TKraftQuickHullFace;const Horizon:TList);
        function AddAdjoiningFace(const EyeVertex:TKraftQuickHullVertex;const he:TKraftQuickHullHalfEdge):TKraftQuickHullHalfEdge;
-       procedure AddNewFaces(const NewFaces:TKraftQuickHullFaceList;const EyeVertex:TKraftQuickHullVertex;const Horizon:TList);
+       procedure AddNewFaces(var NewFaces:TKraftQuickHullFaceList;const EyeVertex:TKraftQuickHullVertex;const Horizon:TList);
        function OppFaceDistance(he:TKraftQuickHullHalfEdge):double;
        function DoAdjacentMerge(const Face:TKraftQuickHullFace;const MergeType:TKraftInt32):boolean;
        procedure ResolveUnclaimedPoints(NewFaces:TKraftQuickHullFaceList);
@@ -25185,7 +25185,7 @@ begin
  result:=Face.fhe0;
 end;
 
-procedure TKraftQuickHull.AddNewFaces(const NewFaces:TKraftQuickHullFaceList;const EyeVertex:TKraftQuickHullVertex;const Horizon:TList);
+procedure TKraftQuickHull.AddNewFaces(var NewFaces:TKraftQuickHullFaceList;const EyeVertex:TKraftQuickHullVertex;const Horizon:TList);
 var Index:TKraftInt32;
     hedgeSidePrev,hedgeSideBegin,horizonHe,hedgeSide:TKraftQuickHullHalfEdge;
 begin
