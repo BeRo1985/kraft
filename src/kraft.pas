@@ -47361,17 +47361,23 @@ begin
 
  fCountIslands:=0;
 
+{$ifdef KraftProcessForceAllBodies}
+ SeedRigidBody:=fRigidBodyFirst;
+ while assigned(SeedRigidBody) do begin
+{$else}
+
  for Index:=0 to fCountNonStaticRigidBodies-1 do begin
 
   SeedRigidBody:=fNonStaticRigidBodies[Index];
 
-{SeedRigidBody:=fRigidBodyFirst;
- while assigned(SeedRigidBody) do begin}
+{$endif}
 
   if (krbfIslandVisited in SeedRigidBody.fFlags) or                               // Seed can't be visited and apart of an island already
      ((SeedRigidBody.fFlags*[krbfAwake,krbfActive])<>[krbfAwake,krbfActive]) or   // Seed must be awake
      (SeedRigidBody.fRigidBodyType in [krbtUnknown,krbtStatic]) then begin        // Seed can't be a unknown/static body in order to keep islands as small as possible
-// SeedRigidBody:=SeedRigidBody.fRigidBodyNext;
+{$ifdef KraftProcessForceAllBodies}
+   SeedRigidBody:=SeedRigidBody.fRigidBodyNext;
+{$endif}
    continue;
   end;
 
@@ -47527,7 +47533,9 @@ begin
    CurrentRigidBody.fFlags:=CurrentRigidBody.fFlags-[krbfIslandVisited,krbfIslandStatic];
   end;
 
-//SeedRigidBody:=SeedRigidBody.fRigidBodyNext;
+{$ifdef KraftProcessForceAllBodies}
+  SeedRigidBody:=SeedRigidBody.fRigidBodyNext;
+{$endif}
 
  end;
 
@@ -48806,6 +48814,16 @@ begin
 end;
 
 {$if defined(KraftPasMP) and not defined(KraftNoParallelTransforming)}
+
+{$ifdef KraftProcessForceAllBodies}
+procedure TKraft_StoreWorldTransforms_ParallelLoopProcedure(const aJob:PPasMPJob;const aThreadIndex:TPasMPInt32;const aData:pointer;const aFromIndex,aToIndex:TPasMPNativeInt);
+var Index:TPasMPNativeInt;
+begin
+ for Index:=aFromIndex to aToIndex do begin
+  TKraft(aData).fRigidBodies[Index].StoreWorldTransform;
+ end;
+end;
+{$else}
 procedure TKraft_StoreWorldTransforms_ParallelLoopProcedure_NonStatic(const aJob:PPasMPJob;const aThreadIndex:TPasMPInt32;const aData:pointer;const aFromIndex,aToIndex:TPasMPNativeInt);
 var Index:TPasMPNativeInt;
 begin
@@ -48821,6 +48839,8 @@ begin
   TKraft(aData).fUpdatedStaticRigidBodies[Index].StoreWorldTransform;
  end;
 end;
+{$endif}
+
 {$ifend}
 
 procedure TKraft.StoreWorldTransforms;
@@ -48828,6 +48848,13 @@ var Index:TKraftSizeInt;
 begin
 {$if defined(KraftPasMP) and not defined(KraftNoParallelTransforming)}
  if assigned(fPasMP) and (fPasMP.CountJobWorkerThreads>1) and not fSingleThreaded then begin
+{$ifdef KraftProcessForceAllBodies}
+  if fCountRigidBodies>0 then begin
+   fPasMP.Invoke(
+    fPasMP.ParallelFor(self,0,fCountRigidBodies-1,TKraft_StoreWorldTransforms_ParallelLoopProcedure,1,4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true)
+   );
+  end;
+{$else}
   if fCountNonStaticRigidBodies>0 then begin
    if fCountUpdatedStaticRigidBodies>0 then begin
     fPasMP.Invoke(
@@ -48846,13 +48873,20 @@ begin
     fPasMP.ParallelFor(self,0,fCountUpdatedStaticRigidBodies-1,TKraft_StoreWorldTransforms_ParallelLoopProcedure_UpdatedStatic,1,4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true)
    );
   end;
+{$endif}
  end else{$ifend}begin
+{$ifdef KraftProcessForceAllBodies}
+  for Index:=0 to fCountRigidBodies-1 do begin
+   fRigidBodies[Index].StoreWorldTransform;
+  end;
+{$else}
   for Index:=0 to fCountNonStaticRigidBodies-1 do begin
    fNonStaticRigidBodies[Index].StoreWorldTransform;
   end;
   for Index:=0 to fCountUpdatedStaticRigidBodies-1 do begin
    fUpdatedStaticRigidBodies[Index].StoreWorldTransform;
   end;
+{$endif}
  end;
 end;
 
@@ -48863,6 +48897,17 @@ type TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_Parameters=record
      end;
      PKraft_InterpolateWorldTransforms_ParallelLoopProcedure_Parameters=^TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_Parameters;
 
+{$ifdef KraftProcessForceAllBodies}
+procedure TKraft_InterpolateWorldTransforms_ParallelLoopProcedure(const aJob:PPasMPJob;const aThreadIndex:TPasMPInt32;const aData:pointer;const aFromIndex,aToIndex:TPasMPNativeInt);
+var Index:TPasMPNativeInt;
+    Parameters:PKraft_InterpolateWorldTransforms_ParallelLoopProcedure_Parameters;
+begin
+ Parameters:=PKraft_InterpolateWorldTransforms_ParallelLoopProcedure_Parameters(aData);
+ for Index:=aFromIndex to aToIndex do begin
+  Parameters^.Physics.fRigidBodies[Index].InterpolateWorldTransform(Parameters^.Alpha);
+ end;
+end;
+{$else}
 procedure TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_NonStatic(const aJob:PPasMPJob;const aThreadIndex:TPasMPInt32;const aData:pointer;const aFromIndex,aToIndex:TPasMPNativeInt);
 var Index:TPasMPNativeInt;
     Parameters:PKraft_InterpolateWorldTransforms_ParallelLoopProcedure_Parameters;
@@ -48885,6 +48930,7 @@ begin
   RigidBody.fUpdatedStaticRigidBodyIndex:=-1;
  end;
 end;
+{$endif}
 {$ifend}
 
 procedure TKraft.InterpolateWorldTransforms(const aAlpha:TKraftScalar);
@@ -48898,6 +48944,13 @@ begin
  if assigned(fPasMP) and (fPasMP.CountJobWorkerThreads>1) and not fSingleThreaded then begin
   Parameters.Physics:=self;
   Parameters.Alpha:=aAlpha;
+{$ifdef KraftProcessForceAllBodies}
+  if fCountRigidBodies>0 then begin
+   fPasMP.Invoke(
+    fPasMP.ParallelFor(@Parameters,0,fCountRigidBodies-1,TKraft_InterpolateWorldTransforms_ParallelLoopProcedure,1,4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true)
+   );
+  end;
+{$else}
   if fCountNonStaticRigidBodies>0 then begin
    if fCountUpdatedStaticRigidBodies>0 then begin
     fPasMP.Invoke(
@@ -48916,7 +48969,14 @@ begin
      fPasMP.ParallelFor(@Parameters,0,fCountUpdatedStaticRigidBodies-1,TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_UpdatedStatic,1,4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true)
     );
   end;
+{$endif}
  end else{$ifend}begin
+{$ifdef KraftProcessForceAllBodies}
+  for Index:=0 to fCountRigidBodies-1 do begin
+   RigidBody:=fRigidBodies[Index];
+   RigidBody.InterpolateWorldTransform(aAlpha);
+  end;
+{$else}
   for Index:=0 to fCountNonStaticRigidBodies-1 do begin
    fNonStaticRigidBodies[Index].InterpolateWorldTransform(aAlpha);
   end;
@@ -48925,6 +48985,7 @@ begin
    RigidBody.InterpolateWorldTransform(aAlpha);
    RigidBody.fUpdatedStaticRigidBodyIndex:=-1;
   end;
+{$endif}
  end;
  fCountUpdatedStaticRigidBodies:=0;
 end;
@@ -49042,6 +49103,15 @@ begin
   end;
  end;
 
+{$ifdef KraftProcessForceAllBodies}
+ for Index:=0 to fCountRigidBodies-1 do begin
+  RigidBody:=fRigidBodies[Index];
+  if assigned(RigidBody) then begin
+   RigidBody.fForce:=Vector3Origin;
+   RigidBody.fTorque:=Vector3Origin;
+  end;
+ end;
+{$else}
  for Index:=0 to fCountNonStaticRigidBodies-1 do begin
   RigidBody:=fNonStaticRigidBodies[Index];
   if assigned(RigidBody) then begin
@@ -49049,6 +49119,7 @@ begin
    RigidBody.fTorque:=Vector3Origin;
   end;
  end;
+{$endif}
 
  if TimeStep.DeltaTime>0.0 then begin
   fLastInverseDeltaTime:=TimeStep.InverseDeltaTime;
