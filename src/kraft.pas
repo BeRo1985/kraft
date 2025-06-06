@@ -40969,6 +40969,10 @@ begin
 end;
 
 procedure TKraftRigidBody.UpdateWorldTransformation;
+{$ifdef KraftProcessForceAllBodies}
+begin
+end;
+{$else}
 var Shape:TKraftShape;
 begin
 
@@ -41013,6 +41017,7 @@ begin
  end;
 
 end;
+{$endif}
 
 procedure TKraftRigidBody.SetWorldTransformation(const aWorldTransformation:TKraftMatrix4x4);
 begin
@@ -47352,6 +47357,16 @@ begin
   CurrentConstraint:=CurrentConstraint.fNext;
  end;
 
+{$ifdef KraftProcessForceAllBodies}
+ CurrentRigidBody:=fRigidBodyFirst;
+ while assigned(CurrentRigidBody) do begin
+  CurrentRigidBody.fIsland:=nil;
+  CurrentRigidBody.fFlags:=CurrentRigidBody.fFlags-[krbfIslandVisited,krbfIslandStatic];
+//Exclude(ContactPair^.Flags,[krbfIslandVisited,krbfIslandStatic]);
+  CurrentRigidBody:=CurrentRigidBody.fRigidBodyNext;
+ end;
+{$endif}
+
  ContactPair:=fContactManager.fContactPairFirst;
  while assigned(ContactPair) do begin
   ContactPair.Island:=nil;
@@ -49044,12 +49059,22 @@ begin
 
  SIMDSetOurFlags;
 
+{$ifdef KraftProcessForceAllBodies}
+ RigidBody:=fRigidBodyFirst;
+ while assigned(RigidBody) do begin
+  if assigned(RigidBody.fOnPreStep) then begin
+   RigidBody.fOnPreStep(RigidBody,TimeStep);
+  end;
+  RigidBody:=RigidBody.fRigidBodyNext;
+ end;
+{$else}
  for Index:=0 to fCountPreStepHookRigidBodies-1 do begin
   RigidBody:=fPreStepHookRigidBodies[Index];
   if assigned(RigidBody) and assigned(RigidBody.fOnPreStep) then begin
    RigidBody.fOnPreStep(RigidBody,TimeStep);
   end;
  end;
+{$endif}
 
  if fNewShapes then begin
   fNewShapes:=false;
@@ -49096,20 +49121,14 @@ begin
   Constraint:=NextConstraint;
  end;
 
- for Index:=0 to fCountPostStepHookRigidBodies-1 do begin
-  RigidBody:=fPostStepHookRigidBodies[Index];
-  if assigned(RigidBody) and assigned(RigidBody.fOnPostStep) then begin
-   RigidBody.fOnPostStep(RigidBody,TimeStep);
-  end;
- end;
-
 {$ifdef KraftProcessForceAllBodies}
- for Index:=0 to fCountRigidBodies-1 do begin
-  RigidBody:=fRigidBodies[Index];
-  if assigned(RigidBody) then begin
+ RigidBody:=fRigidBodyFirst;
+ while assigned(RigidBody) do begin
+  if RigidBody.fRigidBodyType<>krbtStatic then begin
    RigidBody.fForce:=Vector3Origin;
    RigidBody.fTorque:=Vector3Origin;
   end;
+  RigidBody:=RigidBody.fRigidBodyNext;
  end;
 {$else}
  for Index:=0 to fCountNonStaticRigidBodies-1 do begin
@@ -49117,6 +49136,25 @@ begin
   if assigned(RigidBody) then begin
    RigidBody.fForce:=Vector3Origin;
    RigidBody.fTorque:=Vector3Origin;
+  end;
+ end;
+{$endif}
+
+{$ifdef KraftProcessForceAllBodies}
+ RigidBody:=fRigidBodyFirst;
+ while assigned(RigidBody) do begin
+  if RigidBody.fRigidBodyType<>krbtStatic then begin
+   if assigned(RigidBody) and assigned(RigidBody.fOnPostStep) then begin
+    RigidBody.fOnPostStep(RigidBody,TimeStep);
+   end;
+  end;
+  RigidBody:=RigidBody.fRigidBodyNext;
+ end;
+{$else}
+ for Index:=0 to fCountPostStepHookRigidBodies-1 do begin
+  RigidBody:=fPostStepHookRigidBodies[Index];
+  if assigned(RigidBody) and assigned(RigidBody.fOnPostStep) then begin
+   RigidBody.fOnPostStep(RigidBody,TimeStep);
   end;
  end;
 {$endif}
