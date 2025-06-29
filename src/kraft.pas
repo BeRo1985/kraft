@@ -21671,8 +21671,10 @@ begin
    Parent^.Children[0]:=Index1;
    Parent^.Children[1]:=Index2;
    Parent^.Height:=Max(Children[0]^.Height,Children[1]^.Height)+1;
-   Parent^.AABB:=AABBCombine(Children[0]^.AABB,Children[1]^.AABB);
+   Parent^.AABB:=AABBCombine(Children[0]^.AABB,Children[1]^.AABB);   
    Parent^.Parent:=daabbtNULLNODE;
+   Parent^.CategoryBits:=Children[0]^.CategoryBits or Children[1]^.CategoryBits;
+   Parent^.Flags:=Children[0]^.Flags or Children[1]^.Flags;
    Children[0]^.Parent:=ParentIndex;
    Children[1]^.Parent:=ParentIndex;
    NewNodes^[jMin]:=NewNodes^[Count-1];
