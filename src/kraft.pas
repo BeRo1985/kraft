@@ -738,6 +738,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftDoubleDynamicArray=array of TKraftDouble;
 
+     TKraftPointerDynamicArray=array of pointer;
+
      TKraftSignature=array[0..7] of AnsiChar;
      PKraftSignature=^TKraftSignature;
 
@@ -1024,6 +1026,12 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftDynamicAABBTreeSkipListNodeMap=array of TKraftSizeInt;
 
+     TKraftDynamicAABBTreeUserDataArray=array of Pointer;
+
+     TKraftDynamicAABBTreeGetDistance=function(const aTreeNode:PKraftDynamicAABBTreeNode;const aPoint:TKraftVector3):TKraftScalar of object;
+
+     { TKraftDynamicAABBTreeSkipListNodeMap }
+
      { TKraftDynamicAABBTree }
      TKraftDynamicAABBTree=class
       private
@@ -1046,6 +1054,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 {$ifdef KraftPasMPThreadSafeBVH}
        fMultipleReaderSingleWriterLockState:TPasMPInt32;
 {$endif}
+       function GetDistance(const aTreeNode:PKraftDynamicAABBTreeNode;const aPoint:TKraftVector3):TKraftScalar;
       public
        constructor Create;
        destructor Destroy; override;
@@ -1073,6 +1082,11 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        function Validate:boolean;
        function GetIntersectionProxy(const AABB:TKraftAABB):pointer;
        procedure GetSkipListNodes(var aSkipListNodes:TKraftDynamicAABBTreeSkipListNodes);
+       function IntersectionQuery(const aAABB:TKraftAABB;var aArray:TKraftPointerDynamicArray;var aCount:TKraftSizeInt):Boolean;
+       function ContainQuery(const aAABB:TKraftAABB;var aArray:TKraftPointerDynamicArray;var aCount:TKraftSizeInt):Boolean; overload;
+       function ContainQuery(const aPoint:TKraftVector3;var aArray:TKraftPointerDynamicArray;var aCount:TKraftSizeInt):Boolean; overload;
+       function FindClosest(const aPoint:TKraftVector3):Pointer;
+       function LookupClosest(const aPoint:TKraftVector3;var aArray:TKraftPointerDynamicArray;var aCount:TKraftSizeInt;aGetDistance:TKraftDynamicAABBTreeGetDistance=nil;const aMaxCount:TKraftSizeInt=1;aMaxDistance:TKraftScalar=-1.0):boolean;
       public
        property Root:TKraftInt32 read fRoot;
        property Nodes:PKraftDynamicAABBTreeNodes read fNodes;
@@ -22611,6 +22625,442 @@ begin
 {$ifdef KraftPasMPThreadSafeBVH}
  TPasMPMultipleReaderSingleWriterSpinLock.ReleaseRead(fMultipleReaderSingleWriterLockState);
 {$endif}
+end;
+
+function TKraftDynamicAABBTree.IntersectionQuery(const aAABB:TKraftAABB;var aArray:TKraftPointerDynamicArray;var aCount:TKraftSizeInt):Boolean;
+type TStackItem=record
+      NodeID:TKraftSizeInt;
+     end;
+     TStack=TKraftDynamicFastNonRTTIStack<TStackItem>;
+var Stack:TStack;
+    StackItem,NewStackItem:TStackItem;
+    Node:PKraftDynamicAABBTreeNode;
+begin
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.AcquireRead(fMultipleReaderSingleWriterLockState);
+{$endif}
+ result:=false;
+ aCount:=0;
+ if (fNodeCount>0) and (fRoot>=0) then begin
+  Stack.Initialize;
+  try
+   NewStackItem.NodeID:=fRoot;
+   Stack.Push(NewStackItem);
+   while Stack.Pop(StackItem) do begin
+    Node:=@fNodes[StackItem.NodeID];
+    if AABBIntersect(Node^.AABB,aAABB) then begin
+     if assigned(Node^.UserData) then begin
+      if aCount>=length(aArray) then begin
+       SetLength(aArray,(aCount+1)+((aCount+1) shr 1));
+      end;
+      aArray[aCount]:=Node^.UserData;
+      inc(aCount);
+      result:=true;
+     end;
+     if (Node^.Children[1]>=0) then begin
+      NewStackItem.NodeID:=Node^.Children[1];
+      Stack.Push(NewStackItem);
+     end;
+     if (Node^.Children[0]>=0) then begin
+      NewStackItem.NodeID:=Node^.Children[0];
+      Stack.Push(NewStackItem);
+     end;
+    end;
+   end;
+  finally
+   Stack.Finalize;
+  end;
+ end;
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.ReleaseRead(fMultipleReaderSingleWriterLockState);
+{$endif}
+end;
+
+function TKraftDynamicAABBTree.ContainQuery(const aAABB:TKraftAABB;var aArray:TKraftPointerDynamicArray;var aCount:TKraftSizeInt):Boolean;
+type TStackItem=record
+      NodeID:TKraftSizeInt;
+     end;
+     TStack=TKraftDynamicFastNonRTTIStack<TStackItem>;
+var Stack:TStack;
+    StackItem,NewStackItem:TStackItem;
+    Node:PKraftDynamicAABBTreeNode;
+begin
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.AcquireRead(fMultipleReaderSingleWriterLockState);
+{$endif}
+ result:=false;
+ aCount:=0;
+ if (fNodeCount>0) and (fRoot>=0) then begin
+  Stack.Initialize;
+  try
+   NewStackItem.NodeID:=fRoot;
+   Stack.Push(NewStackItem);
+   while Stack.Pop(StackItem) do begin
+    Node:=@fNodes[StackItem.NodeID];
+    if AABBContains(Node^.AABB,aAABB) then begin
+     if assigned(Node^.UserData) then begin
+      if aCount>=length(aArray) then begin
+       SetLength(aArray,(aCount+1)+((aCount+1) shr 1));
+      end;
+      aArray[aCount]:=Node^.UserData;
+      inc(aCount);
+      result:=true;
+     end;
+     if (Node^.Children[1]>=0) then begin
+      NewStackItem.NodeID:=Node^.Children[1];
+      Stack.Push(NewStackItem);
+     end;
+     if (Node^.Children[0]>=0) then begin
+      NewStackItem.NodeID:=Node^.Children[0];
+      Stack.Push(NewStackItem);
+     end;
+    end;
+   end;
+  finally
+   Stack.Finalize;
+  end;
+ end;
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.ReleaseRead(fMultipleReaderSingleWriterLockState);
+{$endif}
+end;
+
+function TKraftDynamicAABBTree.ContainQuery(const aPoint:TKraftVector3;var aArray:TKraftPointerDynamicArray;var aCount:TKraftSizeInt):Boolean;
+type TStackItem=record
+      NodeID:TKraftSizeInt;
+     end;
+     TStack=TKraftDynamicFastNonRTTIStack<TStackItem>;
+var Stack:TStack;
+    StackItem,NewStackItem:TStackItem;
+    Node:PKraftDynamicAABBTreeNode;
+begin
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.AcquireRead(fMultipleReaderSingleWriterLockState);
+{$endif}
+ result:=false;
+ aCount:=0;
+ if (fNodeCount>0) and (fRoot>=0) then begin
+  Stack.Initialize;
+  try
+   NewStackItem.NodeID:=fRoot;
+   Stack.Push(NewStackItem);
+   while Stack.Pop(StackItem) do begin
+    Node:=@fNodes[StackItem.NodeID];
+    if AABBContains(Node^.AABB,aPoint) then begin
+     if Node^.UserData<>nil then begin
+      if aCount>=length(aArray) then begin
+       SetLength(aArray,(aCount+1)+((aCount+1) shr 1));
+      end;
+      aArray[aCount]:=Node^.UserData;
+      inc(aCount);
+      result:=true;
+     end;
+     if (Node^.Children[1]>=0) then begin
+      NewStackItem.NodeID:=Node^.Children[1];
+      Stack.Push(NewStackItem);
+     end;
+     if (Node^.Children[0]>=0) then begin
+      NewStackItem.NodeID:=Node^.Children[0];
+      Stack.Push(NewStackItem);
+     end;
+    end;
+   end;
+  finally
+   Stack.Finalize;
+  end;
+ end;
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.ReleaseRead(fMultipleReaderSingleWriterLockState);
+{$endif}
+end;
+
+function TKraftDynamicAABBTree.FindClosest(const aPoint:TKraftVector3):Pointer;
+type TStack=TKraftDynamicFastNonRTTIStack<TKraftSizeInt>;
+var Stack:TStack;
+    NodeIndex:TKraftSizeInt;
+    BestDistance,Distance:TKraftScalar;
+    TreeNode:PKraftDynamicAABBTreeNode;
+    ChildDistances:array[0..1] of TKraftScalar;
+begin
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.AcquireRead(fMultipleReaderSingleWriterLockState);
+{$endif}
+ result:=nil;
+ if fRoot>=0 then begin
+  BestDistance:=Infinity;
+  Stack.Initialize;
+  try
+   Stack.Push(fRoot);
+   while Stack.Pop(NodeIndex) do begin
+    TreeNode:=@fNodes[NodeIndex];
+    if assigned(TreeNode.UserData) then begin
+     if assigned(Pointer(TreeNode^.UserData)) then begin
+      Distance:=ClosestPointToAABB(TreeNode^.AABB,aPoint,nil);
+      if (not assigned(result)) or (BestDistance>Distance) then begin
+       BestDistance:=Distance;
+       result:=TreeNode;
+       if IsZero(BestDistance) then begin
+        Stack.Clear;
+        break;
+       end;
+      end;
+     end;
+    end;
+    if (TreeNode.Children[0]>=0) and
+       (TreeNode.Children[1]>=0) then begin
+     ChildDistances[0]:=ClosestPointToAABB(fNodes[TreeNode.Children[0]].AABB,aPoint);
+     ChildDistances[1]:=ClosestPointToAABB(fNodes[TreeNode.Children[1]].AABB,aPoint);
+     if ChildDistances[0]<ChildDistances[1] then begin
+      if ChildDistances[0]<=BestDistance then begin
+       if ChildDistances[1]<=BestDistance then begin
+        Stack.Push(TreeNode.Children[1]);
+       end;
+       Stack.Push(TreeNode.Children[0]);
+      end;
+     end else begin
+      if ChildDistances[1]<=BestDistance then begin
+       if ChildDistances[0]<=BestDistance then begin
+        Stack.Push(TreeNode.Children[0]);
+       end;
+       Stack.Push(TreeNode.Children[1]);
+      end;
+     end;
+    end else begin
+     if TreeNode.Children[0]>=0 then begin
+      if ClosestPointToAABB(fNodes[TreeNode.Children[0]].AABB,aPoint)<=BestDistance then begin
+       Stack.Push(TreeNode.Children[0]);
+      end;
+     end;
+     if TreeNode.Children[1]>=0 then begin
+      if ClosestPointToAABB(fNodes[TreeNode.Children[1]].AABB,aPoint)<=BestDistance then begin
+       Stack.Push(TreeNode.Children[1]);
+      end;
+     end;
+    end;
+   end;
+  finally
+   Stack.Finalize;
+  end;
+ end;
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.ReleaseRead(fMultipleReaderSingleWriterLockState);
+{$endif}
+end;
+
+function TKraftDynamicAABBTree.GetDistance(const aTreeNode:PKraftDynamicAABBTreeNode;const aPoint:TKraftVector3):TKraftScalar;
+begin
+ if assigned(aTreeNode) then begin
+  if assigned(aTreeNode^.UserData) then begin
+   result:=ClosestPointToAABB(aTreeNode^.AABB,aPoint,nil);
+  end else begin
+   result:=Infinity;
+  end;
+ end else begin
+  result:=Infinity;
+ end;
+end;
+
+function TKraftDynamicAABBTree.LookupClosest(const aPoint:TKraftVector3;var aArray:TKraftPointerDynamicArray;var aCount:TKraftSizeInt;aGetDistance:TKraftDynamicAABBTreeGetDistance=nil;const aMaxCount:TKraftSizeInt=1;aMaxDistance:TKraftScalar=-1.0):boolean;
+type TStackItem=record
+      NodeID:TKraftSizeInt;
+      Distance:TKraftScalar;
+     end;
+     PStackItem=^TStackItem;
+     TStack=TKraftDynamicFastStack<TStackItem>;
+     TResultItem=record
+      Node:PKraftDynamicAABBTreeNode;
+      Distance:TKraftScalar;
+     end;
+     PResultItem=^TResultItem;
+     TResultItemArray=array of TResultItem;
+var Stack:TStack;
+    NewStackItem:PStackItem;
+    StackItem:TStackItem;
+    Node:PKraftDynamicAABBTreeNode;
+    Index,LowIndex,MidIndex,HighIndex,ResultItemArraySize,OtherIndex:TKraftSizeInt;
+    ResultItemArray:TResultItemArray;
+    ResultItem:TResultItem;
+    DistanceA,DistanceB:TKraftScalar;
+begin
+
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.AcquireRead(fMultipleReaderSingleWriterLockState);
+{$endif}
+
+ // If aMaxDistance is less than or equal to zero, then set it to infinity as default
+ if aMaxDistance<=0.0 then begin
+  aMaxDistance:=Infinity;
+ end;
+ 
+ // If the GetDistance function is not assigned, then assign the default one 
+ if not assigned(aGetDistance) then begin
+  aGetDistance:=GetDistance;
+ end;
+
+ result:=false;
+
+ ResultItemArray:=nil;
+ ResultItemArraySize:=0;
+ try
+
+  NewStackItem:=Pointer(Stack.PushIndirect);
+  NewStackItem^.NodeID:=fRoot;
+  NewStackItem^.Distance:=ClosestPointToAABB(fNodes[fRoot].AABB,aPoint);
+
+  while Stack.Pop(StackItem) do begin
+
+   // If this subtree is further away than we care about, or if we've already found enough locations, and the furthest one is closer
+   // than this subtree possibly could be, then skip it.
+   if (StackItem.Distance<=aMaxDistance) and
+      (not ((ResultItemArraySize=aMaxCount) and (ResultItemArray[ResultItemArraySize-1].Distance<StackItem.Distance))) then begin
+
+    Node:=@fNodes[StackItem.NodeID];
+    if assigned(Node^.UserData) then begin
+
+     // Add the node to the result list in a sorted way
+     ResultItem.Node:=Node;
+     ResultItem.Distance:=aGetDistance(Node,aPoint);
+     if ResultItem.Distance<=aMaxDistance then begin
+      
+      if ResultItemArraySize>0 then begin
+
+       // Binary insertion into the sorted list
+       LowIndex:=0;
+       HighIndex:=ResultItemArraySize-1;
+       while LowIndex<=HighIndex do begin
+        MidIndex:=LowIndex+((HighIndex-LowIndex) shr 1);
+        if ResultItemArray[MidIndex].Distance<ResultItem.Distance then begin
+         LowIndex:=MidIndex+1;
+        end else begin
+         HighIndex:=MidIndex-1;
+        end;
+       end;
+       if length(ResultItemArray)<=ResultItemArraySize then begin
+        SetLength(ResultItemArray,(ResultItemArraySize+1)+((ResultItemArraySize+1) shr 1));
+       end;
+       if (LowIndex>=0) and (LowIndex<ResultItemArraySize) then begin
+        // If the insertion index is within bounds, then insert it at the right position
+        if LowIndex<ResultItemArraySize then begin
+         // Shift the items to the right to make space for the new item
+         for OtherIndex:=ResultItemArraySize downto LowIndex do begin
+          ResultItemArray[OtherIndex+1]:=ResultItemArray[OtherIndex];
+         end;
+        end;
+        ResultItemArray[LowIndex]:=ResultItem;
+        inc(ResultItemArraySize);
+       end else begin
+        // If the insertion index is out of bounds, then add it to the end of the list
+        ResultItemArray[ResultItemArraySize]:=ResultItem;
+        inc(ResultItemArraySize);
+       end;
+
+      end else begin
+
+       // Add the node to the result list directly if the list is empty
+       if length(ResultItemArray)<=ResultItemArraySize then begin
+        SetLength(ResultItemArray,(ResultItemArraySize+1)+((ResultItemArraySize+1) shr 1));
+       end;
+       ResultItemArray[ResultItemArraySize]:=ResultItem;
+       inc(ResultItemArraySize);
+
+      end;
+
+{     // Sort the list so that the closest is first for just to be sure. It should just a linear search check, when the binary search based
+      // insertion is working correctly
+      Index:=0;
+      while (Index+1)<ResultItemArraySize do begin
+       if ResultItemArray[Index].Distance>ResultItemArray[Index+1].Distance then begin
+        ResultItem:=ResultItemArray[Index];
+        ResultItemArray[Index]:=ResultItemArray[Index+1];
+        ResultItemArray[Index+1]:=ResultItem;
+        if Index>0 then begin
+         dec(Index);
+        end else begin
+         inc(Index);
+        end;
+       end else begin
+        inc(Index);
+       end;
+      end;//}
+
+      // Maintain the sorted list within the max count
+      if ResultItemArraySize>aMaxCount then begin
+       ResultItemArraySize:=aMaxCount;
+      end;
+
+      result:=true;
+
+     end;
+
+    end;
+
+    // Add the children to the stack in the order of the closest one first
+    if Node^.Children[0]>=0 then begin
+     DistanceA:=ClosestPointToAABB(fNodes[Node^.Children[0]].AABB,aPoint);
+     if Node^.Children[1]>=0 then begin
+      DistanceB:=ClosestPointToAABB(fNodes[Node^.Children[1]].AABB,aPoint);
+      if DistanceA<DistanceB then begin
+       if DistanceB<=aMaxDistance then begin
+        NewStackItem:=Pointer(Stack.PushIndirect);
+        NewStackItem^.NodeID:=Node^.Children[1];
+        NewStackItem^.Distance:=DistanceB;
+       end;
+       if DistanceA<=aMaxDistance then begin
+        NewStackItem:=Pointer(Stack.PushIndirect);
+        NewStackItem^.NodeID:=Node^.Children[0];
+        NewStackItem^.Distance:=DistanceA;
+       end; 
+      end else begin
+       if DistanceA<=aMaxDistance then begin
+        NewStackItem:=Pointer(Stack.PushIndirect);
+        NewStackItem^.NodeID:=Node^.Children[0];
+        NewStackItem^.Distance:=DistanceA;
+       end; 
+       if DistanceB<=aMaxDistance then begin
+        NewStackItem:=Pointer(Stack.PushIndirect);
+        NewStackItem^.NodeID:=Node^.Children[1];
+        NewStackItem^.Distance:=DistanceB;
+       end;
+      end; 
+     end else begin
+      if DistanceA<=aMaxDistance then begin
+       NewStackItem:=Pointer(Stack.PushIndirect);
+       NewStackItem^.NodeID:=Node^.Children[0];
+       NewStackItem^.Distance:=DistanceA;
+      end; 
+     end;
+    end else if Node^.Children[1]>=0 then begin
+     DistanceB:=ClosestPointToAABB(fNodes[Node^.Children[1]].AABB,aPoint);
+     if DistanceB<=aMaxDistance then begin
+      NewStackItem:=Pointer(Stack.PushIndirect);
+      NewStackItem^.NodeID:=Node^.Children[1];
+      NewStackItem^.Distance:=DistanceB;
+     end;
+    end;
+
+   end;
+
+  end;
+
+  // Copy the result items to the output list
+  aCount:=ResultItemArraySize;
+  if aCount>0 then begin
+   if length(aArray)<aCount then begin
+    SetLength(aArray,aCount+((aCount+1) shr 1));
+   end;
+   for Index:=0 to ResultItemArraySize-1 do begin
+    aArray[Index]:=ResultItemArray[Index].Node.UserData;
+   end;
+  end;
+  
+ finally
+  ResultItemArray:=nil;
+ end;
+
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.ReleaseRead(fMultipleReaderSingleWriterLockState);
+{$endif}
+
 end;
 
 type PConvexHullVector=^TConvexHullVector;
