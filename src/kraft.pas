@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2025-04-27-02-58-0000                       *
+ *                        Version 2025-07-01-12-06-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -493,6 +493,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      TKraftIsland=class;
 
      TKraftShape=class;
+
+     TKraftShapeDynamicArray=array of TKraftShape;
 
      TKraftRigidBody=class;
 
@@ -4607,6 +4609,12 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
                                             var aVelocity:TKraftVector3;
                                             const aCountPositionIterations:TKraftInt32=32;
                                             const aCountVelocityIterations:TKraftInt32=32):Boolean;
+
+       function IntersectionQuery(const aAABB:TKraftAABB;var aArray:TKraftShapeDynamicArray;var aCount:TKraftSizeInt):Boolean;
+       function ContainQuery(const aAABB:TKraftAABB;var aArray:TKraftShapeDynamicArray;var aCount:TKraftSizeInt):Boolean; overload;
+       function ContainQuery(const aPoint:TKraftVector3;var aArray:TKraftShapeDynamicArray;var aCount:TKraftSizeInt):Boolean; overload;
+       function FindClosest(const aPoint:TKraftVector3):TKraftShape;
+       function LookupClosest(const aPoint:TKraftVector3;var aArray:TKraftShapeDynamicArray;var aCount:TKraftSizeInt;aGetDistance:TKraftDynamicAABBTreeGetDistance=nil;const aMaxCount:TKraftSizeInt=1;aMaxDistance:TKraftScalar=-1.0):boolean;
 
        function GetDistance(const aShapeA,aShapeB:TKraftShape):TKraftScalar;
 
@@ -36357,7 +36365,7 @@ begin
      end;
      kcpcmmPositionSolver:begin
       SolverContact^.Point:=Vector3Avg(PointA,PointB);
-      SolverContact^.Separation:=Vector3Dot(Vector3Sub(PointB,PointA),SolverContactManifold.Normal)-(Manifold.LocalRadius[0]+Manifold.LocalRadius[1]);{}
+      SolverContact^.Separation:=Vector3Dot(Vector3Sub(PointB,PointA),SolverContactManifold.Normal)-(Manifold.LocalRadius[0]+Manifold.LocalRadius[1]);//{}
      end;
     end;
     SolverContact^.Separation:=SolverContact^.Separation+Contact.Penetration;
@@ -52012,6 +52020,312 @@ begin
  end;
 
 end;
+
+function TKraft.IntersectionQuery(const aAABB:TKraftAABB;var aArray:TKraftShapeDynamicArray;var aCount:TKraftSizeInt):Boolean;
+var TemporaryCount,CombinedCount,Index:TKraftSizeInt;
+    TemporaryArray,CombinedArray:TKraftPointerDynamicArray;
+    DynamicAABBTree:TKraftDynamicAABBTree;
+begin
+ result:=false;
+ TemporaryCount:=0;
+ CombinedCount:=0;
+ TemporaryArray:=nil;
+ CombinedArray:=nil;
+ try
+  for Index:=0 to 3 do begin
+   case Index of
+    0:begin
+     DynamicAABBTree:=fStaticAABBTree;
+    end; 
+    1:begin
+     DynamicAABBTree:=fSleepingAABBTree;
+    end; 
+    2:begin 
+     DynamicAABBTree:=fDynamicAABBTree;
+    end;
+    else begin
+     DynamicAABBTree:=fKinematicAABBTree;
+    end; 
+   end;
+   if assigned(DynamicAABBTree) and (DynamicAABBTree.fRoot>=0) then begin
+    TemporaryCount:=0;
+    if DynamicAABBTree.IntersectionQuery(aAABB,TemporaryArray,TemporaryCount) then begin
+     result:=true;
+     if TemporaryCount>0 then begin
+      if CombinedCount=0 then begin
+       SetLength(CombinedArray,TemporaryCount);
+       CombinedCount:=TemporaryCount;
+       Move(TemporaryArray[0],CombinedArray[0],TemporaryCount*sizeof(pointer));
+      end else begin
+       SetLength(CombinedArray,CombinedCount+TemporaryCount);
+       Move(TemporaryArray[0],CombinedArray[CombinedCount],TemporaryCount*sizeof(pointer));
+       inc(CombinedCount,TemporaryCount);
+      end;
+     end;
+    end;
+   end;
+  end;
+  aArray:=nil;
+  aCount:=CombinedCount;
+  if CombinedCount>0 then begin
+   SetLength(aArray,CombinedCount);
+   for Index:=0 to CombinedCount-1 do begin
+    aArray[Index]:=CombinedArray[Index];
+   end;
+  end;
+ finally
+  TemporaryArray:=nil;
+  CombinedArray:=nil;
+ end; 
+end;
+
+function TKraft.ContainQuery(const aAABB:TKraftAABB;var aArray:TKraftShapeDynamicArray;var aCount:TKraftSizeInt):Boolean;
+var TemporaryCount,CombinedCount,Index:TKraftSizeInt;
+    TemporaryArray,CombinedArray:TKraftPointerDynamicArray;
+    DynamicAABBTree:TKraftDynamicAABBTree;
+begin
+ result:=false;
+ TemporaryCount:=0;
+ CombinedCount:=0;
+ TemporaryArray:=nil;
+ CombinedArray:=nil;
+ try
+  for Index:=0 to 3 do begin
+   case Index of
+    0:begin
+     DynamicAABBTree:=fStaticAABBTree;
+    end; 
+    1:begin
+     DynamicAABBTree:=fSleepingAABBTree;
+    end; 
+    2:begin 
+     DynamicAABBTree:=fDynamicAABBTree;
+    end;
+    else begin
+     DynamicAABBTree:=fKinematicAABBTree;
+    end; 
+   end;
+   if assigned(DynamicAABBTree) and (DynamicAABBTree.fRoot>=0) then begin
+    TemporaryCount:=0;
+    if DynamicAABBTree.ContainQuery(aAABB,TemporaryArray,TemporaryCount) then begin
+     result:=true;
+     if TemporaryCount>0 then begin
+      if CombinedCount=0 then begin
+       SetLength(CombinedArray,TemporaryCount);
+       CombinedCount:=TemporaryCount;
+       Move(TemporaryArray[0],CombinedArray[0],TemporaryCount*sizeof(pointer));
+      end else begin
+       SetLength(CombinedArray,CombinedCount+TemporaryCount);
+       Move(TemporaryArray[0],CombinedArray[CombinedCount],TemporaryCount*sizeof(pointer));
+       inc(CombinedCount,TemporaryCount);
+      end;
+     end;
+    end;
+   end;
+  end;
+  aArray:=nil;
+  aCount:=CombinedCount;
+  if CombinedCount>0 then begin
+   SetLength(aArray,CombinedCount);
+   for Index:=0 to CombinedCount-1 do begin
+    aArray[Index]:=CombinedArray[Index];
+   end;
+  end;
+ finally
+  TemporaryArray:=nil; 
+  CombinedArray:=nil;
+ end;
+end;
+ 
+function TKraft.ContainQuery(const aPoint:TKraftVector3;var aArray:TKraftShapeDynamicArray;var aCount:TKraftSizeInt):Boolean;
+var TemporaryCount,CombinedCount,Index:TKraftSizeInt;
+    TemporaryArray,CombinedArray:TKraftPointerDynamicArray;
+    DynamicAABBTree:TKraftDynamicAABBTree;
+begin
+ result:=false;
+ TemporaryCount:=0;
+ CombinedCount:=0;
+ TemporaryArray:=nil;
+ CombinedArray:=nil;
+ try
+  for Index:=0 to 3 do begin
+   case Index of
+    0:begin
+     DynamicAABBTree:=fStaticAABBTree;
+    end; 
+    1:begin
+     DynamicAABBTree:=fSleepingAABBTree;
+    end; 
+    2:begin 
+     DynamicAABBTree:=fDynamicAABBTree;
+    end;
+    else begin
+     DynamicAABBTree:=fKinematicAABBTree;
+    end; 
+   end;
+   if assigned(DynamicAABBTree) and (DynamicAABBTree.fRoot>=0) then begin
+    TemporaryCount:=0;
+    if DynamicAABBTree.ContainQuery(aPoint,TemporaryArray,TemporaryCount) then begin
+     result:=true;
+     if TemporaryCount>0 then begin
+      if CombinedCount=0 then begin
+       SetLength(CombinedArray,TemporaryCount);
+       CombinedCount:=TemporaryCount;
+       Move(TemporaryArray[0],CombinedArray[0],TemporaryCount*sizeof(pointer));
+      end else begin
+       SetLength(CombinedArray,CombinedCount+TemporaryCount);
+       Move(TemporaryArray[0],CombinedArray[CombinedCount],TemporaryCount*sizeof(pointer));
+       inc(CombinedCount,TemporaryCount);
+      end;
+     end;
+    end;
+   end;
+  end;
+  aArray:=nil;
+  aCount:=CombinedCount;
+  if CombinedCount>0 then begin
+   SetLength(aArray,CombinedCount);
+   for Index:=0 to CombinedCount-1 do begin
+    aArray[Index]:=CombinedArray[Index];
+   end;
+  end;
+ finally
+  TemporaryArray:=nil; 
+  CombinedArray:=nil;
+ end;
+end;
+
+function TKraft.FindClosest(const aPoint:TKraftVector3):TKraftShape;
+var Index:TKraftSizeInt;
+    DynamicAABBTree:TKraftDynamicAABBTree;
+    TemporaryShape:TKraftShape;
+    ClosestDistance,Distance:TKraftScalar;
+begin
+ result:=nil;
+ ClosestDistance:=Infinity;
+ for Index:=0 to 3 do begin
+  case Index of
+   0:begin
+    DynamicAABBTree:=fStaticAABBTree;
+   end;
+   1:begin
+    DynamicAABBTree:=fSleepingAABBTree;
+   end;
+   2:begin
+    DynamicAABBTree:=fDynamicAABBTree;
+   end;
+   else begin
+    DynamicAABBTree:=fKinematicAABBTree;
+   end;
+  end;
+  if assigned(DynamicAABBTree) and (DynamicAABBTree.fRoot>=0) then begin
+   TemporaryShape:=DynamicAABBTree.FindClosest(aPoint);
+   if assigned(TemporaryShape) then begin
+    Distance:=ClosestPointToAABB(TemporaryShape.fWorldAABB,aPoint,nil);
+    if Distance<ClosestDistance then begin
+     ClosestDistance:=Distance;
+     result:=TemporaryShape;
+    end;
+   end;
+  end;
+ end;
+end;
+
+function TKraft.LookupClosest(const aPoint:TKraftVector3;var aArray:TKraftShapeDynamicArray;var aCount:TKraftSizeInt;aGetDistance:TKraftDynamicAABBTreeGetDistance=nil;const aMaxCount:TKraftSizeInt=1;aMaxDistance:TKraftScalar=-1.0):boolean;
+var TemporaryCount,CombinedCount,Index:TKraftSizeInt;
+    TemporaryArray,CombinedArray:TKraftPointerDynamicArray;
+    DynamicAABBTree:TKraftDynamicAABBTree;
+    Temporary:Pointer;
+begin
+ 
+ result:=false;
+
+ TemporaryCount:=0;
+ CombinedCount:=0;
+ TemporaryArray:=nil;
+ CombinedArray:=nil;
+
+ try
+
+  // Iterate through all AABB trees
+  for Index:=0 to 3 do begin
+   case Index of
+    0:begin
+     DynamicAABBTree:=fStaticAABBTree;
+    end; 
+    1:begin
+     DynamicAABBTree:=fSleepingAABBTree;
+    end; 
+    2:begin 
+     DynamicAABBTree:=fDynamicAABBTree;
+    end;
+    else begin
+     DynamicAABBTree:=fKinematicAABBTree;
+    end; 
+   end;
+   if assigned(DynamicAABBTree) and (DynamicAABBTree.fRoot>=0) then begin
+    TemporaryCount:=0;
+    if DynamicAABBTree.LookupClosest(aPoint,TemporaryArray,TemporaryCount,aGetDistance,aMaxCount,aMaxDistance) then begin
+     result:=true;
+     if TemporaryCount>0 then begin
+      if CombinedCount=0 then begin
+       SetLength(CombinedArray,TemporaryCount);
+       CombinedCount:=TemporaryCount;
+       Move(TemporaryArray[0],CombinedArray[0],TemporaryCount*sizeof(pointer));
+      end else begin
+       SetLength(CombinedArray,CombinedCount+TemporaryCount);
+       Move(TemporaryArray[0],CombinedArray[CombinedCount],TemporaryCount*sizeof(pointer));
+       inc(CombinedCount,TemporaryCount);
+      end;
+     end;
+    end;
+   end;
+  end;
+
+  // Sort the array by distance with respect to the point, a variant of bubble sort is used here for simplicity
+  if CombinedCount>1 then begin
+   Index:=0;
+   while (Index+1)<CombinedCount do begin
+    if ClosestPointToAABB(TKraftShape(CombinedArray[Index]).fWorldAABB,aPoint,nil)>ClosestPointToAABB(TKraftShape(CombinedArray[Index+1]).fWorldAABB,aPoint,nil) then begin
+     Temporary:=CombinedArray[Index];
+     CombinedArray[Index]:=CombinedArray[Index+1];
+     CombinedArray[Index+1]:=Temporary;
+     if Index>0 then begin
+      dec(Index);
+     end else begin
+      inc(Index); 
+     end;
+    end else begin
+     inc(Index);
+    end;
+   end;
+  end;
+
+  // Limit the array to the maximum count, if specified
+  if (aMaxCount>0) and (aMaxCount<CombinedCount) then begin
+   SetLength(CombinedArray,aMaxCount);
+   CombinedCount:=aMaxCount;
+  end;
+
+  // Convert the array to the output format
+  aArray:=nil;
+  aCount:=CombinedCount;
+  if CombinedCount>0 then begin
+   SetLength(aArray,CombinedCount);
+   for Index:=0 to CombinedCount-1 do begin
+    aArray[Index]:=TKraftShape(CombinedArray[Index]);
+   end;
+  end;
+
+ finally
+
+  // Free the temporary arrays
+  TemporaryArray:=nil; 
+  CombinedArray:=nil;
+
+ end; 
+
+end;    
 
 function TKraft.GetDistance(const aShapeA,aShapeB:TKraftShape):TKraftScalar;
 var GJK:TKraftGJK;
