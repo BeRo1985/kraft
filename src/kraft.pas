@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2025-07-01-12-06-0000                       *
+ *                        Version 2025-07-30-02-08-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -1084,6 +1084,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        function Validate:boolean;
        function GetIntersectionProxy(const AABB:TKraftAABB):pointer;
        procedure GetSkipListNodes(var aSkipListNodes:TKraftDynamicAABBTreeSkipListNodes);
+       function FastCheckIntersection(const aAABB:TKraftAABB):Boolean;
        function IntersectionQuery(const aAABB:TKraftAABB;var aArray:TKraftPointerDynamicArray;var aCount:TKraftSizeInt):Boolean;
        function ContainQuery(const aAABB:TKraftAABB;var aArray:TKraftPointerDynamicArray;var aCount:TKraftSizeInt):Boolean; overload;
        function ContainQuery(const aPoint:TKraftVector3;var aArray:TKraftPointerDynamicArray;var aCount:TKraftSizeInt):Boolean; overload;
@@ -4610,6 +4611,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
                                             const aCountPositionIterations:TKraftInt32=32;
                                             const aCountVelocityIterations:TKraftInt32=32):Boolean;
 
+       function FastCheckIntersection(const aAABB:TKraftAABB):Boolean;
        function IntersectionQuery(const aAABB:TKraftAABB;var aArray:TKraftShapeDynamicArray;var aCount:TKraftSizeInt):Boolean;
        function ContainQuery(const aAABB:TKraftAABB;var aArray:TKraftShapeDynamicArray;var aCount:TKraftSizeInt):Boolean; overload;
        function ContainQuery(const aPoint:TKraftVector3;var aArray:TKraftShapeDynamicArray;var aCount:TKraftSizeInt):Boolean; overload;
@@ -22629,6 +22631,50 @@ begin
   end;
  finally
   SetLength(aSkipListNodes,CountSkipListNodes);
+ end;
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.ReleaseRead(fMultipleReaderSingleWriterLockState);
+{$endif}
+end;
+
+function TKraftDynamicAABBTree.FastCheckIntersection(const aAABB:TKraftAABB):Boolean;
+type TStackItem=record
+      NodeID:TKraftSizeInt;
+     end;
+     TStack=TKraftDynamicFastNonRTTIStack<TStackItem>;
+var Stack:TStack;
+    StackItem,NewStackItem:TStackItem;
+    Node:PKraftDynamicAABBTreeNode;
+begin
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.AcquireRead(fMultipleReaderSingleWriterLockState);
+{$endif}
+ result:=false;
+ if (fNodeCount>0) and (fRoot>=0) then begin
+  Stack.Initialize;
+  try
+   NewStackItem.NodeID:=fRoot;
+   Stack.Push(NewStackItem);
+   while Stack.Pop(StackItem) do begin
+    Node:=@fNodes[StackItem.NodeID];
+    if AABBIntersect(Node^.AABB,aAABB) then begin
+     if assigned(Node^.UserData) then begin
+      result:=true;
+      break;
+     end;
+     if (Node^.Children[1]>=0) then begin
+      NewStackItem.NodeID:=Node^.Children[1];
+      Stack.Push(NewStackItem);
+     end;
+     if (Node^.Children[0]>=0) then begin
+      NewStackItem.NodeID:=Node^.Children[0];
+      Stack.Push(NewStackItem);
+     end;
+    end;
+   end;
+  finally
+   Stack.Finalize;
+  end;
  end;
 {$ifdef KraftPasMPThreadSafeBVH}
  TPasMPMultipleReaderSingleWriterSpinLock.ReleaseRead(fMultipleReaderSingleWriterLockState);
@@ -52021,6 +52067,35 @@ begin
 
 end;
 
+function TKraft.FastCheckIntersection(const aAABB:TKraftAABB):Boolean;
+var Index:TKraftSizeInt;
+    DynamicAABBTree:TKraftDynamicAABBTree;
+begin
+ result:=false;
+ for Index:=0 to 3 do begin
+  case Index of
+   0:begin
+    DynamicAABBTree:=fStaticAABBTree;
+   end;
+   1:begin
+    DynamicAABBTree:=fSleepingAABBTree;
+   end;
+   2:begin
+    DynamicAABBTree:=fDynamicAABBTree;
+   end;
+   else begin
+    DynamicAABBTree:=fKinematicAABBTree;
+   end;
+  end;
+  if assigned(DynamicAABBTree) and
+     (DynamicAABBTree.fRoot>=0) and
+     DynamicAABBTree.FastCheckIntersection(aAABB) then begin
+   result:=true;
+   break;
+  end;
+ end;
+end;
+
 function TKraft.IntersectionQuery(const aAABB:TKraftAABB;var aArray:TKraftShapeDynamicArray;var aCount:TKraftSizeInt):Boolean;
 var TemporaryCount,CombinedCount,Index:TKraftSizeInt;
     TemporaryArray,CombinedArray:TKraftPointerDynamicArray;
@@ -52036,16 +52111,16 @@ begin
    case Index of
     0:begin
      DynamicAABBTree:=fStaticAABBTree;
-    end; 
+    end;
     1:begin
      DynamicAABBTree:=fSleepingAABBTree;
-    end; 
-    2:begin 
+    end;
+    2:begin
      DynamicAABBTree:=fDynamicAABBTree;
     end;
     else begin
      DynamicAABBTree:=fKinematicAABBTree;
-    end; 
+    end;
    end;
    if assigned(DynamicAABBTree) and (DynamicAABBTree.fRoot>=0) then begin
     TemporaryCount:=0;
@@ -52076,7 +52151,7 @@ begin
  finally
   TemporaryArray:=nil;
   CombinedArray:=nil;
- end; 
+ end;
 end;
 
 function TKraft.ContainQuery(const aAABB:TKraftAABB;var aArray:TKraftShapeDynamicArray;var aCount:TKraftSizeInt):Boolean;
