@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2025-07-30-02-08-0000                       *
+ *                        Version 2025-07-30-02-30-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -1084,7 +1084,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        function Validate:boolean;
        function GetIntersectionProxy(const AABB:TKraftAABB):pointer;
        procedure GetSkipListNodes(var aSkipListNodes:TKraftDynamicAABBTreeSkipListNodes);
-       function FastCheckIntersection(const aAABB:TKraftAABB):Boolean;
+       function FastCheckIntersection(const aAABB:TKraftAABB;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)]):Boolean;
        function IntersectionQuery(const aAABB:TKraftAABB;var aArray:TKraftPointerDynamicArray;var aCount:TKraftSizeInt):Boolean;
        function ContainQuery(const aAABB:TKraftAABB;var aArray:TKraftPointerDynamicArray;var aCount:TKraftSizeInt):Boolean; overload;
        function ContainQuery(const aPoint:TKraftVector3;var aArray:TKraftPointerDynamicArray;var aCount:TKraftSizeInt):Boolean; overload;
@@ -4611,7 +4611,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
                                             const aCountPositionIterations:TKraftInt32=32;
                                             const aCountVelocityIterations:TKraftInt32=32):Boolean;
 
-       function FastCheckIntersection(const aAABB:TKraftAABB):Boolean;
+       function FastCheckIntersection(const aAABB:TKraftAABB;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)]):Boolean;
        function IntersectionQuery(const aAABB:TKraftAABB;var aArray:TKraftShapeDynamicArray;var aCount:TKraftSizeInt):Boolean;
        function ContainQuery(const aAABB:TKraftAABB;var aArray:TKraftShapeDynamicArray;var aCount:TKraftSizeInt):Boolean; overload;
        function ContainQuery(const aPoint:TKraftVector3;var aArray:TKraftShapeDynamicArray;var aCount:TKraftSizeInt):Boolean; overload;
@@ -22637,7 +22637,7 @@ begin
 {$endif}
 end;
 
-function TKraftDynamicAABBTree.FastCheckIntersection(const aAABB:TKraftAABB):Boolean;
+function TKraftDynamicAABBTree.FastCheckIntersection(const aAABB:TKraftAABB;const aCollisionGroups:TKraftRigidBodyCollisionGroups):Boolean;
 type TStackItem=record
       NodeID:TKraftSizeInt;
      end;
@@ -22658,7 +22658,10 @@ begin
    while Stack.Pop(StackItem) do begin
     Node:=@fNodes[StackItem.NodeID];
     if AABBIntersect(Node^.AABB,aAABB) then begin
-     if assigned(Node^.UserData) then begin
+     if assigned(Node^.UserData) and
+        assigned(TKraftShape(Node^.UserData).fRigidBody) and
+        ((TKraftShape(Node^.UserData).fRigidBody.fCollisionGroups*aCollisionGroups)<>[]) and
+        AABBIntersect(TKraftShape(Node^.UserData).fShapeAABB,aAABB) then begin
       result:=true;
       break;
      end;
@@ -52067,7 +52070,7 @@ begin
 
 end;
 
-function TKraft.FastCheckIntersection(const aAABB:TKraftAABB):Boolean;
+function TKraft.FastCheckIntersection(const aAABB:TKraftAABB;const aCollisionGroups:TKraftRigidBodyCollisionGroups):Boolean;
 var Index:TKraftSizeInt;
     DynamicAABBTree:TKraftDynamicAABBTree;
 begin
@@ -52089,7 +52092,7 @@ begin
   end;
   if assigned(DynamicAABBTree) and
      (DynamicAABBTree.fRoot>=0) and
-     DynamicAABBTree.FastCheckIntersection(aAABB) then begin
+     DynamicAABBTree.FastCheckIntersection(aAABB,aCollisionGroups) then begin
    result:=true;
    break;
   end;
