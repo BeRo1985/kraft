@@ -41558,13 +41558,13 @@ begin
   fSweep.c:=fSweep.c0;
   fSweep.q:=fSweep.q0;
   SynchronizeProxies;
-{$ifdef KraftPasMPThreadSafeBVH}
+ {$ifdef KraftPasMPThreadSafeBVH}
   TPasMPMultipleReaderSingleWriterSpinLock.AcquireWrite(fMultipleReaderSingleWriterLockState);
-{$endif}
+ {$endif}
   SetToAwake;
-{$ifdef KraftPasMPThreadSafeBVH}
+ {$ifdef KraftPasMPThreadSafeBVH}
   TPasMPMultipleReaderSingleWriterSpinLock.ReleaseWrite(fMultipleReaderSingleWriterLockState);
-{$endif}
+ {$endif}
   if fRigidBodyType in [krbtUnknown,krbtStatic] then begin
    UpdateWorldTransformation;
   end;
