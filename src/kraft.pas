@@ -41557,14 +41557,14 @@ begin
  if (not Vector3CompareExact(fSweep.c,fSweep.c0)) or (not QuaternionCompareExact(fSweep.q,fSweep.q0)) then begin
   fSweep.c:=fSweep.c0;
   fSweep.q:=fSweep.q0;
- {$ifdef KraftPasMPThreadSafeBVH}
-  TPasMPMultipleReaderSingleWriterSpinLock.AcquireWrite(fMultipleReaderSingleWriterLockState);
- {$endif}
   SynchronizeProxies;
+{$ifdef KraftPasMPThreadSafeBVH}
+  TPasMPMultipleReaderSingleWriterSpinLock.AcquireWrite(fMultipleReaderSingleWriterLockState);
+{$endif}
   SetToAwake;
- {$ifdef KraftPasMPThreadSafeBVH}
+{$ifdef KraftPasMPThreadSafeBVH}
   TPasMPMultipleReaderSingleWriterSpinLock.ReleaseWrite(fMultipleReaderSingleWriterLockState);
- {$endif}
+{$endif}
   if fRigidBodyType in [krbtUnknown,krbtStatic] then begin
    UpdateWorldTransformation;
   end;
