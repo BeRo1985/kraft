@@ -3089,6 +3089,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fOnPreStep:TKraftRigidBodyOnStep;
        fOnPostStep:TKraftRigidBodyOnStep;
 
+{$ifdef KraftPasMPThreadSafeBVH}
+       fMultipleReaderSingleWriterLockState:TPasMPInt32;
+{$endif}
+
        function GetAngularMomentum:TKraftVector3;
        procedure SetAngularMomentum(const NewAngularMomentum:TKraftVector3);
 
@@ -4889,6 +4893,7 @@ function Vector3Flip({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKra
 function Vector3Abs({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3):TKraftVector3; {$if defined(caninline) and not defined(SIMDASM)}inline;{$ifend} {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function Vector3Compare({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3):boolean; {$ifdef caninline}inline;{$endif}
 function Vector3CompareEx({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3;const Threshold:TKraftScalar=EPSILON):boolean; {$ifdef caninline}inline;{$endif}
+function Vector3CompareExact({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3):boolean; {$ifdef caninline}inline;{$endif}
 procedure Vector3DirectAdd(var v1:TKraftVector3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v2:TKraftVector3); {$if defined(caninline) and not defined(SIMDASM)}inline;{$ifend} {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 procedure Vector3DirectSub(var v1:TKraftVector3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v2:TKraftVector3); {$if defined(caninline) and not defined(SIMDASM)}inline;{$ifend} {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function Vector3Add({$ifdef USE_CONSTREF}constref{$else}const{$endif} v1,v2:TKraftVector3):TKraftVector3; {$if defined(caninline) and not defined(SIMDASM)}inline;{$ifend} {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
@@ -5083,6 +5088,7 @@ function QuaternionLengthSquared({$ifdef USE_CONSTREF_EX}constref{$else}const{$e
 procedure QuaternionNormalize(var AQuaternion:TKraftQuaternion); {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function QuaternionTermNormalize({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} AQuaternion:TKraftQuaternion):TKraftQuaternion; {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function QuaternionNeg({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} AQuaternion:TKraftQuaternion):TKraftQuaternion; {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
+function QuaternionCompareExact({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} q1,q2:TKraftQuaternion):boolean; {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function QuaternionConjugate({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} AQuaternion:TKraftQuaternion):TKraftQuaternion; {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function QuaternionInverse({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} AQuaternion:TKraftQuaternion):TKraftQuaternion; {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function QuaternionAdd({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} q1,q2:TKraftQuaternion):TKraftQuaternion; {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
@@ -5896,6 +5902,11 @@ end;
 function Vector3CompareEx({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3;const Threshold:TKraftScalar=EPSILON):boolean;
 begin
  result:=(abs(v1.x-v2.x)<Threshold) and (abs(v1.y-v2.y)<Threshold) and (abs(v1.z-v2.z)<Threshold);
+end;
+
+function Vector3CompareExact({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3):boolean;
+begin
+ result:=(v1.x=v2.x) and (v1.y=v2.y) and (v1.z=v2.z);
 end;
 
 procedure Vector3DirectAdd(var v1:TKraftVector3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v2:TKraftVector3); {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
@@ -10562,6 +10573,11 @@ begin
  result.w:=-AQuaternion.w;
 end;
 {$ifend}
+
+function QuaternionCompareExact({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} q1,q2:TKraftQuaternion):boolean;
+begin
+ result:=(q1.x=q2.x) and (q1.y=q2.y) and (q1.z=q2.z) and (q1.w=q2.w);
+end;
 
 function QuaternionConjugate({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} AQuaternion:TKraftQuaternion):TKraftQuaternion; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
 const XORMask:array[0..3] of TKraftUInt32=($80000000,$80000000,$80000000,$00000000);
@@ -40434,6 +40450,10 @@ begin
 
  fRigidBodyType:=krbtUnknown;
 
+{$ifdef KraftPasMPThreadSafeBVH}
+ fMultipleReaderSingleWriterLockState:=0;
+{$endif}
+
  if assigned(fPhysics.fRigidBodyLast) then begin
   fPhysics.fRigidBodyLast.fRigidBodyNext:=self;
   fRigidBodyPrevious:=fPhysics.fRigidBodyLast;
@@ -41533,14 +41553,22 @@ begin
  fWorldTransform:=AWorldTransformation;
  UpdateWorldInertiaTensor;
  fSweep.c0:=Vector3TermMatrixMul(fSweep.LocalCenter,aWorldTransformation);
- fSweep.c:=fSweep.c0;
  fSweep.q0:=QuaternionFromMatrix4x4(aWorldTransformation);
- fSweep.q:=fSweep.q0;
- SynchronizeProxies;
- SetToAwake;
- if fRigidBodyType in [krbtUnknown,krbtStatic] then begin
-  UpdateWorldTransformation;
- end; 
+ if (not Vector3CompareExact(fSweep.c,fSweep.c0)) or (not QuaternionCompareExact(fSweep.q,fSweep.q0)) then begin
+  fSweep.c:=fSweep.c0;
+  fSweep.q:=fSweep.q0;
+ {$ifdef KraftPasMPThreadSafeBVH}
+  TPasMPMultipleReaderSingleWriterSpinLock.AcquireWrite(fMultipleReaderSingleWriterLockState);
+ {$endif}
+  SynchronizeProxies;
+  SetToAwake;
+ {$ifdef KraftPasMPThreadSafeBVH}
+  TPasMPMultipleReaderSingleWriterSpinLock.ReleaseWrite(fMultipleReaderSingleWriterLockState);
+ {$endif}
+  if fRigidBodyType in [krbtUnknown,krbtStatic] then begin
+   UpdateWorldTransformation;
+  end;
+ end;
 end;
 
 procedure TKraftRigidBody.SetWorldPosition(const AWorldPosition:TKraftVector3);
