@@ -3136,12 +3136,12 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        procedure SetToSleep;
 
-       procedure SetWorldTransformation(const AWorldTransformation:TKraftMatrix4x4);
+       function SetWorldTransformation(const AWorldTransformation:TKraftMatrix4x4):Boolean;
 
-       procedure SetWorldPosition(const AWorldPosition:TKraftVector3);
+       function SetWorldPosition(const AWorldPosition:TKraftVector3):Boolean;
 
-       procedure SetOrientation(const AOrientation:TKraftMatrix3x3); overload;
-       procedure SetOrientation(const x,y,z:TKraftScalar); overload;
+       function SetOrientation(const AOrientation:TKraftMatrix3x3):Boolean; overload;
+       function SetOrientation(const x,y,z:TKraftScalar):Boolean; overload;
        procedure AddOrientation(const x,y,z:TKraftScalar);
 
        procedure LimitVelocities;
@@ -41548,59 +41548,83 @@ begin
 end;
 {$endif}
 
-procedure TKraftRigidBody.SetWorldTransformation(const aWorldTransformation:TKraftMatrix4x4);
+function TKraftRigidBody.SetWorldTransformation(const aWorldTransformation:TKraftMatrix4x4):Boolean;
 begin
+ result:=false;
  fWorldTransform:=AWorldTransformation;
  UpdateWorldInertiaTensor;
  fSweep.c0:=Vector3TermMatrixMul(fSweep.LocalCenter,aWorldTransformation);
  fSweep.q0:=QuaternionFromMatrix4x4(aWorldTransformation);
  if (not Vector3CompareExact(fSweep.c,fSweep.c0)) or (not QuaternionCompareExact(fSweep.q,fSweep.q0)) then begin
+  result:=true;
   fSweep.c:=fSweep.c0;
   fSweep.q:=fSweep.q0;
   SynchronizeProxies;//
- {$ifdef KraftPasMPThreadSafeBVH}
+{$ifdef KraftPasMPThreadSafeBVH}
   TPasMPMultipleReaderSingleWriterSpinLock.AcquireWrite(fMultipleReaderSingleWriterLockState);
- {$endif}
+{$endif}
   SetToAwake;
- {$ifdef KraftPasMPThreadSafeBVH}
+{$ifdef KraftPasMPThreadSafeBVH}
   TPasMPMultipleReaderSingleWriterSpinLock.ReleaseWrite(fMultipleReaderSingleWriterLockState);
- {$endif}
+{$endif}
   if fRigidBodyType in [krbtUnknown,krbtStatic] then begin
    UpdateWorldTransformation;
   end;
  end;
 end;
 
-procedure TKraftRigidBody.SetWorldPosition(const AWorldPosition:TKraftVector3);
+function TKraftRigidBody.SetWorldPosition(const AWorldPosition:TKraftVector3):Boolean;
 begin
+ result:=false;
  PKraftVector3(pointer(@fWorldTransform[3,0]))^.xyz:=AWorldPosition.xyz;
  fSweep.c0:=Vector3Add(AWorldPosition,Vector3TermMatrixMulBasis(fSweep.LocalCenter,fWorldTransform));
- fSweep.c:=fSweep.c0;
- SynchronizeProxies;
- SetToAwake;
- if fRigidBodyType in [krbtUnknown,krbtStatic] then begin
-  UpdateWorldTransformation;
- end; 
+ if not Vector3CompareExact(fSweep.c,fSweep.c0) then begin
+  result:=true;
+  fSweep.c:=fSweep.c0;
+  SynchronizeProxies;
+{$ifdef KraftPasMPThreadSafeBVH}
+  TPasMPMultipleReaderSingleWriterSpinLock.AcquireWrite(fMultipleReaderSingleWriterLockState);
+{$endif}
+  SetToAwake;
+{$ifdef KraftPasMPThreadSafeBVH}
+  TPasMPMultipleReaderSingleWriterSpinLock.ReleaseWrite(fMultipleReaderSingleWriterLockState);
+{$endif}
+  if fRigidBodyType in [krbtUnknown,krbtStatic] then begin
+   UpdateWorldTransformation;
+  end;
+ end;
 end;
 
-procedure TKraftRigidBody.SetOrientation(const AOrientation:TKraftMatrix3x3);
+function TKraftRigidBody.SetOrientation(const AOrientation:TKraftMatrix3x3):Boolean;
 begin
+ result:=false;
  PKraftVector3(pointer(@fWorldTransform[0,0]))^.xyz:=PKraftVector3(pointer(@AOrientation[0,0]))^.xyz;
  PKraftVector3(pointer(@fWorldTransform[1,0]))^.xyz:=PKraftVector3(pointer(@AOrientation[1,0]))^.xyz;
  PKraftVector3(pointer(@fWorldTransform[2,0]))^.xyz:=PKraftVector3(pointer(@AOrientation[2,0]))^.xyz;
  UpdateWorldInertiaTensor;
  fSweep.q0:=QuaternionFromMatrix3x3(AOrientation);
- fSweep.q:=fSweep.q0;
- SynchronizeProxies;
- SetToAwake;
- if fRigidBodyType in [krbtUnknown,krbtStatic] then begin
-  UpdateWorldTransformation;
- end; 
+ if not QuaternionCompareExact(fSweep.q,fSweep.q0) then begin
+  result:=true;
+  fSweep.c:=fSweep.c0;
+  fSweep.q:=fSweep.q0;
+  SynchronizeProxies;
+{$ifdef KraftPasMPThreadSafeBVH}
+  TPasMPMultipleReaderSingleWriterSpinLock.AcquireWrite(fMultipleReaderSingleWriterLockState);
+{$endif}
+  SetToAwake;
+{$ifdef KraftPasMPThreadSafeBVH}
+  TPasMPMultipleReaderSingleWriterSpinLock.ReleaseWrite(fMultipleReaderSingleWriterLockState);
+{$endif}
+  if fRigidBodyType in [krbtUnknown,krbtStatic] then begin
+   UpdateWorldTransformation;
+  end;
+ end;
 end;
 
-procedure TKraftRigidBody.SetOrientation(const x,y,z:TKraftScalar);
+function TKraftRigidBody.SetOrientation(const x,y,z:TKraftScalar):Boolean;
 var Orientation:TKraftMatrix3x3;
 begin
+ result:=false;
  Orientation:=Matrix3x3RotateZ(z);
  Matrix3x3Mul(Orientation,Matrix3x3RotateY(y));
  Matrix3x3Mul(Orientation,Matrix3x3RotateX(x));
@@ -41608,13 +41632,22 @@ begin
  PKraftVector3(pointer(@fWorldTransform[1,0]))^.xyz:=PKraftVector3(pointer(@Orientation[1,0]))^.xyz;
  PKraftVector3(pointer(@fWorldTransform[2,0]))^.xyz:=PKraftVector3(pointer(@Orientation[2,0]))^.xyz;
  UpdateWorldInertiaTensor;
- fSweep.q0:=QuaternionFromMatrix3x3(Orientation);
- fSweep.q:=fSweep.q0;
- SynchronizeProxies;
- SetToAwake;
- if fRigidBodyType in [krbtUnknown,krbtStatic] then begin
-  UpdateWorldTransformation;
- end; 
+ if not QuaternionCompareExact(fSweep.q,fSweep.q0) then begin
+  result:=true;
+  fSweep.c:=fSweep.c0;
+  fSweep.q:=fSweep.q0;
+  SynchronizeProxies;
+{$ifdef KraftPasMPThreadSafeBVH}
+  TPasMPMultipleReaderSingleWriterSpinLock.AcquireWrite(fMultipleReaderSingleWriterLockState);
+{$endif}
+  SetToAwake;
+{$ifdef KraftPasMPThreadSafeBVH}
+  TPasMPMultipleReaderSingleWriterSpinLock.ReleaseWrite(fMultipleReaderSingleWriterLockState);
+{$endif}
+  if fRigidBodyType in [krbtUnknown,krbtStatic] then begin
+   UpdateWorldTransformation;
+  end;
+ end;
 end;
 
 procedure TKraftRigidBody.AddOrientation(const x,y,z:TKraftScalar);
