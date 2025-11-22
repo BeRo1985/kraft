@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2025-07-30-02-30-0000                       *
+ *                        Version 2025-11-22-05-14-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -4326,6 +4326,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fPasMPAvoidAreaMask:TPasMPUInt32;
 
+       fPasMPAffinityAllowMask:TPasMPAffinityMask;
+
+       fPasMPAffinityAvoidMask:TPasMPAffinityMask;
+
        fLock:TPasMPCriticalSection;
 {$else}
 
@@ -4696,6 +4700,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property PasMPAreaMask:TPasMPUInt32 read fPasMPAreaMask write fPasMPAreaMask;
 
        property PasMPAvoidAreaMask:TPasMPUInt32 read fPasMPAvoidAreaMask write fPasMPAvoidAreaMask;
+
+       property PasMPAffinityAllowMask:TPasMPAffinityMask read fPasMPAffinityAllowMask write fPasMPAffinityAllowMask;
+
+       property PasMPAffinityAvoidMask:TPasMPAffinityMask read fPasMPAffinityAvoidMask write fPasMPAffinityAvoidMask;
 
 {$else}
 
@@ -31058,7 +31066,7 @@ begin
         try
          SetLength(Jobs,fPhysics.fPasMP.CountJobWorkerThreads);
          for JobIndex:=0 to length(Jobs)-1 do begin
-          Jobs[JobIndex]:=fPhysics.fPasMP.Acquire(BuildJob,self,nil,0,fPhysics.fPasMPAreaMask,fPhysics.fPasMPAvoidAreaMask);
+          Jobs[JobIndex]:=fPhysics.fPasMP.Acquire(BuildJob,self,nil,0,fPhysics.fPasMPAreaMask,fPhysics.fPasMPAvoidAreaMask,fPhysics.fPasMPAffinityAllowMask,fPhysics.fPasMPAffinityAvoidMask);
          end;
          fPhysics.fPasMP.Invoke(Jobs);
         finally
@@ -39327,25 +39335,25 @@ begin
 {$ifdef KraftPasMP}
   if assigned(fPhysics.fPasMP) and not fPhysics.fSingleThreaded then begin
    if fPhysics.fStaticAABBTree.fRebuildDirty then begin
-    RebuildJobs[0]:=fPhysics.fPasMP.Acquire(RebuildAABBTreeJobFunction,pointer(fPhysics.fStaticAABBTree),nil,0,fPhysics.fPasMPAreaMask,fPhysics.fPasMPAvoidAreaMask);
+    RebuildJobs[0]:=fPhysics.fPasMP.Acquire(RebuildAABBTreeJobFunction,pointer(fPhysics.fStaticAABBTree),nil,0,fPhysics.fPasMPAreaMask,fPhysics.fPasMPAvoidAreaMask,fPhysics.fPasMPAffinityAllowMask,fPhysics.fPasMPAffinityAvoidMask);
     HaveRebuildJobs:=true;
    end else begin
     RebuildJobs[0]:=nil;
    end;
    if fPhysics.fSleepingAABBTree.fRebuildDirty then begin
-    RebuildJobs[1]:=fPhysics.fPasMP.Acquire(RebuildAABBTreeJobFunction,pointer(fPhysics.fSleepingAABBTree),nil,0,fPhysics.fPasMPAreaMask,fPhysics.fPasMPAvoidAreaMask);
+    RebuildJobs[1]:=fPhysics.fPasMP.Acquire(RebuildAABBTreeJobFunction,pointer(fPhysics.fSleepingAABBTree),nil,0,fPhysics.fPasMPAreaMask,fPhysics.fPasMPAvoidAreaMask,fPhysics.fPasMPAffinityAllowMask,fPhysics.fPasMPAffinityAvoidMask);
     HaveRebuildJobs:=true;
    end else begin
     RebuildJobs[1]:=nil;
    end;
    if fPhysics.fDynamicAABBTree.fRebuildDirty then begin
-    RebuildJobs[2]:=fPhysics.fPasMP.Acquire(RebuildAABBTreeJobFunction,pointer(fPhysics.fDynamicAABBTree),nil,0,fPhysics.fPasMPAreaMask,fPhysics.fPasMPAvoidAreaMask);
+    RebuildJobs[2]:=fPhysics.fPasMP.Acquire(RebuildAABBTreeJobFunction,pointer(fPhysics.fDynamicAABBTree),nil,0,fPhysics.fPasMPAreaMask,fPhysics.fPasMPAvoidAreaMask,fPhysics.fPasMPAffinityAllowMask,fPhysics.fPasMPAffinityAvoidMask);
     HaveRebuildJobs:=true;
    end else begin
     RebuildJobs[2]:=nil;
    end;
    if fPhysics.fKinematicAABBTree.fRebuildDirty then begin
-    RebuildJobs[3]:=fPhysics.fPasMP.Acquire(RebuildAABBTreeJobFunction,pointer(fPhysics.fKinematicAABBTree),nil,0,fPhysics.fPasMPAreaMask,fPhysics.fPasMPAvoidAreaMask);
+    RebuildJobs[3]:=fPhysics.fPasMP.Acquire(RebuildAABBTreeJobFunction,pointer(fPhysics.fKinematicAABBTree),nil,0,fPhysics.fPasMPAreaMask,fPhysics.fPasMPAvoidAreaMask,fPhysics.fPasMPAffinityAllowMask,fPhysics.fPasMPAffinityAvoidMask);
     HaveRebuildJobs:=true;
    end else begin
     RebuildJobs[3]:=nil;
@@ -39481,7 +39489,7 @@ begin
 
 {$ifdef KraftPasMP}
  if assigned(fPhysics.fPasMP) and (fCountActiveContactPairs>64) and not fPhysics.fSingleThreaded then begin
-  fPhysics.fPasMP.Invoke(fPhysics.fPasMP.ParallelFor(nil,0,fCountActiveContactPairs-1,ProcessContactPairParallelForFunction,Max(64,fCountActiveContactPairs div (fPhysics.fCountThreads*16)),4,nil,0,fPhysics.fPasMPAreaMask,fPhysics.fPasMPAvoidAreaMask,true));
+  fPhysics.fPasMP.Invoke(fPhysics.fPasMP.ParallelFor(nil,0,fCountActiveContactPairs-1,ProcessContactPairParallelForFunction,Max(64,fCountActiveContactPairs div (fPhysics.fCountThreads*16)),4,nil,0,fPhysics.fPasMPAreaMask,fPhysics.fPasMPAvoidAreaMask,true,fPhysics.fPasMPAffinityAllowMask,fPhysics.fPasMPAffinityAvoidMask));
 {$else}
  if assigned(fPhysics.fJobManager) and (fCountActiveContactPairs>64) and not fPhysics.fSingleThreaded then begin
   fPhysics.fJobManager.fOnProcessJob:=ProcessContactPairJob;
@@ -40315,7 +40323,7 @@ begin
  fAllMoveBufferSize:=fStaticMoveBuffer.fSize+fDynamicMoveBuffer.fSize+fKinematicMoveBuffer.fSize;
 {$ifdef KraftPasMP}
  if assigned(fPhysics.fPasMP) and (fAllMoveBufferSize>1024) and not fPhysics.fSingleThreaded then begin
-  fPhysics.fPasMP.Invoke(fPhysics.fPasMP.ParallelFor(nil,0,fAllMoveBufferSize-1,ProcessMoveBufferItemParallelForFunction,Max(64,fAllMoveBufferSize div (fPhysics.fCountThreads*16)),4,nil,0,fPhysics.fPasMPAreaMask,fPhysics.fPasMPAvoidAreaMask,true));
+  fPhysics.fPasMP.Invoke(fPhysics.fPasMP.ParallelFor(nil,0,fAllMoveBufferSize-1,ProcessMoveBufferItemParallelForFunction,Max(64,fAllMoveBufferSize div (fPhysics.fCountThreads*16)),4,nil,0,fPhysics.fPasMPAreaMask,fPhysics.fPasMPAvoidAreaMask,true,fPhysics.fPasMPAffinityAllowMask,fPhysics.fPasMPAffinityAvoidMask));
  end else begin
   ProcessMoveBufferItemParallelForFunction(nil,0,nil,0,fAllMoveBufferSize-1);
  end;
@@ -47515,6 +47523,10 @@ begin
 
  fPasMPAvoidAreaMask:=0;
 
+ fPasMPAffinityAllowMask:=PasMPAffinityMaskAll;
+
+ fPasMPAffinityAvoidMask:=PasMPAffinityMaskNone;
+
  if assigned(fPasMP) then begin
   fCountThreads:=fPasMP.CountJobWorkerThreads;
  end else begin
@@ -48165,7 +48177,7 @@ begin
  fIsSolving:=true;
 {$ifdef KraftPasMP}
  if assigned(fPasMP) and (fCountIslands>1) and not fSingleThreaded then begin
-  fPasMP.Invoke(fPasMP.ParallelFor(nil,0,fCountIslands-1,ProcessSolveIslandParallelForFunction,Max(1,fCountIslands div (fCountThreads*16)),4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true));
+  fPasMP.Invoke(fPasMP.ParallelFor(nil,0,fCountIslands-1,ProcessSolveIslandParallelForFunction,Max(1,fCountIslands div (fCountThreads*16)),4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true,fPasMPAffinityAllowMask,fPasMPAffinityAvoidMask));
 {$else}
  if assigned(fJobManager) and (fCountIslands>1) and not fSingleThreaded then begin
   fJobManager.fOnProcessJob:=ProcessSolveIslandJob;
@@ -49436,7 +49448,7 @@ begin
 {$ifdef KraftProcessForceAllBodies}
   if fCountRigidBodies>0 then begin
    fPasMP.Invoke(
-    fPasMP.ParallelFor(self,0,fCountRigidBodies-1,TKraft_StoreWorldTransforms_ParallelLoopProcedure,1,4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true)
+    fPasMP.ParallelFor(self,0,fCountRigidBodies-1,TKraft_StoreWorldTransforms_ParallelLoopProcedure,1,4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true,fPasMPAffinityAllowMask,fPasMPAffinityAvoidMask)
    );
   end;
 {$else}
@@ -49444,18 +49456,18 @@ begin
    if fCountUpdatedStaticRigidBodies>0 then begin
     fPasMP.Invoke(
      [
-      fPasMP.ParallelFor(self,0,fCountNonStaticRigidBodies-1,TKraft_StoreWorldTransforms_ParallelLoopProcedure_NonStatic,1,4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true),
-      fPasMP.ParallelFor(self,0,fCountUpdatedStaticRigidBodies-1,TKraft_StoreWorldTransforms_ParallelLoopProcedure_UpdatedStatic,1,4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true)
+      fPasMP.ParallelFor(self,0,fCountNonStaticRigidBodies-1,TKraft_StoreWorldTransforms_ParallelLoopProcedure_NonStatic,1,4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true,fPasMPAffinityAllowMask,fPasMPAffinityAvoidMask),
+      fPasMP.ParallelFor(self,0,fCountUpdatedStaticRigidBodies-1,TKraft_StoreWorldTransforms_ParallelLoopProcedure_UpdatedStatic,1,4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true,fPasMPAffinityAllowMask,fPasMPAffinityAvoidMask)
      ]
     );
    end else begin
     fPasMP.Invoke(
-     fPasMP.ParallelFor(self,0,fCountNonStaticRigidBodies-1,TKraft_StoreWorldTransforms_ParallelLoopProcedure_NonStatic,1,4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true)
+     fPasMP.ParallelFor(self,0,fCountNonStaticRigidBodies-1,TKraft_StoreWorldTransforms_ParallelLoopProcedure_NonStatic,1,4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true,fPasMPAffinityAllowMask,fPasMPAffinityAvoidMask)
     );
    end;
   end else if fCountUpdatedStaticRigidBodies>0 then begin
    fPasMP.Invoke(
-    fPasMP.ParallelFor(self,0,fCountUpdatedStaticRigidBodies-1,TKraft_StoreWorldTransforms_ParallelLoopProcedure_UpdatedStatic,1,4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true)
+    fPasMP.ParallelFor(self,0,fCountUpdatedStaticRigidBodies-1,TKraft_StoreWorldTransforms_ParallelLoopProcedure_UpdatedStatic,1,4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true,fPasMPAffinityAllowMask,fPasMPAffinityAvoidMask)
    );
   end;
 {$endif}
@@ -49532,7 +49544,7 @@ begin
 {$ifdef KraftProcessForceAllBodies}
   if fCountRigidBodies>0 then begin
    fPasMP.Invoke(
-    fPasMP.ParallelFor(@Parameters,0,fCountRigidBodies-1,TKraft_InterpolateWorldTransforms_ParallelLoopProcedure,1,4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true)
+    fPasMP.ParallelFor(@Parameters,0,fCountRigidBodies-1,TKraft_InterpolateWorldTransforms_ParallelLoopProcedure,1,4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true,fPasMPAffinityAllowMask,fPasMPAffinityAvoidMask)
    );
   end;
 {$else}
@@ -49540,18 +49552,18 @@ begin
    if fCountUpdatedStaticRigidBodies>0 then begin
     fPasMP.Invoke(
      [
-      fPasMP.ParallelFor(@Parameters,0,fCountNonStaticRigidBodies-1,TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_NonStatic,1,4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true),
-      fPasMP.ParallelFor(@Parameters,0,fCountUpdatedStaticRigidBodies-1,TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_UpdatedStatic,1,4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true)
+      fPasMP.ParallelFor(@Parameters,0,fCountNonStaticRigidBodies-1,TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_NonStatic,1,4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true,fPasMPAffinityAllowMask,fPasMPAffinityAvoidMask),
+      fPasMP.ParallelFor(@Parameters,0,fCountUpdatedStaticRigidBodies-1,TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_UpdatedStatic,1,4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true,fPasMPAffinityAllowMask,fPasMPAffinityAvoidMask)
      ]
     );
    end else begin
     fPasMP.Invoke(
-     fPasMP.ParallelFor(@Parameters,0,fCountNonStaticRigidBodies-1,TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_NonStatic,1,4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true)
+     fPasMP.ParallelFor(@Parameters,0,fCountNonStaticRigidBodies-1,TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_NonStatic,1,4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true,fPasMPAffinityAllowMask,fPasMPAffinityAvoidMask)
     );
    end;
   end else if fCountUpdatedStaticRigidBodies>0 then begin
     fPasMP.Invoke(
-     fPasMP.ParallelFor(@Parameters,0,fCountUpdatedStaticRigidBodies-1,TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_UpdatedStatic,1,4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true)
+     fPasMP.ParallelFor(@Parameters,0,fCountUpdatedStaticRigidBodies-1,TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_UpdatedStatic,1,4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true,fPasMPAffinityAllowMask,fPasMPAffinityAvoidMask)
     );
   end;
 {$endif}
