@@ -49456,18 +49456,18 @@ begin
    if fCountUpdatedStaticRigidBodies>0 then begin
     fPasMP.Invoke(
      [
-      fPasMP.ParallelFor(self,0,fCountNonStaticRigidBodies-1,TKraft_StoreWorldTransforms_ParallelLoopProcedure_NonStatic,1,4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true,fPasMPAffinityAllowMask,fPasMPAffinityAvoidMask),
-      fPasMP.ParallelFor(self,0,fCountUpdatedStaticRigidBodies-1,TKraft_StoreWorldTransforms_ParallelLoopProcedure_UpdatedStatic,1,4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true,fPasMPAffinityAllowMask,fPasMPAffinityAvoidMask)
+      fPasMP.ParallelFor(self,0,fCountNonStaticRigidBodies-1,TKraft_StoreWorldTransforms_ParallelLoopProcedure_NonStatic,1,-4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true,fPasMPAffinityAllowMask,fPasMPAffinityAvoidMask),
+      fPasMP.ParallelFor(self,0,fCountUpdatedStaticRigidBodies-1,TKraft_StoreWorldTransforms_ParallelLoopProcedure_UpdatedStatic,1,-4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true,fPasMPAffinityAllowMask,fPasMPAffinityAvoidMask)
      ]
     );
    end else begin
     fPasMP.Invoke(
-     fPasMP.ParallelFor(self,0,fCountNonStaticRigidBodies-1,TKraft_StoreWorldTransforms_ParallelLoopProcedure_NonStatic,1,4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true,fPasMPAffinityAllowMask,fPasMPAffinityAvoidMask)
+     fPasMP.ParallelFor(self,0,fCountNonStaticRigidBodies-1,TKraft_StoreWorldTransforms_ParallelLoopProcedure_NonStatic,1,-4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true,fPasMPAffinityAllowMask,fPasMPAffinityAvoidMask)
     );
    end;
   end else if fCountUpdatedStaticRigidBodies>0 then begin
    fPasMP.Invoke(
-    fPasMP.ParallelFor(self,0,fCountUpdatedStaticRigidBodies-1,TKraft_StoreWorldTransforms_ParallelLoopProcedure_UpdatedStatic,1,4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true,fPasMPAffinityAllowMask,fPasMPAffinityAvoidMask)
+    fPasMP.ParallelFor(self,0,fCountUpdatedStaticRigidBodies-1,TKraft_StoreWorldTransforms_ParallelLoopProcedure_UpdatedStatic,1,-4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true,fPasMPAffinityAllowMask,fPasMPAffinityAvoidMask)
    );
   end;
 {$endif}
@@ -49544,7 +49544,7 @@ begin
 {$ifdef KraftProcessForceAllBodies}
   if fCountRigidBodies>0 then begin
    fPasMP.Invoke(
-    fPasMP.ParallelFor(@Parameters,0,fCountRigidBodies-1,TKraft_InterpolateWorldTransforms_ParallelLoopProcedure,1,4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true,fPasMPAffinityAllowMask,fPasMPAffinityAvoidMask)
+    fPasMP.ParallelFor(@Parameters,0,fCountRigidBodies-1,TKraft_InterpolateWorldTransforms_ParallelLoopProcedure,1,-4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true,fPasMPAffinityAllowMask,fPasMPAffinityAvoidMask)
    );
   end;
 {$else}
@@ -49552,18 +49552,18 @@ begin
    if fCountUpdatedStaticRigidBodies>0 then begin
     fPasMP.Invoke(
      [
-      fPasMP.ParallelFor(@Parameters,0,fCountNonStaticRigidBodies-1,TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_NonStatic,1,4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true,fPasMPAffinityAllowMask,fPasMPAffinityAvoidMask),
-      fPasMP.ParallelFor(@Parameters,0,fCountUpdatedStaticRigidBodies-1,TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_UpdatedStatic,1,4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true,fPasMPAffinityAllowMask,fPasMPAffinityAvoidMask)
+      fPasMP.ParallelFor(@Parameters,0,fCountNonStaticRigidBodies-1,TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_NonStatic,1,-4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true,fPasMPAffinityAllowMask,fPasMPAffinityAvoidMask),
+      fPasMP.ParallelFor(@Parameters,0,fCountUpdatedStaticRigidBodies-1,TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_UpdatedStatic,1,-4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true,fPasMPAffinityAllowMask,fPasMPAffinityAvoidMask)
      ]
     );
    end else begin
     fPasMP.Invoke(
-     fPasMP.ParallelFor(@Parameters,0,fCountNonStaticRigidBodies-1,TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_NonStatic,1,4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true,fPasMPAffinityAllowMask,fPasMPAffinityAvoidMask)
+     fPasMP.ParallelFor(@Parameters,0,fCountNonStaticRigidBodies-1,TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_NonStatic,1,-4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true,fPasMPAffinityAllowMask,fPasMPAffinityAvoidMask)
     );
    end;
   end else if fCountUpdatedStaticRigidBodies>0 then begin
     fPasMP.Invoke(
-     fPasMP.ParallelFor(@Parameters,0,fCountUpdatedStaticRigidBodies-1,TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_UpdatedStatic,1,4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true,fPasMPAffinityAllowMask,fPasMPAffinityAvoidMask)
+     fPasMP.ParallelFor(@Parameters,0,fCountUpdatedStaticRigidBodies-1,TKraft_InterpolateWorldTransforms_ParallelLoopProcedure_UpdatedStatic,1,-4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true,fPasMPAffinityAllowMask,fPasMPAffinityAvoidMask)
     );
   end;
 {$endif}
