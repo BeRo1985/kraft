@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2025-11-24-00-18-0000                       *
+ *                        Version 2025-11-24-00-43-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -35971,6 +35971,13 @@ var SkipListNodeIndex,MeshSkipListNodeIndex,TriangleIndex:TKraftInt32;
     First,SidePass:boolean;
     Nearest,Time,u,v,w:TKraftScalar;
     Origin,Direction,InvDirection,p,Normal:TKraftVector3;
+    LocalCountTotalBottomLevelAccelerationStructureMeshNodes:TKraftInt32;
+    LocalCountCheckedBottomLevelAccelerationStructureMeshNodes:TKraftInt32;
+    LocalCountCheckedBottomLevelAccelerationStructureMeshLeafs:TKraftInt32;
+    LocalCountTotalBottomLevelAccelerationStructureNodes:TKraftInt32;
+    LocalCountCheckedBottomLevelAccelerationStructureNodes:TKraftInt32;
+    LocalCountCheckedBottomLevelAccelerationStructureLeafs:TKraftInt32;
+    LocalCountCheckedBottomLevelAccelerationStructureTriangles:TKraftInt32;
 begin
  result:=false;
  if ksfRayCastable in fFlags then begin
@@ -35980,37 +35987,31 @@ begin
    InvDirection:=Vector3Div(Vector3All,Direction);
    Nearest:=MAX_SCALAR;
    First:=true;
-   if assigned(RayCastData.CastProfilerData) then begin
-    inc(RayCastData.CastProfilerData^.CountTotalBottomLevelAccelerationStructureMeshNodes,fCountSkipListNodes);
-   end;
+   LocalCountTotalBottomLevelAccelerationStructureMeshNodes:=fCountSkipListNodes;
+   LocalCountCheckedBottomLevelAccelerationStructureMeshNodes:=0;
+   LocalCountCheckedBottomLevelAccelerationStructureMeshLeafs:=0;
+   LocalCountTotalBottomLevelAccelerationStructureNodes:=0;
+   LocalCountCheckedBottomLevelAccelerationStructureNodes:=0;
+   LocalCountCheckedBottomLevelAccelerationStructureLeafs:=0;
+   LocalCountCheckedBottomLevelAccelerationStructureTriangles:=0;
    SkipListNodeIndex:=0;
    while SkipListNodeIndex<fCountSkipListNodes do begin
     SkipListNode:=@fSkipListNodes[SkipListNodeIndex];
     if AABBRayIntersectOpt(SkipListNode^.AABB,Origin,InvDirection) then begin
-     if assigned(RayCastData.CastProfilerData) then begin
-      inc(RayCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureMeshNodes);
-     end;
+     inc(LocalCountCheckedBottomLevelAccelerationStructureMeshNodes);
      MeshIndex:=TKraftPtrInt(TKraftPtrUInt(SkipListNode^.UserData))-1;
      if MeshIndex>=0 then begin
-      if assigned(RayCastData.CastProfilerData) then begin
-       inc(RayCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureMeshLeafs);
-      end;
+      inc(LocalCountCheckedBottomLevelAccelerationStructureMeshLeafs);
       Mesh:=fMeshes[MeshIndex];
-      if assigned(RayCastData.CastProfilerData) then begin
-       inc(RayCastData.CastProfilerData^.CountTotalBottomLevelAccelerationStructureNodes,Mesh.fCountSkipListNodes);
-      end;
+      inc(LocalCountTotalBottomLevelAccelerationStructureNodes,Mesh.fCountSkipListNodes);
       MeshSkipListNodeIndex:=0;
       while MeshSkipListNodeIndex<Mesh.fCountSkipListNodes do begin
        MeshSkipListNode:=@Mesh.fSkipListNodes[MeshSkipListNodeIndex];
        if AABBRayIntersectOpt(MeshSkipListNode^.AABB,Origin,InvDirection) then begin
-        if assigned(RayCastData.CastProfilerData) then begin
-         inc(RayCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureNodes);
-        end;
+        inc(LocalCountCheckedBottomLevelAccelerationStructureNodes);
         if MeshSkipListNode^.CountTriangles>0 then begin
-         if assigned(RayCastData.CastProfilerData) then begin
-          inc(RayCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureLeafs);
-          inc(RayCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureTriangles,MeshSkipListNode^.CountTriangles);
-         end;
+         inc(LocalCountCheckedBottomLevelAccelerationStructureLeafs);
+         inc(LocalCountCheckedBottomLevelAccelerationStructureTriangles,MeshSkipListNode^.CountTriangles);
          for TriangleIndex:=MeshSkipListNode^.FirstTriangleIndex to MeshSkipListNode^.FirstTriangleIndex+(MeshSkipListNode^.CountTriangles-1) do begin
           Triangle:=@Mesh.fTriangles[TriangleIndex];
           for SidePass:=false to Mesh.fDoubleSided do begin
@@ -36060,6 +36061,15 @@ begin
      SkipListNodeIndex:=SkipListNode^.SkipToNodeIndex;
     end;
    end;
+   if assigned(RayCastData.CastProfilerData) then begin
+    inc(RayCastData.CastProfilerData^.CountTotalBottomLevelAccelerationStructureMeshNodes,LocalCountTotalBottomLevelAccelerationStructureMeshNodes);
+    inc(RayCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureMeshNodes,LocalCountCheckedBottomLevelAccelerationStructureMeshNodes);
+    inc(RayCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureMeshLeafs,LocalCountCheckedBottomLevelAccelerationStructureMeshLeafs);
+    inc(RayCastData.CastProfilerData^.CountTotalBottomLevelAccelerationStructureNodes,LocalCountTotalBottomLevelAccelerationStructureNodes);
+    inc(RayCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureNodes,LocalCountCheckedBottomLevelAccelerationStructureNodes);
+    inc(RayCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureLeafs,LocalCountCheckedBottomLevelAccelerationStructureLeafs);
+    inc(RayCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureTriangles,LocalCountCheckedBottomLevelAccelerationStructureTriangles);
+   end;
    if result then begin
     RayCastData.Point:=Vector3TermMatrixMul(RayCastData.Point,fWorldTransform);
     RayCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(RayCastData.Normal,fWorldTransform));
@@ -36079,6 +36089,13 @@ var SkipListNodeIndex,MeshSkipListNodeIndex,TriangleIndex:TKraftInt32;
     First,SidePass:boolean;
     Radius,Nearest,Time,u,v,w:TKraftScalar;
     Origin,Direction,InvDirection,p,TriangleNormal,Normal:TKraftVector3;
+    LocalCountTotalBottomLevelAccelerationStructureMeshNodes:TKraftInt32;
+    LocalCountCheckedBottomLevelAccelerationStructureMeshNodes:TKraftInt32;
+    LocalCountCheckedBottomLevelAccelerationStructureMeshLeafs:TKraftInt32;
+    LocalCountTotalBottomLevelAccelerationStructureNodes:TKraftInt32;
+    LocalCountCheckedBottomLevelAccelerationStructureNodes:TKraftInt32;
+    LocalCountCheckedBottomLevelAccelerationStructureLeafs:TKraftInt32;
+    LocalCountCheckedBottomLevelAccelerationStructureTriangles:TKraftInt32;
 begin
  result:=false;
  if ksfSphereCastable in fFlags then begin
@@ -36089,37 +36106,31 @@ begin
    InvDirection:=Vector3Div(Vector3All,Direction);
    Nearest:=MAX_SCALAR;
    First:=true;
-   if assigned(SphereCastData.CastProfilerData) then begin
-    inc(SphereCastData.CastProfilerData^.CountTotalBottomLevelAccelerationStructureMeshNodes,fCountSkipListNodes);
-   end;
+   LocalCountTotalBottomLevelAccelerationStructureMeshNodes:=fCountSkipListNodes;
+   LocalCountCheckedBottomLevelAccelerationStructureMeshNodes:=0;
+   LocalCountCheckedBottomLevelAccelerationStructureMeshLeafs:=0;
+   LocalCountTotalBottomLevelAccelerationStructureNodes:=0;
+   LocalCountCheckedBottomLevelAccelerationStructureNodes:=0;
+   LocalCountCheckedBottomLevelAccelerationStructureLeafs:=0;
+   LocalCountCheckedBottomLevelAccelerationStructureTriangles:=0;
    SkipListNodeIndex:=0;
    while SkipListNodeIndex<fCountSkipListNodes do begin
     SkipListNode:=@fSkipListNodes[SkipListNodeIndex];
     if SphereCastAABBOpt(Origin,Radius,InvDirection,SkipListNode^.AABB) then begin
-     if assigned(SphereCastData.CastProfilerData) then begin
-      inc(SphereCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureMeshNodes);
-     end;
+     inc(LocalCountCheckedBottomLevelAccelerationStructureMeshNodes);
      MeshIndex:=TKraftPtrInt(TKraftPtrUInt(SkipListNode^.UserData))-1;
      if MeshIndex>=0 then begin
-      if assigned(SphereCastData.CastProfilerData) then begin
-       inc(SphereCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureMeshLeafs);
-      end;
+      inc(LocalCountCheckedBottomLevelAccelerationStructureMeshLeafs);
       Mesh:=fMeshes[MeshIndex];
-      if assigned(SphereCastData.CastProfilerData) then begin
-       inc(SphereCastData.CastProfilerData^.CountTotalBottomLevelAccelerationStructureNodes,Mesh.fCountSkipListNodes);
-      end;
+      inc(LocalCountTotalBottomLevelAccelerationStructureNodes,Mesh.fCountSkipListNodes);
       MeshSkipListNodeIndex:=0;
       while MeshSkipListNodeIndex<Mesh.fCountSkipListNodes do begin
        MeshSkipListNode:=@Mesh.fSkipListNodes[MeshSkipListNodeIndex];
        if SphereCastAABBOpt(Origin,Radius,InvDirection,MeshSkipListNode^.AABB) then begin
-        if assigned(SphereCastData.CastProfilerData) then begin
-         inc(SphereCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureNodes);
-        end;
+        inc(LocalCountCheckedBottomLevelAccelerationStructureNodes);
         if MeshSkipListNode^.CountTriangles>0 then begin
-         if assigned(SphereCastData.CastProfilerData) then begin
-          inc(SphereCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureLeafs);
-          inc(SphereCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureTriangles,MeshSkipListNode^.CountTriangles);
-         end;
+         inc(LocalCountCheckedBottomLevelAccelerationStructureLeafs);
+         inc(LocalCountCheckedBottomLevelAccelerationStructureTriangles,MeshSkipListNode^.CountTriangles);
          for TriangleIndex:=MeshSkipListNode^.FirstTriangleIndex to MeshSkipListNode^.FirstTriangleIndex+(MeshSkipListNode^.CountTriangles-1) do begin
           Triangle:=@Mesh.fTriangles[TriangleIndex];
           if Mesh.fSmoothSphereCastNormals then begin
@@ -36202,6 +36213,15 @@ begin
     end else begin
      SkipListNodeIndex:=SkipListNode^.SkipToNodeIndex;
     end;
+   end;
+   if assigned(SphereCastData.CastProfilerData) then begin
+    inc(SphereCastData.CastProfilerData^.CountTotalBottomLevelAccelerationStructureMeshNodes,LocalCountTotalBottomLevelAccelerationStructureMeshNodes);
+    inc(SphereCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureMeshNodes,LocalCountCheckedBottomLevelAccelerationStructureMeshNodes);
+    inc(SphereCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureMeshLeafs,LocalCountCheckedBottomLevelAccelerationStructureMeshLeafs);
+    inc(SphereCastData.CastProfilerData^.CountTotalBottomLevelAccelerationStructureNodes,LocalCountTotalBottomLevelAccelerationStructureNodes);
+    inc(SphereCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureNodes,LocalCountCheckedBottomLevelAccelerationStructureNodes);
+    inc(SphereCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureLeafs,LocalCountCheckedBottomLevelAccelerationStructureLeafs);
+    inc(SphereCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureTriangles,LocalCountCheckedBottomLevelAccelerationStructureTriangles);
    end;
    if result then begin
     SphereCastData.Point:=Vector3TermMatrixMul(SphereCastData.Point,fWorldTransform);
@@ -49925,6 +49945,9 @@ var AABBTreeIndex:TKraftInt32;
     Node:PKraftDynamicAABBTreeNode;
     CurrentShape:TKraftShape;
     RayCastData:TKraftRaycastData;
+    LocalCountTotalTopLevelAccelerationStructureNodes:TKraftInt32;
+    LocalCountCheckedTopLevelAccelerationStructureNodes:TKraftInt32;
+    LocalCountCheckedTopLevelAccelerationStructureLeafs:TKraftInt32;
 begin
  result:=false;
  aTime:=aMaxTime;
@@ -49934,6 +49957,9 @@ begin
   if assigned(aCastProfilerData) then begin
    FillChar(aCastProfilerData^,SizeOf(TKraftCastProfilerData),#0);
   end;
+  LocalCountTotalTopLevelAccelerationStructureNodes:=0;
+  LocalCountCheckedTopLevelAccelerationStructureNodes:=0;
+  LocalCountCheckedTopLevelAccelerationStructureLeafs:=0;
   for AABBTreeIndex:=0 to 3 do begin
    case AABBTreeIndex of
     0:begin
@@ -49950,22 +49976,16 @@ begin
     end;
    end;
    if assigned(AABBTree) and (AABBTree.fRoot>=0) then begin
-    if assigned(aCastProfilerData) then begin
-     inc(aCastProfilerData^.CountTotalTopLevelAccelerationStructureNodes,AABBTree.fNodeCount);
-    end;
+    inc(LocalCountTotalTopLevelAccelerationStructureNodes,AABBTree.fNodeCount);
     Stack.Clear;
     Stack.Push(AABBTree.fRoot);
     while Stack.Pop(NodeID) do begin
      while NodeID>=0 do begin
       Node:=@AABBTree.fNodes[NodeID];
       if AABBRayIntersect(Node^.AABB,aOrigin,aDirection) then begin
-       if assigned(aCastProfilerData) then begin
-        inc(aCastProfilerData^.CountCheckedTopLevelAccelerationStructureNodes);
-       end;
+       inc(LocalCountCheckedTopLevelAccelerationStructureNodes);
        if Node^.Children[0]<0 then begin
-        if assigned(aCastProfilerData) then begin
-         inc(aCastProfilerData^.CountCheckedTopLevelAccelerationStructureLeafs);
-        end;
+        inc(LocalCountCheckedTopLevelAccelerationStructureLeafs);
         CurrentShape:=Node^.UserData;
         RayCastData.Origin:=aOrigin;
         RayCastData.Direction:=aDirection;
@@ -49992,6 +50012,11 @@ begin
     end;
    end;
   end;
+  if assigned(aCastProfilerData) then begin
+   inc(aCastProfilerData^.CountTotalTopLevelAccelerationStructureNodes,LocalCountTotalTopLevelAccelerationStructureNodes);
+   inc(aCastProfilerData^.CountCheckedTopLevelAccelerationStructureNodes,LocalCountCheckedTopLevelAccelerationStructureNodes);
+   inc(aCastProfilerData^.CountCheckedTopLevelAccelerationStructureLeafs,LocalCountCheckedTopLevelAccelerationStructureLeafs);
+  end;
  finally
   Stack.Finalize;
  end;
@@ -50006,6 +50031,9 @@ var AABBTreeIndex:TKraftInt32;
     Node:PKraftDynamicAABBTreeNode;
     CurrentShape:TKraftShape;
     RayCastData:TKraftRaycastData;
+    LocalCountTotalTopLevelAccelerationStructureNodes:TKraftInt32;
+    LocalCountCheckedTopLevelAccelerationStructureNodes:TKraftInt32;
+    LocalCountCheckedTopLevelAccelerationStructureLeafs:TKraftInt32;
 begin
  result:=false;
  aTime:=aMaxTime;
@@ -50015,6 +50043,9 @@ begin
   if assigned(aCastProfilerData) then begin
    FillChar(aCastProfilerData^,SizeOf(TKraftCastProfilerData),#0);
   end;
+  LocalCountTotalTopLevelAccelerationStructureNodes:=0;
+  LocalCountCheckedTopLevelAccelerationStructureNodes:=0;
+  LocalCountCheckedTopLevelAccelerationStructureLeafs:=0;
   for AABBTreeIndex:=0 to 3 do begin
    case AABBTreeIndex of
     0:begin
@@ -50031,22 +50062,16 @@ begin
     end;
    end;
    if assigned(AABBTree) and (AABBTree.fRoot>=0) then begin
-    if assigned(aCastProfilerData) then begin
-     inc(aCastProfilerData^.CountTotalTopLevelAccelerationStructureNodes,AABBTree.fNodeCount);
-    end;
+    inc(LocalCountTotalTopLevelAccelerationStructureNodes,AABBTree.fNodeCount);
     Stack.Clear;
     Stack.Push(AABBTree.fRoot);
     while Stack.Pop(NodeID) do begin
      while NodeID>=0 do begin
       Node:=@AABBTree.fNodes[NodeID];
       if AABBRayIntersect(Node^.AABB,aOrigin,aDirection) then begin
-       if assigned(aCastProfilerData) then begin
-        inc(aCastProfilerData^.CountCheckedTopLevelAccelerationStructureNodes);
-       end;
+       inc(LocalCountCheckedTopLevelAccelerationStructureNodes);
        if Node^.Children[0]<0 then begin
-        if assigned(aCastProfilerData) then begin
-         inc(aCastProfilerData^.CountCheckedTopLevelAccelerationStructureLeafs);
-        end;
+        inc(LocalCountCheckedTopLevelAccelerationStructureLeafs);
         CurrentShape:=Node^.UserData;
         RayCastData.Origin:=aOrigin;
         RayCastData.Direction:=aDirection;
@@ -50073,6 +50098,11 @@ begin
      end;
     end;
    end;
+  end;
+  if assigned(aCastProfilerData) then begin
+   inc(aCastProfilerData^.CountTotalTopLevelAccelerationStructureNodes,LocalCountTotalTopLevelAccelerationStructureNodes);
+   inc(aCastProfilerData^.CountCheckedTopLevelAccelerationStructureNodes,LocalCountCheckedTopLevelAccelerationStructureNodes);
+   inc(aCastProfilerData^.CountCheckedTopLevelAccelerationStructureLeafs,LocalCountCheckedTopLevelAccelerationStructureLeafs);
   end;
  finally
   Stack.Finalize;
@@ -50108,6 +50138,9 @@ var AABBTreeIndex:TKraftInt32;
     Node:PKraftDynamicAABBTreeNode;
     CurrentShape:TKraftShape;
     SphereCastData:TKraftSpherecastData;
+    LocalCountTotalTopLevelAccelerationStructureNodes:TKraftInt32;
+    LocalCountCheckedTopLevelAccelerationStructureNodes:TKraftInt32;
+    LocalCountCheckedTopLevelAccelerationStructureLeafs:TKraftInt32;
 begin
  result:=false;
  aTime:=aMaxTime;
@@ -50117,6 +50150,9 @@ begin
   if assigned(aCastProfilerData) then begin
    FillChar(aCastProfilerData^,SizeOf(TKraftCastProfilerData),#0);
   end;
+  LocalCountTotalTopLevelAccelerationStructureNodes:=0;
+  LocalCountCheckedTopLevelAccelerationStructureNodes:=0;
+  LocalCountCheckedTopLevelAccelerationStructureLeafs:=0;
   for AABBTreeIndex:=0 to 3 do begin
    case AABBTreeIndex of
     0:begin
@@ -50133,22 +50169,16 @@ begin
     end;
    end;
    if assigned(AABBTree) and (AABBTree.fRoot>=0) then begin
-    if assigned(aCastProfilerData) then begin
-     inc(aCastProfilerData^.CountTotalTopLevelAccelerationStructureNodes,AABBTree.fNodeCount);
-    end;
+    inc(LocalCountTotalTopLevelAccelerationStructureNodes,AABBTree.fNodeCount);
     Stack.Clear;
     Stack.Push(AABBTree.fRoot);
     while Stack.Pop(NodeID) do begin
      while NodeID>=0 do begin
       Node:=@AABBTree.fNodes[NodeID];
       if SphereCastAABB(aOrigin,aRadius,aDirection,Node^.AABB) then begin
-       if assigned(aCastProfilerData) then begin
-        inc(aCastProfilerData^.CountCheckedTopLevelAccelerationStructureNodes);
-       end;
+       inc(LocalCountCheckedTopLevelAccelerationStructureNodes);
        if Node^.Children[0]<0 then begin
-        if assigned(aCastProfilerData) then begin
-         inc(aCastProfilerData^.CountCheckedTopLevelAccelerationStructureLeafs);
-        end;
+        inc(LocalCountCheckedTopLevelAccelerationStructureLeafs);
         CurrentShape:=Node^.UserData;
         SphereCastData.Origin:=aOrigin;
         SphereCastData.Radius:=aRadius;
@@ -50176,6 +50206,11 @@ begin
     end;
    end;
   end;
+  if assigned(aCastProfilerData) then begin
+   inc(aCastProfilerData^.CountTotalTopLevelAccelerationStructureNodes,LocalCountTotalTopLevelAccelerationStructureNodes);
+   inc(aCastProfilerData^.CountCheckedTopLevelAccelerationStructureNodes,LocalCountCheckedTopLevelAccelerationStructureNodes);
+   inc(aCastProfilerData^.CountCheckedTopLevelAccelerationStructureLeafs,LocalCountCheckedTopLevelAccelerationStructureLeafs);
+  end;
  finally
   Stack.Finalize;
  end;
@@ -50190,6 +50225,9 @@ var AABBTreeIndex:TKraftInt32;
     Node:PKraftDynamicAABBTreeNode;
     CurrentShape:TKraftShape;
     SphereCastData:TKraftSpherecastData;
+    LocalCountTotalTopLevelAccelerationStructureNodes:TKraftInt32;
+    LocalCountCheckedTopLevelAccelerationStructureNodes:TKraftInt32;
+    LocalCountCheckedTopLevelAccelerationStructureLeafs:TKraftInt32;
 begin
  result:=false;
  aTime:=aMaxTime;
@@ -50199,6 +50237,9 @@ begin
   if assigned(aCastProfilerData) then begin
    FillChar(aCastProfilerData^,SizeOf(TKraftCastProfilerData),#0);
   end;
+  LocalCountTotalTopLevelAccelerationStructureNodes:=0;
+  LocalCountCheckedTopLevelAccelerationStructureNodes:=0;
+  LocalCountCheckedTopLevelAccelerationStructureLeafs:=0;
   for AABBTreeIndex:=0 to 3 do begin
    case AABBTreeIndex of
     0:begin
@@ -50215,22 +50256,16 @@ begin
     end;
    end;
    if assigned(AABBTree) and (AABBTree.fRoot>=0) then begin
-    if assigned(aCastProfilerData) then begin
-     inc(aCastProfilerData^.CountTotalTopLevelAccelerationStructureNodes,AABBTree.fNodeCount);
-    end;
+    inc(LocalCountTotalTopLevelAccelerationStructureNodes,AABBTree.fNodeCount);
     Stack.Clear;
     Stack.Push(AABBTree.fRoot);
     while Stack.Pop(NodeID) do begin
      while NodeID>=0 do begin
       Node:=@AABBTree.fNodes[NodeID];
       if SphereCastAABB(aOrigin,aRadius,aDirection,Node^.AABB) then begin
-       if assigned(aCastProfilerData) then begin
-        inc(aCastProfilerData^.CountCheckedTopLevelAccelerationStructureNodes);
-       end;
+       inc(LocalCountCheckedTopLevelAccelerationStructureNodes);
        if Node^.Children[0]<0 then begin
-        if assigned(aCastProfilerData) then begin
-         inc(aCastProfilerData^.CountCheckedTopLevelAccelerationStructureLeafs);
-        end;
+        inc(LocalCountCheckedTopLevelAccelerationStructureLeafs);
         CurrentShape:=Node^.UserData;
         SphereCastData.Origin:=aOrigin;
         SphereCastData.Radius:=aRadius;
@@ -50258,6 +50293,11 @@ begin
      end;
     end;
    end;
+  end;
+  if assigned(aCastProfilerData) then begin
+   inc(aCastProfilerData^.CountTotalTopLevelAccelerationStructureNodes,LocalCountTotalTopLevelAccelerationStructureNodes);
+   inc(aCastProfilerData^.CountCheckedTopLevelAccelerationStructureNodes,LocalCountCheckedTopLevelAccelerationStructureNodes);
+   inc(aCastProfilerData^.CountCheckedTopLevelAccelerationStructureLeafs,LocalCountCheckedTopLevelAccelerationStructureLeafs);
   end;
  finally
   Stack.Finalize;
