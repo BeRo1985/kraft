@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2025-11-22-05-14-0000                       *
+ *                        Version 2025-11-23-18-07-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -1778,6 +1778,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftMeshBVHBuildMode=
       (
+       kmbbmDefault,
        kmbbmMeanVariance,
        kmbbmSAHBruteforce,
        kmbbmSAHSteps,
@@ -1840,6 +1841,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fBVHBuildMode:TKraftMeshBVHBuildMode;
 
+       fCurrentBVHBuildMode:TKraftMeshBVHBuildMode;
+
        fBVHSubdivisionSteps:TKraftInt32;
 
        fBVHTraversalCost:TKraftScalar;
@@ -1895,7 +1898,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure Transform(const WithMatrix:TKraftMatrix3x3); overload;
        procedure Transform(const WithMatrix:TKraftMatrix4x4); overload;
 
-       procedure Finish;
+       procedure Finish(const aBVHBuildMode:TKraftMeshBVHBuildMode=TKraftMeshBVHBuildMode.kmbbmDefault);
 
        procedure Decimate(const aTargetCount:TKraftInt32;const aAgressiveness:TKraftDouble=7.0);
 
@@ -1916,6 +1919,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        function GetLocalSignedDistanceNormal(const Position:TKraftVector3;out aNormal:TKraftVector3):TKraftScalar;
 
        function GetLocalClosestPointTo(const Position:TKraftVector3;out aClosestPoint:TKraftVector3):TKraftScalar;
+
+       procedure Rebuild(const aBVHBuildMode:TKraftMeshBVHBuildMode=TKraftMeshBVHBuildMode.kmbbmDefault);
 
        property Physics:TKraft read fPhysics;
 
@@ -4627,6 +4632,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        function LookupClosest(const aPoint:TKraftVector3;var aArray:TKraftShapeDynamicArray;var aCount:TKraftSizeInt;aGetDistance:TKraftDynamicAABBTreeGetDistance=nil;const aMaxCount:TKraftSizeInt=1;aMaxDistance:TKraftScalar=-1.0):boolean;
 
        function GetDistance(const aShapeA,aShapeB:TKraftShape):TKraftScalar;
+
+       procedure Rebuild(const aGlobal:Boolean=true;const aShapes:Boolean=true;const aMeshBVHBuildMode:TKraftMeshBVHBuildMode=TKraftMeshBVHBuildMode.kmbbmDefault);
 
        property HighResolutionTimer:TKraftHighResolutionTimer read fHighResolutionTimer;
 
@@ -28580,6 +28587,8 @@ begin
 
  fBVHBuildMode:=TKraftMeshBVHBuildMode.kmbbmMeanVariance; //kmbbmSAHSteps;
 
+ fCurrentBVHBuildMode:=TKraftMeshBVHBuildMode.kmbbmMeanVariance; //kmbbmSAHSteps;
+
  fBVHSubdivisionSteps:=8;
 
  fBVHTraversalCost:=2.0;
@@ -30021,12 +30030,12 @@ begin
    ParentTreeNode:=@fTreeNodes[ParentTreeNodeIndex];
    if ParentTreeNode^.CountTriangles>fMaximumTrianglesPerNode then begin
 
-    case fBVHBuildMode of
+    case fCurrentBVHBuildMode of
      TKraftMeshBVHBuildMode.kmbbmMeanVariance:begin
       OK:=FindBestSplitPlaneMeanVariance(ParentTreeNode,AxisIndex,SplitPosition);
      end;
      else begin
-      case fBVHBuildMode of
+      case fCurrentBVHBuildMode of
        TKraftMeshBVHBuildMode.kmbbmSAHSteps:begin
         SplitCost:=FindBestSplitPlaneSAHSteps(ParentTreeNode,AxisIndex,SplitPosition);
        end;
@@ -30619,7 +30628,7 @@ begin
 
 end;
 
-procedure TKraftMesh.Finish;
+procedure TKraftMesh.Finish(const aBVHBuildMode:TKraftMeshBVHBuildMode);
 type TDynamicAABBTreeNode=record
       AABB:TKraftAABB;
       Parent:TKraftSizeInt;
@@ -30726,8 +30735,18 @@ begin
    SetLength(fTreeNodes,Max(1,length(fTriangles)*2));
   end;
 
-  if (fBVHBuildMode=TKraftMeshBVHBuildMode.kmbbmSAHRandomInsert) or
-     (fBVHBuildMode=TKraftMeshBVHBuildMode.kmbbmSAHDynamicBVHRebuild) then begin
+  if aBVHBuildMode=TKraftMeshBVHBuildMode.kmbbmDefault then begin
+   if fBVHBuildMode=TKraftMeshBVHBuildMode.kmbbmDefault then begin
+    fCurrentBVHBuildMode:=TKraftMeshBVHBuildMode.kmbbmMeanVariance;
+   end else begin
+    fCurrentBVHBuildMode:=fBVHBuildMode;
+   end;
+  end else begin
+   fCurrentBVHBuildMode:=aBVHBuildMode;
+  end;
+
+  if (fCurrentBVHBuildMode=TKraftMeshBVHBuildMode.kmbbmSAHRandomInsert) or
+     (fCurrentBVHBuildMode=TKraftMeshBVHBuildMode.kmbbmSAHDynamicBVHRebuild) then begin
 
    if fCountTriangles>0 then begin
 
@@ -30760,7 +30779,7 @@ begin
       TriangleIndices:=nil;
      end;
 
-     if fBVHBuildMode=TKraftMeshBVHBuildMode.kmbbmSAHDynamicBVHRebuild then begin
+     if fCurrentBVHBuildMode=TKraftMeshBVHBuildMode.kmbbmSAHDynamicBVHRebuild then begin
       DynamicAABBTree.Rebuild(true,true);
      end;
 
@@ -31772,6 +31791,11 @@ begin
   aClosestPoint:=Vector3Origin;
   result:=Infinity;
  end;
+end;
+
+procedure TKraftMesh.Rebuild(const aBVHBuildMode:TKraftMeshBVHBuildMode);
+begin
+ Finish(aBVHBuildMode); // simple just as that!
 end;
 
 constructor TKraftSignedDistanceField.Create(const aPhysics:TKraft;const aIsForStaticRigidBodies:Boolean;const aAABB:PKraftAABB);
@@ -52498,6 +52522,54 @@ begin
  end else begin
   result:=GJK.Distance;
  end;
+end;
+
+procedure TKraft.Rebuild(const aGlobal:Boolean;const aShapes:Boolean;const aMeshBVHBuildMode:TKraftMeshBVHBuildMode);
+var RigidBody:TKraftRigidBody;
+    Shape:TKraftShape;
+    Mesh:TKraftMesh;
+begin
+
+ if aGlobal then begin
+
+  // Rebuild all AABB trees
+  if assigned(fStaticAABBTree) then begin
+   fStaticAABBTree.Rebuild(true,true);
+  end;
+  if assigned(fSleepingAABBTree) then begin
+   fSleepingAABBTree.Rebuild(true,true);
+  end;
+  if assigned(fDynamicAABBTree) then begin
+   fDynamicAABBTree.Rebuild(true,true);
+  end;
+  if assigned(fKinematicAABBTree) then begin
+   fKinematicAABBTree.Rebuild(true,true);
+  end;
+
+  // Synchronize all shapes in all rigid bodies
+  RigidBody:=fRigidBodyFirst;
+  while assigned(RigidBody) do begin
+   Shape:=RigidBody.fShapeFirst;
+   while assigned(Shape) do begin
+    Shape.SynchronizeProxies;
+    Shape:=Shape.fShapeNext;
+   end;
+   RigidBody:=RigidBody.fRigidBodyNext;
+  end;
+
+ end;
+
+ if aShapes then begin
+
+  // Rebuild all meshes
+  Mesh:=fMeshFirst;
+  while assigned(Mesh) do begin
+   Mesh.Rebuild(aMeshBVHBuildMode);
+   Mesh:=Mesh.fNext;
+  end;
+
+ end;
+
 end;
 
 initialization
