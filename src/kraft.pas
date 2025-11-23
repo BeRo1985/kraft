@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2025-11-23-18-07-0000                       *
+ *                        Version 2025-11-24-00-18-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -941,6 +941,22 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        function PopIndirect(out aItem:PT):boolean; inline;
      end;
 
+     TKraftCastProfilerData=record
+      public
+       CountTotalTopLevelAccelerationStructureNodes:TKraftUInt32;
+       CountCheckedTopLevelAccelerationStructureNodes:TKraftUInt32;
+       CountCheckedTopLevelAccelerationStructureLeafs:TKraftUInt32;
+       CountTotalBottomLevelAccelerationStructureNodes:TKraftUInt32;
+       CountTotalBottomLevelAccelerationStructureMeshNodes:TKraftUInt32;
+       CountCheckedBottomLevelAccelerationStructureMeshNodes:TKraftUInt32;
+       CountCheckedBottomLevelAccelerationStructureMeshLeafs:TKraftUInt32;
+       CountCheckedBottomLevelAccelerationStructureNodes:TKraftUInt32;
+       CountCheckedBottomLevelAccelerationStructureLeafs:TKraftUInt32;
+       CountCheckedBottomLevelAccelerationStructureTriangles:TKraftUInt32;
+       procedure Dump;
+     end;
+     PKraftCastProfilerData=^TKraftCastProfilerData;
+
      TKraftStaticAABBTreeProxy=record
       AABB:TKraftAABB;
       UserData:TKraftPtrInt;
@@ -1166,6 +1182,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
       Point:TKraftVector3;
       Normal:TKraftVector3;
       SurfaceNormal:TKraftVector3;
+      CastProfilerData:PKraftCastProfilerData;
      end;
      PKraftRayCastData=^TKraftRayCastData;
 
@@ -1187,6 +1204,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
       Point:TKraftVector3;
       Normal:TKraftVector3;
       SurfaceNormal:TKraftVector3;
+      CastProfilerData:PKraftCastProfilerData;
      end;
      PKraftSphereCastData=^TKraftSphereCastData;
 
@@ -4592,21 +4610,21 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        function TestPoint(const aPoint:TKraftVector3):TKraftShape;
 
-       function RayCast(const aOrigin,aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnRayCastFilterHook:TKraftOnRayCastFilterHook=nil):boolean; overload;
+       function RayCast(const aOrigin,aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnRayCastFilterHook:TKraftOnRayCastFilterHook=nil;const aCastProfilerData:PKraftCastProfilerData=nil):boolean; overload;
 
-       function RayCast(const aOrigin,aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnRayCastFilterHook:TKraftOnRayCastFilterHook=nil):boolean; overload;
+       function RayCast(const aOrigin,aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnRayCastFilterHook:TKraftOnRayCastFilterHook=nil;const aCastProfilerData:PKraftCastProfilerData=nil):boolean; overload;
 
-       function RayCast(const aSource,aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnRayCastFilterHook:TKraftOnRayCastFilterHook=nil):boolean; overload;
+       function RayCast(const aSource,aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnRayCastFilterHook:TKraftOnRayCastFilterHook=nil;const aCastProfilerData:PKraftCastProfilerData=nil):boolean; overload;
 
-       function RayCast(const aSource,aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnRayCastFilterHook:TKraftOnRayCastFilterHook=nil):boolean; overload;
+       function RayCast(const aSource,aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnRayCastFilterHook:TKraftOnRayCastFilterHook=nil;const aCastProfilerData:PKraftCastProfilerData=nil):boolean; overload;
 
-       function SphereCast(const aOrigin:TKraftVector3;const aRadius:TKraftScalar;const aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook=nil):boolean; overload;
+       function SphereCast(const aOrigin:TKraftVector3;const aRadius:TKraftScalar;const aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook=nil;const aCastProfilerData:PKraftCastProfilerData=nil):boolean; overload;
 
-       function SphereCast(const aOrigin:TKraftVector3;const aRadius:TKraftScalar;const aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook=nil):boolean; overload;
+       function SphereCast(const aOrigin:TKraftVector3;const aRadius:TKraftScalar;const aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook=nil;const aCastProfilerData:PKraftCastProfilerData=nil):boolean; overload;
 
-       function SphereCast(const aSource:TKraftVector3;const aRadius:TKraftScalar;const aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook=nil):boolean; overload;
+       function SphereCast(const aSource:TKraftVector3;const aRadius:TKraftScalar;const aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook=nil;const aCastProfilerData:PKraftCastProfilerData=nil):boolean; overload;
 
-       function SphereCast(const aSource:TKraftVector3;const aRadius:TKraftScalar;const aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook=nil):boolean; overload;
+       function SphereCast(const aSource:TKraftVector3;const aRadius:TKraftScalar;const aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook=nil;const aCastProfilerData:PKraftCastProfilerData=nil):boolean; overload;
 
        function PushSphere(var aCenter:TKraftVector3;const aRadius:TKraftScalar;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aTryIterations:TKraftInt32=4;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook=nil;const aKraftOnPushShapeFilterHook:TKraftOnPushShapeFilterHook=nil;const aAvoidShape:TKraftShape=nil):boolean;
 
@@ -20326,6 +20344,24 @@ begin
  end;
 end;
 
+{ TKraftCastProfilerData }
+
+procedure TKraftCastProfilerData.Dump;
+begin
+ WriteLn('TKraftCastProfilerData:');
+ WriteLn('  Count Total Top Level Acceleration Structure Nodes: ',CountTotalTopLevelAccelerationStructureNodes);
+ WriteLn('  Count Checked Top Level Acceleration Structure Nodes: ',CountCheckedTopLevelAccelerationStructureNodes);
+ WriteLn('  Count Checked Top Level Acceleration Structure Leafs: ',CountCheckedTopLevelAccelerationStructureLeafs);
+ WriteLn('  Count Total Bottom Level Acceleration Structure Nodes: ',CountTotalBottomLevelAccelerationStructureNodes);
+ WriteLn('  Count Total Bottom Level Acceleration Structure Mesh Nodes: ',CountTotalBottomLevelAccelerationStructureMeshNodes);
+ WriteLn('  Count Checked Bottom Level Acceleration Structure Mesh Nodes: ',CountCheckedBottomLevelAccelerationStructureMeshNodes);
+ WriteLn('  Count Checked Bottom Level Acceleration Structure Mesh Leafs: ',CountCheckedBottomLevelAccelerationStructureMeshLeafs);
+ WriteLn('  Count Checked Bottom Level Acceleration Structure Nodes: ',CountCheckedBottomLevelAccelerationStructureNodes);
+ WriteLn('  Count Checked Bottom Level Acceleration Structure Leafs: ',CountCheckedBottomLevelAccelerationStructureLeafs);
+ WriteLn('  Count Checked Bottom Level Acceleration Structure Triangles: ',CountCheckedBottomLevelAccelerationStructureTriangles);
+ WriteLn;
+end;
+
 { TKraftStaticAABBTree }
 
 constructor TKraftStaticAABBTree.Create;
@@ -35944,18 +35980,37 @@ begin
    InvDirection:=Vector3Div(Vector3All,Direction);
    Nearest:=MAX_SCALAR;
    First:=true;
+   if assigned(RayCastData.CastProfilerData) then begin
+    inc(RayCastData.CastProfilerData^.CountTotalBottomLevelAccelerationStructureMeshNodes,fCountSkipListNodes);
+   end;
    SkipListNodeIndex:=0;
    while SkipListNodeIndex<fCountSkipListNodes do begin
     SkipListNode:=@fSkipListNodes[SkipListNodeIndex];
     if AABBRayIntersectOpt(SkipListNode^.AABB,Origin,InvDirection) then begin
+     if assigned(RayCastData.CastProfilerData) then begin
+      inc(RayCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureMeshNodes);
+     end;
      MeshIndex:=TKraftPtrInt(TKraftPtrUInt(SkipListNode^.UserData))-1;
      if MeshIndex>=0 then begin
+      if assigned(RayCastData.CastProfilerData) then begin
+       inc(RayCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureMeshLeafs);
+      end;
       Mesh:=fMeshes[MeshIndex];
+      if assigned(RayCastData.CastProfilerData) then begin
+       inc(RayCastData.CastProfilerData^.CountTotalBottomLevelAccelerationStructureNodes,Mesh.fCountSkipListNodes);
+      end;
       MeshSkipListNodeIndex:=0;
       while MeshSkipListNodeIndex<Mesh.fCountSkipListNodes do begin
        MeshSkipListNode:=@Mesh.fSkipListNodes[MeshSkipListNodeIndex];
        if AABBRayIntersectOpt(MeshSkipListNode^.AABB,Origin,InvDirection) then begin
+        if assigned(RayCastData.CastProfilerData) then begin
+         inc(RayCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureNodes);
+        end;
         if MeshSkipListNode^.CountTriangles>0 then begin
+         if assigned(RayCastData.CastProfilerData) then begin
+          inc(RayCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureLeafs);
+          inc(RayCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureTriangles,MeshSkipListNode^.CountTriangles);
+         end;
          for TriangleIndex:=MeshSkipListNode^.FirstTriangleIndex to MeshSkipListNode^.FirstTriangleIndex+(MeshSkipListNode^.CountTriangles-1) do begin
           Triangle:=@Mesh.fTriangles[TriangleIndex];
           for SidePass:=false to Mesh.fDoubleSided do begin
@@ -36034,18 +36089,37 @@ begin
    InvDirection:=Vector3Div(Vector3All,Direction);
    Nearest:=MAX_SCALAR;
    First:=true;
+   if assigned(SphereCastData.CastProfilerData) then begin
+    inc(SphereCastData.CastProfilerData^.CountTotalBottomLevelAccelerationStructureMeshNodes,fCountSkipListNodes);
+   end;
    SkipListNodeIndex:=0;
    while SkipListNodeIndex<fCountSkipListNodes do begin
     SkipListNode:=@fSkipListNodes[SkipListNodeIndex];
     if SphereCastAABBOpt(Origin,Radius,InvDirection,SkipListNode^.AABB) then begin
+     if assigned(SphereCastData.CastProfilerData) then begin
+      inc(SphereCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureMeshNodes);
+     end;
      MeshIndex:=TKraftPtrInt(TKraftPtrUInt(SkipListNode^.UserData))-1;
      if MeshIndex>=0 then begin
+      if assigned(SphereCastData.CastProfilerData) then begin
+       inc(SphereCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureMeshLeafs);
+      end;
       Mesh:=fMeshes[MeshIndex];
+      if assigned(SphereCastData.CastProfilerData) then begin
+       inc(SphereCastData.CastProfilerData^.CountTotalBottomLevelAccelerationStructureNodes,Mesh.fCountSkipListNodes);
+      end;
       MeshSkipListNodeIndex:=0;
       while MeshSkipListNodeIndex<Mesh.fCountSkipListNodes do begin
        MeshSkipListNode:=@Mesh.fSkipListNodes[MeshSkipListNodeIndex];
        if SphereCastAABBOpt(Origin,Radius,InvDirection,MeshSkipListNode^.AABB) then begin
+        if assigned(SphereCastData.CastProfilerData) then begin
+         inc(SphereCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureNodes);
+        end;
         if MeshSkipListNode^.CountTriangles>0 then begin
+         if assigned(SphereCastData.CastProfilerData) then begin
+          inc(SphereCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureLeafs);
+          inc(SphereCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureTriangles,MeshSkipListNode^.CountTriangles);
+         end;
          for TriangleIndex:=MeshSkipListNode^.FirstTriangleIndex to MeshSkipListNode^.FirstTriangleIndex+(MeshSkipListNode^.CountTriangles-1) do begin
           Triangle:=@Mesh.fTriangles[TriangleIndex];
           if Mesh.fSmoothSphereCastNormals then begin
@@ -49842,7 +49916,7 @@ begin
  end;
 end;
 
-function TKraft.RayCast(const aOrigin,aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnRayCastFilterHook:TKraftOnRayCastFilterHook=nil):boolean;
+function TKraft.RayCast(const aOrigin,aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnRayCastFilterHook:TKraftOnRayCastFilterHook;const aCastProfilerData:PKraftCastProfilerData):boolean;
 type TStack=TKraftDynamicFastNonRTTIStack<TKraftInt32>;
 var AABBTreeIndex:TKraftInt32;
     AABBTree:TKraftDynamicAABBTree;
@@ -49856,6 +49930,10 @@ begin
  aTime:=aMaxTime;
  Stack.Initialize;
  try
+  RayCastData.CastProfilerData:=aCastProfilerData;
+  if assigned(aCastProfilerData) then begin
+   FillChar(aCastProfilerData^,SizeOf(TKraftCastProfilerData),#0);
+  end;
   for AABBTreeIndex:=0 to 3 do begin
    case AABBTreeIndex of
     0:begin
@@ -49872,13 +49950,22 @@ begin
     end;
    end;
    if assigned(AABBTree) and (AABBTree.fRoot>=0) then begin
+    if assigned(aCastProfilerData) then begin
+     inc(aCastProfilerData^.CountTotalTopLevelAccelerationStructureNodes,AABBTree.fNodeCount);
+    end;
     Stack.Clear;
     Stack.Push(AABBTree.fRoot);
     while Stack.Pop(NodeID) do begin
      while NodeID>=0 do begin
       Node:=@AABBTree.fNodes[NodeID];
       if AABBRayIntersect(Node^.AABB,aOrigin,aDirection) then begin
+       if assigned(aCastProfilerData) then begin
+        inc(aCastProfilerData^.CountCheckedTopLevelAccelerationStructureNodes);
+       end;
        if Node^.Children[0]<0 then begin
+        if assigned(aCastProfilerData) then begin
+         inc(aCastProfilerData^.CountCheckedTopLevelAccelerationStructureLeafs);
+        end;
         CurrentShape:=Node^.UserData;
         RayCastData.Origin:=aOrigin;
         RayCastData.Direction:=aDirection;
@@ -49910,7 +49997,7 @@ begin
  end;
 end;
 
-function TKraft.RayCast(const aOrigin,aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnRayCastFilterHook:TKraftOnRayCastFilterHook=nil):boolean;
+function TKraft.RayCast(const aOrigin,aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnRayCastFilterHook:TKraftOnRayCastFilterHook;const aCastProfilerData:PKraftCastProfilerData):boolean;
 type TStack=TKraftDynamicFastNonRTTIStack<TKraftInt32>;
 var AABBTreeIndex:TKraftInt32;
     AABBTree:TKraftDynamicAABBTree;
@@ -49924,6 +50011,10 @@ begin
  aTime:=aMaxTime;
  Stack.Initialize;
  try
+  RayCastData.CastProfilerData:=aCastProfilerData;
+  if assigned(aCastProfilerData) then begin
+   FillChar(aCastProfilerData^,SizeOf(TKraftCastProfilerData),#0);
+  end;
   for AABBTreeIndex:=0 to 3 do begin
    case AABBTreeIndex of
     0:begin
@@ -49940,13 +50031,22 @@ begin
     end;
    end;
    if assigned(AABBTree) and (AABBTree.fRoot>=0) then begin
+    if assigned(aCastProfilerData) then begin
+     inc(aCastProfilerData^.CountTotalTopLevelAccelerationStructureNodes,AABBTree.fNodeCount);
+    end;
     Stack.Clear;
     Stack.Push(AABBTree.fRoot);
     while Stack.Pop(NodeID) do begin
      while NodeID>=0 do begin
       Node:=@AABBTree.fNodes[NodeID];
       if AABBRayIntersect(Node^.AABB,aOrigin,aDirection) then begin
+       if assigned(aCastProfilerData) then begin
+        inc(aCastProfilerData^.CountCheckedTopLevelAccelerationStructureNodes);
+       end;
        if Node^.Children[0]<0 then begin
+        if assigned(aCastProfilerData) then begin
+         inc(aCastProfilerData^.CountCheckedTopLevelAccelerationStructureLeafs);
+        end;
         CurrentShape:=Node^.UserData;
         RayCastData.Origin:=aOrigin;
         RayCastData.Direction:=aDirection;
@@ -49979,27 +50079,27 @@ begin
  end;
 end;
 
-function TKraft.RayCast(const aSource,aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnRayCastFilterHook:TKraftOnRayCastFilterHook):boolean;
+function TKraft.RayCast(const aSource,aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnRayCastFilterHook:TKraftOnRayCastFilterHook;const aCastProfilerData:PKraftCastProfilerData):boolean;
 var Len:TKraftScalar;
 begin
  Len:=Vector3Dist(aSource,aTarget);
- result:=RayCast(aSource,Vector3Norm(Vector3Sub(aTarget,aSource)),Len,aShape,aTime,aPoint,aNormal,aCollisionGroups,aOnRayCastFilterHook);
+ result:=RayCast(aSource,Vector3Norm(Vector3Sub(aTarget,aSource)),Len,aShape,aTime,aPoint,aNormal,aCollisionGroups,aOnRayCastFilterHook,aCastProfilerData);
  if result then begin
   aTime:=aTime/Len;
  end;
 end;
 
-function TKraft.RayCast(const aSource,aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnRayCastFilterHook:TKraftOnRayCastFilterHook):boolean;
+function TKraft.RayCast(const aSource,aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnRayCastFilterHook:TKraftOnRayCastFilterHook;const aCastProfilerData:PKraftCastProfilerData):boolean;
 var Len:TKraftScalar;
 begin
  Len:=Vector3Dist(aSource,aTarget);
- result:=RayCast(aSource,Vector3Norm(Vector3Sub(aTarget,aSource)),Len,aShape,aTime,aPoint,aNormal,aSurfaceNormal,aCollisionGroups,aOnRayCastFilterHook);
+ result:=RayCast(aSource,Vector3Norm(Vector3Sub(aTarget,aSource)),Len,aShape,aTime,aPoint,aNormal,aSurfaceNormal,aCollisionGroups,aOnRayCastFilterHook,aCastProfilerData);
  if result then begin
   aTime:=aTime/Len;
  end;
 end;
 
-function TKraft.SphereCast(const aOrigin:TKraftVector3;const aRadius:TKraftScalar;const aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook):boolean;
+function TKraft.SphereCast(const aOrigin:TKraftVector3;const aRadius:TKraftScalar;const aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook;const aCastProfilerData:PKraftCastProfilerData):boolean;
 type TStack=TKraftDynamicFastNonRTTIStack<TKraftInt32>;
 var AABBTreeIndex:TKraftInt32;
     AABBTree:TKraftDynamicAABBTree;
@@ -50013,6 +50113,10 @@ begin
  aTime:=aMaxTime;
  Stack.Initialize;
  try
+  SphereCastData.CastProfilerData:=aCastProfilerData;
+  if assigned(aCastProfilerData) then begin
+   FillChar(aCastProfilerData^,SizeOf(TKraftCastProfilerData),#0);
+  end;
   for AABBTreeIndex:=0 to 3 do begin
    case AABBTreeIndex of
     0:begin
@@ -50029,13 +50133,22 @@ begin
     end;
    end;
    if assigned(AABBTree) and (AABBTree.fRoot>=0) then begin
+    if assigned(aCastProfilerData) then begin
+     inc(aCastProfilerData^.CountTotalTopLevelAccelerationStructureNodes,AABBTree.fNodeCount);
+    end;
     Stack.Clear;
     Stack.Push(AABBTree.fRoot);
     while Stack.Pop(NodeID) do begin
      while NodeID>=0 do begin
       Node:=@AABBTree.fNodes[NodeID];
       if SphereCastAABB(aOrigin,aRadius,aDirection,Node^.AABB) then begin
+       if assigned(aCastProfilerData) then begin
+        inc(aCastProfilerData^.CountCheckedTopLevelAccelerationStructureNodes);
+       end;
        if Node^.Children[0]<0 then begin
+        if assigned(aCastProfilerData) then begin
+         inc(aCastProfilerData^.CountCheckedTopLevelAccelerationStructureLeafs);
+        end;
         CurrentShape:=Node^.UserData;
         SphereCastData.Origin:=aOrigin;
         SphereCastData.Radius:=aRadius;
@@ -50068,7 +50181,7 @@ begin
  end;
 end;
 
-function TKraft.SphereCast(const aOrigin:TKraftVector3;const aRadius:TKraftScalar;const aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook):boolean;
+function TKraft.SphereCast(const aOrigin:TKraftVector3;const aRadius:TKraftScalar;const aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook;const aCastProfilerData:PKraftCastProfilerData):boolean;
 type TStack=TKraftDynamicFastNonRTTIStack<TKraftInt32>;
 var AABBTreeIndex:TKraftInt32;
     AABBTree:TKraftDynamicAABBTree;
@@ -50082,6 +50195,10 @@ begin
  aTime:=aMaxTime;
  Stack.Initialize;
  try
+  SphereCastData.CastProfilerData:=aCastProfilerData;
+  if assigned(aCastProfilerData) then begin
+   FillChar(aCastProfilerData^,SizeOf(TKraftCastProfilerData),#0);
+  end;
   for AABBTreeIndex:=0 to 3 do begin
    case AABBTreeIndex of
     0:begin
@@ -50098,13 +50215,22 @@ begin
     end;
    end;
    if assigned(AABBTree) and (AABBTree.fRoot>=0) then begin
+    if assigned(aCastProfilerData) then begin
+     inc(aCastProfilerData^.CountTotalTopLevelAccelerationStructureNodes,AABBTree.fNodeCount);
+    end;
     Stack.Clear;
     Stack.Push(AABBTree.fRoot);
     while Stack.Pop(NodeID) do begin
      while NodeID>=0 do begin
       Node:=@AABBTree.fNodes[NodeID];
       if SphereCastAABB(aOrigin,aRadius,aDirection,Node^.AABB) then begin
+       if assigned(aCastProfilerData) then begin
+        inc(aCastProfilerData^.CountCheckedTopLevelAccelerationStructureNodes);
+       end;
        if Node^.Children[0]<0 then begin
+        if assigned(aCastProfilerData) then begin
+         inc(aCastProfilerData^.CountCheckedTopLevelAccelerationStructureLeafs);
+        end;
         CurrentShape:=Node^.UserData;
         SphereCastData.Origin:=aOrigin;
         SphereCastData.Radius:=aRadius;
@@ -50138,21 +50264,21 @@ begin
  end;
 end;
 
-function TKraft.SphereCast(const aSource:TKraftVector3;const aRadius:TKraftScalar;const aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook):boolean;
+function TKraft.SphereCast(const aSource:TKraftVector3;const aRadius:TKraftScalar;const aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook;const aCastProfilerData:PKraftCastProfilerData):boolean;
 var Len:TKraftScalar;
 begin
  Len:=Vector3Dist(aSource,aTarget);
- result:=SphereCast(aSource,aRadius,Vector3Norm(Vector3Sub(aTarget,aSource)),Vector3Dist(aSource,aTarget),aShape,aTime,aPoint,aNormal,aCollisionGroups,aOnSphereCastFilterHook);
+ result:=SphereCast(aSource,aRadius,Vector3Norm(Vector3Sub(aTarget,aSource)),Vector3Dist(aSource,aTarget),aShape,aTime,aPoint,aNormal,aCollisionGroups,aOnSphereCastFilterHook,aCastProfilerData);
  if result then begin
   aTime:=aTime/Len;
  end;
 end;
 
-function TKraft.SphereCast(const aSource:TKraftVector3;const aRadius:TKraftScalar;const aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook):boolean;
+function TKraft.SphereCast(const aSource:TKraftVector3;const aRadius:TKraftScalar;const aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook;const aCastProfilerData:PKraftCastProfilerData):boolean;
 var Len:TKraftScalar;
 begin
  Len:=Vector3Dist(aSource,aTarget);
- result:=SphereCast(aSource,aRadius,Vector3Norm(Vector3Sub(aTarget,aSource)),Vector3Dist(aSource,aTarget),aShape,aTime,aPoint,aNormal,aSurfaceNormal,aCollisionGroups,aOnSphereCastFilterHook);
+ result:=SphereCast(aSource,aRadius,Vector3Norm(Vector3Sub(aTarget,aSource)),Vector3Dist(aSource,aTarget),aShape,aTime,aPoint,aNormal,aSurfaceNormal,aCollisionGroups,aOnSphereCastFilterHook,aCastProfilerData);
  if result then begin
   aTime:=aTime/Len;
  end;
