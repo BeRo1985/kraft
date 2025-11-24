@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2025-11-24-00-43-0000                       *
+ *                        Version 2025-11-24-02-15-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -21989,8 +21989,9 @@ begin
          AABBDirectCombineVector3(CentroidAABB,Center^);
         end;
 
-{       AxisLengths:=Vector3Sub(CentroidAABB.Max,CentroidAABB.Min);
-        if AxisLengths.x<AxisLengths.y then begin
+        AxisLengths:=Vector3Sub(CentroidAABB.Max,CentroidAABB.Min);
+
+{       if AxisLengths.x<AxisLengths.y then begin
          if AxisLengths.y<AxisLengths.z then begin
           AxisIndex:=2;
          end else begin
