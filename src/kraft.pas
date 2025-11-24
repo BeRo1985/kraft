@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2025-11-24-02-15-0000                       *
+ *                        Version 2025-11-24-02-29-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -21991,142 +21991,157 @@ begin
 
         AxisLengths:=Vector3Sub(CentroidAABB.Max,CentroidAABB.Min);
 
-{       if AxisLengths.x<AxisLengths.y then begin
-         if AxisLengths.y<AxisLengths.z then begin
-          AxisIndex:=2;
-         end else begin
-          AxisIndex:=1;
-         end;
+        // Check for valid axis lengths (not coincident centroids)
+        if (AxisLengths.x<=0.0) and (AxisLengths.y<=0.0) and (AxisLengths.z<=0.0) then begin
+
+          // Degenerate: all centers identical => no good SAH split
+
+          // Just split in half
+          LeftCount:=(FillStackItem.CountLeafNodes+1) shr 1;
+          RightCount:=FillStackItem.CountLeafNodes-LeftCount;
+
         end else begin
-         if AxisLengths.x<AxisLengths.z then begin
-          AxisIndex:=2;
-         end else begin
-          AxisIndex:=0;
-         end;
-        end;}
 
-        BestCost:=Infinity;
-        BestPlaneIndex:=-1;
-        BestAxisIndex:=0;
+         // No coincident centroids, so do just normal SAH split
 
-        for AxisIndex:=0 to 2 do begin
-
-         for Index:=0 to CountBins-1 do begin
-          Bin:=@Bins[Index];
-          Bin^.AABB.Min.x:=Infinity;
-          Bin^.AABB.Min.y:=Infinity;
-          Bin^.AABB.Min.z:=Infinity;
-          Bin^.AABB.Max.x:=-Infinity;
-          Bin^.AABB.Max.y:=-Infinity;
-          Bin^.AABB.Max.z:=-Infinity;
-          Bin^.Count:=0;
-         end;
-
-         if AxisLengths.xyz[AxisIndex]>0.0 then begin
-          InvAxisLength:=1.0/AxisLengths.xyz[AxisIndex];
-         end else begin
-          InvAxisLength:=0.0;
-         end;
-
-         MinCenterValue:=CentroidAABB.Min.xyz[AxisIndex];
-         for Index:=0 to FillStackItem.CountLeafNodes-1 do begin
-          Center:=@fNodeCenters[fLeafNodes[FillStackItem.FirstLeafNode+Index]];
-          BinIndex:=Min(Max(trunc(Min(Max((Center^.xyz[AxisIndex]-MinCenterValue)*InvAxisLength,0.0),1.0)*CountBins),0),CountBins-1);
-          fNodeBinIndices[AxisIndex,fLeafNodes[FillStackItem.FirstLeafNode+Index]]:=BinIndex;
-          Bin:=@Bins[BinIndex];
-          if Bin^.Count=0 then begin
-           Bin^.AABB:=fNodes^[fLeafNodes[FillStackItem.FirstLeafNode+Index]].AABB;
+{        if AxisLengths.x<AxisLengths.y then begin
+          if AxisLengths.y<AxisLengths.z then begin
+           AxisIndex:=2;
           end else begin
-           AABBDirectCombine(Bin^.AABB,fNodes^[fLeafNodes[FillStackItem.FirstLeafNode+Index]].AABB);
+           AxisIndex:=1;
+          end; 
+         end else begin
+          if AxisLengths.x<AxisLengths.z then begin
+           AxisIndex:=2;
+          end else begin
+           AxisIndex:=0;
           end;
-          inc(Bin^.Count);
-         end;
+         end;}
 
-         Plane:=@Planes[0];
-         Bin:=@Bins[0];
-         Plane^.LeftAABB:=Bin^.AABB;
-         Plane^.LeftCount:=Bin^.Count;
-         for Index:=1 to CountPlanes-1 do begin
-          PreviousPlane:=Plane;
-          Plane:=@Planes[Index];
-          Bin:=@Bins[Index];
-          Plane^.LeftAABB:=AABBCombine(PreviousPlane^.LeftAABB,Bin^.AABB);
-          Plane^.LeftCount:=PreviousPlane^.LeftCount+Bin^.Count;
-         end;
+         BestCost:=Infinity;
+         BestPlaneIndex:=-1;
+         BestAxisIndex:=0;
 
-         Plane:=@Planes[CountPlanes-1];
-         Bin:=@Bins[CountPlanes];
-         Plane^.RightAABB:=Bin^.AABB;
-         Plane^.RightCount:=Bin^.Count;
-         for Index:=CountPlanes-2 downto 0 do begin
-          PreviousPlane:=Plane;
-          Plane:=@Planes[Index];
-          Bin:=@Bins[Index+1];
-          Plane^.RightAABB:=AABBCombine(PreviousPlane^.RightAABB,Bin^.AABB);
-          Plane^.RightCount:=PreviousPlane^.RightCount+Bin^.Count;
-         end;
+         for AxisIndex:=0 to 2 do begin
 
-         for Index:=0 to CountPlanes-1 do begin
-          Plane:=@Planes[Index];
-          Cost:=(AABBCost(Plane^.LeftAABB)*Plane^.LeftCount)+(AABBCost(Plane^.RightAABB)*Plane^.RightCount);
-          if (BestPlaneIndex<0) or (BestCost>Cost) then begin
-           BestCost:=Cost;
-           BestPlaneIndex:=Index;
-           BestAxisIndex:=AxisIndex;
+          for Index:=0 to CountBins-1 do begin
+           Bin:=@Bins[Index];
+           Bin^.AABB.Min.x:=Infinity;
+           Bin^.AABB.Min.y:=Infinity;
+           Bin^.AABB.Min.z:=Infinity;
+           Bin^.AABB.Max.x:=-Infinity;
+           Bin^.AABB.Max.y:=-Infinity;
+           Bin^.AABB.Max.z:=-Infinity;
+           Bin^.Count:=0;
           end;
+
+          if AxisLengths.xyz[AxisIndex]>0.0 then begin
+           InvAxisLength:=1.0/AxisLengths.xyz[AxisIndex];
+          end else begin
+           InvAxisLength:=0.0;
+          end;
+
+          MinCenterValue:=CentroidAABB.Min.xyz[AxisIndex];
+          for Index:=0 to FillStackItem.CountLeafNodes-1 do begin
+           Center:=@fNodeCenters[fLeafNodes[FillStackItem.FirstLeafNode+Index]];
+           BinIndex:=Min(Max(trunc(Min(Max((Center^.xyz[AxisIndex]-MinCenterValue)*InvAxisLength,0.0),1.0)*CountBins),0),CountBins-1);
+           fNodeBinIndices[AxisIndex,fLeafNodes[FillStackItem.FirstLeafNode+Index]]:=BinIndex;
+           Bin:=@Bins[BinIndex];
+           if Bin^.Count=0 then begin
+            Bin^.AABB:=fNodes^[fLeafNodes[FillStackItem.FirstLeafNode+Index]].AABB;
+           end else begin
+            AABBDirectCombine(Bin^.AABB,fNodes^[fLeafNodes[FillStackItem.FirstLeafNode+Index]].AABB);
+           end;
+           inc(Bin^.Count);
+          end;
+
+          Plane:=@Planes[0];
+          Bin:=@Bins[0];
+          Plane^.LeftAABB:=Bin^.AABB;
+          Plane^.LeftCount:=Bin^.Count;
+          for Index:=1 to CountPlanes-1 do begin
+           PreviousPlane:=Plane;
+           Plane:=@Planes[Index];
+           Bin:=@Bins[Index];
+           Plane^.LeftAABB:=AABBCombine(PreviousPlane^.LeftAABB,Bin^.AABB);
+           Plane^.LeftCount:=PreviousPlane^.LeftCount+Bin^.Count;
+          end;
+
+          Plane:=@Planes[CountPlanes-1];
+          Bin:=@Bins[CountPlanes];
+          Plane^.RightAABB:=Bin^.AABB;
+          Plane^.RightCount:=Bin^.Count;
+          for Index:=CountPlanes-2 downto 0 do begin
+           PreviousPlane:=Plane;
+           Plane:=@Planes[Index];
+           Bin:=@Bins[Index+1];
+           Plane^.RightAABB:=AABBCombine(PreviousPlane^.RightAABB,Bin^.AABB);
+           Plane^.RightCount:=PreviousPlane^.RightCount+Bin^.Count;
+          end;
+
+          for Index:=0 to CountPlanes-1 do begin
+           Plane:=@Planes[Index];
+           Cost:=(AABBCost(Plane^.LeftAABB)*Plane^.LeftCount)+(AABBCost(Plane^.RightAABB)*Plane^.RightCount);
+           if (BestPlaneIndex<0) or (BestCost>Cost) then begin
+            BestCost:=Cost;
+            BestPlaneIndex:=Index;
+            BestAxisIndex:=AxisIndex;
+           end;
+          end;
+
          end;
 
-        end;
-
-        if BestPlaneIndex<0 then begin
-         BestPlaneIndex:=0;
-        end;
+         if BestPlaneIndex<0 then begin
+          BestPlaneIndex:=0;
+         end;
 
 {$ifdef TKraftDynamicAABBTreeRebuildTopDownQuickSortStylePartitioning}
-        // Quick-Sort style paritioning with Hoare partition scheme
-        LeftIndex:=FillStackItem.FirstLeafNode;
-        RightIndex:=FillStackItem.FirstLeafNode+FillStackItem.CountLeafNodes;
-        while LeftIndex<RightIndex do begin
-         while (LeftIndex<RightIndex) and (fNodeBinIndices[BestAxisIndex,fLeafNodes[LeftIndex]]<=BestPlaneIndex) do begin
-          inc(LeftIndex);
+         // Quick-Sort style paritioning with Hoare partition scheme
+         LeftIndex:=FillStackItem.FirstLeafNode;
+         RightIndex:=FillStackItem.FirstLeafNode+FillStackItem.CountLeafNodes;
+         while LeftIndex<RightIndex do begin
+          while (LeftIndex<RightIndex) and (fNodeBinIndices[BestAxisIndex,fLeafNodes[LeftIndex]]<=BestPlaneIndex) do begin
+           inc(LeftIndex);
+          end;
+          while (LeftIndex<RightIndex) and (fNodeBinIndices[BestAxisIndex,fLeafNodes[RightIndex-1]]>BestPlaneIndex) do begin
+           dec(RightIndex);
+          end;
+          if LeftIndex<RightIndex then begin
+           dec(RightIndex);
+           TempIndex:=fLeafNodes[LeftIndex];
+           fLeafNodes[LeftIndex]:=fLeafNodes[RightIndex];
+           fLeafNodes[RightIndex]:=TempIndex;
+           inc(LeftIndex);
+          end;
          end;
-         while (LeftIndex<RightIndex) and (fNodeBinIndices[BestAxisIndex,fLeafNodes[RightIndex-1]]>BestPlaneIndex) do begin
-          dec(RightIndex);
-         end;
-         if LeftIndex<RightIndex then begin
-          dec(RightIndex);
-          TempIndex:=fLeafNodes[LeftIndex];
-          fLeafNodes[LeftIndex]:=fLeafNodes[RightIndex];
-          fLeafNodes[RightIndex]:=TempIndex;
-          inc(LeftIndex);
-         end;
-        end;
-        LeftCount:=LeftIndex-FillStackItem.FirstLeafNode;
-        RightCount:=FillStackItem.CountLeafNodes-LeftCount;
+         LeftCount:=LeftIndex-FillStackItem.FirstLeafNode;
+         RightCount:=FillStackItem.CountLeafNodes-LeftCount;
 {$else}
-        // Bubble-Sort style paritioning?
-        LeftIndex:=FillStackItem.FirstLeafNode;
-        RightIndex:=FillStackItem.FirstLeafNode+FillStackItem.CountLeafNodes;
-        LeftCount:=0;
-        RightCount:=0;
-        while LeftIndex<RightIndex do begin
-         if fNodeBinIndices[BestAxisIndex,fLeafNodes[LeftIndex]]<=BestPlaneIndex then begin
-          inc(LeftIndex);
-          inc(LeftCount);
-         end else begin
-          dec(RightIndex);
-          inc(RightCount);
-          TempIndex:=fLeafNodes[LeftIndex];
-          fLeafNodes[LeftIndex]:=fLeafNodes[RightIndex];
-          fLeafNodes[RightIndex]:=TempIndex;
+         // Bubble-Sort style paritioning?
+         LeftIndex:=FillStackItem.FirstLeafNode;
+         RightIndex:=FillStackItem.FirstLeafNode+FillStackItem.CountLeafNodes;
+         LeftCount:=0;
+         RightCount:=0;
+         while LeftIndex<RightIndex do begin
+          if fNodeBinIndices[BestAxisIndex,fLeafNodes[LeftIndex]]<=BestPlaneIndex then begin
+           inc(LeftIndex);
+           inc(LeftCount);
+          end else begin
+           dec(RightIndex);
+           inc(RightCount);
+           TempIndex:=fLeafNodes[LeftIndex];
+           fLeafNodes[LeftIndex]:=fLeafNodes[RightIndex];
+           fLeafNodes[RightIndex]:=TempIndex;
+          end;
          end;
-        end;
 {$endif}
 
-        if (LeftCount=0) or (RightCount=0) then begin
-         LeftCount:=(FillStackItem.CountLeafNodes+1) shr 1;
-         RightCount:=FillStackItem.CountLeafNodes-LeftCount;
-        end;
+         if (LeftCount=0) or (RightCount=0) then begin
+          LeftCount:=(FillStackItem.CountLeafNodes+1) shr 1;
+          RightCount:=FillStackItem.CountLeafNodes-LeftCount;
+         end;
+
+        end; 
 
        end;
 {$else}
