@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2025-11-24-02-29-0000                       *
+ *                        Version 2025-11-24-17-45-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -84,7 +84,15 @@ unit kraft;
  {$endif}
  {$excessprecision off}
  {$define KraftAdvancedRecords}
+ {$undef KraftDelphiOnNonWindowsTarget}
  {$packset fixed}
+ {$notes off}
+ {$warn 6018 off} // unreachable code
+ {$warn 4045 off} // Comparison might be always true due to range of constant and expression
+ {$warn 4082 off} // Converting pointers to signed integers may result in wrong comparison results and range errors, use an unsigned type instead.
+ {$if not (defined(VER3_0) or defined(VER3_2))}
+  {$warn 6060 off} // case statement does not handle all possible cases
+ {$ifend}
 {$else}
  {$define LITTLE_ENDIAN}
  {$ifdef cpux64}
@@ -112,6 +120,12 @@ unit kraft;
   {$endif}
   {$finitefloat off}
  {$endif}
+ {$if defined(Windows) or defined(Win32) or defined(Win64)}
+  {$undef KraftDelphiOnNonWindowsTarget}
+ {$else}
+  {$define KraftDelphiOnNonWindowsTarget}
+ {$ifend}
+ {$hints off}
 {$endif}
 {$ifdef win32}
  {$define windows}
@@ -138,6 +152,10 @@ unit kraft;
  {$endif}
 {$endif}
 
+{$if defined(CASTLE_NINTENDO_SWITCH)}
+ {$define KraftNintendoSwitch}
+{$ifend}
+
 {-$define UseMoreCollisionGroups}
 
 {$define UseTriangleMeshFullPerturbation}
@@ -153,6 +171,10 @@ unit kraft;
 {$if (not defined(fpc)) and defined(cpuamd64)}
  {-$define NonSIMD} // Due to inline assembler bugs at the Delphi compiler
 {$ifend}
+
+{$ifdef KraftCastleEngine}
+ {$i castlekraft.inc}
+{$endif}
 
 {$ifdef NonSIMD}
  {$undef SIMD}
@@ -184,16 +206,19 @@ uses {$ifdef windows}
       Windows,
       MMSystem,
      {$else}
-      {$ifdef unix}
+      {$if defined(unix) and not defined(KraftNintendoSwitch)}
        BaseUnix,
        Unix,
        UnixType,
        {$if defined(linux) or defined(android)}
         linux,
        {$ifend}
+      {$elseif defined(CASTLE_NINTENDO_SWITCH)}
+       CastleTimeUtils,
+       {$define USE_CASTLE_TIME_UTILS}
       {$else}
        SDL,
-      {$endif}
+      {$ifend}
      {$endif}
      {$ifdef DebugDraw}
       {$ifndef NoOpenGL}
@@ -212,6 +237,24 @@ uses {$ifdef windows}
      PasMP,
 {$ifend}
      Math;
+
+{$if (not defined(fpc)) and (not defined(Windows))}
+// Map Non-Windows Delphi data types to what Kraft is expecting.
+type LongInt={$if declared(Int32)}Int32{$else}Integer{$ifend};
+     LongWord={$if declared(UInt32)}UInt32{$else}Cardinal{$ifend};
+
+// Workaround for thar Delphi on non-Windows defines TThread.Priority as Integer
+const tpHigher=0;
+{$ifend}
+
+{$if declared(TFPUPrecisionMode) and declared(TFPUException) and declared(TFPUExceptionMask)}
+ {$undef KraftDummyFPUFunctions}
+{$else}
+type TFPUPrecisionMode=(pmSingle,pmReserved,pmDouble,pmExtended);
+     TFPUException=(exInvalidOp,exDenormalized,exZeroDivide,exOverflow,exUnderflow,exPrecision);
+     TFPUExceptionMask=set of TFPUException;
+ {$define KraftDummyFPUFunctions}
+{$ifend}
 
 const EPSILON={$ifdef KraftUseDouble}1e-14{$else}1e-5{$endif}; // actually {$ifdef KraftUseDouble}1e-16{$else}1e-7{$endif}; but we are conservative here
 
@@ -4888,6 +4931,13 @@ const KraftSignatureConvexHull:TKraftSignature=('K','R','P','H','C','O','H','U')
        KraftStayContactFlags=[kcfColliding,kcfWasColliding];
        KraftEndContactFlags=[kcfWasColliding];
 
+{$ifdef KraftDummyFPUFunctions}
+function GetPrecisionMode:TFPUPrecisionMode;
+function GetExceptionMask:TFPUExceptionMask;
+procedure SetPrecisionMode(const aPrecisionMode:TFPUPrecisionMode);
+procedure SetExceptionMask(const aExceptionMask:TFPUExceptionMask);
+{$endif}
+
 function SpatialHashVector(const aX,aY,aZ:TKraftInt32{;const aW:TKraftInt32=0}):TKraftUInt32;
 
 function Vector2(const x,y:TKraftScalar):TKraftVector2; {$ifdef caninline}inline;{$endif}
@@ -5246,6 +5296,31 @@ type qword=TKraftInt64;
 {$endif}
 {$endif}
 
+{$ifdef KraftDummyFPUFunctions}
+var FPUPrecisionMode:TFPUPrecisionMode=TFPUPrecisionMode.pmDouble;
+    FPUExceptionMask:TFPUExceptionMask=[];
+
+function GetPrecisionMode:TFPUPrecisionMode;
+begin
+ result:=FPUPrecisionMode;
+end;
+
+function GetExceptionMask:TFPUExceptionMask;
+begin
+ result:=FPUExceptionMask;
+end;
+
+procedure SetPrecisionMode(const aPrecisionMode:TFPUPrecisionMode);
+begin
+ FPUPrecisionMode:=aPrecisionMode;
+end;
+
+procedure SetExceptionMask(const aExceptionMask:TFPUExceptionMask);
+begin
+ FPUExceptionMask:=aExceptionMask;
+end;
+{$endif}
+
 function SpatialHashVector(const aX,aY,aZ:TKraftInt32{;const aW:TKraftInt32=0}):TKraftUInt32;
 begin
  result:=(((TKraftUInt32(aX)*73856093) xor (TKraftUInt32(aY)*{19349663}19349669)) xor (TKraftUInt32(aZ)*83492791)) {xor (TKraftUInt32(aW)*67867979)};
@@ -5461,7 +5536,7 @@ begin
  result:=x+1;
 end;
 
-function SIMDGetFlags:TKraftUInt32; {$if defined(cpu386) or defined(cpuamd64)}assembler;
+function SIMDGetFlags:TKraftUInt32; {$if (defined(cpu386) or defined(cpuamd64)) and not defined(KraftDelphiOnNonWindowsTarget)}assembler;
 var Temp:TKraftUInt32;
 asm
  stmxcsr dword ptr [Temp]
@@ -5473,7 +5548,7 @@ begin
 end;
 {$ifend}
 
-procedure SIMDSetFlags(const Flags:TKraftUInt32); {$if defined(cpu386) or defined(cpuamd64)}assembler;
+procedure SIMDSetFlags(const Flags:TKraftUInt32); {$if (defined(cpu386) or defined(cpuamd64)) and not defined(KraftDelphiOnNonWindowsTarget)}assembler;
 var Temp:TKraftUInt32;
 asm
 {$if defined(cpu386)}
@@ -5490,7 +5565,7 @@ begin
 end;
 {$ifend}
 
-procedure SIMDSetOurFlags;{$if defined(cpu386) or defined(cpuamd64)}assembler;
+procedure SIMDSetOurFlags;{$if (defined(cpu386) or defined(cpuamd64)) and not defined(KraftDelphiOnNonWindowsTarget)}assembler;
 // Flush to Zero=Bit 15
 // Underflow exception mask=Bit 11
 // Denormals are zeros=Bit 6
@@ -5535,7 +5610,7 @@ begin
 end;
 {$ifend}
 
-{$if defined(cpu386) or defined(cpuamd64) or defined(cpux86_64) or defined(cpux64)}
+{$if (defined(cpu386) or defined(cpuamd64) or defined(cpux86_64) or defined(cpux64)) and not defined(KraftDelphiOnNonWindowsTarget)}
 type TCPUIDData=record
       case TKraftUInt8 of
        0:(
@@ -5588,7 +5663,7 @@ asm
 end;
 {$ifend}
 
-procedure CheckCPU;{$if defined(cpu386) or defined(cpuamd64)}
+procedure CheckCPU;{$if (defined(cpu386) or defined(cpuamd64)) and not defined(KraftDelphiOnNonWindowsTarget)}
 var Data:TCPUIDData;
 begin
  GetCPUID(1,Data);
@@ -13531,14 +13606,14 @@ begin
   result:=0;
  end;
 end;
-{$elseif defined(cpu386)}
+{$elseif defined(cpu386) and not defined(KraftDelphiOnNonWindowsTarget)}
 asm
  test eax,eax
  jz @Done
  bsr eax,eax
  @Done:
 end;
-{$elseif defined(cpux86_64)}
+{$elseif defined(cpux86_64) and not defined(KraftDelphiOnNonWindowsTarget)}
 asm
 {$ifndef fpc}
  .noframe
@@ -13577,7 +13652,7 @@ begin
   result:=0;
  end;
 end;
-{$elseif defined(cpu386)}
+{$elseif defined(cpu386) and not defined(KraftDelphiOnNonWindowsTarget)}
 asm
  bsr eax,dword ptr [x+4]
  jz @LowPart
@@ -13590,7 +13665,7 @@ asm
  xor eax,eax
 @Done:
 end;
-{$elseif defined(cpux86_64)}
+{$elseif defined(cpux86_64) and not defined(KraftDelphiOnNonWindowsTarget)}
 asm
 {$ifndef fpc}
  .NOFRAME
@@ -14469,7 +14544,10 @@ constructor TKraftHighResolutionTimer.Create(aFrameRate:TKraftInt32=60);
 begin
  inherited Create;
  fFrequencyShift:=0;
-{$if defined(windows)}
+{$if defined(USE_CASTLE_TIME_UTILS)}
+ // CastleGetTickCount64 frequency is 1000 (miliseconds)
+ fFrequency:=1000;
+{$elseif defined(windows)}
  if QueryPerformanceFrequency(fFrequency) then begin
   while (fFrequency and $ffffffffe0000000)<>0 do begin
    fFrequency:=fFrequency shr 1;
@@ -14504,6 +14582,7 @@ begin
 end;
 
 function TKraftHighResolutionTimer.GetTime:TKraftInt64;
+{$if not defined(USE_CASTLE_TIME_UTILS)}
 {$if defined(linux) or defined(android)}
 var NowTimeSpec:TimeSpec;
     ia,ib:TKraftInt64;
@@ -14512,8 +14591,11 @@ var tv:timeval;
     tz:timezone;
     ia,ib:TKraftInt64;
 {$ifend}
+{$ifend}
 begin
-{$if defined(windows)}
+{$if defined(USE_CASTLE_TIME_UTILS)}
+ result:=CastleGetTickCount64;
+{$elseif defined(windows)}
  if not QueryPerformanceCounter(result) then begin
   result:=timeGetTime;
  end;
@@ -14547,7 +14629,10 @@ var EndTime,NowTime{$ifdef unix},SleepTime{$endif}:TKraftInt64;
 {$endif}
 begin
  if aDelay>0 then begin
-{$if defined(windows)}
+{$if defined(KraftNintendoSwitch)}
+{$elseif defined(USE_CASTLE_TIME_UTILS)}
+  SysUtils.Sleep(aDelay);
+{$elseif defined(windows)}
   NowTime:=GetTime;
   EndTime:=NowTime+aDelay;
   while (NowTime+fTwoMillisecondsInterval)<EndTime do begin
@@ -14878,6 +14963,7 @@ begin
 {$endif}
 end;
 
+{$ifndef KraftDelphiOnNonWindowsTarget}
 function InterlockedExchangeAdd(var Target:TKraftInt32;Source:TKraftInt32):TKraftInt32; {$ifdef caninline}inline;{$endif}
 {$ifdef Windows}
 begin
@@ -14901,6 +14987,8 @@ begin
  result:=AtomicCmpExchange(Target,NewValue,Comperand);
 {$endif}
 end;
+{$endif}
+
 {$endif}
 {$else}
 function InterlockedDecrement(var Target:TKraftInt32):TKraftInt32; {$ifdef caninline}inline;{$endif}
@@ -24232,14 +24320,14 @@ begin
   result:=0;
  end;
 end;
-{$elseif defined(cpu386)}
+{$elseif defined(cpu386) and not defined(KraftDelphiOnNonWindowsTarget)}
 asm
  test eax,eax
  jz @Done
  bsr eax,eax
  @Done:
 end;
-{$elseif defined(cpux86_64)}
+{$elseif defined(cpux86_64) and not defined(KraftDelphiOnNonWindowsTarget)}
 asm
 {$ifndef fpc}
  .noframe
