@@ -1,12 +1,12 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2025-11-24-17-45-0000                       *
+ *                        Version 2026-03-29-22-05-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
  *                                                                            *
- * Copyright (c) 2015-2025, Benjamin Rosseaux (benjamin@rosseaux.de)          *
+ * Copyright (c) 2015-2026, Benjamin Rosseaux (benjamin@rosseaux.de)          *
  *                                                                            *
  * This software is provided 'as-is', without any express or implied          *
  * warranty. In no event will the authors be held liable for any damages      *
@@ -199,6 +199,8 @@ unit kraft;
 {$else}
  {$undef USE_CONSTREF} // For to avoid "then other" FPC codegen issues in this case with constref in connection with "function result is also a function argument" and so on => physics simulation explodes in some cases
 {$ifend}
+
+{$undef KraftShapeMeshCastUseTreeBVH}
 
 interface
 
@@ -2485,6 +2487,11 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
       private
        fMeshes:TKraftMeshArray;
        fCountMeshes:TKraftInt32;
+{$ifdef KraftShapeMeshCastUseTreeBVH}
+       fTreeNodes:TKraftMeshTreeNodes;
+       fCountTreeNodes:TKraftInt32;
+       fTreeNodeRoot:TKraftInt32;
+{$endif}
        fSkipListNodes:TKraftDynamicAABBTreeSkipListNodes;
        fCountSkipListNodes:TKraftSizeInt;
        fDirty:boolean;
@@ -12089,6 +12096,34 @@ begin
                  Max(Max(t0.z,t1.z),NegInfinity));
 end;
 
+function AABBRayIntersectionOpt(const AABB:TKraftAABB;const Origin,InvDirection:TKraftVector3;var Time:TKraftScalar):boolean;
+var t0,t1:TKraftVector3;
+    TimeMin,TimeMax:TKraftScalar;
+begin
+ // Although it might seem this doesn't address edge cases where
+ // Direction.{x,y,z} equals zero, it is indeed correct. This is
+ // because the comparisons still work as expected when infinities
+ // emerge from zero division. Rays that are parallel to an axis
+ // and positioned outside the box will lead to tmin being infinity
+ // or tmax turning into negative infinity, yet for rays located
+ // within the box, the values for tmin and tmax will remain unchanged.
+ t0:=Vector3Mul(Vector3Sub(AABB.Min,Origin),InvDirection);
+ t1:=Vector3Mul(Vector3Sub(AABB.Max,Origin),InvDirection);
+ TimeMin:=Max(0.0,Max(Max(Min(Min(t0.x,t1.x),Infinity),
+                         Min(Min(t0.y,t1.y),Infinity)),
+                         Min(Min(t0.z,t1.z),Infinity)));
+ TimeMax:=Min(Min(Max(Max(t0.x,t1.x),NegInfinity),
+                 Max(Max(t0.y,t1.y),NegInfinity)),
+                 Max(Max(t0.z,t1.z),NegInfinity));
+ if TimeMin<=TimeMax then begin
+  Time:=TimeMin;
+  result:=true;
+ end else begin
+  Time:=TimeMax;
+  result:=false;
+ end;
+end;
+
 function AABBRayIntersect(const AABB:TKraftAABB;const Origin,Direction:TKraftVector3):boolean;
 {$if true}
 var t0,t1:TKraftVector3;
@@ -19491,6 +19526,38 @@ begin
  Sphere.Center:=aSphereCenter;
  Sphere.Radius:=aSphereRadius;
  result:=SphereCastAABBOpt(Sphere,aRayInvDirection,aAABB);
+end;
+
+function SphereCastAABBIntersection(const aSphereCenter:TKraftVector3;const aSphereRadius:TKraftScalar;const aRayDirection:TKraftVector3;const aAABB:TKraftAABB;var Time:TKraftScalar):boolean; overload;
+var Sphere:TKraftSphere;
+    AABB:TKraftAABB;
+begin
+ Sphere.Center:=aSphereCenter;
+ Sphere.Radius:=aSphereRadius;
+ result:=AABBIntersectSphere(aAABB,Sphere);
+ if result then begin
+  Time:=0.0;
+ end else begin
+  AABB.Min:=Vector3Sub(aAABB.Min,Vector3(Sphere.Radius,Sphere.Radius,Sphere.Radius));
+  AABB.Max:=Vector3Add(aAABB.Max,Vector3(Sphere.Radius,Sphere.Radius,Sphere.Radius));
+  result:=AABBRayIntersection(AABB,Sphere.Center,aRayDirection,Time);
+ end;
+end;
+
+function SphereCastAABBIntersectionOpt(const aSphereCenter:TKraftVector3;const aSphereRadius:TKraftScalar;const aRayInvDirection:TKraftVector3;const aAABB:TKraftAABB;var Time:TKraftScalar):boolean; overload;
+var Sphere:TKraftSphere;
+    AABB:TKraftAABB;
+begin
+ Sphere.Center:=aSphereCenter;
+ Sphere.Radius:=aSphereRadius;
+ result:=AABBIntersectSphere(aAABB,Sphere);
+ if result then begin
+  Time:=0.0;
+ end else begin
+  AABB.Min:=Vector3Sub(aAABB.Min,Vector3(Sphere.Radius,Sphere.Radius,Sphere.Radius));
+  AABB.Max:=Vector3Add(aAABB.Max,Vector3(Sphere.Radius,Sphere.Radius,Sphere.Radius));
+  result:=AABBRayIntersectionOpt(AABB,Sphere.Center,aRayInvDirection,Time);
+ end;
 end;
 
 function AABBGetVertex(const aAABB:TKraftAABB;const aX,aY,aZ:TKraftInt32):TKraftVector3; overload;
@@ -35698,6 +35765,18 @@ begin
  SetLength(fMeshes,1);
  fMeshes[0]:=aMesh;
 
+{$ifdef KraftShapeMeshCastUseTreeBVH}
+ fTreeNodes:=nil;
+ SetLength(fTreeNodes,1);
+ fTreeNodes[0].AABB:=fMeshes[0].fAABB;
+ fTreeNodes[0].FirstLeftChild:=-1;
+ fTreeNodes[0].FirstTriangleIndex:=-1;
+ fTreeNodes[0].CountTriangles:=0;
+
+ fCountTreeNodes:=1;
+ fTreeNodeRoot:=0;
+{$endif}
+
  fSkipListNodes:=nil;
  SetLength(fSkipListNodes,1);
  fSkipListNodes[0].AABB:=fMeshes[0].fAABB;
@@ -35733,6 +35812,22 @@ begin
  SetLength(fMeshes,length(AMeshes));
  Move(AMeshes[0],fMeshes[0],length(AMeshes)*SizeOf(TKraftMesh));
 
+{$ifdef KraftShapeMeshCastUseTreeBVH}
+ fTreeNodes:=nil;
+ if length(fMeshes)=1 then begin
+  SetLength(fTreeNodes,1);
+  fTreeNodes[0].AABB:=fMeshes[0].fAABB;
+  fTreeNodes[0].FirstLeftChild:=-1;
+  fTreeNodes[0].FirstTriangleIndex:=-1;
+  fTreeNodes[0].CountTriangles:=0;
+  fCountTreeNodes:=1;
+  fTreeNodeRoot:=0;
+ end else begin
+  fCountTreeNodes:=0;
+  fTreeNodeRoot:=-1;
+ end;
+{$endif}
+
  fSkipListNodes:=nil;
  if length(fMeshes)=1 then begin
   SetLength(fSkipListNodes,1);
@@ -35761,6 +35856,9 @@ end;
 destructor TKraftShapeMesh.Destroy;
 begin
  fMeshes:=nil;
+{$ifdef KraftShapeMeshCastUseTreeBVH}
+ fTreeNodes:=nil;
+{$endif}
  fSkipListNodes:=nil;
  inherited Destroy;
 end;
@@ -35780,9 +35878,33 @@ begin
 end;
 
 procedure TKraftShapeMesh.UpdateShapeAABB;
+{$ifdef KraftShapeMeshCastUseTreeBVH}
+type TDynamicAABBTreeNode=record
+      AABB:TKraftAABB;
+      Parent:TKraftSizeInt;
+      Children:array[0..1] of TKraftSizeInt;
+      UserData:pointer;
+     end;
+     PDynamicAABBTreeNode=^TDynamicAABBTreeNode;
+     TDynamicAABBTreeNodes=array of TDynamicAABBTreeNode;
+     TDynamicAABBTreeNodeStackItem=record
+      DynamicAABBTreeNodeIndex:TKraftSizeInt;
+      NodeIndex:TKraftSizeInt;
+     end;
+     TDynamicAABBTreeNodeStack=TKraftStack<TDynamicAABBTreeNodeStackItem>;
+{$endif}
 var Index,TargetIndex,TemporaryIndex:TKraftSizeInt;
     RandomOrderIndices:TKraftSizeIntDynamicArray;
     DynamicAABBTree:TKraftDynamicAABBTree;
+{$ifdef KraftShapeMeshCastUseTreeBVH}
+    DynamicAABBTreeOriginalNode:PKraftDynamicAABBTreeNode;
+    DynamicAABBTreeNode:PDynamicAABBTreeNode;
+    DynamicAABBTreeNodes:TDynamicAABBTreeNodes;
+    DynamicAABBTreeNodeStack:TDynamicAABBTreeNodeStack;
+    NewDynamicAABBTreeNodeStackItem:TDynamicAABBTreeNodeStackItem;
+    CurrentDynamicAABBTreeNodeStackItem:TDynamicAABBTreeNodeStackItem;
+    TreeNode:PKraftMeshTreeNode;
+{$endif}
     Seed:TKraftUInt32;
 begin
  if fCountMeshes>0 then begin
@@ -35791,6 +35913,9 @@ begin
    AABBDirectCombine(fShapeAABB,fMeshes[Index].fAABB);
   end;
   if fCountMeshes=1 then begin
+{$ifdef KraftShapeMeshCastUseTreeBVH}
+   fTreeNodes[0].AABB:=fMeshes[0].fAABB;
+{$endif}
    fSkipListNodes[0].AABB:=fMeshes[0].fAABB;
   end else if fDirty then begin
    DynamicAABBTree:=TKraftDynamicAABBTree.Create;
@@ -35818,9 +35943,83 @@ begin
     finally
      RandomOrderIndices:=nil;
     end;
+
    {if fCountMeshes<=8 then begin
      DynamicAABBTree.RebuildBottomUp;
     end;}
+
+{$ifdef KraftShapeMeshCastUseTreeBVH}
+    DynamicAABBTreeNodes:=nil;
+    try
+     SetLength(DynamicAABBTreeNodes,DynamicAABBTree.NodeCount);
+     for Index:=0 to DynamicAABBTree.NodeCount-1 do begin
+      DynamicAABBTreeOriginalNode:=@DynamicAABBTree.Nodes[Index];
+      DynamicAABBTreeNode:=@DynamicAABBTreeNodes[Index];
+      DynamicAABBTreeNode^.AABB:=DynamicAABBTreeOriginalNode^.AABB;
+      DynamicAABBTreeNode^.Parent:=DynamicAABBTreeOriginalNode^.Parent;
+      DynamicAABBTreeNode^.Children[0]:=DynamicAABBTreeOriginalNode^.Children[0];
+      DynamicAABBTreeNode^.Children[1]:=DynamicAABBTreeOriginalNode^.Children[1];
+      DynamicAABBTreeNode^.UserData:=DynamicAABBTreeOriginalNode^.UserData;
+     end;
+
+     fCountTreeNodes:=0;
+     fTreeNodeRoot:=0;
+     SetLength(fTreeNodes,length(DynamicAABBTreeNodes));
+
+     DynamicAABBTreeNodeStack:=TDynamicAABBTreeNodeStack.Create;
+     try
+      NewDynamicAABBTreeNodeStackItem.DynamicAABBTreeNodeIndex:=DynamicAABBTree.Root;
+      NewDynamicAABBTreeNodeStackItem.NodeIndex:=fCountTreeNodes;
+      inc(fCountTreeNodes);
+      DynamicAABBTreeNodeStack.Push(NewDynamicAABBTreeNodeStackItem);
+
+      while DynamicAABBTreeNodeStack.Pop(CurrentDynamicAABBTreeNodeStackItem) do begin
+       if CurrentDynamicAABBTreeNodeStackItem.DynamicAABBTreeNodeIndex>=0 then begin
+        DynamicAABBTreeNode:=@DynamicAABBTreeNodes[CurrentDynamicAABBTreeNodeStackItem.DynamicAABBTreeNodeIndex];
+       end else begin
+        DynamicAABBTreeNode:=nil;
+       end;
+
+       TreeNode:=@fTreeNodes[CurrentDynamicAABBTreeNodeStackItem.NodeIndex];
+       if assigned(DynamicAABBTreeNode) then begin
+        TreeNode^.AABB:=DynamicAABBTreeNode^.AABB;
+        TreeNode^.FirstTriangleIndex:=TKraftPtrInt(TKraftPtrUInt(DynamicAABBTreeNode^.UserData))-1;
+        TreeNode^.CountTriangles:=0;
+        if (DynamicAABBTreeNode^.Children[0]>=0) or (DynamicAABBTreeNode^.Children[1]>=0) then begin
+         TreeNode^.FirstLeftChild:=fCountTreeNodes;
+         inc(fCountTreeNodes,2);
+         if length(fTreeNodes)<fCountTreeNodes then begin
+          SetLength(fTreeNodes,fCountTreeNodes+((fCountTreeNodes+1) shr 1));
+         end;
+
+         NewDynamicAABBTreeNodeStackItem.DynamicAABBTreeNodeIndex:=DynamicAABBTreeNode^.Children[1];
+         NewDynamicAABBTreeNodeStackItem.NodeIndex:=TreeNode^.FirstLeftChild+1;
+         DynamicAABBTreeNodeStack.Push(NewDynamicAABBTreeNodeStackItem);
+
+         NewDynamicAABBTreeNodeStackItem.DynamicAABBTreeNodeIndex:=DynamicAABBTreeNode^.Children[0];
+         NewDynamicAABBTreeNodeStackItem.NodeIndex:=TreeNode^.FirstLeftChild;
+         DynamicAABBTreeNodeStack.Push(NewDynamicAABBTreeNodeStackItem);
+        end else begin
+         TreeNode^.FirstLeftChild:=-1;
+        end;
+       end else begin
+        TreeNode^.AABB.Min:=Vector3(1e30,1e30,1e30);
+        TreeNode^.AABB.Max:=Vector3(-1e30,-1e30,-1e30);
+        TreeNode^.FirstLeftChild:=-1;
+        TreeNode^.FirstTriangleIndex:=-1;
+        TreeNode^.CountTriangles:=0;
+       end;
+      end;
+     finally
+      FreeAndNil(DynamicAABBTreeNodeStack);
+     end;
+
+     SetLength(fTreeNodes,fCountTreeNodes);
+    finally
+     DynamicAABBTreeNodes:=nil;
+    end;
+{$endif}
+
     DynamicAABBTree.GetSkipListNodes(fSkipListNodes);
     fCountSkipListNodes:=length(fSkipListNodes);
    finally
@@ -36066,14 +36265,19 @@ begin
 end;
 
 function TKraftShapeMesh.RayCast(var RayCastData:TKraftRayCastData):boolean;
-var SkipListNodeIndex,MeshSkipListNodeIndex,TriangleIndex:TKraftInt32;
+{$ifdef KraftShapeMeshCastUseTreeBVH}
+type TStack=TKraftDynamicFastNonRTTIStack<TKraftInt32>;
+var ShapeMeshTreeNodeIndex,MeshTreeNodeIndex,TriangleIndex:TKraftInt32;
+    ChildShapeMeshTreeNodeIndex0,ChildShapeMeshTreeNodeIndex1:TKraftInt32;
+    ChildMeshTreeNodeIndex0,ChildMeshTreeNodeIndex1:TKraftInt32;
     MeshIndex:TKraftPtrInt;
     Mesh:TKraftMesh;
-    SkipListNode:PKraftDynamicAABBTreeSkipListNode;
-    MeshSkipListNode:PKraftMeshSkipListNode;
+    ShapeMeshTreeNode,MeshTreeNode:PKraftMeshTreeNode;
     Triangle:PKraftMeshTriangle;
+    ShapeMeshTreeStack,MeshTreeStack:TStack;
     First,SidePass:boolean;
-    Nearest,Time,u,v,w:TKraftScalar;
+    ChildHit0,ChildHit1:boolean;
+    Nearest,Time,u,v,w,ShapeMeshTreeNodeTime,MeshTreeNodeTime,ChildTime0,ChildTime1:TKraftScalar;
     Origin,Direction,InvDirection,p,Normal:TKraftVector3;
     LocalCountTotalBottomLevelAccelerationStructureMeshNodes:TKraftInt32;
     LocalCountCheckedBottomLevelAccelerationStructureMeshNodes:TKraftInt32;
@@ -36089,81 +36293,134 @@ begin
   Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform));
   if Vector3LengthSquared(Direction)>EPSILON then begin
    InvDirection:=Vector3Div(Vector3All,Direction);
-   Nearest:=MAX_SCALAR;
+   Nearest:=RayCastData.MaxTime;
    First:=true;
-   LocalCountTotalBottomLevelAccelerationStructureMeshNodes:=fCountSkipListNodes;
+   LocalCountTotalBottomLevelAccelerationStructureMeshNodes:=fCountTreeNodes;
    LocalCountCheckedBottomLevelAccelerationStructureMeshNodes:=0;
    LocalCountCheckedBottomLevelAccelerationStructureMeshLeafs:=0;
    LocalCountTotalBottomLevelAccelerationStructureNodes:=0;
    LocalCountCheckedBottomLevelAccelerationStructureNodes:=0;
    LocalCountCheckedBottomLevelAccelerationStructureLeafs:=0;
    LocalCountCheckedBottomLevelAccelerationStructureTriangles:=0;
-   SkipListNodeIndex:=0;
-   while SkipListNodeIndex<fCountSkipListNodes do begin
-    SkipListNode:=@fSkipListNodes[SkipListNodeIndex];
-    if AABBRayIntersectOpt(SkipListNode^.AABB,Origin,InvDirection) then begin
-     inc(LocalCountCheckedBottomLevelAccelerationStructureMeshNodes);
-     MeshIndex:=TKraftPtrInt(TKraftPtrUInt(SkipListNode^.UserData))-1;
-     if MeshIndex>=0 then begin
-      inc(LocalCountCheckedBottomLevelAccelerationStructureMeshLeafs);
-      Mesh:=fMeshes[MeshIndex];
-      inc(LocalCountTotalBottomLevelAccelerationStructureNodes,Mesh.fCountSkipListNodes);
-      MeshSkipListNodeIndex:=0;
-      while MeshSkipListNodeIndex<Mesh.fCountSkipListNodes do begin
-       MeshSkipListNode:=@Mesh.fSkipListNodes[MeshSkipListNodeIndex];
-       if AABBRayIntersectOpt(MeshSkipListNode^.AABB,Origin,InvDirection) then begin
-        inc(LocalCountCheckedBottomLevelAccelerationStructureNodes);
-        if MeshSkipListNode^.CountTriangles>0 then begin
-         inc(LocalCountCheckedBottomLevelAccelerationStructureLeafs);
-         inc(LocalCountCheckedBottomLevelAccelerationStructureTriangles,MeshSkipListNode^.CountTriangles);
-         for TriangleIndex:=MeshSkipListNode^.FirstTriangleIndex to MeshSkipListNode^.FirstTriangleIndex+(MeshSkipListNode^.CountTriangles-1) do begin
-          Triangle:=@Mesh.fTriangles[TriangleIndex];
-          for SidePass:=false to Mesh.fDoubleSided do begin
-           if RayIntersectTriangle(Origin,
-                                   Direction,
-                                   Mesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],
-                                   Mesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],
-                                   Mesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],
-                                   Time,
-                                   u,
-                                   v,
-                                   w) then begin
-            p:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time));
-            if ((Time>=0.0) and (Time<=RayCastData.MaxTime)) and (First or (Time<Nearest)) then begin
-             First:=false;
-             Nearest:=Time;
-             if fSmoothNormalsAtCasting then begin
-              Normal:=Vector3Norm(Vector3Add(Vector3ScalarMul(Mesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],u),
-                                  Vector3Add(Vector3ScalarMul(Mesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],v),
-                                             Vector3ScalarMul(Mesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],w))));
-             end else begin
-              Normal:=Triangle^.Plane.Normal;
+   ShapeMeshTreeStack.Initialize;
+   try
+    MeshTreeStack.Initialize;
+    try
+     if fCountTreeNodes>0 then begin
+      ShapeMeshTreeStack.Push(fTreeNodeRoot);
+      while ShapeMeshTreeStack.Pop(ShapeMeshTreeNodeIndex) do begin
+       ShapeMeshTreeNode:=@fTreeNodes[ShapeMeshTreeNodeIndex];
+       if AABBRayIntersectionOpt(ShapeMeshTreeNode^.AABB,Origin,InvDirection,ShapeMeshTreeNodeTime) and
+          (ShapeMeshTreeNodeTime<=Nearest) then begin
+        inc(LocalCountCheckedBottomLevelAccelerationStructureMeshNodes);
+        if ShapeMeshTreeNode^.FirstLeftChild<0 then begin
+         MeshIndex:=ShapeMeshTreeNode^.FirstTriangleIndex;
+         if MeshIndex>=0 then begin
+          inc(LocalCountCheckedBottomLevelAccelerationStructureMeshLeafs);
+          Mesh:=fMeshes[MeshIndex];
+          inc(LocalCountTotalBottomLevelAccelerationStructureNodes,Mesh.fCountTreeNodes);
+          if Mesh.fCountTreeNodes>0 then begin
+           MeshTreeStack.Clear;
+           MeshTreeStack.Push(Mesh.fTreeNodeRoot);
+           while MeshTreeStack.Pop(MeshTreeNodeIndex) do begin
+            MeshTreeNode:=@Mesh.fTreeNodes[MeshTreeNodeIndex];
+            if AABBRayIntersectionOpt(MeshTreeNode^.AABB,Origin,InvDirection,MeshTreeNodeTime) and
+               (MeshTreeNodeTime<=Nearest) then begin
+             inc(LocalCountCheckedBottomLevelAccelerationStructureNodes);
+             if MeshTreeNode^.CountTriangles>0 then begin
+              inc(LocalCountCheckedBottomLevelAccelerationStructureLeafs);
+              inc(LocalCountCheckedBottomLevelAccelerationStructureTriangles,MeshTreeNode^.CountTriangles);
+              for TriangleIndex:=MeshTreeNode^.FirstTriangleIndex to MeshTreeNode^.FirstTriangleIndex+(MeshTreeNode^.CountTriangles-1) do begin
+               Triangle:=@Mesh.fTriangles[TriangleIndex];
+               for SidePass:=false to Mesh.fDoubleSided do begin
+                if RayIntersectTriangle(Origin,
+                                        Direction,
+                                        Mesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],
+                                        Mesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],
+                                        Mesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],
+                                        Time,
+                                        u,
+                                        v,
+                                        w) then begin
+                 p:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time));
+                 if ((Time>=0.0) and (Time<=Nearest)) and (First or (Time<Nearest)) then begin
+                  First:=false;
+                  Nearest:=Time;
+                  if fSmoothNormalsAtCasting then begin
+                   Normal:=Vector3Norm(Vector3Add(Vector3ScalarMul(Mesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],u),
+                                       Vector3Add(Vector3ScalarMul(Mesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],v),
+                                                  Vector3ScalarMul(Mesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],w))));
+                  end else begin
+                   Normal:=Triangle^.Plane.Normal;
+                  end;
+                  RayCastData.TimeOfImpact:=Time;
+                  RayCastData.Point:=p;
+                  if SidePass then begin
+                   RayCastData.Normal:=Vector3Neg(Normal);
+                   RayCastData.SurfaceNormal:=Vector3Neg(Triangle^.Plane.Normal);
+                  end else begin
+                   RayCastData.Normal:=Normal;
+                   RayCastData.SurfaceNormal:=Triangle^.Plane.Normal;
+                  end;
+                  result:=true;
+                 end;
+                end;
+               end;
+              end;
+             end else if MeshTreeNode^.FirstLeftChild>=0 then begin
+              ChildMeshTreeNodeIndex0:=MeshTreeNode^.FirstLeftChild;
+              ChildMeshTreeNodeIndex1:=MeshTreeNode^.FirstLeftChild+1;
+              ChildHit0:=AABBRayIntersectionOpt(Mesh.fTreeNodes[ChildMeshTreeNodeIndex0].AABB,Origin,InvDirection,ChildTime0) and
+                         (ChildTime0<=Nearest);
+              ChildHit1:=AABBRayIntersectionOpt(Mesh.fTreeNodes[ChildMeshTreeNodeIndex1].AABB,Origin,InvDirection,ChildTime1) and
+                         (ChildTime1<=Nearest);
+              if ChildHit0 and ChildHit1 then begin
+               if ChildTime0<=ChildTime1 then begin
+                MeshTreeStack.Push(ChildMeshTreeNodeIndex1);
+                MeshTreeStack.Push(ChildMeshTreeNodeIndex0);
+               end else begin
+                MeshTreeStack.Push(ChildMeshTreeNodeIndex0);
+                MeshTreeStack.Push(ChildMeshTreeNodeIndex1);
+               end;
+              end else if ChildHit0 then begin
+               MeshTreeStack.Push(ChildMeshTreeNodeIndex0);
+              end else if ChildHit1 then begin
+               MeshTreeStack.Push(ChildMeshTreeNodeIndex1);
+              end;
              end;
-             RayCastData.TimeOfImpact:=Time;
-             RayCastData.Point:=p;
-             if SidePass then begin
-              RayCastData.Normal:=Vector3Neg(Normal);
-              RayCastData.SurfaceNormal:=Vector3Neg(Triangle^.Plane.Normal);
-             end else begin
-              RayCastData.Normal:=Normal;
-              RayCastData.SurfaceNormal:=Triangle^.Plane.Normal;
-             end;
-             result:=true;
             end;
            end;
           end;
          end;
+        end else begin
+         ChildShapeMeshTreeNodeIndex0:=ShapeMeshTreeNode^.FirstLeftChild;
+         ChildShapeMeshTreeNodeIndex1:=ShapeMeshTreeNode^.FirstLeftChild+1;
+         ChildHit0:=AABBRayIntersectionOpt(fTreeNodes[ChildShapeMeshTreeNodeIndex0].AABB,Origin,InvDirection,ChildTime0) and
+                    (ChildTime0<=Nearest);
+         ChildHit1:=AABBRayIntersectionOpt(fTreeNodes[ChildShapeMeshTreeNodeIndex1].AABB,Origin,InvDirection,ChildTime1) and
+                    (ChildTime1<=Nearest);
+         if ChildHit0 and ChildHit1 then begin
+          if ChildTime0<=ChildTime1 then begin
+           ShapeMeshTreeStack.Push(ChildShapeMeshTreeNodeIndex1);
+           ShapeMeshTreeStack.Push(ChildShapeMeshTreeNodeIndex0);
+          end else begin
+           ShapeMeshTreeStack.Push(ChildShapeMeshTreeNodeIndex0);
+           ShapeMeshTreeStack.Push(ChildShapeMeshTreeNodeIndex1);
+          end;
+         end else if ChildHit0 then begin
+          ShapeMeshTreeStack.Push(ChildShapeMeshTreeNodeIndex0);
+         end else if ChildHit1 then begin
+          ShapeMeshTreeStack.Push(ChildShapeMeshTreeNodeIndex1);
+         end;
         end;
-        inc(MeshSkipListNodeIndex);
-       end else begin
-        MeshSkipListNodeIndex:=MeshSkipListNode^.SkipToNodeIndex;
        end;
       end;
      end;
-     inc(SkipListNodeIndex);
-    end else begin
-     SkipListNodeIndex:=SkipListNode^.SkipToNodeIndex;
+    finally
+     MeshTreeStack.Finalize;
     end;
+   finally
+    ShapeMeshTreeStack.Finalize;
    end;
    if assigned(RayCastData.CastProfilerData) then begin
     inc(RayCastData.CastProfilerData^.CountTotalBottomLevelAccelerationStructureMeshNodes,LocalCountTotalBottomLevelAccelerationStructureMeshNodes);
@@ -36182,16 +36439,199 @@ begin
   end;
  end;
 end;
-
-function TKraftShapeMesh.SphereCast(var SphereCastData:TKraftSphereCastData):boolean;
+{$else}
+type TStack=TKraftDynamicFastNonRTTIStack<TKraftInt32>;
 var SkipListNodeIndex,MeshSkipListNodeIndex,TriangleIndex:TKraftInt32;
+    ChildSkipListNodeIndex0,ChildSkipListNodeIndex1:TKraftInt32;
+    ChildMeshSkipListNodeIndex0,ChildMeshSkipListNodeIndex1:TKraftInt32;
     MeshIndex:TKraftPtrInt;
+    Mesh:TKraftMesh;
     SkipListNode:PKraftDynamicAABBTreeSkipListNode;
     MeshSkipListNode:PKraftMeshSkipListNode;
+    Triangle:PKraftMeshTriangle;
+    SkipListStack,MeshSkipListStack:TStack;
+    First,SidePass:boolean;
+    ChildHit0,ChildHit1:boolean;
+    Nearest,Time,u,v,w,SkipListNodeTime,MeshSkipListNodeTime,ChildTime0,ChildTime1:TKraftScalar;
+    Origin,Direction,InvDirection,p,Normal:TKraftVector3;
+    LocalCountTotalBottomLevelAccelerationStructureMeshNodes:TKraftInt32;
+    LocalCountCheckedBottomLevelAccelerationStructureMeshNodes:TKraftInt32;
+    LocalCountCheckedBottomLevelAccelerationStructureMeshLeafs:TKraftInt32;
+    LocalCountTotalBottomLevelAccelerationStructureNodes:TKraftInt32;
+    LocalCountCheckedBottomLevelAccelerationStructureNodes:TKraftInt32;
+    LocalCountCheckedBottomLevelAccelerationStructureLeafs:TKraftInt32;
+    LocalCountCheckedBottomLevelAccelerationStructureTriangles:TKraftInt32;
+begin
+ result:=false;
+ if ksfRayCastable in fFlags then begin
+  Origin:=Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform);
+  Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform));
+  if Vector3LengthSquared(Direction)>EPSILON then begin
+   InvDirection:=Vector3Div(Vector3All,Direction);
+   Nearest:=RayCastData.MaxTime;
+   First:=true;
+   LocalCountTotalBottomLevelAccelerationStructureMeshNodes:=fCountSkipListNodes;
+   LocalCountCheckedBottomLevelAccelerationStructureMeshNodes:=0;
+   LocalCountCheckedBottomLevelAccelerationStructureMeshLeafs:=0;
+   LocalCountTotalBottomLevelAccelerationStructureNodes:=0;
+   LocalCountCheckedBottomLevelAccelerationStructureNodes:=0;
+   LocalCountCheckedBottomLevelAccelerationStructureLeafs:=0;
+   LocalCountCheckedBottomLevelAccelerationStructureTriangles:=0;
+   SkipListStack.Initialize;
+   try
+    MeshSkipListStack.Initialize;
+    try
+     if fCountSkipListNodes>0 then begin
+      SkipListStack.Push(0);
+      while SkipListStack.Pop(SkipListNodeIndex) do begin
+       SkipListNode:=@fSkipListNodes[SkipListNodeIndex];
+       if AABBRayIntersectionOpt(SkipListNode^.AABB,Origin,InvDirection,SkipListNodeTime) and (SkipListNodeTime<=Nearest) then begin
+        inc(LocalCountCheckedBottomLevelAccelerationStructureMeshNodes);
+        MeshIndex:=TKraftPtrInt(TKraftPtrUInt(SkipListNode^.UserData))-1;
+        if MeshIndex>=0 then begin
+         inc(LocalCountCheckedBottomLevelAccelerationStructureMeshLeafs);
+         Mesh:=fMeshes[MeshIndex];
+         inc(LocalCountTotalBottomLevelAccelerationStructureNodes,Mesh.fCountSkipListNodes);
+         MeshSkipListStack.Clear;
+         if Mesh.fCountSkipListNodes>0 then begin
+          MeshSkipListStack.Push(0);
+          while MeshSkipListStack.Pop(MeshSkipListNodeIndex) do begin
+           MeshSkipListNode:=@Mesh.fSkipListNodes[MeshSkipListNodeIndex];
+           if AABBRayIntersectionOpt(MeshSkipListNode^.AABB,Origin,InvDirection,MeshSkipListNodeTime) and (MeshSkipListNodeTime<=Nearest) then begin
+            inc(LocalCountCheckedBottomLevelAccelerationStructureNodes);
+            if MeshSkipListNode^.CountTriangles>0 then begin
+             inc(LocalCountCheckedBottomLevelAccelerationStructureLeafs);
+             inc(LocalCountCheckedBottomLevelAccelerationStructureTriangles,MeshSkipListNode^.CountTriangles);
+             for TriangleIndex:=MeshSkipListNode^.FirstTriangleIndex to MeshSkipListNode^.FirstTriangleIndex+(MeshSkipListNode^.CountTriangles-1) do begin
+              Triangle:=@Mesh.fTriangles[TriangleIndex];
+              for SidePass:=false to Mesh.fDoubleSided do begin
+               if RayIntersectTriangle(Origin,
+                                       Direction,
+                                       Mesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],
+                                       Mesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],
+                                       Mesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],
+                                       Time,
+                                       u,
+                                       v,
+                                       w) then begin
+                p:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time));
+                if ((Time>=0.0) and (Time<=Nearest)) and (First or (Time<Nearest)) then begin
+                 First:=false;
+                 Nearest:=Time;
+                 if fSmoothNormalsAtCasting then begin
+                  Normal:=Vector3Norm(Vector3Add(Vector3ScalarMul(Mesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],u),
+                                      Vector3Add(Vector3ScalarMul(Mesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],v),
+                                                 Vector3ScalarMul(Mesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],w))));
+                 end else begin
+                  Normal:=Triangle^.Plane.Normal;
+                 end;
+                 RayCastData.TimeOfImpact:=Time;
+                 RayCastData.Point:=p;
+                 if SidePass then begin
+                  RayCastData.Normal:=Vector3Neg(Normal);
+                  RayCastData.SurfaceNormal:=Vector3Neg(Triangle^.Plane.Normal);
+                 end else begin
+                  RayCastData.Normal:=Normal;
+                  RayCastData.SurfaceNormal:=Triangle^.Plane.Normal;
+                 end;
+                 result:=true;
+                end;
+               end;
+              end;
+             end;
+            end else begin
+             ChildMeshSkipListNodeIndex0:=MeshSkipListNodeIndex+1;
+             if ChildMeshSkipListNodeIndex0<MeshSkipListNode^.SkipToNodeIndex then begin
+              ChildMeshSkipListNodeIndex1:=Mesh.fSkipListNodes[ChildMeshSkipListNodeIndex0].SkipToNodeIndex;
+              ChildHit0:=AABBRayIntersectionOpt(Mesh.fSkipListNodes[ChildMeshSkipListNodeIndex0].AABB,Origin,InvDirection,ChildTime0) and
+                         (ChildTime0<=Nearest);
+              ChildHit1:=(ChildMeshSkipListNodeIndex1<MeshSkipListNode^.SkipToNodeIndex) and
+                         AABBRayIntersectionOpt(Mesh.fSkipListNodes[ChildMeshSkipListNodeIndex1].AABB,Origin,InvDirection,ChildTime1) and
+                         (ChildTime1<=Nearest);
+              if ChildHit0 and ChildHit1 then begin
+               if ChildTime0<=ChildTime1 then begin
+                MeshSkipListStack.Push(ChildMeshSkipListNodeIndex1);
+                MeshSkipListStack.Push(ChildMeshSkipListNodeIndex0);
+               end else begin
+                MeshSkipListStack.Push(ChildMeshSkipListNodeIndex0);
+                MeshSkipListStack.Push(ChildMeshSkipListNodeIndex1);
+               end;
+              end else if ChildHit0 then begin
+               MeshSkipListStack.Push(ChildMeshSkipListNodeIndex0);
+              end else if ChildHit1 then begin
+               MeshSkipListStack.Push(ChildMeshSkipListNodeIndex1);
+              end;
+             end;
+            end;
+           end;
+          end;
+         end;
+        end else begin
+         ChildSkipListNodeIndex0:=SkipListNodeIndex+1;
+         if ChildSkipListNodeIndex0<SkipListNode^.SkipToNodeIndex then begin
+          ChildSkipListNodeIndex1:=fSkipListNodes[ChildSkipListNodeIndex0].SkipToNodeIndex;
+          ChildHit0:=AABBRayIntersectionOpt(fSkipListNodes[ChildSkipListNodeIndex0].AABB,Origin,InvDirection,ChildTime0) and
+                     (ChildTime0<=Nearest);
+          ChildHit1:=(ChildSkipListNodeIndex1<SkipListNode^.SkipToNodeIndex) and
+                     AABBRayIntersectionOpt(fSkipListNodes[ChildSkipListNodeIndex1].AABB,Origin,InvDirection,ChildTime1) and
+                     (ChildTime1<=Nearest);
+          if ChildHit0 and ChildHit1 then begin
+           if ChildTime0<=ChildTime1 then begin
+            SkipListStack.Push(ChildSkipListNodeIndex1);
+            SkipListStack.Push(ChildSkipListNodeIndex0);
+           end else begin
+            SkipListStack.Push(ChildSkipListNodeIndex0);
+            SkipListStack.Push(ChildSkipListNodeIndex1);
+           end;
+          end else if ChildHit0 then begin
+           SkipListStack.Push(ChildSkipListNodeIndex0);
+          end else if ChildHit1 then begin
+           SkipListStack.Push(ChildSkipListNodeIndex1);
+          end;
+         end;
+        end;
+       end;
+      end;
+     end;
+    finally
+     MeshSkipListStack.Finalize;
+    end;
+   finally
+    SkipListStack.Finalize;
+   end;
+   if assigned(RayCastData.CastProfilerData) then begin
+    inc(RayCastData.CastProfilerData^.CountTotalBottomLevelAccelerationStructureMeshNodes,LocalCountTotalBottomLevelAccelerationStructureMeshNodes);
+    inc(RayCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureMeshNodes,LocalCountCheckedBottomLevelAccelerationStructureMeshNodes);
+    inc(RayCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureMeshLeafs,LocalCountCheckedBottomLevelAccelerationStructureMeshLeafs);
+    inc(RayCastData.CastProfilerData^.CountTotalBottomLevelAccelerationStructureNodes,LocalCountTotalBottomLevelAccelerationStructureNodes);
+    inc(RayCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureNodes,LocalCountCheckedBottomLevelAccelerationStructureNodes);
+    inc(RayCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureLeafs,LocalCountCheckedBottomLevelAccelerationStructureLeafs);
+    inc(RayCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureTriangles,LocalCountCheckedBottomLevelAccelerationStructureTriangles);
+   end;
+   if result then begin
+    RayCastData.Point:=Vector3TermMatrixMul(RayCastData.Point,fWorldTransform);
+    RayCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(RayCastData.Normal,fWorldTransform));
+    RayCastData.SurfaceNormal:=Vector3NormEx(Vector3TermMatrixMulBasis(RayCastData.SurfaceNormal,fWorldTransform));
+   end;
+  end;
+ end;
+end;
+{$endif}
+
+function TKraftShapeMesh.SphereCast(var SphereCastData:TKraftSphereCastData):boolean;
+{$ifdef KraftShapeMeshCastUseTreeBVH}
+type TStack=TKraftDynamicFastNonRTTIStack<TKraftInt32>;
+var ShapeMeshTreeNodeIndex,MeshTreeNodeIndex,TriangleIndex:TKraftInt32;
+    ChildShapeMeshTreeNodeIndex0,ChildShapeMeshTreeNodeIndex1:TKraftInt32;
+    ChildMeshTreeNodeIndex0,ChildMeshTreeNodeIndex1:TKraftInt32;
+    MeshIndex:TKraftPtrInt;
+    ShapeMeshTreeNode,MeshTreeNode:PKraftMeshTreeNode;
     Mesh:TKraftMesh;
     Triangle:PKraftMeshTriangle;
+    ShapeMeshTreeStack,MeshTreeStack:TStack;
     First,SidePass:boolean;
-    Radius,Nearest,Time,u,v,w:TKraftScalar;
+    ChildHit0,ChildHit1:boolean;
+    Radius,Nearest,Time,u,v,w,ShapeMeshTreeNodeTime,MeshTreeNodeTime,ChildTime0,ChildTime1:TKraftScalar;
     Origin,Direction,InvDirection,p,TriangleNormal,Normal:TKraftVector3;
     LocalCountTotalBottomLevelAccelerationStructureMeshNodes:TKraftInt32;
     LocalCountCheckedBottomLevelAccelerationStructureMeshNodes:TKraftInt32;
@@ -36208,115 +36648,168 @@ begin
   Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,fWorldTransform));
   if Vector3LengthSquared(Direction)>EPSILON then begin
    InvDirection:=Vector3Div(Vector3All,Direction);
-   Nearest:=MAX_SCALAR;
+   Nearest:=SphereCastData.MaxTime;
    First:=true;
-   LocalCountTotalBottomLevelAccelerationStructureMeshNodes:=fCountSkipListNodes;
+   LocalCountTotalBottomLevelAccelerationStructureMeshNodes:=fCountTreeNodes;
    LocalCountCheckedBottomLevelAccelerationStructureMeshNodes:=0;
    LocalCountCheckedBottomLevelAccelerationStructureMeshLeafs:=0;
    LocalCountTotalBottomLevelAccelerationStructureNodes:=0;
    LocalCountCheckedBottomLevelAccelerationStructureNodes:=0;
    LocalCountCheckedBottomLevelAccelerationStructureLeafs:=0;
    LocalCountCheckedBottomLevelAccelerationStructureTriangles:=0;
-   SkipListNodeIndex:=0;
-   while SkipListNodeIndex<fCountSkipListNodes do begin
-    SkipListNode:=@fSkipListNodes[SkipListNodeIndex];
-    if SphereCastAABBOpt(Origin,Radius,InvDirection,SkipListNode^.AABB) then begin
-     inc(LocalCountCheckedBottomLevelAccelerationStructureMeshNodes);
-     MeshIndex:=TKraftPtrInt(TKraftPtrUInt(SkipListNode^.UserData))-1;
-     if MeshIndex>=0 then begin
-      inc(LocalCountCheckedBottomLevelAccelerationStructureMeshLeafs);
-      Mesh:=fMeshes[MeshIndex];
-      inc(LocalCountTotalBottomLevelAccelerationStructureNodes,Mesh.fCountSkipListNodes);
-      MeshSkipListNodeIndex:=0;
-      while MeshSkipListNodeIndex<Mesh.fCountSkipListNodes do begin
-       MeshSkipListNode:=@Mesh.fSkipListNodes[MeshSkipListNodeIndex];
-       if SphereCastAABBOpt(Origin,Radius,InvDirection,MeshSkipListNode^.AABB) then begin
-        inc(LocalCountCheckedBottomLevelAccelerationStructureNodes);
-        if MeshSkipListNode^.CountTriangles>0 then begin
-         inc(LocalCountCheckedBottomLevelAccelerationStructureLeafs);
-         inc(LocalCountCheckedBottomLevelAccelerationStructureTriangles,MeshSkipListNode^.CountTriangles);
-         for TriangleIndex:=MeshSkipListNode^.FirstTriangleIndex to MeshSkipListNode^.FirstTriangleIndex+(MeshSkipListNode^.CountTriangles-1) do begin
-          Triangle:=@Mesh.fTriangles[TriangleIndex];
-          if Mesh.fSmoothSphereCastNormals then begin
-           if SphereCastTriangle(Origin,
-                                 Radius,
-                                 Direction,
-                                 Mesh.fVertices[Triangle^.Vertices[0]],
-                                 Mesh.fVertices[Triangle^.Vertices[1]],
-                                 Mesh.fVertices[Triangle^.Vertices[2]],
-                                 Triangle^.Plane.Normal,
-                                 Mesh.fDoubleSided,
-                                 Normal,
-                                 Time) then begin
-            p:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time));
-            if ((Time>=0.0) and (Time<=SphereCastData.MaxTime)) and (First or (Time<Nearest)) then begin
-             First:=false;
-             Nearest:=Time;
-             SphereCastData.TimeOfImpact:=Time;
-             SphereCastData.Point:=p;
-             SphereCastData.Normal:=Normal;
-             if Mesh.fDoubleSided and (Vector3Dot(Triangle^.Plane.Normal,Direction)>=0) then begin
-              SphereCastData.SurfaceNormal:=Vector3Neg(Triangle^.Plane.Normal);
-             end else begin
-              SphereCastData.SurfaceNormal:=Triangle^.Plane.Normal;
-             end;
-             result:=true;
-            end;
-           end;
-          end else begin
-           for SidePass:=false to Mesh.fDoubleSided do begin
-            if SidePass then begin
-             TriangleNormal:=Vector3Neg(Triangle^.Plane.Normal);
-            end else begin
-             TriangleNormal:=Triangle^.Plane.Normal;
-            end;
-            if SphereCastTriangle(Origin,
-                                  Radius,
-                                  Direction,
-                                  Mesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],
-                                  Mesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],
-                                  Mesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],
-                                  TriangleNormal,
-                                  Time,
-                                  u,
-                                  v,
-                                  w) then begin
-             p:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time));
-             if ((Time>=0.0) and (Time<=SphereCastData.MaxTime)) and (First or (Time<Nearest)) then begin
-              First:=false;
-              Nearest:=Time;
-              if fSmoothNormalsAtCasting then begin
-               Normal:=Vector3Norm(Vector3Add(Vector3ScalarMul(Mesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],u),
-                                   Vector3Add(Vector3ScalarMul(Mesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],v),
-                                              Vector3ScalarMul(Mesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],w))));
-              end else begin
-               Normal:=Triangle^.Plane.Normal;
+   ShapeMeshTreeStack.Initialize;
+   try
+    MeshTreeStack.Initialize;
+    try
+     if fCountTreeNodes>0 then begin
+      ShapeMeshTreeStack.Push(fTreeNodeRoot);
+      while ShapeMeshTreeStack.Pop(ShapeMeshTreeNodeIndex) do begin
+       ShapeMeshTreeNode:=@fTreeNodes[ShapeMeshTreeNodeIndex];
+       if SphereCastAABBIntersectionOpt(Origin,Radius,InvDirection,ShapeMeshTreeNode^.AABB,ShapeMeshTreeNodeTime) and
+          (ShapeMeshTreeNodeTime<=Nearest) then begin
+        inc(LocalCountCheckedBottomLevelAccelerationStructureMeshNodes);
+        if ShapeMeshTreeNode^.FirstLeftChild<0 then begin
+         MeshIndex:=ShapeMeshTreeNode^.FirstTriangleIndex;
+         if MeshIndex>=0 then begin
+          inc(LocalCountCheckedBottomLevelAccelerationStructureMeshLeafs);
+          Mesh:=fMeshes[MeshIndex];
+          inc(LocalCountTotalBottomLevelAccelerationStructureNodes,Mesh.fCountTreeNodes);
+          if Mesh.fCountTreeNodes>0 then begin
+           MeshTreeStack.Clear;
+           MeshTreeStack.Push(Mesh.fTreeNodeRoot);
+           while MeshTreeStack.Pop(MeshTreeNodeIndex) do begin
+            MeshTreeNode:=@Mesh.fTreeNodes[MeshTreeNodeIndex];
+            if SphereCastAABBIntersectionOpt(Origin,Radius,InvDirection,MeshTreeNode^.AABB,MeshTreeNodeTime) and
+               (MeshTreeNodeTime<=Nearest) then begin
+             inc(LocalCountCheckedBottomLevelAccelerationStructureNodes);
+             if MeshTreeNode^.CountTriangles>0 then begin
+              inc(LocalCountCheckedBottomLevelAccelerationStructureLeafs);
+              inc(LocalCountCheckedBottomLevelAccelerationStructureTriangles,MeshTreeNode^.CountTriangles);
+              for TriangleIndex:=MeshTreeNode^.FirstTriangleIndex to MeshTreeNode^.FirstTriangleIndex+(MeshTreeNode^.CountTriangles-1) do begin
+               Triangle:=@Mesh.fTriangles[TriangleIndex];
+               if Mesh.fSmoothSphereCastNormals then begin
+                if SphereCastTriangle(Origin,
+                                      Radius,
+                                      Direction,
+                                      Mesh.fVertices[Triangle^.Vertices[0]],
+                                      Mesh.fVertices[Triangle^.Vertices[1]],
+                                      Mesh.fVertices[Triangle^.Vertices[2]],
+                                      Triangle^.Plane.Normal,
+                                      Mesh.fDoubleSided,
+                                      Normal,
+                                      Time) then begin
+                 p:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time));
+                 if ((Time>=0.0) and (Time<=Nearest)) and (First or (Time<Nearest)) then begin
+                  First:=false;
+                  Nearest:=Time;
+                  SphereCastData.TimeOfImpact:=Time;
+                  SphereCastData.Point:=p;
+                  SphereCastData.Normal:=Normal;
+                  if Mesh.fDoubleSided and (Vector3Dot(Triangle^.Plane.Normal,Direction)>=0) then begin
+                   SphereCastData.SurfaceNormal:=Vector3Neg(Triangle^.Plane.Normal);
+                  end else begin
+                   SphereCastData.SurfaceNormal:=Triangle^.Plane.Normal;
+                  end;
+                  result:=true;
+                 end;
+                end;
+               end else begin
+                for SidePass:=false to Mesh.fDoubleSided do begin
+                 if SidePass then begin
+                  TriangleNormal:=Vector3Neg(Triangle^.Plane.Normal);
+                 end else begin
+                  TriangleNormal:=Triangle^.Plane.Normal;
+                 end;
+                 if SphereCastTriangle(Origin,
+                                       Radius,
+                                       Direction,
+                                       Mesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],
+                                       Mesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],
+                                       Mesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],
+                                       TriangleNormal,
+                                       Time,
+                                       u,
+                                       v,
+                                       w) then begin
+                  p:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time));
+                  if ((Time>=0.0) and (Time<=Nearest)) and (First or (Time<Nearest)) then begin
+                   First:=false;
+                   Nearest:=Time;
+                   if fSmoothNormalsAtCasting then begin
+                    Normal:=Vector3Norm(Vector3Add(Vector3ScalarMul(Mesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],u),
+                                        Vector3Add(Vector3ScalarMul(Mesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],v),
+                                                   Vector3ScalarMul(Mesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],w))));
+                   end else begin
+                    Normal:=Triangle^.Plane.Normal;
+                   end;
+                   SphereCastData.TimeOfImpact:=Time;
+                   SphereCastData.Point:=p;
+                   if SidePass then begin
+                    SphereCastData.Normal:=Vector3Neg(Normal);
+                   end else begin
+                    SphereCastData.Normal:=Normal;
+                   end;
+                   SphereCastData.SurfaceNormal:=TriangleNormal;
+                   result:=true;
+                  end;
+                 end;
+                end;
+               end;
               end;
-              SphereCastData.TimeOfImpact:=Time;
-              SphereCastData.Point:=p;
-              if SidePass then begin
-               SphereCastData.Normal:=Vector3Neg(Normal);
-              end else begin
-               SphereCastData.Normal:=Normal;
+             end else if MeshTreeNode^.FirstLeftChild>=0 then begin
+              ChildMeshTreeNodeIndex0:=MeshTreeNode^.FirstLeftChild;
+              ChildMeshTreeNodeIndex1:=MeshTreeNode^.FirstLeftChild+1;
+              ChildHit0:=SphereCastAABBIntersectionOpt(Origin,Radius,InvDirection,Mesh.fTreeNodes[ChildMeshTreeNodeIndex0].AABB,ChildTime0) and
+                         (ChildTime0<=Nearest);
+              ChildHit1:=SphereCastAABBIntersectionOpt(Origin,Radius,InvDirection,Mesh.fTreeNodes[ChildMeshTreeNodeIndex1].AABB,ChildTime1) and
+                         (ChildTime1<=Nearest);
+              if ChildHit0 and ChildHit1 then begin
+               if ChildTime0<=ChildTime1 then begin
+                MeshTreeStack.Push(ChildMeshTreeNodeIndex1);
+                MeshTreeStack.Push(ChildMeshTreeNodeIndex0);
+               end else begin
+                MeshTreeStack.Push(ChildMeshTreeNodeIndex0);
+                MeshTreeStack.Push(ChildMeshTreeNodeIndex1);
+               end;
+              end else if ChildHit0 then begin
+               MeshTreeStack.Push(ChildMeshTreeNodeIndex0);
+              end else if ChildHit1 then begin
+               MeshTreeStack.Push(ChildMeshTreeNodeIndex1);
               end;
-              SphereCastData.SurfaceNormal:=TriangleNormal;
-              result:=true;
              end;
             end;
            end;
           end;
          end;
+        end else begin
+         ChildShapeMeshTreeNodeIndex0:=ShapeMeshTreeNode^.FirstLeftChild;
+         ChildShapeMeshTreeNodeIndex1:=ShapeMeshTreeNode^.FirstLeftChild+1;
+         ChildHit0:=SphereCastAABBIntersectionOpt(Origin,Radius,InvDirection,fTreeNodes[ChildShapeMeshTreeNodeIndex0].AABB,ChildTime0) and
+                    (ChildTime0<=Nearest);
+         ChildHit1:=SphereCastAABBIntersectionOpt(Origin,Radius,InvDirection,fTreeNodes[ChildShapeMeshTreeNodeIndex1].AABB,ChildTime1) and
+                    (ChildTime1<=Nearest);
+         if ChildHit0 and ChildHit1 then begin
+          if ChildTime0<=ChildTime1 then begin
+           ShapeMeshTreeStack.Push(ChildShapeMeshTreeNodeIndex1);
+           ShapeMeshTreeStack.Push(ChildShapeMeshTreeNodeIndex0);
+          end else begin
+           ShapeMeshTreeStack.Push(ChildShapeMeshTreeNodeIndex0);
+           ShapeMeshTreeStack.Push(ChildShapeMeshTreeNodeIndex1);
+          end;
+         end else if ChildHit0 then begin
+          ShapeMeshTreeStack.Push(ChildShapeMeshTreeNodeIndex0);
+         end else if ChildHit1 then begin
+          ShapeMeshTreeStack.Push(ChildShapeMeshTreeNodeIndex1);
+         end;
         end;
-        inc(MeshSkipListNodeIndex);
-       end else begin
-        MeshSkipListNodeIndex:=MeshSkipListNode^.SkipToNodeIndex;
        end;
       end;
      end;
-     inc(SkipListNodeIndex);
-    end else begin
-     SkipListNodeIndex:=SkipListNode^.SkipToNodeIndex;
+    finally
+     MeshTreeStack.Finalize;
     end;
+   finally
+    ShapeMeshTreeStack.Finalize;
    end;
    if assigned(SphereCastData.CastProfilerData) then begin
     inc(SphereCastData.CastProfilerData^.CountTotalBottomLevelAccelerationStructureMeshNodes,LocalCountTotalBottomLevelAccelerationStructureMeshNodes);
@@ -36335,6 +36828,221 @@ begin
   end;
  end;
 end;
+{$else}
+type TStack=TKraftDynamicFastNonRTTIStack<TKraftInt32>;
+var SkipListNodeIndex,MeshSkipListNodeIndex,TriangleIndex:TKraftInt32;
+    ChildSkipListNodeIndex0,ChildSkipListNodeIndex1:TKraftInt32;
+    ChildMeshSkipListNodeIndex0,ChildMeshSkipListNodeIndex1:TKraftInt32;
+    MeshIndex:TKraftPtrInt;
+    SkipListNode:PKraftDynamicAABBTreeSkipListNode;
+    MeshSkipListNode:PKraftMeshSkipListNode;
+    Mesh:TKraftMesh;
+    Triangle:PKraftMeshTriangle;
+    SkipListStack,MeshSkipListStack:TStack;
+    First,SidePass:boolean;
+    ChildHit0,ChildHit1:boolean;
+    Radius,Nearest,Time,u,v,w,SkipListNodeTime,MeshSkipListNodeTime,ChildTime0,ChildTime1:TKraftScalar;
+    Origin,Direction,InvDirection,p,TriangleNormal,Normal:TKraftVector3;
+    LocalCountTotalBottomLevelAccelerationStructureMeshNodes:TKraftInt32;
+    LocalCountCheckedBottomLevelAccelerationStructureMeshNodes:TKraftInt32;
+    LocalCountCheckedBottomLevelAccelerationStructureMeshLeafs:TKraftInt32;
+    LocalCountTotalBottomLevelAccelerationStructureNodes:TKraftInt32;
+    LocalCountCheckedBottomLevelAccelerationStructureNodes:TKraftInt32;
+    LocalCountCheckedBottomLevelAccelerationStructureLeafs:TKraftInt32;
+    LocalCountCheckedBottomLevelAccelerationStructureTriangles:TKraftInt32;
+begin
+ result:=false;
+ if ksfSphereCastable in fFlags then begin
+  Origin:=Vector3TermMatrixMulInverted(SphereCastData.Origin,fWorldTransform);
+  Radius:=SphereCastData.Radius;
+  Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,fWorldTransform));
+  if Vector3LengthSquared(Direction)>EPSILON then begin
+   InvDirection:=Vector3Div(Vector3All,Direction);
+   Nearest:=SphereCastData.MaxTime;
+   First:=true;
+   LocalCountTotalBottomLevelAccelerationStructureMeshNodes:=fCountSkipListNodes;
+   LocalCountCheckedBottomLevelAccelerationStructureMeshNodes:=0;
+   LocalCountCheckedBottomLevelAccelerationStructureMeshLeafs:=0;
+   LocalCountTotalBottomLevelAccelerationStructureNodes:=0;
+   LocalCountCheckedBottomLevelAccelerationStructureNodes:=0;
+   LocalCountCheckedBottomLevelAccelerationStructureLeafs:=0;
+   LocalCountCheckedBottomLevelAccelerationStructureTriangles:=0;
+   SkipListStack.Initialize;
+   try
+    MeshSkipListStack.Initialize;
+    try
+     if fCountSkipListNodes>0 then begin
+      SkipListStack.Push(0);
+      while SkipListStack.Pop(SkipListNodeIndex) do begin
+       SkipListNode:=@fSkipListNodes[SkipListNodeIndex];
+       if SphereCastAABBIntersectionOpt(Origin,Radius,InvDirection,SkipListNode^.AABB,SkipListNodeTime) and
+          (SkipListNodeTime<=Nearest) then begin
+        inc(LocalCountCheckedBottomLevelAccelerationStructureMeshNodes);
+        MeshIndex:=TKraftPtrInt(TKraftPtrUInt(SkipListNode^.UserData))-1;
+        if MeshIndex>=0 then begin
+         inc(LocalCountCheckedBottomLevelAccelerationStructureMeshLeafs);
+         Mesh:=fMeshes[MeshIndex];
+         inc(LocalCountTotalBottomLevelAccelerationStructureNodes,Mesh.fCountSkipListNodes);
+         MeshSkipListStack.Clear;
+         if Mesh.fCountSkipListNodes>0 then begin
+          MeshSkipListStack.Push(0);
+          while MeshSkipListStack.Pop(MeshSkipListNodeIndex) do begin
+           MeshSkipListNode:=@Mesh.fSkipListNodes[MeshSkipListNodeIndex];
+           if SphereCastAABBIntersectionOpt(Origin,Radius,InvDirection,MeshSkipListNode^.AABB,MeshSkipListNodeTime) and
+              (MeshSkipListNodeTime<=Nearest) then begin
+            inc(LocalCountCheckedBottomLevelAccelerationStructureNodes);
+            if MeshSkipListNode^.CountTriangles>0 then begin
+             inc(LocalCountCheckedBottomLevelAccelerationStructureLeafs);
+             inc(LocalCountCheckedBottomLevelAccelerationStructureTriangles,MeshSkipListNode^.CountTriangles);
+             for TriangleIndex:=MeshSkipListNode^.FirstTriangleIndex to MeshSkipListNode^.FirstTriangleIndex+(MeshSkipListNode^.CountTriangles-1) do begin
+              Triangle:=@Mesh.fTriangles[TriangleIndex];
+              if Mesh.fSmoothSphereCastNormals then begin
+               if SphereCastTriangle(Origin,
+                                     Radius,
+                                     Direction,
+                                     Mesh.fVertices[Triangle^.Vertices[0]],
+                                     Mesh.fVertices[Triangle^.Vertices[1]],
+                                     Mesh.fVertices[Triangle^.Vertices[2]],
+                                     Triangle^.Plane.Normal,
+                                     Mesh.fDoubleSided,
+                                     Normal,
+                                     Time) then begin
+                p:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time));
+                if ((Time>=0.0) and (Time<=Nearest)) and (First or (Time<Nearest)) then begin
+                 First:=false;
+                 Nearest:=Time;
+                 SphereCastData.TimeOfImpact:=Time;
+                 SphereCastData.Point:=p;
+                 SphereCastData.Normal:=Normal;
+                 if Mesh.fDoubleSided and (Vector3Dot(Triangle^.Plane.Normal,Direction)>=0) then begin
+                  SphereCastData.SurfaceNormal:=Vector3Neg(Triangle^.Plane.Normal);
+                 end else begin
+                  SphereCastData.SurfaceNormal:=Triangle^.Plane.Normal;
+                 end;
+                 result:=true;
+                end;
+               end;
+              end else begin
+               for SidePass:=false to Mesh.fDoubleSided do begin
+                if SidePass then begin
+                 TriangleNormal:=Vector3Neg(Triangle^.Plane.Normal);
+                end else begin
+                 TriangleNormal:=Triangle^.Plane.Normal;
+                end;
+                if SphereCastTriangle(Origin,
+                                      Radius,
+                                      Direction,
+                                      Mesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],
+                                      Mesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],
+                                      Mesh.fVertices[Triangle^.Vertices[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],
+                                      TriangleNormal,
+                                      Time,
+                                      u,
+                                      v,
+                                      w) then begin
+                 p:=Vector3Add(Origin,Vector3ScalarMul(Direction,Time));
+                 if ((Time>=0.0) and (Time<=Nearest)) and (First or (Time<Nearest)) then begin
+                  First:=false;
+                  Nearest:=Time;
+                  if fSmoothNormalsAtCasting then begin
+                   Normal:=Vector3Norm(Vector3Add(Vector3ScalarMul(Mesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,0]]],u),
+                                       Vector3Add(Vector3ScalarMul(Mesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,1]]],v),
+                                                  Vector3ScalarMul(Mesh.fNormals[Triangle^.Normals[DoubleSidedTriangleVertexOrderIndices[SidePass,2]]],w))));
+                  end else begin
+                   Normal:=Triangle^.Plane.Normal;
+                  end;
+                  SphereCastData.TimeOfImpact:=Time;
+                  SphereCastData.Point:=p;
+                  if SidePass then begin
+                   SphereCastData.Normal:=Vector3Neg(Normal);
+                  end else begin
+                   SphereCastData.Normal:=Normal;
+                  end;
+                  SphereCastData.SurfaceNormal:=TriangleNormal;
+                  result:=true;
+                 end;
+                end;
+               end;
+              end;
+             end;
+            end else begin
+             ChildMeshSkipListNodeIndex0:=MeshSkipListNodeIndex+1;
+             if ChildMeshSkipListNodeIndex0<MeshSkipListNode^.SkipToNodeIndex then begin
+              ChildMeshSkipListNodeIndex1:=Mesh.fSkipListNodes[ChildMeshSkipListNodeIndex0].SkipToNodeIndex;
+              ChildHit0:=SphereCastAABBIntersectionOpt(Origin,Radius,InvDirection,Mesh.fSkipListNodes[ChildMeshSkipListNodeIndex0].AABB,ChildTime0) and
+                         (ChildTime0<=Nearest);
+              ChildHit1:=(ChildMeshSkipListNodeIndex1<MeshSkipListNode^.SkipToNodeIndex) and
+                         SphereCastAABBIntersectionOpt(Origin,Radius,InvDirection,Mesh.fSkipListNodes[ChildMeshSkipListNodeIndex1].AABB,ChildTime1) and
+                         (ChildTime1<=Nearest);
+              if ChildHit0 and ChildHit1 then begin
+               if ChildTime0<=ChildTime1 then begin
+                MeshSkipListStack.Push(ChildMeshSkipListNodeIndex1);
+                MeshSkipListStack.Push(ChildMeshSkipListNodeIndex0);
+               end else begin
+                MeshSkipListStack.Push(ChildMeshSkipListNodeIndex0);
+                MeshSkipListStack.Push(ChildMeshSkipListNodeIndex1);
+               end;
+              end else if ChildHit0 then begin
+               MeshSkipListStack.Push(ChildMeshSkipListNodeIndex0);
+              end else if ChildHit1 then begin
+               MeshSkipListStack.Push(ChildMeshSkipListNodeIndex1);
+              end;
+             end;
+            end;
+           end;
+          end;
+         end;
+        end else begin
+         ChildSkipListNodeIndex0:=SkipListNodeIndex+1;
+         if ChildSkipListNodeIndex0<SkipListNode^.SkipToNodeIndex then begin
+          ChildSkipListNodeIndex1:=fSkipListNodes[ChildSkipListNodeIndex0].SkipToNodeIndex;
+          ChildHit0:=SphereCastAABBIntersectionOpt(Origin,Radius,InvDirection,fSkipListNodes[ChildSkipListNodeIndex0].AABB,ChildTime0) and
+                     (ChildTime0<=Nearest);
+          ChildHit1:=(ChildSkipListNodeIndex1<SkipListNode^.SkipToNodeIndex) and
+                     SphereCastAABBIntersectionOpt(Origin,Radius,InvDirection,fSkipListNodes[ChildSkipListNodeIndex1].AABB,ChildTime1) and
+                     (ChildTime1<=Nearest);
+          if ChildHit0 and ChildHit1 then begin
+           if ChildTime0<=ChildTime1 then begin
+            SkipListStack.Push(ChildSkipListNodeIndex1);
+            SkipListStack.Push(ChildSkipListNodeIndex0);
+           end else begin
+            SkipListStack.Push(ChildSkipListNodeIndex0);
+            SkipListStack.Push(ChildSkipListNodeIndex1);
+           end;
+          end else if ChildHit0 then begin
+           SkipListStack.Push(ChildSkipListNodeIndex0);
+          end else if ChildHit1 then begin
+           SkipListStack.Push(ChildSkipListNodeIndex1);
+          end;
+         end;
+        end;
+       end;
+      end;
+     end;
+    finally
+     MeshSkipListStack.Finalize;
+    end;
+   finally
+    SkipListStack.Finalize;
+   end;
+   if assigned(SphereCastData.CastProfilerData) then begin
+    inc(SphereCastData.CastProfilerData^.CountTotalBottomLevelAccelerationStructureMeshNodes,LocalCountTotalBottomLevelAccelerationStructureMeshNodes);
+    inc(SphereCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureMeshNodes,LocalCountCheckedBottomLevelAccelerationStructureMeshNodes);
+    inc(SphereCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureMeshLeafs,LocalCountCheckedBottomLevelAccelerationStructureMeshLeafs);
+    inc(SphereCastData.CastProfilerData^.CountTotalBottomLevelAccelerationStructureNodes,LocalCountTotalBottomLevelAccelerationStructureNodes);
+    inc(SphereCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureNodes,LocalCountCheckedBottomLevelAccelerationStructureNodes);
+    inc(SphereCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureLeafs,LocalCountCheckedBottomLevelAccelerationStructureLeafs);
+    inc(SphereCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureTriangles,LocalCountCheckedBottomLevelAccelerationStructureTriangles);
+   end;
+   if result then begin
+    SphereCastData.Point:=Vector3TermMatrixMul(SphereCastData.Point,fWorldTransform);
+    SphereCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(SphereCastData.Normal,fWorldTransform));
+    SphereCastData.SurfaceNormal:=Vector3NormEx(Vector3TermMatrixMulBasis(SphereCastData.SurfaceNormal,fWorldTransform));
+   end;
+  end;
+ end;
+end;
+{$endif}
 
 {$ifdef DebugDraw}
 procedure TKraftShapeMesh.Draw(const CameraMatrix:TKraftMatrix4x4);
@@ -50049,12 +50757,16 @@ var AABBTreeIndex:TKraftInt32;
     Node:PKraftDynamicAABBTreeNode;
     CurrentShape:TKraftShape;
     RayCastData:TKraftRaycastData;
+    InvDirection:TKraftVector3;
+    NodeTime,ChildTime0,ChildTime1:TKraftScalar;
+    ChildHit0,ChildHit1:boolean;
     LocalCountTotalTopLevelAccelerationStructureNodes:TKraftInt32;
     LocalCountCheckedTopLevelAccelerationStructureNodes:TKraftInt32;
     LocalCountCheckedTopLevelAccelerationStructureLeafs:TKraftInt32;
 begin
  result:=false;
  aTime:=aMaxTime;
+ InvDirection:=Vector3Div(Vector3All,aDirection);
  Stack.Initialize;
  try
   RayCastData.CastProfilerData:=aCastProfilerData;
@@ -50086,14 +50798,14 @@ begin
     while Stack.Pop(NodeID) do begin
      while NodeID>=0 do begin
       Node:=@AABBTree.fNodes[NodeID];
-      if AABBRayIntersect(Node^.AABB,aOrigin,aDirection) then begin
+      if AABBRayIntersectionOpt(Node^.AABB,aOrigin,InvDirection,NodeTime) and (NodeTime<=aTime) then begin
        inc(LocalCountCheckedTopLevelAccelerationStructureNodes);
        if Node^.Children[0]<0 then begin
         inc(LocalCountCheckedTopLevelAccelerationStructureLeafs);
         CurrentShape:=Node^.UserData;
         RayCastData.Origin:=aOrigin;
         RayCastData.Direction:=aDirection;
-        RayCastData.MaxTime:=aMaxTime;
+        RayCastData.MaxTime:=aTime;
         if (assigned(CurrentShape) and (assigned(CurrentShape.fRigidBody) and ((CurrentShape.fRigidBody.fCollisionGroups*aCollisionGroups)<>[]))) and CurrentShape.RayCast(RayCastData) then begin
          if (assigned(aOnRayCastFilterHook) and aOnRayCastFilterHook(RayCastData.Point,RayCastData.Normal,RayCastData.TimeOfImpact,CurrentShape)) or not assigned(aOnRayCastFilterHook) then begin
           if (result and (RayCastData.TimeOfImpact<aTime)) or not result then begin
@@ -50106,9 +50818,24 @@ begin
          end;
         end;
        end else begin
-        Stack.Push(Node^.Children[1]);
-        NodeID:=Node^.Children[0];
-        continue;
+        ChildHit0:=AABBRayIntersectionOpt(AABBTree.fNodes[Node^.Children[0]].AABB,aOrigin,InvDirection,ChildTime0) and (ChildTime0<=aTime);
+        ChildHit1:=AABBRayIntersectionOpt(AABBTree.fNodes[Node^.Children[1]].AABB,aOrigin,InvDirection,ChildTime1) and (ChildTime1<=aTime);
+        if ChildHit0 and ChildHit1 then begin
+         if ChildTime0<=ChildTime1 then begin
+          Stack.Push(Node^.Children[1]);
+          NodeID:=Node^.Children[0];
+         end else begin
+          Stack.Push(Node^.Children[0]);
+          NodeID:=Node^.Children[1];
+         end;
+         continue;
+        end else if ChildHit0 then begin
+         NodeID:=Node^.Children[0];
+         continue;
+        end else if ChildHit1 then begin
+         NodeID:=Node^.Children[1];
+         continue;
+        end;
        end;
       end;
       break;
@@ -50135,12 +50862,16 @@ var AABBTreeIndex:TKraftInt32;
     Node:PKraftDynamicAABBTreeNode;
     CurrentShape:TKraftShape;
     RayCastData:TKraftRaycastData;
+    InvDirection:TKraftVector3;
+    NodeTime,ChildTime0,ChildTime1:TKraftScalar;
+    ChildHit0,ChildHit1:boolean;
     LocalCountTotalTopLevelAccelerationStructureNodes:TKraftInt32;
     LocalCountCheckedTopLevelAccelerationStructureNodes:TKraftInt32;
     LocalCountCheckedTopLevelAccelerationStructureLeafs:TKraftInt32;
 begin
  result:=false;
  aTime:=aMaxTime;
+ InvDirection:=Vector3Div(Vector3All,aDirection);
  Stack.Initialize;
  try
   RayCastData.CastProfilerData:=aCastProfilerData;
@@ -50172,14 +50903,14 @@ begin
     while Stack.Pop(NodeID) do begin
      while NodeID>=0 do begin
       Node:=@AABBTree.fNodes[NodeID];
-      if AABBRayIntersect(Node^.AABB,aOrigin,aDirection) then begin
+      if AABBRayIntersectionOpt(Node^.AABB,aOrigin,InvDirection,NodeTime) and (NodeTime<=aTime) then begin
        inc(LocalCountCheckedTopLevelAccelerationStructureNodes);
        if Node^.Children[0]<0 then begin
         inc(LocalCountCheckedTopLevelAccelerationStructureLeafs);
         CurrentShape:=Node^.UserData;
         RayCastData.Origin:=aOrigin;
         RayCastData.Direction:=aDirection;
-        RayCastData.MaxTime:=aMaxTime;
+        RayCastData.MaxTime:=aTime;
         if (assigned(CurrentShape) and (assigned(CurrentShape.fRigidBody) and ((CurrentShape.fRigidBody.fCollisionGroups*aCollisionGroups)<>[]))) and CurrentShape.RayCast(RayCastData) then begin
          if (assigned(aOnRayCastFilterHook) and aOnRayCastFilterHook(RayCastData.Point,RayCastData.Normal,RayCastData.TimeOfImpact,CurrentShape)) or not assigned(aOnRayCastFilterHook) then begin
           if (result and (RayCastData.TimeOfImpact<aTime)) or not result then begin
@@ -50193,9 +50924,24 @@ begin
          end;
         end;
        end else begin
-        Stack.Push(Node^.Children[1]);
-        NodeID:=Node^.Children[0];
-        continue;
+        ChildHit0:=AABBRayIntersectionOpt(AABBTree.fNodes[Node^.Children[0]].AABB,aOrigin,InvDirection,ChildTime0) and (ChildTime0<=aTime);
+        ChildHit1:=AABBRayIntersectionOpt(AABBTree.fNodes[Node^.Children[1]].AABB,aOrigin,InvDirection,ChildTime1) and (ChildTime1<=aTime);
+        if ChildHit0 and ChildHit1 then begin
+         if ChildTime0<=ChildTime1 then begin
+          Stack.Push(Node^.Children[1]);
+          NodeID:=Node^.Children[0];
+         end else begin
+          Stack.Push(Node^.Children[0]);
+          NodeID:=Node^.Children[1];
+         end;
+         continue;
+        end else if ChildHit0 then begin
+         NodeID:=Node^.Children[0];
+         continue;
+        end else if ChildHit1 then begin
+         NodeID:=Node^.Children[1];
+         continue;
+        end;
        end;
       end;
       break;
@@ -50242,12 +50988,16 @@ var AABBTreeIndex:TKraftInt32;
     Node:PKraftDynamicAABBTreeNode;
     CurrentShape:TKraftShape;
     SphereCastData:TKraftSpherecastData;
+    InvDirection:TKraftVector3;
+    NodeTime,ChildTime0,ChildTime1:TKraftScalar;
+    ChildHit0,ChildHit1:boolean;
     LocalCountTotalTopLevelAccelerationStructureNodes:TKraftInt32;
     LocalCountCheckedTopLevelAccelerationStructureNodes:TKraftInt32;
     LocalCountCheckedTopLevelAccelerationStructureLeafs:TKraftInt32;
 begin
  result:=false;
  aTime:=aMaxTime;
+ InvDirection:=Vector3Div(Vector3All,aDirection);
  Stack.Initialize;
  try
   SphereCastData.CastProfilerData:=aCastProfilerData;
@@ -50279,7 +51029,7 @@ begin
     while Stack.Pop(NodeID) do begin
      while NodeID>=0 do begin
       Node:=@AABBTree.fNodes[NodeID];
-      if SphereCastAABB(aOrigin,aRadius,aDirection,Node^.AABB) then begin
+      if SphereCastAABBIntersectionOpt(aOrigin,aRadius,InvDirection,Node^.AABB,NodeTime) and (NodeTime<=aTime) then begin
        inc(LocalCountCheckedTopLevelAccelerationStructureNodes);
        if Node^.Children[0]<0 then begin
         inc(LocalCountCheckedTopLevelAccelerationStructureLeafs);
@@ -50287,7 +51037,7 @@ begin
         SphereCastData.Origin:=aOrigin;
         SphereCastData.Radius:=aRadius;
         SphereCastData.Direction:=aDirection;
-        SphereCastData.MaxTime:=aMaxTime;
+        SphereCastData.MaxTime:=aTime;
         if (assigned(CurrentShape) and (assigned(CurrentShape.fRigidBody) and ((CurrentShape.fRigidBody.fCollisionGroups*aCollisionGroups)<>[]))) and CurrentShape.SphereCast(SphereCastData) then begin
          if (assigned(aOnSphereCastFilterHook) and aOnSphereCastFilterHook(SphereCastData.Point,SphereCastData.Normal,SphereCastData.TimeOfImpact,CurrentShape)) or not assigned(aOnSphereCastFilterHook) then begin
           if (result and (SphereCastData.TimeOfImpact<aTime)) or not result then begin
@@ -50300,9 +51050,24 @@ begin
          end;
         end;
        end else begin
-        Stack.Push(Node^.Children[1]);
-        NodeID:=Node^.Children[0];
-        continue;
+        ChildHit0:=SphereCastAABBIntersectionOpt(aOrigin,aRadius,InvDirection,AABBTree.fNodes[Node^.Children[0]].AABB,ChildTime0) and (ChildTime0<=aTime);
+        ChildHit1:=SphereCastAABBIntersectionOpt(aOrigin,aRadius,InvDirection,AABBTree.fNodes[Node^.Children[1]].AABB,ChildTime1) and (ChildTime1<=aTime);
+        if ChildHit0 and ChildHit1 then begin
+         if ChildTime0<=ChildTime1 then begin
+          Stack.Push(Node^.Children[1]);
+          NodeID:=Node^.Children[0];
+         end else begin
+          Stack.Push(Node^.Children[0]);
+          NodeID:=Node^.Children[1];
+         end;
+         continue;
+        end else if ChildHit0 then begin
+         NodeID:=Node^.Children[0];
+         continue;
+        end else if ChildHit1 then begin
+         NodeID:=Node^.Children[1];
+         continue;
+        end;
        end;
       end;
       break;
@@ -50329,12 +51094,16 @@ var AABBTreeIndex:TKraftInt32;
     Node:PKraftDynamicAABBTreeNode;
     CurrentShape:TKraftShape;
     SphereCastData:TKraftSpherecastData;
+    InvDirection:TKraftVector3;
+    NodeTime,ChildTime0,ChildTime1:TKraftScalar;
+    ChildHit0,ChildHit1:boolean;
     LocalCountTotalTopLevelAccelerationStructureNodes:TKraftInt32;
     LocalCountCheckedTopLevelAccelerationStructureNodes:TKraftInt32;
     LocalCountCheckedTopLevelAccelerationStructureLeafs:TKraftInt32;
 begin
  result:=false;
  aTime:=aMaxTime;
+ InvDirection:=Vector3Div(Vector3All,aDirection);
  Stack.Initialize;
  try
   SphereCastData.CastProfilerData:=aCastProfilerData;
@@ -50366,7 +51135,7 @@ begin
     while Stack.Pop(NodeID) do begin
      while NodeID>=0 do begin
       Node:=@AABBTree.fNodes[NodeID];
-      if SphereCastAABB(aOrigin,aRadius,aDirection,Node^.AABB) then begin
+      if SphereCastAABBIntersectionOpt(aOrigin,aRadius,InvDirection,Node^.AABB,NodeTime) and (NodeTime<=aTime) then begin
        inc(LocalCountCheckedTopLevelAccelerationStructureNodes);
        if Node^.Children[0]<0 then begin
         inc(LocalCountCheckedTopLevelAccelerationStructureLeafs);
@@ -50374,7 +51143,7 @@ begin
         SphereCastData.Origin:=aOrigin;
         SphereCastData.Radius:=aRadius;
         SphereCastData.Direction:=aDirection;
-        SphereCastData.MaxTime:=aMaxTime;
+        SphereCastData.MaxTime:=aTime;
         if (assigned(CurrentShape) and (assigned(CurrentShape.fRigidBody) and ((CurrentShape.fRigidBody.fCollisionGroups*aCollisionGroups)<>[]))) and CurrentShape.SphereCast(SphereCastData) then begin
          if (assigned(aOnSphereCastFilterHook) and aOnSphereCastFilterHook(SphereCastData.Point,SphereCastData.Normal,SphereCastData.TimeOfImpact,CurrentShape)) or not assigned(aOnSphereCastFilterHook) then begin
           if (result and (SphereCastData.TimeOfImpact<aTime)) or not result then begin
@@ -50388,9 +51157,24 @@ begin
          end;
         end;
        end else begin
-        Stack.Push(Node^.Children[1]);
-        NodeID:=Node^.Children[0];
-        continue;
+        ChildHit0:=SphereCastAABBIntersectionOpt(aOrigin,aRadius,InvDirection,AABBTree.fNodes[Node^.Children[0]].AABB,ChildTime0) and (ChildTime0<=aTime);
+        ChildHit1:=SphereCastAABBIntersectionOpt(aOrigin,aRadius,InvDirection,AABBTree.fNodes[Node^.Children[1]].AABB,ChildTime1) and (ChildTime1<=aTime);
+        if ChildHit0 and ChildHit1 then begin
+         if ChildTime0<=ChildTime1 then begin
+          Stack.Push(Node^.Children[1]);
+          NodeID:=Node^.Children[0];
+         end else begin
+          Stack.Push(Node^.Children[0]);
+          NodeID:=Node^.Children[1];
+         end;
+         continue;
+        end else if ChildHit0 then begin
+         NodeID:=Node^.Children[0];
+         continue;
+        end else if ChildHit1 then begin
+         NodeID:=Node^.Children[1];
+         continue;
+        end;
        end;
       end;
       break;
