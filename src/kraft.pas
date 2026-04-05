@@ -202,6 +202,8 @@ unit kraft;
 
 {$undef KraftShapeMeshCastUseTreeBVH}
 
+{$define KraftIslandSkipInvalid}
+
 interface
 
 uses {$ifdef windows}
@@ -730,39 +732,39 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      TKraftScalar={$ifdef KraftUseDouble}TKraftDouble{$else}TKraftFloat{$endif};
      PKraftScalar=^TKraftScalar;
 
-     TKraftScalars=array[0..1] of TKraftScalar;
+     TKraftScalars=array[0..($80000000 div SizeOf(TKraftScalar))-1] of TKraftScalar;
      PKraftScalars=^TKraftScalars;
 
      TKraftScalarArray=array of TKraftScalar;
 
-     TKraftInt8s=array[0..0] of TKraftInt8;
+     TKraftInt8s=array[0..($80000000 div SizeOf(TKraftInt8))-1] of TKraftInt8;
      PKraftInt8s=^TKraftInt8s;
 
-     TKraftUInt8s=array[0..0] of TKraftUInt8;
+     TKraftUInt8s=array[0..($80000000 div SizeOf(TKraftUInt8))-1] of TKraftUInt8;
      PKraftUInt8s=^TKraftUInt8s;
 
-     TKraftInt16s=array[0..0] of TKraftInt16;
+     TKraftInt16s=array[0..($80000000 div SizeOf(TKraftInt16))-1] of TKraftInt16;
      PKraftInt16s=^TKraftInt16s;
 
-     TKraftUInt16s=array[0..0] of TKraftUInt16;
+     TKraftUInt16s=array[0..($80000000 div SizeOf(TKraftUInt16))-1] of TKraftUInt16;
      PKraftUInt16s=^TKraftUInt16s;
 
-     TKraftInt32s=array[0..0] of TKraftInt32;
+     TKraftInt32s=array[0..($80000000 div SizeOf(TKraftInt32))-1] of TKraftInt32;
      PKraftInt32s=^TKraftInt32s;
 
-     TKraftUInt32s=array[0..0] of TKraftUInt32;
+     TKraftUInt32s=array[0..($80000000 div SizeOf(TKraftUInt32))-1] of TKraftUInt32;
      PKraftUInt32s=^TKraftUInt32s;
 
-     TKraftInt64s=array[0..0] of TKraftInt64;
+     TKraftInt64s=array[0..($80000000 div SizeOf(TKraftInt64))-1] of TKraftInt64;
      PKraftInt64s=^TKraftInt64s;
 
-     TKraftUInt64s=array[0..0] of TKraftUInt64;
+     TKraftUInt64s=array[0..($80000000 div SizeOf(TKraftUInt64))-1] of TKraftUInt64;
      PKraftUInt64s=^TKraftUInt64s;
 
-     TKraftFloats=array[0..0] of TKraftFloat;
+     TKraftFloats=array[0..($80000000 div SizeOf(TKraftFloat))-1] of TKraftFloat;
      PKraftFloats=^TKraftFloats;
 
-     TKraftDoubles=array[0..0] of TKraftDouble;
+     TKraftDoubles=array[0..($80000000 div SizeOf(TKraftDouble))-1] of TKraftDouble;
      PKraftDoubles=^TKraftDoubles;
 
      TKraftInt8DynamicArray=array of TKraftInt8;
@@ -1072,11 +1074,11 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      end;
      PKraftDynamicAABBTreeNode=^TKraftDynamicAABBTreeNode;
 
-     TKraftDynamicAABBTreeNodes=array[0..0] of TKraftDynamicAABBTreeNode;
+     TKraftDynamicAABBTreeNodes=array[0..($80000000 div SizeOf(TKraftDynamicAABBTreeNode))-1] of TKraftDynamicAABBTreeNode;
      PKraftDynamicAABBTreeNodes=^TKraftDynamicAABBTreeNodes;
 
      PKraftDynamicAABBTreeLongintArray=^TKraftDynamicAABBTreeLongintArray;
-     TKraftDynamicAABBTreeLongintArray=array[0..65535] of TKraftInt32;
+     TKraftDynamicAABBTreeLongintArray=array[0..($80000000 div SizeOf(TKraftInt32))-1] of TKraftInt32;
 
      TKraftDynamicAABBTreeSkipListNode=record
       AABB:TKraftAABB;
@@ -2551,11 +2553,11 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 {$endif}
      end;
 
-     PKraftGJKStateShapes=^TKraftGJKStateShapes;
      TKraftGJKStateShapes=array[0..1] of TKraftShape;
+     PKraftGJKStateShapes=^TKraftGJKStateShapes;
 
-     PKraftGJKStateTransforms=^TKraftGJKStateTransforms;
      TKraftGJKStateTransforms=array[0..1] of PKraftMatrix4x4;
+     PKraftGJKStateTransforms=^TKraftGJKStateTransforms;
 
      PKraftGJKSimplexVertex=^TKraftGJKSimplexVertex;
      TKraftGJKSimplexVertex=record
@@ -2600,8 +2602,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
       Count:TKraftInt32;
      end;
 
-     PKraftGJKClosestPoints=^TKraftGJKClosestPoints;
      TKraftGJKClosestPoints=array[0..1] of TKraftVector3;
+     PKraftGJKClosestPoints=^TKraftGJKClosestPoints;
 
      PKraftGJK=^TKraftGJK;
      TKraftGJK=record
@@ -29447,8 +29449,8 @@ var SrcPos:TKraftInt32;
  type TFace=record
        Indices:array[0..2] of TKraftUInt32;
       end;
+      TFaces=array[0..($80000000 div SizeOf(TFace))-1] of TFace;
       PFaces=^TFaces;
-      TFaces=array[0..0] of TFace;
  var Counter:TKraftInt32;
      Triangle:PKraftMeshTriangle;
  begin
@@ -29509,17 +29511,16 @@ var SrcPos:TKraftInt32;
  type PVector2=^TVector2;
       TVector2=TKraftVector2;
       PVector2Array=^TVector2Array;
-      TVector2Array=array[0..0] of TVector2;
+      TVector2Array=array[0..($80000000 div SizeOf(TVector2))-1] of TVector2;
       PVector3Array=^TKraftVector3DynamicArray;
-      TKraftVector3DynamicArray=array[0..0] of TKraftVector3;
       PFace3DS=^TFace3DS;
       TFace3DS=record
        Indices:array[0..2] of TKraftUInt32;
        Flags:TKraftUInt32;
        SmoothGroup:TKraftUInt32;
       end;
+      TFaces3DS=array[0..($80000000 div SizeOf(TFace3DS))-1] of TFace3DS;
       PFaces3DS=^TFaces3DS;
-      TFaces3DS=array[0..0] of TFace3DS;
       PObject3DSMesh=^TObject3DSMesh;
       TObject3DSMesh=record
        Vertices:PVector3Array;
@@ -29530,8 +29531,8 @@ var SrcPos:TKraftInt32;
        NumFaces:TKraftInt32;
        Matrix:TKraftMatrix4x4;
       end;
+      TObject3DSMeshs=array[0..($80000000 div SizeOf(TObject3DSMesh))-1] of TObject3DSMesh;
       PObject3DSMeshs=^TObject3DSMeshs;
-      TObject3DSMeshs=array[0..0] of TObject3DSMesh;
       PObject3DS=^TObject3DS;
       TObject3DS=record
        Name:PAnsiChar;
@@ -29539,7 +29540,7 @@ var SrcPos:TKraftInt32;
        NumMeshs:TKraftInt32;
       end;
       PObjects3DS=^TObjects3DS;
-      TObjects3DS=array[0..0] of TObject3DS;
+      TObjects3DS=array[0..($80000000 div SizeOf(TObject3DS))-1] of TObject3DS;
  var SrcPos:TKraftUInt32;
      Signature3DS:TKraftUInt16;
      Size3DS:TKraftUInt32;
@@ -46511,7 +46512,7 @@ begin
 end;
 
 procedure TKraftSolver.Store;
-var ContactPairIndex,ContactIndex:TKraftInt32;
+var ContactPairIndex,ContactIndex,BodyIndex:TKraftInt32;
     VelocityState:PKraftSolverVelocityState;
     PositionState:PKraftSolverPositionState;
     ContactPair:PKraftContactPair;
@@ -46557,6 +46558,44 @@ begin
  for ContactPairIndex:=0 to fCountContacts-1 do begin
 
   ContactPair:=fIsland.fContactPairs[ContactPairIndex];
+
+{$ifdef KraftIslandSkipInvalid}
+  // Validate that both bodies were properly added to this island
+  if (TKraftUInt32(fIsland.fIslandIndex)>=TKraftUInt32(length(ContactPair^.RigidBodies[0].fIslandIndices))) or
+     (TKraftUInt32(fIsland.fIslandIndex)>=TKraftUInt32(length(ContactPair^.RigidBodies[1].fIslandIndices))) then begin
+   fVelocityStates[ContactPairIndex].Indices[0]:=0;
+   fVelocityStates[ContactPairIndex].Indices[1]:=0;
+   fVelocityStates[ContactPairIndex].CountPoints:=0;
+   fPositionStates[ContactPairIndex].Indices[0]:=0;
+   fPositionStates[ContactPairIndex].Indices[1]:=0;
+   fPositionStates[ContactPairIndex].CountPoints:=0;
+   continue;
+  end;
+
+  BodyIndex:=ContactPair^.RigidBodies[0].fIslandIndices[fIsland.fIslandIndex];
+  if (TKraftUInt32(BodyIndex)>=TKraftUInt32(fIsland.fCountRigidBodies)) or
+     (fIsland.fRigidBodies[BodyIndex]<>ContactPair^.RigidBodies[0]) then begin
+   fVelocityStates[ContactPairIndex].Indices[0]:=0;
+   fVelocityStates[ContactPairIndex].Indices[1]:=0;
+   fVelocityStates[ContactPairIndex].CountPoints:=0;
+   fPositionStates[ContactPairIndex].Indices[0]:=0;
+   fPositionStates[ContactPairIndex].Indices[1]:=0;
+   fPositionStates[ContactPairIndex].CountPoints:=0;
+   continue;
+  end;
+
+  BodyIndex:=ContactPair^.RigidBodies[1].fIslandIndices[fIsland.fIslandIndex];
+  if (TKraftUInt32(BodyIndex)>=TKraftUInt32(fIsland.fCountRigidBodies)) or
+     (fIsland.fRigidBodies[BodyIndex]<>ContactPair^.RigidBodies[1]) then begin
+   fVelocityStates[ContactPairIndex].Indices[0]:=0;
+   fVelocityStates[ContactPairIndex].Indices[1]:=0;
+   fVelocityStates[ContactPairIndex].CountPoints:=0;
+   fPositionStates[ContactPairIndex].Indices[0]:=0;
+   fPositionStates[ContactPairIndex].Indices[1]:=0;
+   fPositionStates[ContactPairIndex].CountPoints:=0;
+   continue;
+  end;
+{$endif}
 
   VelocityState:=@fVelocityStates[ContactPairIndex];
   VelocityState^.Centers[0]:=ContactPair^.RigidBodies[0].fSweep.c0;
@@ -46620,6 +46659,42 @@ begin
 
  for ContactPairIndex:=0 to fCountSpeculativeContacts-1 do begin
   ContactPair:=fIsland.fSpeculativeContactPairs[ContactPairIndex];
+
+{$ifdef KraftIslandSkipInvalid}
+  // Validate that both bodies were properly added to this island
+  if (TKraftUInt32(fIsland.fIslandIndex)>=TKraftUInt32(length(ContactPair^.RigidBodies[0].fIslandIndices))) or
+     (TKraftUInt32(fIsland.fIslandIndex)>=TKraftUInt32(length(ContactPair^.RigidBodies[1].fIslandIndices))) then begin
+   SpeculativeContactState:=@fSpeculativeContactStates[ContactPairIndex];
+   SpeculativeContactState^.Indices[0]:=0;
+   SpeculativeContactState^.Indices[1]:=0;
+   SpeculativeContactState^.InverseMasses[0]:=0;
+   SpeculativeContactState^.InverseMasses[1]:=0;
+   continue;
+  end;
+
+  BodyIndex:=ContactPair^.RigidBodies[0].fIslandIndices[fIsland.fIslandIndex];
+  if (TKraftUInt32(BodyIndex)>=TKraftUInt32(fIsland.fCountRigidBodies)) or
+     (fIsland.fRigidBodies[BodyIndex]<>ContactPair^.RigidBodies[0]) then begin
+   SpeculativeContactState:=@fSpeculativeContactStates[ContactPairIndex];
+   SpeculativeContactState^.Indices[0]:=0;
+   SpeculativeContactState^.Indices[1]:=0;
+   SpeculativeContactState^.InverseMasses[0]:=0;
+   SpeculativeContactState^.InverseMasses[1]:=0;
+   continue;
+  end;
+
+  BodyIndex:=ContactPair^.RigidBodies[1].fIslandIndices[fIsland.fIslandIndex];
+  if (TKraftUInt32(BodyIndex)>=TKraftUInt32(fIsland.fCountRigidBodies)) or
+     (fIsland.fRigidBodies[BodyIndex]<>ContactPair^.RigidBodies[1]) then begin
+   SpeculativeContactState:=@fSpeculativeContactStates[ContactPairIndex];
+   SpeculativeContactState^.Indices[0]:=0;
+   SpeculativeContactState^.Indices[1]:=0;
+   SpeculativeContactState^.InverseMasses[0]:=0;
+   SpeculativeContactState^.InverseMasses[1]:=0;
+   continue;
+  end;
+{$endif}
+
   Contact:=@ContactPair^.Manifold.Contacts[0];
   SpeculativeContactState:=@fSpeculativeContactStates[ContactPairIndex];
   SpeculativeContactState^.Centers[0]:=ContactPair^.RigidBodies[0].fSweep.c0;
@@ -46671,6 +46746,13 @@ begin
  for ContactPairIndex:=0 to fCountContacts-1 do begin
 
   VelocityState:=@fVelocityStates[ContactPairIndex];
+
+{$ifdef KraftIslandSkipInvalid}
+  // Skip contact pairs that were invalidated in Store
+  if VelocityState^.CountPoints=0 then begin
+   continue;
+  end;
+{$endif}
 
   PositionState:=@fPositionStates[ContactPairIndex];
 
@@ -46881,6 +46963,14 @@ begin
  for ContactPairIndex:=0 to fCountContacts-1 do begin
 
   VelocityState:=@fVelocityStates[ContactPairIndex];
+
+{$ifdef KraftIslandSkipInvalid}
+  // Skip contact pairs that were invalidated in Store
+  if VelocityState^.CountPoints=0 then begin
+   continue;
+  end;
+{$endif}
+
   IndexA:=VelocityState^.Indices[0];
   IndexB:=VelocityState^.Indices[1];
   iA:=@VelocityState^.WorldInverseInertiaTensors[0];
@@ -47004,6 +47094,14 @@ begin
  for ContactPairIndex:=0 to fCountContacts-1 do begin
 
   VelocityState:=@fVelocityStates[ContactPairIndex];
+
+{$ifdef KraftIslandSkipInvalid}
+  // Skip contact pairs that were invalidated in Store
+  if VelocityState^.CountPoints=0 then begin
+   continue;
+  end;
+{$endif}
+
   IndexA:=VelocityState^.Indices[0];
   IndexB:=VelocityState^.Indices[1];
   iA:=@VelocityState^.WorldInverseInertiaTensors[0];
@@ -47103,6 +47201,13 @@ begin
   for ContactPairIndex:=0 to fCountContacts-1 do begin
 
    PositionState:=@fPositionStates[ContactPairIndex];
+
+{$ifdef KraftIslandSkipInvalid}
+   // Skip contact pairs that were invalidated in Store
+   if PositionState^.CountPoints=0 then begin
+    continue;
+   end;
+{$endif}
 
    IndexA:=PositionState^.Indices[0];
    IndexB:=PositionState^.Indices[1];
@@ -47209,6 +47314,13 @@ begin
   for ContactPairIndex:=0 to fCountContacts-1 do begin
 
    PositionState:=@fPositionStates[ContactPairIndex];
+
+{$ifdef KraftIslandSkipInvalid}
+   // Skip contact pairs that were invalidated in Store
+   if PositionState^.CountPoints=0 then begin
+    continue;
+   end;
+{$endif}
 
    CurrentIndexA:=PositionState^.Indices[0];
    CurrentIndexB:=PositionState^.Indices[1];
@@ -50285,7 +50397,7 @@ begin
        Island.AddContactPair(ContactPair);
        ContactPair^.Flags:=ContactPair^.Flags+[kcfInIsland];
 
-       if (krbfIslandVisited in OtherRigidBody.fFlags) or assigned(OtherRigidBody.fIsland) then begin
+       if (not (krbfIslandVisited in OtherRigidBody.fFlags)) and not assigned(OtherRigidBody.fIsland) then begin
         Island.AddRigidBody(OtherRigidBody);
         Include(OtherRigidBody.fFlags,krbfIslandVisited);
         if OtherRigidBody.fRigidBodyType<>krbtStatic then begin
