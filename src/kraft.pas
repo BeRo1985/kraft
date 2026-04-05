@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-03-29-22-05-0000                       *
+ *                        Version 2026-04-05-15-26-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -203,6 +203,8 @@ unit kraft;
 {$undef KraftShapeMeshCastUseTreeBVH}
 
 {$define KraftIslandSkipInvalid}
+
+{-$define KraftIslandDebugValidation}
 
 interface
 
@@ -518,6 +520,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      TKraftDouble=Double;
      PKraftDouble=^TKraftDouble;
      PPKraftDouble=^PKraftDouble;
+
+     TKraftString=RawByteString;
 
      EKraft=class(Exception);
 
@@ -3053,6 +3057,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fID:TKraftUInt64;
 
+       fName:TKraftString;
+
        fRigidBodyType:TKraftRigidBodyType;
 
        fRigidBodyPrevious:TKraftRigidBody;
@@ -3296,6 +3302,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property WorldTransform:TKraftMatrix4x4 read fWorldTransform write fWorldTransform;
 
        property UserData:pointer read fUserData write fUserData;
+
+       property Name:TKraftString read fName write fName;
 
        property BodyInertiaTensor:TKraftMatrix3x3 read fBodyInertiaTensor write fBodyInertiaTensor;
        property BodyInverseInertiaTensor:TKraftMatrix3x3 read fBodyInverseInertiaTensor write fBodyInverseInertiaTensor;
@@ -41331,6 +41339,8 @@ begin
  fIslandIndices:=nil;
  SetLength(fIslandIndices,4);
 
+ fName:='';
+
  fIndex:=fPhysics.fCountRigidBodies;
  inc(fPhysics.fCountRigidBodies);
 
@@ -49055,14 +49065,26 @@ begin
    SeedRigidBodyStack:=CurrentRigidBody.fNextOnIslandBuildStack;
    CurrentRigidBody.fNextOnIslandBuildStack:=nil;
 
-   // Do not search across inactive or unknown bodies to keep island formations as
-   // small as possible, these are just ignored and skipped.
-   if (CurrentRigidBody.fRigidBodyType=krbtUnknown) or not (krbfActive in CurrentRigidBody.fFlags) then begin
+   // Skip unknown bodies entirely
+   if CurrentRigidBody.fRigidBodyType=krbtUnknown then begin
     continue;
    end;
 
-   // Add to the island
+   // Add to the island - this MUST happen before any continue, so that
+   // fIslandIndices is valid for every body referenced by a contact pair.
    Island.AddRigidBody(CurrentRigidBody);
+
+   // Inactive bodies must be AddRigidBody'd (above) but must not traverse
+   // contacts and must have IslandVisited cleared after each island, just
+   // like static bodies, so they can participate in multiple islands.
+   if not (krbfActive in CurrentRigidBody.fFlags) then begin
+    if not (krbfIslandStatic in CurrentRigidBody.fFlags) then begin
+     Include(CurrentRigidBody.fFlags,krbfIslandStatic);
+     CurrentRigidBody.fNextStaticRigidBody:=StaticRigidBodiesList;
+     StaticRigidBodiesList:=CurrentRigidBody;
+    end;
+    continue;
+   end;
 
    // Awaken all bodies connected to the island
    CurrentRigidBody.SetToAwake;
@@ -49953,6 +49975,12 @@ procedure TKraft.Solve(const aTimeStep:TKraftTimeStep);
 {$ifdef KraftProfilingTimes}
 var TimeA,TimeB,StartTime,EndTime,Duration:TKraftInt64;
 {$endif}
+{$ifdef KraftIslandDebugValidation}
+var ValidationIslandIdx,ValidationCPIdx,ValidationBodyIdx,ValidationSide:TKraftInt32;
+    ValidationCP:PKraftContactPair;
+    ValidationBody:TKraftRigidBody;
+    ValidationIsland:TKraftIsland;
+{$endif}
 begin
 
 {$ifdef KraftProfilingTimes}
@@ -49998,6 +50026,93 @@ begin
 {$ifdef KraftProfilingTimes}
  StartTime:=HighResolutionTimer.GetTime;
 {$endif}
+{$ifdef KraftIslandDebugValidation}
+ // Validate island invariant: for every contact pair in every island,
+ // both bodies must have been AddRigidBody'd for that island
+ for ValidationIslandIdx:=0 to fCountIslands-1 do begin
+  ValidationIsland:=fIslands[ValidationIslandIdx];
+  for ValidationCPIdx:=0 to ValidationIsland.fCountContactPairs-1 do begin
+   ValidationCP:=ValidationIsland.fContactPairs[ValidationCPIdx];
+   for ValidationSide:=0 to 1 do begin
+    ValidationBody:=ValidationCP^.RigidBodies[ValidationSide];
+    if not assigned(ValidationBody) then begin
+     writeln('[KraftIslandDebug] FAIL: Island ',ValidationIslandIdx,
+             ' CP ',ValidationCPIdx,' Side ',ValidationSide,
+             ': RigidBody is NIL');
+     continue;
+    end;
+    if ValidationIsland.fIslandIndex>=length(ValidationBody.fIslandIndices) then begin
+     writeln('[KraftIslandDebug] FAIL: Island ',ValidationIslandIdx,
+             ' (IslandIndex=',ValidationIsland.fIslandIndex,')',
+             ' CP ',ValidationCPIdx,' Side ',ValidationSide,
+             ': fIslandIndices too short (len=',length(ValidationBody.fIslandIndices),')',
+             ' BodyType=',ord(ValidationBody.fRigidBodyType),
+             ' BodyIsland=',TKraftPtrUInt(pointer(ValidationBody.fIsland)),
+             ' IslandVisited=',krbfIslandVisited in ValidationBody.fFlags,
+             ' BodyPtr=',TKraftPtrUInt(pointer(ValidationBody)),
+              ' Name="',ValidationBody.fName,'"');
+     continue;
+    end;
+    ValidationBodyIdx:=ValidationBody.fIslandIndices[ValidationIsland.fIslandIndex];
+    if (TKraftUInt32(ValidationBodyIdx)>=TKraftUInt32(ValidationIsland.fCountRigidBodies)) then begin
+     writeln('[KraftIslandDebug] FAIL: Island ',ValidationIslandIdx,
+             ' (IslandIndex=',ValidationIsland.fIslandIndex,')',
+             ' CP ',ValidationCPIdx,' Side ',ValidationSide,
+             ': IndexOutOfRange=',ValidationBodyIdx,
+             ' CountBodies=',ValidationIsland.fCountRigidBodies,
+             ' BodyType=',ord(ValidationBody.fRigidBodyType),
+             ' BodyIsland=',TKraftPtrUInt(pointer(ValidationBody.fIsland)),
+             ' ThisIsland=',TKraftPtrUInt(pointer(ValidationIsland)),
+             ' IslandVisited=',krbfIslandVisited in ValidationBody.fFlags,
+             ' BodyPtr=',TKraftPtrUInt(pointer(ValidationBody)),
+              ' Name="',ValidationBody.fName,'"');
+    end else if (ValidationIsland.fRigidBodies[ValidationBodyIdx]<>ValidationBody) then begin
+     writeln('[KraftIslandDebug] FAIL: Island ',ValidationIslandIdx,
+             ' (IslandIndex=',ValidationIsland.fIslandIndex,')',
+             ' CP ',ValidationCPIdx,' Side ',ValidationSide,
+             ': BodyMismatch idx=',ValidationBodyIdx,
+             ' expected=',TKraftPtrUInt(pointer(ValidationBody)),
+             ' found=',TKraftPtrUInt(pointer(ValidationIsland.fRigidBodies[ValidationBodyIdx])),
+             ' BodyType=',ord(ValidationBody.fRigidBodyType),
+             ' BodyIsland=',TKraftPtrUInt(pointer(ValidationBody.fIsland)),
+             ' ThisIsland=',TKraftPtrUInt(pointer(ValidationIsland)),
+             ' IslandVisited=',krbfIslandVisited in ValidationBody.fFlags,
+             ' FoundBodyType=',ord(ValidationIsland.fRigidBodies[ValidationBodyIdx].fRigidBodyType),
+              ' Name="',ValidationBody.fName,'"');
+    end;
+   end;
+  end;
+  for ValidationCPIdx:=0 to ValidationIsland.fCountSpeculativeContactPairs-1 do begin
+   ValidationCP:=ValidationIsland.fSpeculativeContactPairs[ValidationCPIdx];
+   for ValidationSide:=0 to 1 do begin
+    ValidationBody:=ValidationCP^.RigidBodies[ValidationSide];
+    if not assigned(ValidationBody) then continue;
+    if ValidationIsland.fIslandIndex>=length(ValidationBody.fIslandIndices) then begin
+     writeln('[KraftIslandDebug] FAIL-SPEC: Island ',ValidationIslandIdx,
+             ' CP ',ValidationCPIdx,' Side ',ValidationSide,
+             ': fIslandIndices too short, IslandIndex=',ValidationIsland.fIslandIndex,
+             ' len=',length(ValidationBody.fIslandIndices),
+             ' BodyType=',ord(ValidationBody.fRigidBodyType));
+     continue;
+    end;
+    ValidationBodyIdx:=ValidationBody.fIslandIndices[ValidationIsland.fIslandIndex];
+    if (TKraftUInt32(ValidationBodyIdx)>=TKraftUInt32(ValidationIsland.fCountRigidBodies)) then begin
+     writeln('[KraftIslandDebug] FAIL-SPEC: Island ',ValidationIslandIdx,
+             ' CP ',ValidationCPIdx,' Side ',ValidationSide,
+             ': IndexOutOfRange=',ValidationBodyIdx,
+             ' CountBodies=',ValidationIsland.fCountRigidBodies,
+             ' BodyType=',ord(ValidationBody.fRigidBodyType));
+    end else if (ValidationIsland.fRigidBodies[ValidationBodyIdx]<>ValidationBody) then begin
+     writeln('[KraftIslandDebug] FAIL-SPEC: Island ',ValidationIslandIdx,
+             ' CP ',ValidationCPIdx,' Side ',ValidationSide,
+             ': BodyMismatch idx=',ValidationBodyIdx,
+             ' BodyType=',ord(ValidationBody.fRigidBodyType));
+    end;
+   end;
+  end;
+ end;
+{$endif}
+
  SolveIslands(aTimeStep);
 {$ifdef KraftProfilingTimes}
  EndTime:=HighResolutionTimer.GetTime;
