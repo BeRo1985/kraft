@@ -736,39 +736,39 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      TKraftScalar={$ifdef KraftUseDouble}TKraftDouble{$else}TKraftFloat{$endif};
      PKraftScalar=^TKraftScalar;
 
-     TKraftScalars=array[0..($80000000 div SizeOf(TKraftScalar))-1] of TKraftScalar;
+     TKraftScalars=array[0..($7fffffff div SizeOf(TKraftScalar))-1] of TKraftScalar;
      PKraftScalars=^TKraftScalars;
 
      TKraftScalarArray=array of TKraftScalar;
 
-     TKraftInt8s=array[0..($80000000 div SizeOf(TKraftInt8))-1] of TKraftInt8;
+     TKraftInt8s=array[0..($7fffffff div SizeOf(TKraftInt8))-1] of TKraftInt8;
      PKraftInt8s=^TKraftInt8s;
 
-     TKraftUInt8s=array[0..($80000000 div SizeOf(TKraftUInt8))-1] of TKraftUInt8;
+     TKraftUInt8s=array[0..($7fffffff div SizeOf(TKraftUInt8))-1] of TKraftUInt8;
      PKraftUInt8s=^TKraftUInt8s;
 
-     TKraftInt16s=array[0..($80000000 div SizeOf(TKraftInt16))-1] of TKraftInt16;
+     TKraftInt16s=array[0..($7fffffff div SizeOf(TKraftInt16))-1] of TKraftInt16;
      PKraftInt16s=^TKraftInt16s;
 
-     TKraftUInt16s=array[0..($80000000 div SizeOf(TKraftUInt16))-1] of TKraftUInt16;
+     TKraftUInt16s=array[0..($7fffffff div SizeOf(TKraftUInt16))-1] of TKraftUInt16;
      PKraftUInt16s=^TKraftUInt16s;
 
-     TKraftInt32s=array[0..($80000000 div SizeOf(TKraftInt32))-1] of TKraftInt32;
+     TKraftInt32s=array[0..($7fffffff div SizeOf(TKraftInt32))-1] of TKraftInt32;
      PKraftInt32s=^TKraftInt32s;
 
-     TKraftUInt32s=array[0..($80000000 div SizeOf(TKraftUInt32))-1] of TKraftUInt32;
+     TKraftUInt32s=array[0..($7fffffff div SizeOf(TKraftUInt32))-1] of TKraftUInt32;
      PKraftUInt32s=^TKraftUInt32s;
 
-     TKraftInt64s=array[0..($80000000 div SizeOf(TKraftInt64))-1] of TKraftInt64;
+     TKraftInt64s=array[0..($7fffffff div SizeOf(TKraftInt64))-1] of TKraftInt64;
      PKraftInt64s=^TKraftInt64s;
 
-     TKraftUInt64s=array[0..($80000000 div SizeOf(TKraftUInt64))-1] of TKraftUInt64;
+     TKraftUInt64s=array[0..($7fffffff div SizeOf(TKraftUInt64))-1] of TKraftUInt64;
      PKraftUInt64s=^TKraftUInt64s;
 
-     TKraftFloats=array[0..($80000000 div SizeOf(TKraftFloat))-1] of TKraftFloat;
+     TKraftFloats=array[0..($7fffffff div SizeOf(TKraftFloat))-1] of TKraftFloat;
      PKraftFloats=^TKraftFloats;
 
-     TKraftDoubles=array[0..($80000000 div SizeOf(TKraftDouble))-1] of TKraftDouble;
+     TKraftDoubles=array[0..($7fffffff div SizeOf(TKraftDouble))-1] of TKraftDouble;
      PKraftDoubles=^TKraftDoubles;
 
      TKraftInt8DynamicArray=array of TKraftInt8;
@@ -1078,11 +1078,11 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      end;
      PKraftDynamicAABBTreeNode=^TKraftDynamicAABBTreeNode;
 
-     TKraftDynamicAABBTreeNodes=array[0..($80000000 div SizeOf(TKraftDynamicAABBTreeNode))-1] of TKraftDynamicAABBTreeNode;
+     TKraftDynamicAABBTreeNodes=array[0..($7fffffff div SizeOf(TKraftDynamicAABBTreeNode))-1] of TKraftDynamicAABBTreeNode;
      PKraftDynamicAABBTreeNodes=^TKraftDynamicAABBTreeNodes;
 
      PKraftDynamicAABBTreeLongintArray=^TKraftDynamicAABBTreeLongintArray;
-     TKraftDynamicAABBTreeLongintArray=array[0..($80000000 div SizeOf(TKraftInt32))-1] of TKraftInt32;
+     TKraftDynamicAABBTreeLongintArray=array[0..($7fffffff div SizeOf(TKraftInt32))-1] of TKraftInt32;
 
      TKraftDynamicAABBTreeSkipListNode=record
       AABB:TKraftAABB;
@@ -29457,7 +29457,7 @@ var SrcPos:TKraftInt32;
  type TFace=record
        Indices:array[0..2] of TKraftUInt32;
       end;
-      TFaces=array[0..($80000000 div SizeOf(TFace))-1] of TFace;
+      TFaces=array[0..($7fffffff div SizeOf(TFace))-1] of TFace;
       PFaces=^TFaces;
  var Counter:TKraftInt32;
      Triangle:PKraftMeshTriangle;
@@ -29519,7 +29519,7 @@ var SrcPos:TKraftInt32;
  type PVector2=^TVector2;
       TVector2=TKraftVector2;
       PVector2Array=^TVector2Array;
-      TVector2Array=array[0..($80000000 div SizeOf(TVector2))-1] of TVector2;
+      TVector2Array=array[0..($7fffffff div SizeOf(TVector2))-1] of TVector2;
       PVector3Array=^TKraftVector3DynamicArray;
       PFace3DS=^TFace3DS;
       TFace3DS=record
@@ -29527,7 +29527,7 @@ var SrcPos:TKraftInt32;
        Flags:TKraftUInt32;
        SmoothGroup:TKraftUInt32;
       end;
-      TFaces3DS=array[0..($80000000 div SizeOf(TFace3DS))-1] of TFace3DS;
+      TFaces3DS=array[0..($7fffffff div SizeOf(TFace3DS))-1] of TFace3DS;
       PFaces3DS=^TFaces3DS;
       PObject3DSMesh=^TObject3DSMesh;
       TObject3DSMesh=record
@@ -29539,7 +29539,7 @@ var SrcPos:TKraftInt32;
        NumFaces:TKraftInt32;
        Matrix:TKraftMatrix4x4;
       end;
-      TObject3DSMeshs=array[0..($80000000 div SizeOf(TObject3DSMesh))-1] of TObject3DSMesh;
+      TObject3DSMeshs=array[0..($7fffffff div SizeOf(TObject3DSMesh))-1] of TObject3DSMesh;
       PObject3DSMeshs=^TObject3DSMeshs;
       PObject3DS=^TObject3DS;
       TObject3DS=record
@@ -29548,7 +29548,7 @@ var SrcPos:TKraftInt32;
        NumMeshs:TKraftInt32;
       end;
       PObjects3DS=^TObjects3DS;
-      TObjects3DS=array[0..($80000000 div SizeOf(TObject3DS))-1] of TObject3DS;
+      TObjects3DS=array[0..($7fffffff div SizeOf(TObject3DS))-1] of TObject3DS;
  var SrcPos:TKraftUInt32;
      Signature3DS:TKraftUInt16;
      Size3DS:TKraftUInt32;
