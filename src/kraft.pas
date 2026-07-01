@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-07-01-20-44-0000                       *
+ *                        Version 2026-07-01-23-31-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -7120,8 +7120,15 @@ asm
  movups xmm2,dqword ptr [cOne]
 {$ifend}
  andps xmm0,xmm1                // v.z v.y v.x 0   (w masked to 0)
- movss xmm3,dword ptr [aScale]  // scale the x/y/z by aScale, keep w=0 so the following
- shufps xmm3,xmm3,$00           // cOne add restores the homogeneous w=1 (unscaled translation)
+{$if defined(cpuamd64)}
+ // aScale is the 4th (MS-)x64 ABI argument slot - the hidden @result pointer occupies slot 1,
+ // then @v and @m follow - so this scalar arrives by value in xmm3, NOT in memory. Referencing
+ // [aScale] as a memory operand resolves to an invalid address and crashes under Win64; the
+ // register still holds the untouched incoming value here, so no load is needed.
+{$else}
+ movss xmm3,dword ptr [aScale]  // i386 passes aScale on the stack, so reference it directly
+{$ifend}
+ shufps xmm3,xmm3,$00           // broadcast aScale; keep w=0 so the cOne add below restores w=1
  mulps xmm0,xmm3
  addps xmm0,xmm2                // v.z*s v.y*s v.x*s 1
  movaps xmm1,xmm0               // d c b a
