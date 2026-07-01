@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-04-05-15-26-0000                       *
+ *                        Version 2026-07-01-20-44-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -2184,6 +2184,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fContinuousMinimumRadiusScaleFactor:TKraftScalar;
 
+       fScale:TKraftScalar;
+
+       fInverseScale:TKraftScalar;
+
        fOnContactBegin:TKraftShapeOnContactBeginHook;
        fOnContactEnd:TKraftShapeOnContactEndHook;
        fOnContactStay:TKraftShapeOnContactStayHook;
@@ -2218,6 +2222,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure SynchronizeProxies; virtual;
 
        procedure Finish; virtual;
+
+       procedure SetScale(const aScale:TKraftScalar); virtual;
 
        function GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar; virtual;
 
@@ -2345,6 +2351,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        property OnCanCollideWith:TKraftShapeOnCanCollideWithHook read fOnCanCollideWith write fOnCanCollideWith;
 
+       property Scale:TKraftScalar read fScale write SetScale;
+
      end;
 
      TKraftShapes=array of TKraftShape;
@@ -2352,9 +2360,11 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      TKraftShapeSphere=class(TKraftShape)
       private
        fRadius:TKraftScalar;
+       fBaseRadius:TKraftScalar;
       public
        constructor Create(const aPhysics:TKraft;const ARigidBody:TKraftRigidBody;const ARadius:TKraftScalar); reintroduce;
        destructor Destroy; override;
+       procedure SetScale(const aScale:TKraftScalar); override;
        procedure UpdateShapeAABB; override;
        procedure CalculateMassData; override;
        function GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar; override;
@@ -2379,9 +2389,12 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
       private
        fRadius:TKraftScalar;
        fHeight:TKraftScalar;
+       fBaseRadius:TKraftScalar;
+       fBaseHeight:TKraftScalar;
       public
        constructor Create(const aPhysics:TKraft;const ARigidBody:TKraftRigidBody;const ARadius,AHeight:TKraftScalar); reintroduce;
        destructor Destroy; override;
+       procedure SetScale(const aScale:TKraftScalar); override;
        procedure UpdateShapeAABB; override;
        procedure CalculateMassData; override;
        function GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar; override;
@@ -2435,9 +2448,11 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
       private
        fShapeConvexHull:TKraftConvexHull;
        fExtents:TKraftVector3;
+       fBaseExtents:TKraftVector3;
       public
        constructor Create(const aPhysics:TKraft;const ARigidBody:TKraftRigidBody;const AExtents:TKraftVector3); reintroduce;
        destructor Destroy; override;
+       procedure SetScale(const aScale:TKraftScalar); override;
        procedure UpdateShapeAABB; override;
        procedure CalculateMassData; override;
        function GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar; override;
@@ -2508,6 +2523,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        constructor Create(const aPhysics:TKraft;const ARigidBody:TKraftRigidBody;const AMeshes:array of TKraftMesh); reintroduce; overload;
        destructor Destroy; override;
        procedure MarkAsDirty;
+       procedure SetScale(const aScale:TKraftScalar); override;
        procedure UpdateShapeAABB; override;
        procedure CalculateMassData; override;
        function GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar; override;
@@ -5032,6 +5048,7 @@ procedure Vector3MatrixMulBasis(var v:TKraftVector3;{$ifdef USE_CONSTREF_EX}cons
 procedure Vector3MatrixMulInverted(var v:TKraftVector3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix4x4); overload; {$ifdef caninline}inline;{$endif}
 function Vector3TermMatrixMul(const v:TKraftVector3;const m:TKraftMatrix3x3):TKraftVector3; overload; {$if defined(caninline) and not defined(SIMDASM)}inline;{$ifend} {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function Vector3TermMatrixMul({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix4x4):TKraftVector3; overload; {$if defined(caninline) and not defined(SIMDASM)}inline;{$ifend} {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
+function Vector3TermMatrixMulWithScale({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix4x4;const aScale:TKraftScalar):TKraftVector3; {$if defined(caninline) and not defined(SIMDASM)}inline;{$ifend} {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function Vector3TermMatrixMulInverse({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix3x3):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
 function Vector3TermMatrixMulInverted({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix4x4):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
 function Vector3TermMatrixMulTransposed({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix3x3):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
@@ -5178,8 +5195,10 @@ function PlaneMatrixMul({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Pla
 function PlaneTransform({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Plane:TKraftPlane;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Matrix:TKraftMatrix4x4):TKraftPlane; overload; {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function PlaneTransform({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Plane:TKraftPlane;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Matrix,NormalMatrix:TKraftMatrix4x4):TKraftPlane; overload; {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function PlaneFastTransform({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Plane:TKraftPlane;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Matrix:TKraftMatrix4x4):TKraftPlane; overload; {$ifdef caninline}inline;{$endif}
+function PlaneFastTransformWithScale({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Plane:TKraftPlane;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Matrix:TKraftMatrix4x4;const aScale:TKraftScalar):TKraftPlane; overload; {$ifdef caninline}inline;{$endif}
 function PlaneVectorDistance({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Plane:TKraftPlane;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Point:TKraftVector3):TKraftScalar; overload; {$ifdef caninline}inline;{$endif}
 function PlaneVectorDistance({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Plane:TKraftPlane;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Point:TKraftVector4):TKraftScalar; overload; {$ifdef caninline}inline;{$endif}
+function PlaneVectorDistanceWithScale({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Plane:TKraftPlane;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Point:TKraftVector3;const aScale:TKraftScalar):TKraftScalar; overload; {$ifdef caninline}inline;{$endif}
 function PlaneFromPoints({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} p1,p2,p3:TKraftVector3):TKraftPlane; overload; {$ifdef caninline}inline;{$endif}
 function PlaneFromPoints({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} p1,p2,p3:TKraftVector4):TKraftPlane; overload; {$ifdef caninline}inline;{$endif}
 
@@ -7076,6 +7095,64 @@ begin
  result.x:=(m[0,0]*v.x)+(m[1,0]*v.y)+(m[2,0]*v.z)+m[3,0];
  result.y:=(m[0,1]*v.x)+(m[1,1]*v.y)+(m[2,1]*v.z)+m[3,1];
  result.z:=(m[0,2]*v.x)+(m[1,2]*v.y)+(m[2,2]*v.z)+m[3,2];
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
+end;
+{$ifend}
+
+function Vector3TermMatrixMulWithScale({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix4x4;const aScale:TKraftScalar):TKraftVector3; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler;
+const cOne:array[0..3] of TKraftScalar=(0.0,0.0,0.0,1.0);
+//{$if defined(cpuamd64) and defined(Windows)}
+var StackSave0,StackSave1:array[0..3] of single;
+//{$ifend}
+asm
+//{$if defined(cpuamd64) and defined(Windows)}
+ movups dqword ptr [StackSave0],xmm6
+ movups dqword ptr [StackSave1],xmm7
+//{$ifend}
+ movups xmm0,dqword ptr [v]     // d c b a
+{$if defined(cpuamd64)}
+ movups xmm1,dqword ptr [rip+Vector3Mask]
+ movups xmm2,dqword ptr [rip+cOne]
+{$else}
+ movups xmm1,dqword ptr [Vector3Mask]
+ movups xmm2,dqword ptr [cOne]
+{$ifend}
+ andps xmm0,xmm1                // v.z v.y v.x 0   (w masked to 0)
+ movss xmm3,dword ptr [aScale]  // scale the x/y/z by aScale, keep w=0 so the following
+ shufps xmm3,xmm3,$00           // cOne add restores the homogeneous w=1 (unscaled translation)
+ mulps xmm0,xmm3
+ addps xmm0,xmm2                // v.z*s v.y*s v.x*s 1
+ movaps xmm1,xmm0               // d c b a
+ movaps xmm2,xmm0               // d c b a
+ movaps xmm3,xmm0               // d c b a
+ shufps xmm0,xmm0,$00           // a a a a 00000000b
+ shufps xmm1,xmm1,$55           // b b b b 01010101b
+ shufps xmm2,xmm2,$aa           // c c c c 10101010b
+ shufps xmm3,xmm3,$ff           // d d d d 11111111b
+ movups xmm4,dqword ptr [m+0]
+ movups xmm5,dqword ptr [m+16]
+ movups xmm6,dqword ptr [m+32]
+ movups xmm7,dqword ptr [m+48]
+ mulps xmm0,xmm4
+ mulps xmm1,xmm5
+ mulps xmm2,xmm6
+ mulps xmm3,xmm7
+ addps xmm0,xmm1
+ addps xmm2,xmm3
+ addps xmm0,xmm2
+ movups dqword ptr [result],xmm0
+//{$if defined(cpuamd64) and defined(Windows)}
+ movups xmm6,dqword ptr [StackSave0]
+ movups xmm7,dqword ptr [StackSave1]
+//{$ifend}
+end;
+{$else}
+begin
+ result.x:=(m[0,0]*(v.x*aScale))+(m[1,0]*(v.y*aScale))+(m[2,0]*(v.z*aScale))+m[3,0];
+ result.y:=(m[0,1]*(v.x*aScale))+(m[1,1]*(v.y*aScale))+(m[2,1]*(v.z*aScale))+m[3,1];
+ result.z:=(m[0,2]*(v.x*aScale))+(m[1,2]*(v.y*aScale))+(m[2,2]*(v.z*aScale))+m[3,2];
 {$ifdef SIMD}
  result.w:=0.0;
 {$endif}
@@ -10498,6 +10575,12 @@ begin
  result.Distance:=-Vector3Dot(result.Normal,Vector3TermMatrixMul(Vector3ScalarMul(Plane.Normal,-Plane.Distance),Matrix));
 end;
 
+function PlaneFastTransformWithScale({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Plane:TKraftPlane;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Matrix:TKraftMatrix4x4;const aScale:TKraftScalar):TKraftPlane; overload;
+begin
+ result.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(Plane.Normal,Matrix));
+ result.Distance:=-Vector3Dot(result.Normal,Vector3TermMatrixMul(Vector3ScalarMul(Plane.Normal,-(Plane.Distance*aScale)),Matrix));
+end;
+
 procedure PlaneNormalize(var Plane:TKraftPlane);
 var l:TKraftScalar;
 begin
@@ -10530,6 +10613,11 @@ end;
 function PlaneVectorDistance({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Plane:TKraftPlane;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Point:TKraftVector4):TKraftScalar; overload;
 begin
  result:=(Plane.Normal.x*Point.x)+(Plane.Normal.y*Point.y)+(Plane.Normal.z*Point.z)+(Plane.Distance*Point.w);
+end;
+
+function PlaneVectorDistanceWithScale({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Plane:TKraftPlane;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Point:TKraftVector3;const aScale:TKraftScalar):TKraftScalar; overload;
+begin
+ result:=(Plane.Normal.x*Point.x)+(Plane.Normal.y*Point.y)+(Plane.Normal.z*Point.z)+(Plane.Distance*aScale);
 end;
 
 function PlaneFromPoints({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} p1,p2,p3:TKraftVector3):TKraftPlane; overload;
@@ -32708,6 +32796,10 @@ begin
 
  fContinuousMinimumRadiusScaleFactor:=0.0;
 
+ fScale:=1.0;
+
+ fInverseScale:=1.0;
+
 {$ifdef DebugDraw}
 {$ifndef NoOpenGL}
  fDrawDisplayList:=0;
@@ -32939,6 +33031,26 @@ begin
  fAngularMotionDisc:=Vector3Length(fShapeSphere.Center)+fShapeSphere.Radius;
 end;
 
+procedure TKraftShape.SetScale(const aScale:TKraftScalar);
+begin
+ // Uniform scale as an explicit scalar factor. Must only be called outside the
+ // solve/step run (like all other shape mutations), since it mutates fScale,
+ // fShapeAABB, mass data and the broadphase proxy. Default (factor) strategy for
+ // shapes referencing shared/immutable geometry (convex hull, mesh): the shared
+ // geometry stays untouched and fScale is folded into every geometry read.
+ // Sphere/Capsule override this to reparametrize their defining dimensions instead.
+ if aScale<>fScale then begin
+  fScale:=aScale;
+  fInverseScale:=1.0/aScale;
+  Finish;
+  if assigned(fRigidBody) and
+     ((fStaticAABBTreeProxy>=0) or (fSleepingAABBTreeProxy>=0) or
+      (fDynamicAABBTreeProxy>=0) or (fKinematicAABBTreeProxy>=0)) then begin
+   SynchronizeProxies;
+  end;
+ end;
+end;
+
 function TKraftShape.GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
 begin
  result:=MAX_SCALAR;
@@ -33096,6 +33208,7 @@ end;
 constructor TKraftShapeSphere.Create(const aPhysics:TKraft;const ARigidBody:TKraftRigidBody;const ARadius:TKraftScalar);
 begin
  fRadius:=ARadius;
+ fBaseRadius:=ARadius;
  inherited Create(aPhysics,ARigidBody);
  fShapeType:=kstSphere;
  fFeatureRadius:=ARadius;
@@ -33104,6 +33217,14 @@ end;
 destructor TKraftShapeSphere.Destroy;
 begin
  inherited Destroy;
+end;
+
+procedure TKraftShapeSphere.SetScale(const aScale:TKraftScalar);
+begin
+ // Reparametrization: a uniformly scaled sphere is a sphere of scaled radius.
+ fRadius:=fBaseRadius*aScale;
+ fFeatureRadius:=fRadius;
+ inherited SetScale(aScale);
 end;
 
 procedure TKraftShapeSphere.UpdateShapeAABB;
@@ -33336,6 +33457,8 @@ constructor TKraftShapeCapsule.Create(const aPhysics:TKraft;const ARigidBody:TKr
 begin
  fRadius:=ARadius;
  fHeight:=AHeight;
+ fBaseRadius:=ARadius;
+ fBaseHeight:=AHeight;
  inherited Create(aPhysics,ARigidBody);
  fShapeType:=kstCapsule;
  fFeatureRadius:=ARadius;
@@ -33344,6 +33467,15 @@ end;
 destructor TKraftShapeCapsule.Destroy;
 begin
  inherited Destroy;
+end;
+
+procedure TKraftShapeCapsule.SetScale(const aScale:TKraftScalar);
+begin
+ // Reparametrization: uniform scale multiplies both radius and height.
+ fRadius:=fBaseRadius*aScale;
+ fHeight:=fBaseHeight*aScale;
+ fFeatureRadius:=fRadius;
+ inherited SetScale(aScale);
 end;
 
 procedure TKraftShapeCapsule.UpdateShapeAABB;
@@ -33904,10 +34036,12 @@ end;
 procedure TKraftShapeConvexHull.UpdateShapeAABB;
 begin
  fShapeAABB:=fConvexHull.fAABB;
+ fShapeAABB.Min:=Vector3ScalarMul(fShapeAABB.Min,fScale);
+ fShapeAABB.Max:=Vector3ScalarMul(fShapeAABB.Max,fScale);
 end;
 
 procedure TKraftShapeConvexHull.CalculateMassData;
-var Scale:TKraftScalar;
+var Scale,InertiaScale:TKraftScalar;
 begin
  fMassData:=fConvexHull.fMassData;
  if fForcedMass>EPSILON then begin
@@ -33932,41 +34066,61 @@ begin
  end;
  fMassData.Inertia:=Matrix3x3TermAdd(InertiaTensorTransform(fMassData.Inertia,Matrix3x3(fLocalTransform)),
                                      InertiaTensorParallelAxisTheorem(Vector3Sub(fMassData.Center,fConvexHull.fMassData.Center),fMassData.Mass));
+ // Uniform geometric scale: shared hull stays base-space; mass ~ s^3, inertia(about origin) ~ s^5,
+ // center ~ s. For forced mass only the geometric extent scales the inertia (~ s^2). Bit-exact at s=1.
+ if fForcedMass<=EPSILON then begin
+  fMassData.Mass:=fMassData.Mass*((fScale*fScale)*fScale);
+  fMassData.Volume:=fMassData.Volume*((fScale*fScale)*fScale);
+  InertiaScale:=((fScale*fScale)*fScale)*(fScale*fScale);
+ end else begin
+  fMassData.Volume:=fMassData.Volume*((fScale*fScale)*fScale);
+  InertiaScale:=fScale*fScale;
+ end;
+ fMassData.Inertia[0,0]:=fMassData.Inertia[0,0]*InertiaScale;
+ fMassData.Inertia[0,1]:=fMassData.Inertia[0,1]*InertiaScale;
+ fMassData.Inertia[0,2]:=fMassData.Inertia[0,2]*InertiaScale;
+ fMassData.Inertia[1,0]:=fMassData.Inertia[1,0]*InertiaScale;
+ fMassData.Inertia[1,1]:=fMassData.Inertia[1,1]*InertiaScale;
+ fMassData.Inertia[1,2]:=fMassData.Inertia[1,2]*InertiaScale;
+ fMassData.Inertia[2,0]:=fMassData.Inertia[2,0]*InertiaScale;
+ fMassData.Inertia[2,1]:=fMassData.Inertia[2,1]*InertiaScale;
+ fMassData.Inertia[2,2]:=fMassData.Inertia[2,2]*InertiaScale;
+ fMassData.Center:=Vector3ScalarMul(fMassData.Center,fScale);
 end;
 
 function TKraftShapeConvexHull.GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
 begin
- result:=fConvexHull.GetLocalSignedDistance(Position);
+ result:=fConvexHull.GetLocalSignedDistance(Vector3ScalarMul(Position,fInverseScale))*fScale;
 end;
 
 function TKraftShapeConvexHull.GetLocalSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar;
 begin
- result:=fConvexHull.GetLocalSignedDistanceAndDirection(Position,Direction);
+ result:=fConvexHull.GetLocalSignedDistanceAndDirection(Vector3ScalarMul(Position,fInverseScale),Direction)*fScale;
 end;
 
 function TKraftShapeConvexHull.GetLocalSignedDistanceNormalizedGradient(const Position:TKraftVector3):TKraftVector3;
 begin
- result:=fConvexHull.GetLocalSignedDistanceNormalizedGradient(Position);
+ result:=fConvexHull.GetLocalSignedDistanceNormalizedGradient(Vector3ScalarMul(Position,fInverseScale));
 end;
 
 function TKraftShapeConvexHull.GetLocalSignedDistanceNormal(const Position:TKraftVector3):TKraftVector3;
 begin
- result:=fConvexHull.GetLocalSignedDistanceNormal(Position);
+ result:=fConvexHull.GetLocalSignedDistanceNormal(Vector3ScalarMul(Position,fInverseScale));
 end;
 
 function TKraftShapeConvexHull.GetLocalClosestPointTo(const Position:TKraftVector3):TKraftVector3;
 begin
- result:=fConvexHull.GetLocalClosestPointTo(Position);
+ result:=Vector3ScalarMul(fConvexHull.GetLocalClosestPointTo(Vector3ScalarMul(Position,fInverseScale)),fScale);
 end;
 
 function TKraftShapeConvexHull.GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3;
 begin
- result:=fConvexHull.GetLocalFullSupport(Vector3SafeNorm(Direction));
+ result:=Vector3ScalarMul(fConvexHull.GetLocalFullSupport(Vector3SafeNorm(Direction)),fScale);
 end;
 
 function TKraftShapeConvexHull.GetLocalFeatureSupportVertex(const Index:TKraftInt32):TKraftVector3;
 begin
- result:=fConvexHull.GetLocalFeatureSupportVertex(Index);
+ result:=Vector3ScalarMul(fConvexHull.GetLocalFeatureSupportVertex(Index),fScale);
 end;
 
 function TKraftShapeConvexHull.GetLocalFeatureSupportIndex(const Direction:TKraftVector3):TKraftInt32;
@@ -33976,13 +34130,13 @@ end;
 
 function TKraftShapeConvexHull.GetCenter(const Transform:TKraftMatrix4x4):TKraftVector3;
 begin
- result:=Vector3TermMatrixMul(fLocalCentroid,Transform);
+ result:=Vector3TermMatrixMulWithScale(fLocalCentroid,Transform,fScale);
 end;
 
 function TKraftShapeConvexHull.TestPoint(const p:TKraftVector3):boolean;
 begin
  if ksfPointTestable in fFlags then begin
-  result:=fConvexHull.TestPoint(Vector3TermMatrixMulInverted(p,fWorldTransform));
+  result:=fConvexHull.TestPoint(Vector3ScalarMul(Vector3TermMatrixMulInverted(p,fWorldTransform),fInverseScale));
  end else begin
   result:=false;
  end;
@@ -34004,7 +34158,7 @@ begin
    TimeLast:=RayCastData.MaxTime+EPSILON;
    for FaceIndex:=0 to fConvexHull.fCountFaces-1 do begin
     Face:=@fConvexHull.fFaces[FaceIndex];
-    Numerator:=-PlaneVectorDistance(Face^.Plane,Origin);
+    Numerator:=-PlaneVectorDistanceWithScale(Face^.Plane,Origin,fScale);
     Denominator:=Vector3Dot(Face^.Plane.Normal,Direction);
     if abs(Denominator)<EPSILON then begin
      if Numerator<0.0 then begin
@@ -34045,7 +34199,7 @@ var FaceIndex,BestFaceIndex,VertexIndex:TKraftInt32;
     Face:PKraftConvexHullFace;
     First,SidePass:boolean;
     Radius,Nearest,Time,u,v,w:TKraftScalar;
-    Origin,Direction,p,TriangleNormal,Normal:TKraftVector3;
+    Origin,Direction,InvDirection,p,TriangleNormal,Normal:TKraftVector3;
 begin
  result:=false;
  if ksfSphereCastable in fFlags then begin
@@ -34068,9 +34222,9 @@ begin
       if SphereCastTriangle(Origin,
                             Radius,
                             Direction,
-                            fConvexHull.Vertices[Face^.Vertices[0]].Position,
-                            fConvexHull.Vertices[Face^.Vertices[VertexIndex-1]].Position,
-                            fConvexHull.Vertices[Face^.Vertices[VertexIndex]].Position,
+                            Vector3ScalarMul(fConvexHull.Vertices[Face^.Vertices[0]].Position,fScale),
+                            Vector3ScalarMul(fConvexHull.Vertices[Face^.Vertices[VertexIndex-1]].Position,fScale),
+                            Vector3ScalarMul(fConvexHull.Vertices[Face^.Vertices[VertexIndex]].Position,fScale),
                             TriangleNormal,
                             Time,
                             u,
@@ -34128,7 +34282,7 @@ begin
 
     Face:=@fConvexHull.fFaces[FaceIndex];
 
-    Numerator:=-PlaneVectorDistance(Face^.Plane,Origin);
+    Numerator:=-PlaneVectorDistanceWithScale(Face^.Plane,Origin,fScale);
     Denominator:=Vector3Dot(Face^.Plane.Normal,Direction);
 
     // If denominator is zero, the ray is parallel to the plane
@@ -34270,6 +34424,7 @@ var i:TKraftInt32;
     BoxPoints:array[0..7] of TKraftVector3;
 begin
  fExtents:=AExtents;
+ fBaseExtents:=AExtents;
  for i:=0 to length(BoxPoints)-1 do begin
   if (i and 1)<>0 then begin
    BoxPoints[i].x:=fExtents.x;
@@ -34304,6 +34459,14 @@ destructor TKraftShapeBox.Destroy;
 begin
  fShapeConvexHull.Free;
  inherited Destroy;
+end;
+
+procedure TKraftShapeBox.SetScale(const aScale:TKraftScalar);
+begin
+ // Reparametrization: uniform scale multiplies the half-extents. The internal convex
+ // hull stays base-space; scaled boxes are collided via the support-based (MPR) path.
+ fExtents:=Vector3ScalarMul(fBaseExtents,aScale);
+ inherited SetScale(aScale);
 end;
 
 procedure TKraftShapeBox.UpdateShapeAABB;
@@ -35886,6 +36049,33 @@ begin
  end;
 end;
 
+procedure TKraftShapeMesh.SetScale(const aScale:TKraftScalar);
+var Index:TKraftSizeInt;
+begin
+ // Factor strategy: the shared mesh geometry and its BVH stay in base space (no rebuild).
+ // Only the world-space bounding volume is rescaled here; the collision/cast paths fold
+ // fScale themselves (triangle synthesis bakes it, midphase query and casts divide it out).
+ if aScale<>fScale then begin
+  fScale:=aScale;
+  fInverseScale:=1.0/aScale;
+  if fCountMeshes>0 then begin
+   fShapeAABB:=fMeshes[0].fAABB;
+   for Index:=1 to fCountMeshes-1 do begin
+    AABBDirectCombine(fShapeAABB,fMeshes[Index].fAABB);
+   end;
+   fShapeAABB.Min:=Vector3ScalarMul(fShapeAABB.Min,fScale);
+   fShapeAABB.Max:=Vector3ScalarMul(fShapeAABB.Max,fScale);
+  end;
+  fShapeSphere:=SphereFromAABB(fShapeAABB);
+  fAngularMotionDisc:=Vector3Length(fShapeSphere.Center)+fShapeSphere.Radius;
+  if assigned(fRigidBody) and
+     ((fStaticAABBTreeProxy>=0) or (fSleepingAABBTreeProxy>=0) or
+      (fDynamicAABBTreeProxy>=0) or (fKinematicAABBTreeProxy>=0)) then begin
+   SynchronizeProxies;
+  end;
+ end;
+end;
+
 procedure TKraftShapeMesh.UpdateShapeAABB;
 {$ifdef KraftShapeMeshCastUseTreeBVH}
 type TDynamicAABBTreeNode=record
@@ -36298,11 +36488,11 @@ var ShapeMeshTreeNodeIndex,MeshTreeNodeIndex,TriangleIndex:TKraftInt32;
 begin
  result:=false;
  if ksfRayCastable in fFlags then begin
-  Origin:=Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform);
+  Origin:=Vector3ScalarMul(Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform),fInverseScale);
   Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform));
   if Vector3LengthSquared(Direction)>EPSILON then begin
    InvDirection:=Vector3Div(Vector3All,Direction);
-   Nearest:=RayCastData.MaxTime;
+   Nearest:=RayCastData.MaxTime*fInverseScale;
    First:=true;
    LocalCountTotalBottomLevelAccelerationStructureMeshNodes:=fCountTreeNodes;
    LocalCountCheckedBottomLevelAccelerationStructureMeshNodes:=0;
@@ -36441,7 +36631,8 @@ begin
     inc(RayCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureTriangles,LocalCountCheckedBottomLevelAccelerationStructureTriangles);
    end;
    if result then begin
-    RayCastData.Point:=Vector3TermMatrixMul(RayCastData.Point,fWorldTransform);
+    RayCastData.TimeOfImpact:=RayCastData.TimeOfImpact*fScale;
+    RayCastData.Point:=Vector3TermMatrixMulWithScale(RayCastData.Point,fWorldTransform,fScale);
     RayCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(RayCastData.Normal,fWorldTransform));
     RayCastData.SurfaceNormal:=Vector3NormEx(Vector3TermMatrixMulBasis(RayCastData.SurfaceNormal,fWorldTransform));
    end;
@@ -36473,11 +36664,13 @@ var SkipListNodeIndex,MeshSkipListNodeIndex,TriangleIndex:TKraftInt32;
 begin
  result:=false;
  if ksfRayCastable in fFlags then begin
-  Origin:=Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform);
+  // Mesh geometry/BVH is base-space; cast in base coords (origin/scale, distances/scale) and
+  // rescale the impact distance/point by scale on exit. Bit-exact at fScale=1.
+  Origin:=Vector3ScalarMul(Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform),fInverseScale);
   Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform));
   if Vector3LengthSquared(Direction)>EPSILON then begin
    InvDirection:=Vector3Div(Vector3All,Direction);
-   Nearest:=RayCastData.MaxTime;
+   Nearest:=RayCastData.MaxTime*fInverseScale;
    First:=true;
    LocalCountTotalBottomLevelAccelerationStructureMeshNodes:=fCountSkipListNodes;
    LocalCountCheckedBottomLevelAccelerationStructureMeshNodes:=0;
@@ -36618,7 +36811,8 @@ begin
     inc(RayCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureTriangles,LocalCountCheckedBottomLevelAccelerationStructureTriangles);
    end;
    if result then begin
-    RayCastData.Point:=Vector3TermMatrixMul(RayCastData.Point,fWorldTransform);
+    RayCastData.TimeOfImpact:=RayCastData.TimeOfImpact*fScale;
+    RayCastData.Point:=Vector3TermMatrixMulWithScale(RayCastData.Point,fWorldTransform,fScale);
     RayCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(RayCastData.Normal,fWorldTransform));
     RayCastData.SurfaceNormal:=Vector3NormEx(Vector3TermMatrixMulBasis(RayCastData.SurfaceNormal,fWorldTransform));
    end;
@@ -36652,12 +36846,12 @@ var ShapeMeshTreeNodeIndex,MeshTreeNodeIndex,TriangleIndex:TKraftInt32;
 begin
  result:=false;
  if ksfSphereCastable in fFlags then begin
-  Origin:=Vector3TermMatrixMulInverted(SphereCastData.Origin,fWorldTransform);
-  Radius:=SphereCastData.Radius;
+  Origin:=Vector3ScalarMul(Vector3TermMatrixMulInverted(SphereCastData.Origin,fWorldTransform),fInverseScale);
+  Radius:=SphereCastData.Radius*fInverseScale;
   Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,fWorldTransform));
   if Vector3LengthSquared(Direction)>EPSILON then begin
    InvDirection:=Vector3Div(Vector3All,Direction);
-   Nearest:=SphereCastData.MaxTime;
+   Nearest:=SphereCastData.MaxTime*fInverseScale;
    First:=true;
    LocalCountTotalBottomLevelAccelerationStructureMeshNodes:=fCountTreeNodes;
    LocalCountCheckedBottomLevelAccelerationStructureMeshNodes:=0;
@@ -36830,7 +37024,8 @@ begin
     inc(SphereCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureTriangles,LocalCountCheckedBottomLevelAccelerationStructureTriangles);
    end;
    if result then begin
-    SphereCastData.Point:=Vector3TermMatrixMul(SphereCastData.Point,fWorldTransform);
+    SphereCastData.TimeOfImpact:=SphereCastData.TimeOfImpact*fScale;
+    SphereCastData.Point:=Vector3TermMatrixMulWithScale(SphereCastData.Point,fWorldTransform,fScale);
     SphereCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(SphereCastData.Normal,fWorldTransform));
     SphereCastData.SurfaceNormal:=Vector3NormEx(Vector3TermMatrixMulBasis(SphereCastData.SurfaceNormal,fWorldTransform));
    end;
@@ -36862,12 +37057,14 @@ var SkipListNodeIndex,MeshSkipListNodeIndex,TriangleIndex:TKraftInt32;
 begin
  result:=false;
  if ksfSphereCastable in fFlags then begin
-  Origin:=Vector3TermMatrixMulInverted(SphereCastData.Origin,fWorldTransform);
-  Radius:=SphereCastData.Radius;
+  // Mesh geometry/BVH is base-space; cast in base coords (origin/scale, radius/scale, distances/
+  // scale) and rescale the impact distance/point by scale on exit. Bit-exact at fScale=1.
+  Origin:=Vector3ScalarMul(Vector3TermMatrixMulInverted(SphereCastData.Origin,fWorldTransform),fInverseScale);
+  Radius:=SphereCastData.Radius*fInverseScale;
   Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,fWorldTransform));
   if Vector3LengthSquared(Direction)>EPSILON then begin
    InvDirection:=Vector3Div(Vector3All,Direction);
-   Nearest:=SphereCastData.MaxTime;
+   Nearest:=SphereCastData.MaxTime*fInverseScale;
    First:=true;
    LocalCountTotalBottomLevelAccelerationStructureMeshNodes:=fCountSkipListNodes;
    LocalCountCheckedBottomLevelAccelerationStructureMeshNodes:=0;
@@ -37044,7 +37241,8 @@ begin
     inc(SphereCastData.CastProfilerData^.CountCheckedBottomLevelAccelerationStructureTriangles,LocalCountCheckedBottomLevelAccelerationStructureTriangles);
    end;
    if result then begin
-    SphereCastData.Point:=Vector3TermMatrixMul(SphereCastData.Point,fWorldTransform);
+    SphereCastData.TimeOfImpact:=SphereCastData.TimeOfImpact*fScale;
+    SphereCastData.Point:=Vector3TermMatrixMulWithScale(SphereCastData.Point,fWorldTransform,fScale);
     SphereCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(SphereCastData.Normal,fWorldTransform));
     SphereCastData.SurfaceNormal:=Vector3NormEx(Vector3TermMatrixMulBasis(SphereCastData.SurfaceNormal,fWorldTransform));
    end;
@@ -37590,7 +37788,7 @@ var OldManifoldCountContacts:TKraftInt32;
    SphereCenter:=Vector3TermMatrixMulInverted(Center,ShapeB.fWorldTransform);
    for FaceIndex:=0 to ShapeB.fConvexHull.fCountFaces-1 do begin
     Face:=@ShapeB.fConvexHull.fFaces[FaceIndex];
-    Distance:=PlaneVectorDistance(Face^.Plane,SphereCenter);
+    Distance:=PlaneVectorDistanceWithScale(Face^.Plane,SphereCenter,ShapeB.fScale);
     if Distance>0.0 then begin
      // sphere center is not inside in the convex hull . . .
      if Distance<ShapeA.fRadius then begin
@@ -37598,11 +37796,11 @@ var OldManifoldCountContacts:TKraftInt32;
       if Face^.CountVertices>0 then begin
        InsidePolygon:=true;
        n:=Face^.Plane.Normal;
-       b:=ShapeB.fConvexHull.fVertices[Face^.Vertices[Face^.CountVertices-1]].Position;
+       b:=Vector3ScalarMul(ShapeB.fConvexHull.fVertices[Face^.Vertices[Face^.CountVertices-1]].Position,ShapeB.fScale);
        ClosestPoint:=Vector3Origin;
        for VertexIndex:=0 to Face^.CountVertices-1 do begin
         a:=b;
-        b:=ShapeB.fConvexHull.fVertices[Face^.Vertices[VertexIndex]].Position;
+        b:=Vector3ScalarMul(ShapeB.fConvexHull.fVertices[Face^.Vertices[VertexIndex]].Position,ShapeB.fScale);
         ab:=Vector3Sub(b,a);
         ap:=Vector3Sub(SphereCenter,a);
         v:=Vector3Cross(ab,n);
@@ -37969,8 +38167,8 @@ var OldManifoldCountContacts:TKraftInt32;
        OK:=true;
        OtherVertexIndex:=Face^.CountVertices-1;
        for VertexIndex:=0 to Face^.CountVertices-1 do begin
-        Plane.Normal:=Vector3Norm(Vector3Cross(Face^.Plane.Normal,Vector3Sub(ShapeB.fConvexHull.fVertices[Face^.Vertices[VertexIndex]].Position,ShapeB.fConvexHull.fVertices[Face^.Vertices[OtherVertexIndex]].Position)));
-        Plane.Distance:=-Vector3Dot(Plane.Normal,ShapeB.fConvexHull.fVertices[Face^.Vertices[VertexIndex]].Position);
+        Plane.Normal:=Vector3Norm(Vector3Cross(Face^.Plane.Normal,Vector3Sub(Vector3ScalarMul(ShapeB.fConvexHull.fVertices[Face^.Vertices[VertexIndex]].Position,ShapeB.fScale),Vector3ScalarMul(ShapeB.fConvexHull.fVertices[Face^.Vertices[OtherVertexIndex]].Position,ShapeB.fScale))));
+        Plane.Distance:=-Vector3Dot(Plane.Normal,Vector3ScalarMul(ShapeB.fConvexHull.fVertices[Face^.Vertices[VertexIndex]].Position,ShapeB.fScale));
         if not ClipSegmentToPlane(Plane,ClosestPoints[0],ClosestPoints[1]) then begin
          OK:=false;
          break;
@@ -37979,7 +38177,7 @@ var OldManifoldCountContacts:TKraftInt32;
        end;
        if OK then begin
         for PointIndex:=0 to 1 do begin
-         Distance:=PlaneVectorDistance(Face^.Plane,ClosestPoints[PointIndex]);
+         Distance:=PlaneVectorDistanceWithScale(Face^.Plane,ClosestPoints[PointIndex],ShapeB.fScale);
          if Distance<=ShapeA.fRadius then begin
           FaceNormal:=Face^.Plane.Normal;
           AddFaceBContact(FaceNormal,
@@ -38028,7 +38226,7 @@ var OldManifoldCountContacts:TKraftInt32;
    MaxFaceSeparation:=-MAX_SCALAR;
    for FaceIndex:=0 to ShapeB.fConvexHull.fCountFaces-1 do begin
     Face:=@ShapeB.fConvexHull.fFaces[FaceIndex];
-    Plane:=PlaneFastTransform(Face^.Plane,Transform);
+    Plane:=PlaneFastTransformWithScale(Face^.Plane,Transform,ShapeB.fScale);
     Separation:=PlaneVectorDistance(Plane,ShapeA.GetLocalFullSupport(Vector3Neg(Plane.Normal)));
     if Separation>0.0 then begin
      exit;
@@ -38048,7 +38246,7 @@ var OldManifoldCountContacts:TKraftInt32;
     Edge:=@ShapeB.fConvexHull.fEdges[EdgeIndex];
     if (Vector3Dot(Ea,ShapeB.fConvexHull.fFaces[Edge^.Faces[0]].Plane.Normal)*Vector3Dot(Ea,ShapeB.fConvexHull.fFaces[Edge^.Faces[1]].Plane.Normal))<0.0 then begin
 
-     Eb:=Vector3Sub(ShapeB.fConvexHull.fVertices[Edge^.Vertices[1]].Position,ShapeB.fConvexHull.fVertices[Edge^.Vertices[0]].Position);
+     Eb:=Vector3Sub(Vector3ScalarMul(ShapeB.fConvexHull.fVertices[Edge^.Vertices[1]].Position,ShapeB.fScale),Vector3ScalarMul(ShapeB.fConvexHull.fVertices[Edge^.Vertices[0]].Position,ShapeB.fScale));
 
      // Build search direction
      Ea_x_Eb:=Vector3Cross(Ea,Eb);
@@ -38061,11 +38259,11 @@ var OldManifoldCountContacts:TKraftInt32;
 
      // Assure consistent normal orientation (here: HullA -> HullB)
      Normal:=Vector3ScalarMul(Ea_x_Eb,1.0/L);
-     if Vector3Dot(Normal,Vector3Sub(ShapeB.fConvexHull.fVertices[Edge^.Vertices[0]].Position,CenterB))<0.0 then begin
+     if Vector3Dot(Normal,Vector3Sub(Vector3ScalarMul(ShapeB.fConvexHull.fVertices[Edge^.Vertices[0]].Position,ShapeB.fScale),CenterB))<0.0 then begin
       Normal:=Vector3Neg(Normal);
      end;
 
-     Separation:=Vector3Dot(Normal,Vector3Sub(CapsulePointStart,ShapeB.fConvexHull.fVertices[Edge^.Vertices[0]].Position))-CapsuleRadius;
+     Separation:=Vector3Dot(Normal,Vector3Sub(CapsulePointStart,Vector3ScalarMul(ShapeB.fConvexHull.fVertices[Edge^.Vertices[0]].Position,ShapeB.fScale)))-CapsuleRadius;
      if Separation>0.0 then begin
       exit;
      end else if MaxEdgeSeparation<Separation then begin
@@ -38083,8 +38281,8 @@ var OldManifoldCountContacts:TKraftInt32;
                       ClosestPoints[1],
                       CapsulePointStart,
                       CapsulePointEnd,
-                      ShapeB.fConvexHull.fVertices[Edge^.Vertices[0]].Position,
-                      ShapeB.fConvexHull.fVertices[Edge^.Vertices[1]].Position) then begin
+                      Vector3ScalarMul(ShapeB.fConvexHull.fVertices[Edge^.Vertices[0]].Position,ShapeB.fScale),
+                      Vector3ScalarMul(ShapeB.fConvexHull.fVertices[Edge^.Vertices[1]].Position,ShapeB.fScale)) then begin
      AddImplicitEdgeContact(Vector3Neg(MaxEdgeSeparateAxis),
                             ClosestPoints[0],
                             ClosestPoints[1],
@@ -38104,8 +38302,8 @@ var OldManifoldCountContacts:TKraftInt32;
      OK:=true;
      OtherVertexIndex:=Face^.CountVertices-1;
      for VertexIndex:=0 to Face^.CountVertices-1 do begin
-      Plane.Normal:=Vector3Norm(Vector3Cross(Face^.Plane.Normal,Vector3Sub(ShapeB.fConvexHull.fVertices[Face^.Vertices[VertexIndex]].Position,ShapeB.fConvexHull.fVertices[Face^.Vertices[OtherVertexIndex]].Position)));
-      Plane.Distance:=-Vector3Dot(Plane.Normal,ShapeB.fConvexHull.fVertices[Face^.Vertices[VertexIndex]].Position);
+      Plane.Normal:=Vector3Norm(Vector3Cross(Face^.Plane.Normal,Vector3Sub(Vector3ScalarMul(ShapeB.fConvexHull.fVertices[Face^.Vertices[VertexIndex]].Position,ShapeB.fScale),Vector3ScalarMul(ShapeB.fConvexHull.fVertices[Face^.Vertices[OtherVertexIndex]].Position,ShapeB.fScale))));
+      Plane.Distance:=-Vector3Dot(Plane.Normal,Vector3ScalarMul(ShapeB.fConvexHull.fVertices[Face^.Vertices[VertexIndex]].Position,ShapeB.fScale));
       if not ClipSegmentToPlane(Plane,ClosestPoints[0],ClosestPoints[1]) then begin
        OK:=false;
        break;
@@ -38115,7 +38313,7 @@ var OldManifoldCountContacts:TKraftInt32;
      if OK then begin
       FaceNormal:=Face^.Plane.Normal;
       for PointIndex:=0 to 1 do begin
-       Distance:=PlaneVectorDistance(Face^.Plane,ClosestPoints[PointIndex]);
+       Distance:=PlaneVectorDistanceWithScale(Face^.Plane,ClosestPoints[PointIndex],ShapeB.fScale);
        if Distance<=ShapeA.fRadius then begin
         AddFaceBContact(FaceNormal,
                         Vector3TermMatrixMul(ClosestPoints[PointIndex],ShapeB.fWorldTransform),
@@ -38239,7 +38437,7 @@ var OldManifoldCountContacts:TKraftInt32;
       Transform:TKraftMatrix4x4;
   begin
    Transform:=Matrix4x4TermMulSimpleInverted(HullA.fWorldTransform,HullB.fWorldTransform);
-   Plane:=PlaneFastTransform(HullA.fConvexHull.fFaces[FaceQuery.Index].Plane,Transform);
+   Plane:=PlaneFastTransformWithScale(HullA.fConvexHull.fFaces[FaceQuery.Index].Plane,Transform,HullA.fScale);
    FaceQuery.Separation:=PlaneVectorDistance(Plane,HullB.GetLocalFullSupport(Vector3Neg(Plane.Normal)));
    result:=FaceQuery.Separation>0.0;
   end;
@@ -38253,14 +38451,14 @@ var OldManifoldCountContacts:TKraftInt32;
    Transform:=Matrix4x4TermMulSimpleInverted(HullA.fWorldTransform,HullB.fWorldTransform);
    CenterA:=HullA.GetCenter(Transform);
    EdgeA:=@HullA.fConvexHull.fEdges[EdgeQuery.IndexA];
-   Pa:=Vector3TermMatrixMul(HullA.fConvexHull.fVertices[EdgeA^.Vertices[0]].Position,Transform);
-   Qa:=Vector3TermMatrixMul(HullA.fConvexHull.fVertices[EdgeA^.Vertices[1]].Position,Transform);
+   Pa:=Vector3TermMatrixMulWithScale(HullA.fConvexHull.fVertices[EdgeA^.Vertices[0]].Position,Transform,HullA.fScale);
+   Qa:=Vector3TermMatrixMulWithScale(HullA.fConvexHull.fVertices[EdgeA^.Vertices[1]].Position,Transform,HullA.fScale);
    Ea:=Vector3Sub(Qa,Pa);
    Ua:=Vector3Norm(Vector3TermMatrixMulBasis(HullA.fConvexHull.fFaces[EdgeA^.Faces[0]].Plane.Normal,Transform));
    Va:=Vector3Norm(Vector3TermMatrixMulBasis(HullA.fConvexHull.fFaces[EdgeA^.Faces[1]].Plane.Normal,Transform));
    EdgeB:=@HullB.fConvexHull.fEdges[EdgeQuery.IndexB];
-   Pb:=HullB.fConvexHull.fVertices[EdgeB^.Vertices[0]].Position;
-   Qb:=HullB.fConvexHull.fVertices[EdgeB^.Vertices[1]].Position;
+   Pb:=Vector3ScalarMul(HullB.fConvexHull.fVertices[EdgeB^.Vertices[0]].Position,HullB.fScale);
+   Qb:=Vector3ScalarMul(HullB.fConvexHull.fVertices[EdgeB^.Vertices[1]].Position,HullB.fScale);
    Eb:=Vector3Sub(Qb,Pb);
    Ub:=HullB.fConvexHull.fFaces[EdgeB^.Faces[0]].Plane.Normal;
    Vb:=HullB.fConvexHull.fFaces[EdgeB^.Faces[1]].Plane.Normal;
@@ -38300,7 +38498,7 @@ var OldManifoldCountContacts:TKraftInt32;
    MaxIndex:=-1;
    MaxSeparation:=-MAX_SCALAR;
    for Index:=0 to HullA.fConvexHull.fCountFaces-1 do begin
-    Plane:=PlaneFastTransform(HullA.fConvexHull.fFaces[Index].Plane,Transform);
+    Plane:=PlaneFastTransformWithScale(HullA.fConvexHull.fFaces[Index].Plane,Transform,HullA.fScale);
     Separation:=PlaneVectorDistance(Plane,HullB.GetLocalFullSupport(Vector3Neg(Plane.Normal)));
     if (Index=0) or (MaxSeparation<Separation) then begin
      MaxSeparation:=Separation;
@@ -38330,15 +38528,15 @@ var OldManifoldCountContacts:TKraftInt32;
    First:=true;
    for IndexA:=0 to HullA.fConvexHull.fCountEdges-1 do begin
     EdgeA:=@HullA.fConvexHull.fEdges[IndexA];
-    Pa:=Vector3TermMatrixMul(HullA.fConvexHull.fVertices[EdgeA^.Vertices[0]].Position,Transform);
-    Qa:=Vector3TermMatrixMul(HullA.fConvexHull.fVertices[EdgeA^.Vertices[1]].Position,Transform);
+    Pa:=Vector3TermMatrixMulWithScale(HullA.fConvexHull.fVertices[EdgeA^.Vertices[0]].Position,Transform,HullA.fScale);
+    Qa:=Vector3TermMatrixMulWithScale(HullA.fConvexHull.fVertices[EdgeA^.Vertices[1]].Position,Transform,HullA.fScale);
     Ea:=Vector3Sub(Qa,Pa);
     Ua:=Vector3Norm(Vector3TermMatrixMulBasis(HullA.fConvexHull.fFaces[EdgeA^.Faces[0]].Plane.Normal,Transform));
     Va:=Vector3Norm(Vector3TermMatrixMulBasis(HullA.fConvexHull.fFaces[EdgeA^.Faces[1]].Plane.Normal,Transform));
     for IndexB:=0 to HullB.fConvexHull.fCountEdges-1 do begin
      EdgeB:=@HullB.fConvexHull.fEdges[IndexB];
-     Pb:=HullB.fConvexHull.fVertices[EdgeB^.Vertices[0]].Position;
-     Qb:=HullB.fConvexHull.fVertices[EdgeB^.Vertices[1]].Position;
+     Pb:=Vector3ScalarMul(HullB.fConvexHull.fVertices[EdgeB^.Vertices[0]].Position,HullB.fScale);
+     Qb:=Vector3ScalarMul(HullB.fConvexHull.fVertices[EdgeB^.Vertices[1]].Position,HullB.fScale);
      Eb:=Vector3Sub(Qb,Pb);
      Ub:=HullB.fConvexHull.fFaces[EdgeB^.Faces[0]].Plane.Normal;
      Vb:=HullB.fConvexHull.fFaces[EdgeB^.Faces[1]].Plane.Normal;
@@ -38438,7 +38636,7 @@ var OldManifoldCountContacts:TKraftInt32;
    ContactManager.fCountTemporaryContacts[ThreadIndex]:=0;
 
    ReferenceFace:=@ReferenceHull.fConvexHull.fFaces[ReferenceFaceIndex];
-   ReferenceWorldPlane:=PlaneFastTransform(ReferenceFace^.Plane,ReferenceHull.fWorldTransform);
+   ReferenceWorldPlane:=PlaneFastTransformWithScale(ReferenceFace^.Plane,ReferenceHull.fWorldTransform,ReferenceHull.fScale);
 
    IncidentFace:=@IncidentHull.fConvexHull.fFaces[IncidentFaceIndex];
 
@@ -38451,7 +38649,7 @@ var OldManifoldCountContacts:TKraftInt32;
    for IncidentVertexIndex:=0 to IncidentFace^.CountVertices-1 do begin
     FeatureID.ElementA:=IncidentEdgeIndexOffset+IncidentVertexIndex;
     FeatureID.ElementB:=IncidentEdgeIndexOffset+(IncidentVertexIndex+1);
-    ClipVertices[0].Add(Vector3TermMatrixMul(IncidentHull.fConvexHull.fVertices[IncidentFace^.Vertices[IncidentVertexIndex]].Position,IncidentHull.fWorldTransform),FeatureID);
+    ClipVertices[0].Add(Vector3TermMatrixMulWithScale(IncidentHull.fConvexHull.fVertices[IncidentFace^.Vertices[IncidentVertexIndex]].Position,IncidentHull.fWorldTransform,IncidentHull.fScale),FeatureID);
    end;
 
 {$ifdef DebugDraw}
@@ -38484,7 +38682,7 @@ var OldManifoldCountContacts:TKraftInt32;
       ContactManager.fDebugClipVertexLists[DebugClipVertexListIndex].fColor.a:=1.0;
       ContactManager.fDebugClipVertexLists[DebugClipVertexListIndex].Clear;
       for ReferenceVertexIndex:=0 to ReferenceFace^.CountVertices-1 do begin
-       ReferencePoint:=Vector3TermMatrixMul(ReferenceHull.fConvexHull.fVertices[ReferenceFace^.Vertices[ReferenceVertexIndex]].Position,ReferenceHull.fWorldTransform);
+       ReferencePoint:=Vector3TermMatrixMulWithScale(ReferenceHull.fConvexHull.fVertices[ReferenceFace^.Vertices[ReferenceVertexIndex]].Position,ReferenceHull.fWorldTransform,ReferenceHull.fScale);
        FeatureID.ElementA:=ReferenceEdgeIndexOffset+ReferenceVertexIndex;
        FeatureID.ElementB:=ReferenceEdgeIndexOffset+(ReferenceVertexIndex+1);
        ContactManager.fDebugClipVertexLists[DebugClipVertexListIndex].Add(ReferencePoint,FeatureID);
@@ -38500,8 +38698,8 @@ var OldManifoldCountContacts:TKraftInt32;
    OtherReferenceVertexIndex:=ReferenceFace^.CountVertices-1;
    for ReferenceVertexIndex:=0 to ReferenceFace^.CountVertices-1 do begin
     if ClipVertices[0].Count>=2 then begin
-     ReferencePoint:=Vector3TermMatrixMul(ReferenceHull.fConvexHull.fVertices[ReferenceFace^.Vertices[ReferenceVertexIndex]].Position,ReferenceHull.fWorldTransform);
-     ReferenceEdgePlane.Normal:=Vector3Neg(Vector3NormEx(Vector3Cross(ReferenceWorldPlane.Normal,Vector3Sub(ReferencePoint,Vector3TermMatrixMul(ReferenceHull.fConvexHull.fVertices[ReferenceFace^.Vertices[OtherReferenceVertexIndex]].Position,ReferenceHull.fWorldTransform)))));
+     ReferencePoint:=Vector3TermMatrixMulWithScale(ReferenceHull.fConvexHull.fVertices[ReferenceFace^.Vertices[ReferenceVertexIndex]].Position,ReferenceHull.fWorldTransform,ReferenceHull.fScale);
+     ReferenceEdgePlane.Normal:=Vector3Neg(Vector3NormEx(Vector3Cross(ReferenceWorldPlane.Normal,Vector3Sub(ReferencePoint,Vector3TermMatrixMulWithScale(ReferenceHull.fConvexHull.fVertices[ReferenceFace^.Vertices[OtherReferenceVertexIndex]].Position,ReferenceHull.fWorldTransform,ReferenceHull.fScale)))));
      ReferenceEdgePlane.Distance:=-Vector3Dot(ReferenceEdgePlane.Normal,ReferencePoint);
      PreviousClipVertex:=@ClipVertices[0].Vertices[ClipVertices[0].Count-1];
      CurrentClipVertex:=@ClipVertices[0].Vertices[0];
@@ -38734,10 +38932,10 @@ var OldManifoldCountContacts:TKraftInt32;
     EdgeA:=@ShapeA.fConvexHull.fEdges[Manifold.EdgeQuery.IndexA];
     EdgeB:=@ShapeB.fConvexHull.fEdges[Manifold.EdgeQuery.IndexB];
 
-    a0:=Vector3TermMatrixMul(ShapeA.fConvexHull.fVertices[EdgeA^.Vertices[0]].Position,ShapeA.fWorldTransform);
-    a1:=Vector3TermMatrixMul(ShapeA.fConvexHull.fVertices[EdgeA^.Vertices[1]].Position,ShapeA.fWorldTransform);
-    b0:=Vector3TermMatrixMul(ShapeB.fConvexHull.fVertices[EdgeB^.Vertices[0]].Position,ShapeB.fWorldTransform);
-    b1:=Vector3TermMatrixMul(ShapeB.fConvexHull.fVertices[EdgeB^.Vertices[1]].Position,ShapeB.fWorldTransform);
+    a0:=Vector3TermMatrixMulWithScale(ShapeA.fConvexHull.fVertices[EdgeA^.Vertices[0]].Position,ShapeA.fWorldTransform,ShapeA.fScale);
+    a1:=Vector3TermMatrixMulWithScale(ShapeA.fConvexHull.fVertices[EdgeA^.Vertices[1]].Position,ShapeA.fWorldTransform,ShapeA.fScale);
+    b0:=Vector3TermMatrixMulWithScale(ShapeB.fConvexHull.fVertices[EdgeB^.Vertices[0]].Position,ShapeB.fWorldTransform,ShapeB.fScale);
+    b1:=Vector3TermMatrixMulWithScale(ShapeB.fConvexHull.fVertices[EdgeB^.Vertices[1]].Position,ShapeB.fWorldTransform,ShapeB.fScale);
 
     if GetEdgeContact(pa,pb,a0,a1,b0,b1) then begin
  {   Normal:=Vector3NormEx(Vector3Cross(Vector3Sub(a1,a0),Vector3Sub(b1,b0)));
@@ -39243,9 +39441,10 @@ begin
    ShapeTriangle:=TKraftShapeTriangle(TriangleShape);
    MeshTriangle:=@Mesh.fTriangles[ElementIndex];
    ShapeTriangle.fWorldTransform:=MeshShape.fWorldTransform;
-   ShapeTriangle.fConvexHull.fVertices[0].Position:=Mesh.fVertices[MeshTriangle^.Vertices[0]];
-   ShapeTriangle.fConvexHull.fVertices[1].Position:=Mesh.fVertices[MeshTriangle^.Vertices[1]];
-   ShapeTriangle.fConvexHull.fVertices[2].Position:=Mesh.fVertices[MeshTriangle^.Vertices[2]];
+   // Bake the mesh's uniform scale into the synthesized triangle (shared mesh stays base-space).
+   ShapeTriangle.fConvexHull.fVertices[0].Position:=Vector3ScalarMul(Mesh.fVertices[MeshTriangle^.Vertices[0]],MeshShape.fScale);
+   ShapeTriangle.fConvexHull.fVertices[1].Position:=Vector3ScalarMul(Mesh.fVertices[MeshTriangle^.Vertices[1]],MeshShape.fScale);
+   ShapeTriangle.fConvexHull.fVertices[2].Position:=Vector3ScalarMul(Mesh.fVertices[MeshTriangle^.Vertices[2]],MeshShape.fScale);
    ShapeTriangle.UpdateData;
   end else begin
    exit;
@@ -39730,6 +39929,12 @@ begin
   Displacement:=Vector3TermMatrixMulBasis(Vector3ScalarMul(fRigidBodyConvex.fLinearVelocity,fRigidBodyConvex.fPhysics.fWorldDeltaTime),Transform);
   BoundsExpansion:=Vector3ScalarMul(Vector3(fShapeConvex.fAngularMotionDisc,fShapeConvex.fAngularMotionDisc,fShapeConvex.fAngularMotionDisc),Vector3Length(fRigidBodyConvex.fAngularVelocity)*fRigidBodyConvex.fPhysics.fWorldDeltaTime);
   fConvexAABBInMeshLocalSpace:=AABBStretch(NewConvexAABBInMeshLocalSpace,Displacement,BoundsExpansion);
+  if fShapeMesh.fScale<>1.0 then begin
+   // Mesh geometry/BVH stays in base space; bring the query AABB from the (rigid) mesh-local
+   // frame into base-mesh coordinates by dividing out the mesh's uniform scale.
+   fConvexAABBInMeshLocalSpace.Min:=Vector3ScalarMul(fConvexAABBInMeshLocalSpace.Min,fShapeMesh.fInverseScale);
+   fConvexAABBInMeshLocalSpace.Max:=Vector3ScalarMul(fConvexAABBInMeshLocalSpace.Max,fShapeMesh.fInverseScale);
+  end;
   Query;
  end;
 end;
@@ -40045,6 +40250,11 @@ begin
  Displacement:=Vector3TermMatrixMulBasis(Vector3ScalarMul(MeshContactPair.fRigidBodyConvex.fLinearVelocity,MeshContactPair.fRigidBodyConvex.fPhysics.fWorldDeltaTime),Transform);
  BoundsExpansion:=Vector3ScalarMul(Vector3(MeshContactPair.fShapeConvex.fAngularMotionDisc,MeshContactPair.fShapeConvex.fAngularMotionDisc,MeshContactPair.fShapeConvex.fAngularMotionDisc),Vector3Length(MeshContactPair.fRigidBodyConvex.fAngularVelocity)*MeshContactPair.fRigidBodyConvex.fPhysics.fWorldDeltaTime);
  MeshContactPair.fConvexAABBInMeshLocalSpace:=AABBStretch(AABBHomogenTransform(MeshContactPair.fShapeConvex.fShapeAABB,Transform),Displacement,BoundsExpansion);
+ if MeshContactPair.fShapeMesh.fScale<>1.0 then begin
+  // Fold the mesh's uniform scale out of the query AABB (base-space BVH); see Update.
+  MeshContactPair.fConvexAABBInMeshLocalSpace.Min:=Vector3ScalarMul(MeshContactPair.fConvexAABBInMeshLocalSpace.Min,MeshContactPair.fShapeMesh.fInverseScale);
+  MeshContactPair.fConvexAABBInMeshLocalSpace.Max:=Vector3ScalarMul(MeshContactPair.fConvexAABBInMeshLocalSpace.Max,MeshContactPair.fShapeMesh.fInverseScale);
+ end;
 
  MeshContactPair.Query;
 
@@ -49289,9 +49499,9 @@ begin
     MeshTriangle:=@Mesh.fTriangles[aShapeBTriangleIndex];
     ShapeTriangle.fLocalTransform:=MeshShape.fLocalTransform;
     ShapeTriangle.fWorldTransform:=MeshShape.fWorldTransform;
-    ShapeTriangle.fConvexHull.fVertices[0].Position:=Mesh.fVertices[MeshTriangle^.Vertices[0]];
-    ShapeTriangle.fConvexHull.fVertices[1].Position:=Mesh.fVertices[MeshTriangle^.Vertices[1]];
-    ShapeTriangle.fConvexHull.fVertices[2].Position:=Mesh.fVertices[MeshTriangle^.Vertices[2]];
+    ShapeTriangle.fConvexHull.fVertices[0].Position:=Vector3ScalarMul(Mesh.fVertices[MeshTriangle^.Vertices[0]],MeshShape.fScale);
+    ShapeTriangle.fConvexHull.fVertices[1].Position:=Vector3ScalarMul(Mesh.fVertices[MeshTriangle^.Vertices[1]],MeshShape.fScale);
+    ShapeTriangle.fConvexHull.fVertices[2].Position:=Vector3ScalarMul(Mesh.fVertices[MeshTriangle^.Vertices[2]],MeshShape.fScale);
     ShapeTriangle.UpdateData;
    end else begin
     exit;
@@ -49492,9 +49702,9 @@ begin
     MeshTriangle:=@Mesh.fTriangles[aShapeBTriangleIndex];
     ShapeTriangle.fLocalTransform:=MeshShape.fLocalTransform;
     ShapeTriangle.fWorldTransform:=MeshShape.fWorldTransform;
-    ShapeTriangle.fConvexHull.fVertices[0].Position:=Mesh.fVertices[MeshTriangle^.Vertices[0]];
-    ShapeTriangle.fConvexHull.fVertices[1].Position:=Mesh.fVertices[MeshTriangle^.Vertices[1]];
-    ShapeTriangle.fConvexHull.fVertices[2].Position:=Mesh.fVertices[MeshTriangle^.Vertices[2]];
+    ShapeTriangle.fConvexHull.fVertices[0].Position:=Vector3ScalarMul(Mesh.fVertices[MeshTriangle^.Vertices[0]],MeshShape.fScale);
+    ShapeTriangle.fConvexHull.fVertices[1].Position:=Vector3ScalarMul(Mesh.fVertices[MeshTriangle^.Vertices[1]],MeshShape.fScale);
+    ShapeTriangle.fConvexHull.fVertices[2].Position:=Vector3ScalarMul(Mesh.fVertices[MeshTriangle^.Vertices[2]],MeshShape.fScale);
     ShapeTriangle.UpdateData;
    end else begin
     exit;
