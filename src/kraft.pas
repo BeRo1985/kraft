@@ -166,7 +166,7 @@ unit kraft;
 {$ifdef KraftInternalEdgeHandling}
  // Contact-normal clamping into the neighbour-face fan, applied locally per triangle contact.
  {$define KraftInternalEdgeClamping}
- // Feature-ownership arbitration over the shared mesh contact pair (kept for comparison, off by default).
+ // Feature-ownership arbitration over the shared mesh contact pair.
  {-$define KraftInternalEdgeFeatureOwnership}
 {$endif}
 
@@ -2903,6 +2903,11 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fMeshContactPairHashTable:TKraftMeshContactPairHashTable;
 
+{$ifdef KraftInternalEdgeFeatureOwnership}
+       fFeatureOwnershipClaimedFeatures:TKraftMeshTriangleVerticesHashMap;
+       fFeatureOwnershipContactPairs:TPKraftContactPairs;
+{$endif}
+
       public
 
        constructor Create(const aPhysics:TKraft);
@@ -2936,6 +2941,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
 {$ifdef KraftPasMP}
        procedure RebuildAABBTreeJobFunction(const Job:PPasMPJob;const ThreadIndex:TPasMPInt32);
+{$endif}
+
+{$ifdef KraftInternalEdgeFeatureOwnership}
+       procedure ProcessMeshContactPairFeatureOwnership(const aMeshContactPair:TKraftMeshContactPair);
 {$endif}
 
        procedure DoNarrowPhase;
@@ -40261,6 +40270,11 @@ begin
 
  fCountMeshContactPairs:=0;
 
+{$ifdef KraftInternalEdgeFeatureOwnership}
+ fFeatureOwnershipClaimedFeatures:=TKraftMeshTriangleVerticesHashMap.Create(-1);
+ fFeatureOwnershipContactPairs:=nil;
+{$endif}
+
  fOnContactBegin:=nil;
  fOnContactEnd:=nil;
  fOnContactStay:=nil;
@@ -40298,6 +40312,11 @@ var ThreadIndex:TKraftInt32;
 begin
 
  SetLength(fActiveContactPairs,0);
+
+{$ifdef KraftInternalEdgeFeatureOwnership}
+ FreeAndNil(fFeatureOwnershipClaimedFeatures);
+ fFeatureOwnershipContactPairs:=nil;
+{$endif}
 
  while assigned(fContactPairFirst) do begin
   RemoveContact(fContactPairFirst);
@@ -40755,6 +40774,226 @@ begin
 end;
 {$endif}
 
+{$ifdef KraftInternalEdgeFeatureOwnership}
+procedure TKraftContactManager.ProcessMeshContactPairFeatureOwnership(const aMeshContactPair:TKraftMeshContactPair);
+// Arbitrates the per-triangle contacts of one mesh contact pair: face contacts own the edges and vertices
+// of their triangle, so edge/vertex contacts on shared inner features are redundant ghost contacts of the
+// tessellation and get dropped for the solver, instead of fighting the face contacts with wrong normals.
+const FaceAlignCosine=0.5; // a hull reference face counts as face-aligned with the triangle above this
+var CountContactPairs,Index,SortIndex,EdgeIndex,BestEdgeIndex,ContactIndex,
+    VertexIndexA,VertexIndexB:TKraftInt32;
+    OnEdgeToleranceSquared,BestDistanceSquared,DistanceSquared,InverseCount:TKraftScalar;
+    ContactPair:PKraftContactPair;
+    MeshShape:TKraftShapeMesh;
+    Mesh:TKraftMesh;
+    MeshTriangle:PKraftMeshTriangle;
+    Drop:boolean;
+    AveragePoint,NearestOnEdge,BestNearestOnEdge:TKraftVector3;
+    TriangleVertices:array[0..2] of TKraftVector3;
+ function IsFaceContact(const aContactPair:PKraftContactPair;const aMeshTriangle:PKraftMeshTriangle):boolean;
+ var WorldNormal,WorldTriangleNormal:TKraftVector3;
+ begin
+  case aContactPair^.Manifold.ContactManifoldType of
+   kcmtImplicit,kcmtFaceB:begin
+    // Face-region contacts and manifolds with the triangle itself as the reference face.
+    result:=true;
+   end;
+   kcmtFaceA:begin
+    // A hull reference face counts as a face contact when it is roughly aligned with the triangle plane.
+    WorldNormal:=Vector3TermMatrixMulBasis(aContactPair^.Manifold.LocalNormal,aContactPair^.Shapes[0].fWorldTransform);
+    WorldTriangleNormal:=Vector3TermMatrixMulBasis(aMeshTriangle^.Plane.Normal,MeshShape.fWorldTransform);
+    result:=abs(Vector3Dot(WorldNormal,WorldTriangleNormal))>=FaceAlignCosine;
+   end;
+   else begin
+    result:=false;
+   end;
+  end;
+ end;
+ procedure ClaimEdge(const aContainerIndex,aVertexIndexA,aVertexIndexB:TKraftInt32);
+ var Key:TKraftMeshTriangleVertices;
+ begin
+  if aVertexIndexA<=aVertexIndexB then begin
+   Key[0]:=aVertexIndexA;
+   Key[1]:=aVertexIndexB;
+  end else begin
+   Key[0]:=aVertexIndexB;
+   Key[1]:=aVertexIndexA;
+  end;
+  Key[2]:=aContainerIndex;
+  if fFeatureOwnershipClaimedFeatures[Key]<0 then begin
+   fFeatureOwnershipClaimedFeatures.Add(Key,0);
+  end;
+ end;
+ function IsEdgeClaimed(const aContainerIndex,aVertexIndexA,aVertexIndexB:TKraftInt32):boolean;
+ var Key:TKraftMeshTriangleVertices;
+ begin
+  if aVertexIndexA<=aVertexIndexB then begin
+   Key[0]:=aVertexIndexA;
+   Key[1]:=aVertexIndexB;
+  end else begin
+   Key[0]:=aVertexIndexB;
+   Key[1]:=aVertexIndexA;
+  end;
+  Key[2]:=aContainerIndex;
+  result:=fFeatureOwnershipClaimedFeatures[Key]>=0;
+ end;
+ procedure ClaimVertex(const aContainerIndex,aVertexIndex:TKraftInt32);
+ var Key:TKraftMeshTriangleVertices;
+ begin
+  Key[0]:=aVertexIndex;
+  Key[1]:=-2; // marker so vertex keys never collide with edge keys, since edge Key[1] is always >=0
+  Key[2]:=aContainerIndex;
+  if fFeatureOwnershipClaimedFeatures[Key]<0 then begin
+   fFeatureOwnershipClaimedFeatures.Add(Key,0);
+  end;
+ end;
+ function IsVertexClaimed(const aContainerIndex,aVertexIndex:TKraftInt32):boolean;
+ var Key:TKraftMeshTriangleVertices;
+ begin
+  Key[0]:=aVertexIndex;
+  Key[1]:=-2;
+  Key[2]:=aContainerIndex;
+  result:=fFeatureOwnershipClaimedFeatures[Key]>=0;
+ end;
+begin
+
+ MeshShape:=TKraftShapeMesh(aMeshContactPair.fShapeMesh);
+
+ OnEdgeToleranceSquared:=sqr(2.0*fPhysics.fLinearSlop);
+
+ // Collect the per-triangle contact pairs of this mesh contact pair that produced contacts this step.
+ CountContactPairs:=0;
+ ContactPair:=aMeshContactPair.fFirstContactPair;
+ while assigned(ContactPair) do begin
+  if (ContactPair^.Manifold.CountContacts>0) and
+     (ContactPair^.ContainerIndex>=0) and
+     (ContactPair^.ContainerIndex<MeshShape.fCountMeshes) and
+     (ContactPair^.ElementIndex>=0) and
+     (ContactPair^.ElementIndex<MeshShape.fMeshes[ContactPair^.ContainerIndex].fCountTriangles) then begin
+   if CountContactPairs>=length(fFeatureOwnershipContactPairs) then begin
+    SetLength(fFeatureOwnershipContactPairs,(CountContactPairs+1)*2);
+   end;
+   fFeatureOwnershipContactPairs[CountContactPairs]:=ContactPair;
+   inc(CountContactPairs);
+  end;
+  ContactPair:=ContactPair^.MeshContactPairNextContactPair;
+ end;
+
+ // A single contact has nothing to arbitrate against.
+ if CountContactPairs<2 then begin
+  exit;
+ end;
+
+ // Sort by (mesh,triangle) index, so the arbitration does not depend on the contact pair list history.
+ for Index:=1 to CountContactPairs-1 do begin
+  ContactPair:=fFeatureOwnershipContactPairs[Index];
+  SortIndex:=Index-1;
+  while (SortIndex>=0) and
+        ((fFeatureOwnershipContactPairs[SortIndex]^.ContainerIndex>ContactPair^.ContainerIndex) or
+         ((fFeatureOwnershipContactPairs[SortIndex]^.ContainerIndex=ContactPair^.ContainerIndex) and
+          (fFeatureOwnershipContactPairs[SortIndex]^.ElementIndex>ContactPair^.ElementIndex))) do begin
+   fFeatureOwnershipContactPairs[SortIndex+1]:=fFeatureOwnershipContactPairs[SortIndex];
+   dec(SortIndex);
+  end;
+  fFeatureOwnershipContactPairs[SortIndex+1]:=ContactPair;
+ end;
+
+ fFeatureOwnershipClaimedFeatures.Clear;
+
+ // First pass: face contacts own the edges and vertices of their triangle.
+ for Index:=0 to CountContactPairs-1 do begin
+  ContactPair:=fFeatureOwnershipContactPairs[Index];
+  Mesh:=MeshShape.fMeshes[ContactPair^.ContainerIndex];
+  MeshTriangle:=@Mesh.fTriangles[ContactPair^.ElementIndex];
+  if IsFaceContact(ContactPair,MeshTriangle) then begin
+   for EdgeIndex:=0 to 2 do begin
+    ClaimEdge(ContactPair^.ContainerIndex,MeshTriangle^.Vertices[EdgeIndex],MeshTriangle^.Vertices[(EdgeIndex+1) mod 3]);
+    ClaimVertex(ContactPair^.ContainerIndex,MeshTriangle^.Vertices[EdgeIndex]);
+   end;
+  end;
+ end;
+
+ // Second pass: edge/vertex contacts on features already owned by a face contact get dropped. Accepted
+ // ones claim their feature, so the mirrored duplicate from the other triangle sharing it drops as well.
+ for Index:=0 to CountContactPairs-1 do begin
+
+  ContactPair:=fFeatureOwnershipContactPairs[Index];
+  Mesh:=MeshShape.fMeshes[ContactPair^.ContainerIndex];
+  MeshTriangle:=@Mesh.fTriangles[ContactPair^.ElementIndex];
+
+  if IsFaceContact(ContactPair,MeshTriangle) then begin
+   continue;
+  end;
+
+  // Representative contact point on the triangle side, in the scaled mesh local space.
+  AveragePoint:=Vector3Origin;
+  for ContactIndex:=0 to ContactPair^.Manifold.CountContacts-1 do begin
+   AveragePoint:=Vector3Add(AveragePoint,ContactPair^.Manifold.Contacts[ContactIndex].LocalPoints[1]);
+  end;
+  InverseCount:=1.0/ContactPair^.Manifold.CountContacts;
+  AveragePoint:=Vector3ScalarMul(AveragePoint,InverseCount);
+
+  TriangleVertices[0]:=Vector3ScalarMul(Mesh.fVertices[MeshTriangle^.Vertices[0]],MeshShape.fScale);
+  TriangleVertices[1]:=Vector3ScalarMul(Mesh.fVertices[MeshTriangle^.Vertices[1]],MeshShape.fScale);
+  TriangleVertices[2]:=Vector3ScalarMul(Mesh.fVertices[MeshTriangle^.Vertices[2]],MeshShape.fScale);
+
+  // Find the nearest triangle edge to the representative point.
+  BestEdgeIndex:=-1;
+  BestDistanceSquared:=MAX_SCALAR;
+  BestNearestOnEdge:=Vector3Origin;
+  for EdgeIndex:=0 to 2 do begin
+   DistanceSquared:=SegmentSqrDistance(TriangleVertices[EdgeIndex],TriangleVertices[(EdgeIndex+1) mod 3],AveragePoint,@NearestOnEdge);
+   if DistanceSquared<BestDistanceSquared then begin
+    BestDistanceSquared:=DistanceSquared;
+    BestEdgeIndex:=EdgeIndex;
+    BestNearestOnEdge:=NearestOnEdge;
+   end;
+  end;
+
+  // Contacts that do not sit on an edge of the triangle are no edge feature contacts, keep them.
+  if (BestEdgeIndex<0) or (BestDistanceSquared>OnEdgeToleranceSquared) then begin
+   continue;
+  end;
+
+  // Boundary and concave edges are real contact edges and always keep their contact.
+  if (MeshTriangle^.EdgeConvexity[BestEdgeIndex]<>1) and (MeshTriangle^.EdgeConvexity[BestEdgeIndex]<>3) then begin
+   continue;
+  end;
+
+  VertexIndexA:=MeshTriangle^.Vertices[BestEdgeIndex];
+  VertexIndexB:=MeshTriangle^.Vertices[(BestEdgeIndex+1) mod 3];
+
+  if Vector3DistSquared(BestNearestOnEdge,TriangleVertices[BestEdgeIndex])<=OnEdgeToleranceSquared then begin
+   // Vertex region at the first edge vertex.
+   Drop:=IsVertexClaimed(ContactPair^.ContainerIndex,VertexIndexA);
+   if not Drop then begin
+    ClaimVertex(ContactPair^.ContainerIndex,VertexIndexA);
+   end;
+  end else if Vector3DistSquared(BestNearestOnEdge,TriangleVertices[(BestEdgeIndex+1) mod 3])<=OnEdgeToleranceSquared then begin
+   // Vertex region at the second edge vertex.
+   Drop:=IsVertexClaimed(ContactPair^.ContainerIndex,VertexIndexB);
+   if not Drop then begin
+    ClaimVertex(ContactPair^.ContainerIndex,VertexIndexB);
+   end;
+  end else begin
+   // Edge interior.
+   Drop:=IsEdgeClaimed(ContactPair^.ContainerIndex,VertexIndexA,VertexIndexB);
+   if not Drop then begin
+    ClaimEdge(ContactPair^.ContainerIndex,VertexIndexA,VertexIndexB);
+   end;
+  end;
+
+  if Drop then begin
+   // Drop the manifold for the solver; the contact pair itself and its event flags stay untouched.
+   ContactPair^.Manifold.ContactManifoldType:=kcmtUnknown;
+   ContactPair^.Manifold.CountContacts:=0;
+  end;
+
+ end;
+
+end;
+{$endif}
+
 procedure TKraftContactManager.DoNarrowPhase;
 const ActionAccept=0;
       ActionRemove=1;
@@ -40951,6 +41190,16 @@ begin
    ProcessContactPair(fActiveContactPairs[ActiveContactPairIndex],0);
   end;
  end;
+
+{$ifdef KraftInternalEdgeFeatureOwnership}
+ // Arbitrate the per-triangle contacts of each mesh contact pair, after all narrow phase results exist,
+ // since the triangle contact pairs of one mesh contact pair may have been processed on different threads.
+ MeshContactPair:=fMeshContactPairFirst;
+ while assigned(MeshContactPair) do begin
+  ProcessMeshContactPairFeatureOwnership(MeshContactPair);
+  MeshContactPair:=MeshContactPair.fNext;
+ end;
+{$endif}
 
  for ActiveContactPairIndex:=0 to fCountActiveContactPairs-1 do begin
   ContactPair:=fActiveContactPairs[ActiveContactPairIndex];
