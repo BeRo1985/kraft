@@ -2172,6 +2172,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fRigidBody:TKraftRigidBody;
 
+       fID:TKraftUInt64;
+
        fShapeType:TKraftShapeType;
 
        fShapePrevious:TKraftShape;
@@ -2180,6 +2182,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fFlags:TKraftShapeFlags;
 
        fFriction:TKraftScalar;
+
+       fRollingResistance:TKraftScalar;
 
        fRestitution:TKraftScalar;
 
@@ -2376,6 +2380,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property Flags:TKraftShapeFlags read fFlags write fFlags;
 
        property Friction:TKraftScalar read fFriction write fFriction;
+
+       property RollingResistance:TKraftScalar read fRollingResistance write fRollingResistance;
 
        property Restitution:TKraftScalar read fRestitution write fRestitution;
 
@@ -2754,6 +2760,11 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
       FaceQueryBA:TKraftContactFaceQuery;
       EdgeQuery:TKraftContactEdgeQuery;
       GJKCachedSimplex:TKraftGJKCachedSimplex;
+      // Central-friction warm start carried across frames (TGS-soft path). The tangential impulse is stored in
+      // world space so it survives the contact normal (and thus its tangent basis) rotating between frames.
+      CentralFrictionImpulse:TKraftVector3;
+      CentralTwistImpulse:TKraftScalar;
+      CentralRollingImpulse:TKraftVector3;
      end;
 
      PKraftContactPairEdge=^TKraftContactPairEdge;
@@ -2787,6 +2798,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        RigidBodies:array[0..1] of TKraftRigidBody;
        Edges:array[0..1] of TKraftContactPairEdge;
        Friction:TKraftScalar;
+       RollingResistance:TKraftScalar;
        Restitution:TKraftScalar;
        RestitutionThreshold:TKraftScalar;
        Manifold:TKraftContactManifold;
@@ -3336,7 +3348,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        property IslandIndices:TKraftRigidBodyIslandIndices read fIslandIndices;
 
-       property ID:uint64 read fID;
+       property ID:TKraftUInt64 read fID;
 
        property RigidBodyPrevious:TKraftRigidBody read fRigidBodyPrevious;
        property RigidBodyNext:TKraftRigidBody read fRigidBodyNext;
@@ -4175,6 +4187,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
       Restitution:TKraftScalar;
       RestitutionThreshold:TKraftScalar;
       Friction:TKraftScalar;
+      RollingResistance:TKraftScalar;
       Indices:array[0..1] of TKraftInt32;
       CountPoints:TKraftInt32;
      end;
@@ -4231,6 +4244,17 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
       Softness:TKraftSolverSoftness;
       AdjustedSeparations:array[0..MAX_CONTACTS-1] of TKraftScalar; // Separation minus the anchor term, for the substep recompute
       RelativeVelocities:array[0..MAX_CONTACTS-1] of TKraftScalar;  // Relative normal velocity at prepare, for the restitution pass
+      // Central friction moel: one shared set per manifold, anchored at the contact centroid.
+      OriginA:TKraftVector3;                                        // Contact centroid relative to body A center
+      OriginB:TKraftVector3;                                        // Contact centroid relative to body B center
+      TangentMass2x2:TKraftMatrix2x2;                               // 2x2 tangential effective mass at the centroid
+      TwistMass:TKraftScalar;                                       // Scalar twist effective mass about the normal
+      RollingMass:TKraftMatrix3x3;                                  // 3x3 rolling-resistance effective mass = inv(iA+iB)
+      LeverArms:array[0..MAX_CONTACTS-1] of TKraftScalar;           // |point - centroid|, for the twist-friction limit
+      FrictionImpulse:array[0..1] of TKraftScalar;                  // Accumulated central tangential impulse (in the tangent basis)
+      TwistImpulse:TKraftScalar;                                    // Accumulated central twist impulse
+      RollingImpulse:TKraftVector3;                                 // Accumulated rolling-resistance impulse (angular)
+      TangentVelocity:array[0..1] of TKraftScalar;                  // Surface (conveyor) velocity along the tangents; 0 in KRAFT
      end;
      TKraftSolverTGSContactStates=array of TKraftSolverTGSContactState;
 
@@ -4333,6 +4357,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        // Called once after all substeps: separate restitution pass.
        procedure ApplyRestitution;
+
+       // Called once after StoreImpulses (TGS path): write the central friction/twist/rolling impulses back into
+       // the persistent manifolds, for next frame's cross-frame warm start.
+       procedure StoreSoftContactImpulses;
 
      public
 
@@ -4774,7 +4802,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fConstraintLast:TKraftConstraint;
 
        fCountRigidBodies:TKraftInt32;
-       fRigidBodyIDCounter:uint64;
+       fRigidBodyIDCounter:TKraftUInt64;
+
+       fShapeIDCounter:TKraftUInt64;
 
        fRigidBodyFirst:TKraftRigidBody;
        fRigidBodyLast:TKraftRigidBody;
@@ -5082,7 +5112,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property ConstraintLast:TKraftConstraint read fConstraintLast;
 
        property CountRigidBodies:TKraftInt32 read fCountRigidBodies;
-       property RigidBodyIDCounter:uint64 read fRigidBodyIDCounter;
+       property RigidBodyIDCounter:TKraftUInt64 read fRigidBodyIDCounter;
+
+       property ShapeIDCounter:TKraftUInt64 read fShapeIDCounter;
 
        property RigidBodyFirst:TKraftRigidBody read fRigidBodyFirst;
        property RigidBodyLast:TKraftRigidBody read fRigidBodyLast;
@@ -33199,6 +33231,10 @@ begin
 
  fRigidBody:=ARigidBody;
 
+ // Stable per-shape id (creation order) for cross-run-deterministic broad-phase pair ordering.
+ fID:=fPhysics.fShapeIDCounter;
+ inc(fPhysics.fShapeIDCounter);
+
  if assigned(fRigidBody) then begin
   if assigned(fRigidBody.fShapeLast) then begin
    fRigidBody.fShapeLast.fShapeNext:=self;
@@ -33218,6 +33254,8 @@ begin
  fIsMesh:=false;
 
  fFriction:=0.5;
+
+ fRollingResistance:=0.0;
 
  fRestitution:=0.0;
 
@@ -38059,6 +38097,17 @@ begin
    end;
   end;
  end;
+
+ // Rest offset: push regular mesh (triangle) contacts one linear slop outwards, like PhysX/Unreal "rest offset".
+ // This trades a tiny visual gap for markedly better contact quality on tessellated surfaces (less jitter and
+ // less sinking into the mesh). Applied centrally so it covers every solver path (classic, TGS-soft, position
+ // solver); speculative contacts keep their own continuous-collision handling untouched.
+ if assigned(MeshContactPair) and (Manifold.ContactManifoldType<>kcmtSpeculative) then begin
+  for ContactIndex:=0 to SolverContactManifold.CountContacts-1 do begin
+   SolverContactManifold.Contacts[ContactIndex].Separation:=SolverContactManifold.Contacts[ContactIndex].Separation+Shapes[0].fPhysics.fLinearSlop;
+  end;
+ end;
+
 end;
 
 procedure TKraftContactPair.DetectCollisions(const ContactManager:TKraftContactManager;const TriangleShape:TKraftShape=nil;const ThreadIndex:TKraftInt32=0;const SpeculativeContacts:boolean=true;const DeltaTime:double=0.0);
@@ -40786,6 +40835,13 @@ begin
  ContactPair^.Flags:=[kcfEnabled];
 
  ContactPair^.Friction:=sqrt(aShapeA.fFriction*aShapeB.fFriction);
+ // Rolling resistance mix: max of the two coefficients scaled by the larger contact
+ // radius (using the shapes' angular-motion disc as the radius analogue).
+ if (aShapeA.fRollingResistance>0.0) or (aShapeB.fRollingResistance>0.0) then begin
+  ContactPair^.RollingResistance:=Max(aShapeA.fRollingResistance,aShapeB.fRollingResistance)*Max(aShapeA.fAngularMotionDisc,aShapeB.fAngularMotionDisc);
+ end else begin
+  ContactPair^.RollingResistance:=0.0;
+ end;
 
  ContactPair^.Restitution:=Max(aShapeA.fRestitution,aShapeB.fRestitution);
 
@@ -42208,10 +42264,25 @@ begin
 end;
 
 function CompareContactPairs(const a,b:pointer):TKraftInt32;
+var IDA,IDB:TKraftUInt64;
 begin
- result:=Sign(TKraftPtrInt(PKraftBroadPhaseContactPair(a)^[0])-TKraftPtrInt(PKraftBroadPhaseContactPair(b)^[0]));
- if result=0 then begin
-  result:=Sign(TKraftPtrInt(PKraftBroadPhaseContactPair(a)^[1])-TKraftPtrInt(PKraftBroadPhaseContactPair(b)^[1]));
+ // Sort by the shapes' stable creation-order ids (not their pointers), so the order is identical across runs.
+ IDA:=PKraftBroadPhaseContactPair(a)^[0].fID;
+ IDB:=PKraftBroadPhaseContactPair(b)^[0].fID;
+ if IDA<IDB then begin
+  result:=-1;
+ end else if IDA>IDB then begin
+  result:=1;
+ end else begin
+  IDA:=PKraftBroadPhaseContactPair(a)^[1].fID;
+  IDB:=PKraftBroadPhaseContactPair(b)^[1].fID;
+  if IDA<IDB then begin
+   result:=-1;
+  end else if IDA>IDB then begin
+   result:=1;
+  end else begin
+   result:=0;
+  end;
  end;
 end;
 
@@ -42221,7 +42292,7 @@ var TempShape:TKraftShape;
     ContactPair:PKraftBroadPhaseContactPair;
 begin
  if (ShapeA<>ShapeB) and (ShapeA.RigidBody<>ShapeB.RigidBody) then begin
-  if (ShapeA.fShapeType>ShapeB.fShapeType) or ((ShapeA.fShapeType=ShapeB.fShapeType) and (ptruint(ShapeA)>ptruint(ShapeB))) then begin
+  if (ShapeA.fShapeType>ShapeB.fShapeType) or ((ShapeA.fShapeType=ShapeB.fShapeType) and (ShapeA.fID>ShapeB.fID)) then begin
    TempShape:=ShapeA;
    ShapeA:=ShapeB;
    ShapeB:=TempShape;
@@ -48960,6 +49031,7 @@ begin
   VelocityState^.Restitution:=ContactPair^.Restitution;
   VelocityState^.RestitutionThreshold:=ContactPair^.RestitutionThreshold;
   VelocityState^.Friction:=ContactPair^.Friction;
+  VelocityState^.RollingResistance:=ContactPair^.RollingResistance;
   VelocityState^.Indices[0]:=ContactPair^.RigidBodies[0].fIslandIndices[fIsland.fIslandIndex];
   VelocityState^.Indices[1]:=ContactPair^.RigidBodies[1].fIslandIndices[fIsland.fIslandIndex];
   VelocityState^.CountPoints:=ContactPair^.Manifold.CountContacts;
@@ -49955,11 +50027,14 @@ var ContactPairIndex,ContactIndex,TangentIndex,IndexA,IndexB:TKraftInt32;
     TGSState:PKraftSolverTGSContactState;
     SolverContact:PKraftSolverContact;
     iA,iB:PKraftMatrix3x3;
-    mA,mB,NormalMass,TangentMass,dv,h:TKraftScalar;
-    LocalCenterA,LocalCenterB,cA,vA,wA,rnA,rtA,cB,vB,wB,rnB,rtB,rA,rB,Temp:TKraftVector3;
+    mA,mB,NormalMass,TangentMass,dv,h,InvCount,kTwist:TKraftScalar;
+    LocalCenterA,LocalCenterB,cA,vA,wA,rnA,rtA,cB,vB,wB,rnB,rtB,rA,rB,Temp,CentroidA,CentroidB,rtA1,rtA2,rtB1,rtB2:TKraftVector3;
     TangentVectors:array[0..1] of TKraftVector3;
     qA,qB:TKraftQuaternion;
     tA,tB:TKraftMatrix4x4;
+    K2:TKraftMatrix2x2;
+    ISum:TKraftMatrix3x3;
+    Manifold:PKraftContactManifold;
     SolverContactManifold:TKraftSolverContactManifold;
 begin
 
@@ -50078,6 +50153,72 @@ begin
 
   end;
 
+  // Central friction: contact centroid, per-point lever arms and the 2x2 tangential
+  // / scalar twist / 3x3 rolling effective masses, one shared set per manifold.
+  if SolverContactManifold.CountContacts>0 then begin
+
+   // Centroid of the contact anchors (originA/originB).
+   CentroidA:=Vector3Origin;
+   CentroidB:=Vector3Origin;
+   for ContactIndex:=0 to SolverContactManifold.CountContacts-1 do begin
+    CentroidA:=Vector3Add(CentroidA,VelocityState^.Points[ContactIndex].RelativePositions[0]);
+    CentroidB:=Vector3Add(CentroidB,VelocityState^.Points[ContactIndex].RelativePositions[1]);
+   end;
+   InvCount:=1.0/SolverContactManifold.CountContacts;
+   CentroidA:=Vector3ScalarMul(CentroidA,InvCount);
+   CentroidB:=Vector3ScalarMul(CentroidB,InvCount);
+   TGSState^.OriginA:=CentroidA;
+   TGSState^.OriginB:=CentroidB;
+
+   // Lever arm per point = distance from its anchor to the centroid (twist-friction limit).
+   for ContactIndex:=0 to SolverContactManifold.CountContacts-1 do begin
+    TGSState^.LeverArms[ContactIndex]:=Vector3Dist(VelocityState^.Points[ContactIndex].RelativePositions[0],CentroidA);
+   end;
+
+   // 2x2 tangential effective mass at the centroid: the Jacobian rows, then the coupled mass matrix, inverted.
+   rtA1:=Vector3Cross(CentroidA,TangentVectors[0]);
+   rtA2:=Vector3Cross(CentroidA,TangentVectors[1]);
+   rtB1:=Vector3Cross(CentroidB,TangentVectors[0]);
+   rtB2:=Vector3Cross(CentroidB,TangentVectors[1]);
+
+   K2[0,0]:=mA+mB+Vector3Dot(rtA1,Vector3TermMatrixMul(rtA1,iA^))+Vector3Dot(rtB1,Vector3TermMatrixMul(rtB1,iB^));
+   K2[1,1]:=mA+mB+Vector3Dot(rtA2,Vector3TermMatrixMul(rtA2,iA^))+Vector3Dot(rtB2,Vector3TermMatrixMul(rtB2,iB^));
+   K2[0,1]:=Vector3Dot(rtA1,Vector3TermMatrixMul(rtA2,iA^))+Vector3Dot(rtB1,Vector3TermMatrixMul(rtB2,iB^));
+   K2[1,0]:=K2[0,1];
+
+   if not Matrix2x2Inverse(TGSState^.TangentMass2x2,K2) then begin
+    TGSState^.TangentMass2x2:=Matrix2x2Null;
+   end;
+
+   // Twist mass about the normal and the 3x3 rolling mass = inv(iA+iB). Use the boolean inverse variants with a
+   // Null fallback: KRAFT's Term-inverse returns identity on a singular matrix, which would explode the rolling
+   // term.
+   ISum:=Matrix3x3TermAdd(iA^,iB^);
+
+   kTwist:=Vector3Dot(VelocityState^.Normal,Vector3TermMatrixMul(VelocityState^.Normal,ISum));
+   if kTwist>0.0 then begin
+    TGSState^.TwistMass:=1.0/kTwist;
+   end else begin
+    TGSState^.TwistMass:=0.0;
+   end;
+
+   if not Matrix3x3Inverse(TGSState^.RollingMass,ISum) then begin
+    TGSState^.RollingMass:=Matrix3x3Null;
+   end;
+
+   // Seed the central accumulators from the persistent manifold, for a cross-frame warm start. The tangential
+   // impulse is kept in world space, so reproject it onto the current tangent basis; scale everything by
+   // fDeltaTimeRatio like the per-point impulses (variable time step). A fresh manifold has these at zero.
+   Manifold:=@fIsland.fContactPairs[ContactPairIndex]^.Manifold;
+   TGSState^.FrictionImpulse[0]:=Vector3Dot(Manifold^.CentralFrictionImpulse,TangentVectors[0])*fDeltaTimeRatio;
+   TGSState^.FrictionImpulse[1]:=Vector3Dot(Manifold^.CentralFrictionImpulse,TangentVectors[1])*fDeltaTimeRatio;
+   TGSState^.TwistImpulse:=Manifold^.CentralTwistImpulse*fDeltaTimeRatio;
+   TGSState^.RollingImpulse:=Vector3ScalarMul(Manifold^.CentralRollingImpulse,fDeltaTimeRatio);
+   TGSState^.TangentVelocity[0]:=0.0;
+   TGSState^.TangentVelocity[1]:=0.0;
+
+  end;
+
  end;
 
 end;
@@ -50086,6 +50227,7 @@ procedure TKraftSolver.WarmStartSubStep;
 var ContactPairIndex,ContactIndex,IndexA,IndexB,CountPoints:TKraftInt32;
     VelocityState:PKraftSolverVelocityState;
     ContactPoint:PKraftSolverVelocityStateContactPoint;
+    TGSState:PKraftSolverTGSContactState;
     iA,iB:PKraftMatrix3x3;
     mA,mB:TKraftScalar;
     Normal,vA,lA,wA,vB,lB,wB,P:TKraftVector3;
@@ -50096,6 +50238,7 @@ begin
  for ContactPairIndex:=0 to fCountContacts-1 do begin
 
   VelocityState:=@fVelocityStates[ContactPairIndex];
+  TGSState:=@fTGSContactStates[ContactPairIndex];
 
   // Load the contact pair state.
   IndexA:=VelocityState^.Indices[0];
@@ -50121,16 +50264,35 @@ begin
 
    ContactPoint:=@VelocityState^.Points[ContactIndex];
 
-   // Combined normal + tangent impulse of this point.
-   P:=Vector3Add(Vector3ScalarMul(Normal,ContactPoint^.NormalImpulse),
-                 Vector3Add(Vector3ScalarMul(TangentVectors[0],ContactPoint^.TangentImpulse[0]),
-                            Vector3ScalarMul(TangentVectors[1],ContactPoint^.TangentImpulse[1])));
+   // Normal impulse of this point; friction is warm-started centrally after the loop, not per point.
+   P:=Vector3ScalarMul(Normal,ContactPoint^.NormalImpulse);
 
    Vector3DirectSub(vA,Vector3Mul(P,Vector3ScalarMul(lA,mA)));
    Vector3DirectSub(wA,Vector3TermMatrixMul(Vector3Cross(ContactPoint^.RelativePositions[0],P),iA^));
 
    Vector3DirectAdd(vB,Vector3Mul(P,Vector3ScalarMul(lB,mB)));
    Vector3DirectAdd(wB,Vector3TermMatrixMul(Vector3Cross(ContactPoint^.RelativePositions[1],P),iB^));
+
+  end;
+
+  // Central friction / twist / rolling warm start, anchored at the manifold centroid.
+  if CountPoints>0 then begin
+
+   // Central tangential friction at the origin.
+   P:=Vector3Add(Vector3ScalarMul(TangentVectors[0],TGSState^.FrictionImpulse[0]),Vector3ScalarMul(TangentVectors[1],TGSState^.FrictionImpulse[1]));
+   Vector3DirectSub(vA,Vector3Mul(P,Vector3ScalarMul(lA,mA)));
+   Vector3DirectSub(wA,Vector3TermMatrixMul(Vector3Cross(TGSState^.OriginA,P),iA^));
+   Vector3DirectAdd(vB,Vector3Mul(P,Vector3ScalarMul(lB,mB)));
+   Vector3DirectAdd(wB,Vector3TermMatrixMul(Vector3Cross(TGSState^.OriginB,P),iB^));
+
+   // Central twist about the normal.
+   P:=Vector3ScalarMul(Normal,TGSState^.TwistImpulse);
+   Vector3DirectSub(wA,Vector3TermMatrixMul(P,iA^));
+   Vector3DirectAdd(wB,Vector3TermMatrixMul(P,iB^));
+
+   // Rolling resistance (angular only).
+   Vector3DirectSub(wA,Vector3TermMatrixMul(TGSState^.RollingImpulse,iA^));
+   Vector3DirectAdd(wB,Vector3TermMatrixMul(TGSState^.RollingImpulse,iB^));
 
   end;
 
@@ -50145,13 +50307,13 @@ begin
 end;
 
 procedure TKraftSolver.SolveVelocitySubStep(const TimeStep:TKraftTimeStep;const aUseBias:boolean);
-var ContactPairIndex,ContactIndex,TangentIndex,IndexA,IndexB,CountPoints:TKraftInt32;
+var ContactPairIndex,ContactIndex,IndexA,IndexB,CountPoints:TKraftInt32;
     VelocityState:PKraftSolverVelocityState;
     ContactPoint:PKraftSolverVelocityStateContactPoint;
     TGSState:PKraftSolverTGSContactState;
     iA,iB:PKraftMatrix3x3;
-    mA,mB,Friction,Lambda,MaxLambda,vn,Old,Separation,Bias,MassScale,ImpulseScale,MaxBiasVelocity,InverseH:TKraftScalar;
-    Normal,vA,lA,wA,rA,vB,lB,wB,rB,dv,P,dcA,dcB:TKraftVector3;
+    mA,mB,Friction,Lambda,MaxLambda,vn,Old,Separation,Bias,MassScale,ImpulseScale,MaxBiasVelocity,InverseH,TotalNormalImpulse,TotalTwistLimit,TwistSpeed,MagSqr,LenSqr,Scale,NewX,NewY,DX,DY,VTx,VTy,TMx,TMy:TKraftScalar;
+    Normal,vA,lA,wA,rA,vB,lB,wB,rB,dv,P,dcA,dcB,dw,DeltaRoll,OldRoll:TKraftVector3;
     TangentVectors:array[0..1] of TKraftVector3;
 begin
 
@@ -50187,6 +50349,10 @@ begin
   // Accumulated centre-of-mass delta positions since prepare (anchors are kept at their prepare value).
   dcA:=Vector3Sub(fPositions[IndexA].Position,fPrepareCenters[IndexA]);
   dcB:=Vector3Sub(fPositions[IndexB].Position,fPrepareCenters[IndexB]);
+
+  // Central-friction limits accumulated over the normal loop.
+  TotalNormalImpulse:=0.0;
+  TotalTwistLimit:=0.0;
 
   // Normal constraint first (soft), so friction can clamp against the fresh normal impulse.
   for ContactIndex:=0 to CountPoints-1 do begin
@@ -50243,41 +50409,93 @@ begin
    Vector3DirectAdd(vB,Vector3Mul(P,Vector3ScalarMul(lB,mB)));
    Vector3DirectAdd(wB,Vector3TermMatrixMul(Vector3Cross(rB,P),iB^));
 
+   // Accumulate the totals the central friction limits need.
+   TotalNormalImpulse:=TotalNormalImpulse+ContactPoint^.NormalImpulse;
+   TotalTwistLimit:=TotalTwistLimit+(TGSState^.LeverArms[ContactIndex]*ContactPoint^.NormalImpulse);
+
   end;
 
-  // Friction after the normal impulse, clamped to the Coulomb cone of the current normal impulse.
-  if fEnableFriction then begin
+  // Central friction, twist and rolling resistance, anchored at the manifold centroid.
+  // It run ONLY in the relax pass (no bias) — "no friction when applying bias" - which is what
+  // keeps tall stacks stable. Order: twist, then rolling, then the 2x2 tangential friction.
+  if (CountPoints>0) and not aUseBias then begin
 
-   for ContactIndex:=0 to CountPoints-1 do begin
+   // Central twist friction about the normal, limited by friction * sum(leverArm*normalImpulse).
+   if TGSState^.TwistMass>0.0 then begin
 
-    ContactPoint:=@VelocityState^.Points[ContactIndex];
+    // Relative twist velocity about the normal and its clamped impulse.
+    TwistSpeed:=Vector3Dot(Normal,Vector3Sub(wB,wA));
+    MaxLambda:=Friction*TotalTwistLimit;
+    Lambda:=(-TGSState^.TwistMass)*TwistSpeed;
+    Old:=TGSState^.TwistImpulse;
+    TGSState^.TwistImpulse:=Min(Max(Old+Lambda,-MaxLambda),MaxLambda);
+    Lambda:=TGSState^.TwistImpulse-Old;
 
-    rA:=ContactPoint^.RelativePositions[0];
-    rB:=ContactPoint^.RelativePositions[1];
+    // Apply about the normal.
+    P:=Vector3ScalarMul(Normal,Lambda);
+    Vector3DirectSub(wA,Vector3TermMatrixMul(P,iA^));
+    Vector3DirectAdd(wB,Vector3TermMatrixMul(P,iB^));
 
-    MaxLambda:=Friction*ContactPoint^.NormalImpulse;
+   end;
 
-    // Two tangent directions per point.
-    for TangentIndex:=0 to 1 do begin
+   // Rolling resistance (angular only), magnitude-clamped to rollingResistance * sum(normalImpulse).
+   if VelocityState^.RollingResistance>0.0 then begin
 
-     // Tangential relative velocity and its impulse, clamped into the friction cone.
-     dv:=Vector3Sub(Vector3Add(vB,Vector3Cross(wB,rB)),Vector3Add(vA,Vector3Cross(wA,rA)));
-     Lambda:=(-Vector3Dot(dv,TangentVectors[TangentIndex]))*ContactPoint^.TangentMass[TangentIndex];
+    // Unclamped rolling impulse from the relative angular velocity.
+    dw:=Vector3Sub(wB,wA);
+    DeltaRoll:=Vector3Neg(Vector3TermMatrixMul(dw,TGSState^.RollingMass));
+    OldRoll:=TGSState^.RollingImpulse;
+    TGSState^.RollingImpulse:=Vector3Add(OldRoll,DeltaRoll);
 
-     Old:=ContactPoint^.TangentImpulse[TangentIndex];
-     ContactPoint^.TangentImpulse[TangentIndex]:=Min(Max(Old+Lambda,-MaxLambda),MaxLambda);
-     Lambda:=ContactPoint^.TangentImpulse[TangentIndex]-Old;
-
-     // Apply the delta friction impulse to both bodies.
-     P:=Vector3ScalarMul(TangentVectors[TangentIndex],Lambda);
-
-     Vector3DirectSub(vA,Vector3Mul(P,Vector3ScalarMul(lA,mA)));
-     Vector3DirectSub(wA,Vector3TermMatrixMul(Vector3Cross(rA,P),iA^));
-
-     Vector3DirectAdd(vB,Vector3Mul(P,Vector3ScalarMul(lB,mB)));
-     Vector3DirectAdd(wB,Vector3TermMatrixMul(Vector3Cross(rB,P),iB^));
-
+    // Clamp the accumulated impulse magnitude to the rolling-resistance budget.
+    MaxLambda:=VelocityState^.RollingResistance*TotalNormalImpulse;
+    MagSqr:=Vector3LengthSquared(TGSState^.RollingImpulse);
+    if MagSqr>((MaxLambda*MaxLambda)+EPSILON) then begin
+     TGSState^.RollingImpulse:=Vector3ScalarMul(TGSState^.RollingImpulse,MaxLambda/sqrt(MagSqr));
     end;
+    DeltaRoll:=Vector3Sub(TGSState^.RollingImpulse,OldRoll);
+
+    // Apply the delta (angular only).
+    Vector3DirectSub(wA,Vector3TermMatrixMul(DeltaRoll,iA^));
+    Vector3DirectAdd(wB,Vector3TermMatrixMul(DeltaRoll,iB^));
+
+   end;
+
+   // Central tangential friction (2x2 at the centroid), clamped into the Coulomb cone of sum(normalImpulse).
+   if fEnableFriction then begin
+
+    // Tangential relative velocity at the centroid anchors (minus any surface velocity).
+    rA:=TGSState^.OriginA;
+    rB:=TGSState^.OriginB;
+    dv:=Vector3Sub(Vector3Add(vB,Vector3Cross(wB,rB)),Vector3Add(vA,Vector3Cross(wA,rA)));
+    VTx:=Vector3Dot(dv,TangentVectors[0])-TGSState^.TangentVelocity[0];
+    VTy:=Vector3Dot(dv,TangentVectors[1])-TGSState^.TangentVelocity[1];
+
+    // Unclamped 2x2 impulse (TangentMass2x2 is symmetric, so this is TangentMass2x2 * (VTx,VTy)).
+    TMx:=(TGSState^.TangentMass2x2[0,0]*VTx)+(TGSState^.TangentMass2x2[0,1]*VTy);
+    TMy:=(TGSState^.TangentMass2x2[1,0]*VTx)+(TGSState^.TangentMass2x2[1,1]*VTy);
+    NewX:=TGSState^.FrictionImpulse[0]-TMx;
+    NewY:=TGSState^.FrictionImpulse[1]-TMy;
+
+    // Clamp the accumulated impulse into the friction circle.
+    MaxLambda:=Friction*TotalNormalImpulse;
+    LenSqr:=(NewX*NewX)+(NewY*NewY);
+    if LenSqr>(MaxLambda*MaxLambda) then begin
+     Scale:=MaxLambda/sqrt(LenSqr);
+     NewX:=NewX*Scale;
+     NewY:=NewY*Scale;
+    end;
+    DX:=NewX-TGSState^.FrictionImpulse[0];
+    DY:=NewY-TGSState^.FrictionImpulse[1];
+    TGSState^.FrictionImpulse[0]:=NewX;
+    TGSState^.FrictionImpulse[1]:=NewY;
+
+    // Apply at the centroid (linear + angular).
+    P:=Vector3Add(Vector3ScalarMul(TangentVectors[0],DX),Vector3ScalarMul(TangentVectors[1],DY));
+    Vector3DirectSub(vA,Vector3Mul(P,Vector3ScalarMul(lA,mA)));
+    Vector3DirectSub(wA,Vector3TermMatrixMul(Vector3Cross(rA,P),iA^));
+    Vector3DirectAdd(vB,Vector3Mul(P,Vector3ScalarMul(lB,mB)));
+    Vector3DirectAdd(wB,Vector3TermMatrixMul(Vector3Cross(rB,P),iB^));
 
    end;
 
@@ -50371,6 +50589,41 @@ begin
   fVelocities[IndexA].AngularVelocity:=wA;
   fVelocities[IndexB].LinearVelocity:=vB;
   fVelocities[IndexB].AngularVelocity:=wB;
+
+ end;
+
+end;
+
+procedure TKraftSolver.StoreSoftContactImpulses;
+var ContactPairIndex:TKraftInt32;
+    VelocityState:PKraftSolverVelocityState;
+    TGSState:PKraftSolverTGSContactState;
+    Manifold:PKraftContactManifold;
+    Normal:TKraftVector3;
+    TangentVectors:array[0..1] of TKraftVector3;
+begin
+
+ // Store the central friction / twist / rolling impulses in each persistent manifold, so the next frame's
+ // PrepareContactsSoft can seed them for a cross-frame warm start.
+ for ContactPairIndex:=0 to fCountContacts-1 do begin
+
+  VelocityState:=@fVelocityStates[ContactPairIndex];
+
+  if VelocityState^.CountPoints>0 then begin
+
+   TGSState:=@fTGSContactStates[ContactPairIndex];
+   Manifold:=@fIsland.fContactPairs[ContactPairIndex]^.Manifold;
+
+   // Rebuild the world-space tangential impulse from its tangent-basis components (same basis as prepare/solve).
+   Normal:=VelocityState^.Normal;
+   ComputeBasis(Normal,TangentVectors[0],TangentVectors[1]);
+
+   Manifold^.CentralFrictionImpulse:=Vector3Add(Vector3ScalarMul(TangentVectors[0],TGSState^.FrictionImpulse[0]),
+                                                Vector3ScalarMul(TangentVectors[1],TGSState^.FrictionImpulse[1]));
+   Manifold^.CentralTwistImpulse:=TGSState^.TwistImpulse;
+   Manifold^.CentralRollingImpulse:=TGSState^.RollingImpulse;
+
+  end;
 
  end;
 
@@ -51287,6 +51540,9 @@ begin
 
  fSolver.StoreImpulses;
 
+ // Carry the central friction / twist / rolling impulses into the persistent manifolds, for next frame's warm start.
+ fSolver.StoreSoftContactImpulses;
+
  // Break breakable constraints whose final reaction exceeds their threshold (same test as the classic path),
  // so the position correction below and the next step skip them.
  for Index:=0 to fCountConstraints-1 do begin
@@ -51812,6 +52068,8 @@ begin
 
  fCountRigidBodies:=0;
  fRigidBodyIDCounter:=0;
+
+ fShapeIDCounter:=0;
 
  fRigidBodyFirst:=nil;
  fRigidBodyLast:=nil;
