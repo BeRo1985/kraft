@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-07-03-11-24-0000                       *
+ *                        Version 2026-07-03-13-34-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -3745,10 +3745,30 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fAccumulatedImpulse:TKraftVector3;
        fBiasVector:TKraftVector3;
        fInverseMassMatrix:TKraftMatrix3x3;
+       // Cone/twist limits (opt-in, default off; the point-to-point core is unchanged when both are disabled).
+       fEnableConeLimit:boolean;
+       fEnableTwistLimit:boolean;
+       fConeHalfAngle:TKraftScalar;
+       fLowerTwistAngle:TKraftScalar;
+       fUpperTwistAngle:TKraftScalar;
+       fLocalTwistAxis:TKraftVector3;              // twist axis in body A local space
+       fReferenceOrientation:TKraftQuaternion;     // neutral relative orientation qB*conj(qA), snapshotted at setup
+       fSwingAxis:TKraftVector3;                   // world swing axis, filled in InitializeConstraintsAndWarmStart
+       fWorldTwistAxis:TKraftVector3;              // world twist axis
+       fSwingMass:TKraftScalar;
+       fTwistMass:TKraftScalar;
+       fConeError:TKraftScalar;                    // swingAngle - coneHalfAngle (>0 = violated)
+       fTwistError:TKraftScalar;                   // signed limit violation (>0 = violated)
+       fAccumulatedConeImpulse:TKraftScalar;
+       fAccumulatedTwistImpulse:TKraftScalar;
       public
        constructor Create(const aPhysics:TKraft;const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const AWorldAnchorPoint:TKraftVector3;const ACollideConnected:boolean=false); reintroduce; overload;
        constructor Create(const aPhysics:TKraft;const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const ALocalAnchorPointA,ALocalAnchorPointB:TKraftVector3;const ACollideConnected:boolean=false); reintroduce; overload;
        destructor Destroy; override;
+       // Enables swing-cone and/or twist limits and snapshots the CURRENT relative orientation as the neutral pose.
+       // aLocalTwistAxisA is the twist axis in body A local space; if (near) zero it defaults to the current
+       // anchor-A->anchor-B direction expressed in body A local space.
+       procedure SetSwingTwistLimits(const aEnableCone:boolean;const aConeHalfAngle:TKraftScalar;const aEnableTwist:boolean;const aLowerTwistAngle,aUpperTwistAngle:TKraftScalar;const aLocalTwistAxisA:TKraftVector3);
        procedure InitializeConstraintsAndWarmStart(const Island:TKraftIsland;const TimeStep:TKraftTimeStep); override;
        procedure SolveVelocityConstraint(const Island:TKraftIsland;const TimeStep:TKraftTimeStep); override;
        function SolvePositionConstraint(const Island:TKraftIsland;const TimeStep:TKraftTimeStep):boolean; override;
@@ -3756,6 +3776,11 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        function GetAnchorB:TKraftVector3; override;
        function GetReactionForce(const InverseDeltaTime:TKraftScalar):TKraftVector3; override;
        function GetReactionTorque(const InverseDeltaTime:TKraftScalar):TKraftVector3; override;
+       property EnableConeLimit:boolean read fEnableConeLimit write fEnableConeLimit;
+       property ConeHalfAngle:TKraftScalar read fConeHalfAngle write fConeHalfAngle;
+       property EnableTwistLimit:boolean read fEnableTwistLimit write fEnableTwistLimit;
+       property LowerTwistAngle:TKraftScalar read fLowerTwistAngle write fLowerTwistAngle;
+       property UpperTwistAngle:TKraftScalar read fUpperTwistAngle write fUpperTwistAngle;
      end;
 
      // Forbids any translation or rotation between two bodies.
@@ -3944,6 +3969,185 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure SetMaximumTranslationLimit(const AMaximumTranslationLimit:TKraftScalar); virtual;
        procedure SetMotorSpeed(const AMotorSpeed:TKraftScalar); virtual;
        procedure SetMaximalMotorForce(const AMaximalMotorForce:TKraftScalar); virtual;
+     end;
+
+     // Keeps the frame of body B parallel to the frame of body A about two axes (an "upright"-style angular
+     // spring), leaving the twist about the shared axis free. Purely angular.
+     TKraftConstraintJointParallel=class(TKraftConstraintJoint)
+      private
+       fIslandIndices:array[0..1] of TKraftInt32;
+       fSolverVelocities:array[0..1] of PKraftSolverVelocity;
+       fSolverPositions:array[0..1] of PKraftSolverPosition;
+       fWorldInverseInertiaTensors:array[0..1] of TKraftMatrix3x3;
+       fLocalFrames:array[0..1] of TKraftQuaternion;   // reference frame per body (snapshot of conj(orientation) at creation)
+       fFrequencyHz:TKraftScalar;
+       fDampingRatio:TKraftScalar;
+       fMaximalTorque:TKraftScalar;
+       fPerpAxes:array[0..1] of TKraftVector3;          // world Jacobian axes, computed in Init
+       fPerpImpulse:array[0..1] of TKraftScalar;        // accumulated
+       fKxx,fKyy,fKxy:TKraftScalar;                     // 2x2 effective mass
+       fBias:array[0..1] of TKraftScalar;               // biasRate * position error, computed in Init
+       fMassScale,fImpulseScale:TKraftScalar;
+      public
+       constructor Create(const aPhysics:TKraft;const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const AFrequencyHz:TKraftScalar=5.0;const ADampingRatio:TKraftScalar=1.0;const AMaximalTorque:TKraftScalar=MAX_SCALAR;const ACollideConnected:boolean=false); reintroduce;
+       destructor Destroy; override;
+       procedure InitializeConstraintsAndWarmStart(const Island:TKraftIsland;const TimeStep:TKraftTimeStep); override;
+       procedure SolveVelocityConstraint(const Island:TKraftIsland;const TimeStep:TKraftTimeStep); override;
+       function SolvePositionConstraint(const Island:TKraftIsland;const TimeStep:TKraftTimeStep):boolean; override;
+       function GetAnchorA:TKraftVector3; override;
+       function GetAnchorB:TKraftVector3; override;
+       function GetReactionForce(const InverseDeltaTime:TKraftScalar):TKraftVector3; override;
+       function GetReactionTorque(const InverseDeltaTime:TKraftScalar):TKraftVector3; override;
+       property FrequencyHz:TKraftScalar read fFrequencyHz write fFrequencyHz;
+       property DampingRatio:TKraftScalar read fDampingRatio write fDampingRatio;
+       property MaximalTorque:TKraftScalar read fMaximalTorque write fMaximalTorque;
+     end;
+
+     // Soft 6-DOF servo that drives the relative pose/velocity of body B towards a target relative to body A.
+     // Four independent force-limited sub-constraints (angular spring, angular velocity motor, linear spring,
+     // linear velocity motor). No hard constraint. All maxima default to 0 (off), so the joint does nothing
+     // until configured. Configure via the properties after construction.
+     TKraftConstraintJointMotor=class(TKraftConstraintJoint)
+      private
+       fIslandIndices:array[0..1] of TKraftInt32;
+       fInverseMasses:array[0..1] of TKraftScalar;
+       fSolverVelocities:array[0..1] of PKraftSolverVelocity;
+       fSolverPositions:array[0..1] of PKraftSolverPosition;
+       fSolverLinearFactors:array[0..1] of PKraftVector3;
+       fWorldInverseInertiaTensors:array[0..1] of TKraftMatrix3x3;
+       fRelativePositions:array[0..1] of TKraftVector3;
+       fLocalCenters:array[0..1] of TKraftVector3;
+       fLocalAnchors:array[0..1] of TKraftVector3;
+       fInverseReferenceOrientation:TKraftQuaternion;  // neutral relative orientation, snapshotted at creation
+       fLinearVelocityTarget:TKraftVector3;
+       fAngularVelocityTarget:TKraftVector3;
+       fMaximalVelocityForce:TKraftScalar;
+       fMaximalVelocityTorque:TKraftScalar;
+       fLinearFrequencyHz:TKraftScalar;
+       fLinearDampingRatio:TKraftScalar;
+       fMaximalSpringForce:TKraftScalar;
+       fAngularFrequencyHz:TKraftScalar;
+       fAngularDampingRatio:TKraftScalar;
+       fMaximalSpringTorque:TKraftScalar;
+       fInverseAngularMass:TKraftMatrix3x3;            // inv(iA+iB)
+       fInverseLinearMass:TKraftMatrix3x3;             // inv(point-to-point K)
+       fLinearSpringBias,fAngularSpringBias:TKraftVector3;
+       fLinearSpringMassScale,fLinearSpringImpulseScale:TKraftScalar;
+       fAngularSpringMassScale,fAngularSpringImpulseScale:TKraftScalar;
+       fLinearVelocityImpulse:TKraftVector3;
+       fAngularVelocityImpulse:TKraftVector3;
+       fLinearSpringImpulse:TKraftVector3;
+       fAngularSpringImpulse:TKraftVector3;
+      public
+       constructor Create(const aPhysics:TKraft;const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const AWorldAnchorPoint:TKraftVector3;const ACollideConnected:boolean=false); reintroduce;
+       destructor Destroy; override;
+       procedure InitializeConstraintsAndWarmStart(const Island:TKraftIsland;const TimeStep:TKraftTimeStep); override;
+       procedure SolveVelocityConstraint(const Island:TKraftIsland;const TimeStep:TKraftTimeStep); override;
+       function SolvePositionConstraint(const Island:TKraftIsland;const TimeStep:TKraftTimeStep):boolean; override;
+       function GetAnchorA:TKraftVector3; override;
+       function GetAnchorB:TKraftVector3; override;
+       function GetReactionForce(const InverseDeltaTime:TKraftScalar):TKraftVector3; override;
+       function GetReactionTorque(const InverseDeltaTime:TKraftScalar):TKraftVector3; override;
+       property LinearVelocityTarget:TKraftVector3 read fLinearVelocityTarget write fLinearVelocityTarget;
+       property AngularVelocityTarget:TKraftVector3 read fAngularVelocityTarget write fAngularVelocityTarget;
+       property MaximalVelocityForce:TKraftScalar read fMaximalVelocityForce write fMaximalVelocityForce;
+       property MaximalVelocityTorque:TKraftScalar read fMaximalVelocityTorque write fMaximalVelocityTorque;
+       property LinearFrequencyHz:TKraftScalar read fLinearFrequencyHz write fLinearFrequencyHz;
+       property LinearDampingRatio:TKraftScalar read fLinearDampingRatio write fLinearDampingRatio;
+       property MaximalSpringForce:TKraftScalar read fMaximalSpringForce write fMaximalSpringForce;
+       property AngularFrequencyHz:TKraftScalar read fAngularFrequencyHz write fAngularFrequencyHz;
+       property AngularDampingRatio:TKraftScalar read fAngularDampingRatio write fAngularDampingRatio;
+       property MaximalSpringTorque:TKraftScalar read fMaximalSpringTorque write fMaximalSpringTorque;
+     end;
+
+     // Wheel joint (body A = chassis, body B = wheel). Both bodies share a reference frame captured at
+     // construction time: its x-axis is the suspension axis (fixed on the chassis), its z-axis is the spin
+     // axis (fixed on the wheel). The wheel translates along the suspension axis with an optional spring
+     // and limit, spins about the spin axis with an optional motor, can steer about the suspension axis
+     // with an optional spring and limit, and is otherwise held rigidly by a collinearity and a
+     // point-to-line constraint.
+     TKraftConstraintJointWheel=class(TKraftConstraintJoint)
+      private
+       fIslandIndices:array[0..1] of TKraftInt32;
+       fInverseMasses:array[0..1] of TKraftScalar;
+       fSolverVelocities:array[0..1] of PKraftSolverVelocity;
+       fSolverPositions:array[0..1] of PKraftSolverPosition;
+       fSolverLinearFactors:array[0..1] of PKraftVector3;
+       fWorldInverseInertiaTensors:array[0..1] of TKraftMatrix3x3;
+       fRelativePositions:array[0..1] of TKraftVector3;
+       fLocalCenters:array[0..1] of TKraftVector3;
+       fLocalAnchors:array[0..1] of TKraftVector3;
+       fLocalFrames:array[0..1] of TKraftQuaternion;   // reference frame in each body's local space
+       // Configuration (all optional features default off = a rigid point-to-line + collinearity coupling):
+       fEnableSuspensionSpring:boolean;
+       fSuspensionFrequencyHz:TKraftScalar;
+       fSuspensionDampingRatio:TKraftScalar;
+       fEnableSuspensionLimit:boolean;
+       fLowerSuspensionLimit:TKraftScalar;
+       fUpperSuspensionLimit:TKraftScalar;
+       fEnableSpinMotor:boolean;
+       fMaximalSpinTorque:TKraftScalar;
+       fSpinSpeed:TKraftScalar;
+       fEnableSteering:boolean;
+       fSteeringFrequencyHz:TKraftScalar;
+       fSteeringDampingRatio:TKraftScalar;
+       fTargetSteeringAngle:TKraftScalar;
+       fMaximalSteeringTorque:TKraftScalar;
+       fEnableSteeringLimit:boolean;
+       fLowerSteeringLimit:TKraftScalar;
+       fUpperSteeringLimit:TKraftScalar;
+       // Cached in InitializeConstraintsAndWarmStart (frame axes = matrixA.cx/cy/cz and matrixB.cz):
+       fWorldSuspensionAxis:TKraftVector3;             // matrixA.cx
+       fFrameYAxisA:TKraftVector3;                     // matrixA.cy
+       fFrameZAxisA:TKraftVector3;                     // matrixA.cz
+       fWorldSpinAxis:TKraftVector3;                   // matrixB.cz
+       fSteeringAxis:TKraftVector3;
+       fCollinearAxis:TKraftVector3;                   // 1-DOF collinearity axis (steering enabled)
+       fPerpCollinearAxes:array[0..1] of TKraftVector3;// 2x2 collinearity axes (steering disabled)
+       fSAX,fSBX,fSAY,fSAZ,fSBY,fSBZ:TKraftVector3;    // Jacobian angular rows
+       fSuspensionMass,fSpinMass,fSteeringMass,fCollinearMass:TKraftScalar;
+       fTranslation,fSteeringAngle:TKraftScalar;
+       fBiasFactor:TKraftScalar;                       // Baumgarte factor (constraintBaumgarte / h)
+       fSuspensionSpringMassScale,fSuspensionSpringImpulseScale,fSuspensionSpringBias:TKraftScalar;
+       fSteeringSpringMassScale,fSteeringSpringImpulseScale,fSteeringSpringBias:TKraftScalar;
+       fCollinearKxx,fCollinearKyy,fCollinearKxy:TKraftScalar;
+       fCollinearBias:array[0..1] of TKraftScalar;
+       fCollinearBias1DOF:TKraftScalar;
+       fPointToLineKyy,fPointToLineKzz,fPointToLineKyz:TKraftScalar;
+       fPointToLineBias:array[0..1] of TKraftScalar;
+       // Accumulated impulses:
+       fSpinImpulse:TKraftScalar;
+       fSuspensionSpringImpulse,fLowerSuspensionImpulse,fUpperSuspensionImpulse:TKraftScalar;
+       fSteeringSpringImpulse,fLowerSteeringImpulse,fUpperSteeringImpulse:TKraftScalar;
+       fCollinearImpulse:array[0..1] of TKraftScalar;  // [0] doubles as the 1-DOF impulse when steering
+       fPointToLineImpulse:array[0..1] of TKraftScalar;
+      public
+       constructor Create(const aPhysics:TKraft;const AChassis,AWheel:TKraftRigidBody;const AWorldAnchorPoint,AWorldSuspensionAxis,AWorldSpinAxis:TKraftVector3;const ACollideConnected:boolean=false); reintroduce;
+       destructor Destroy; override;
+       procedure InitializeConstraintsAndWarmStart(const Island:TKraftIsland;const TimeStep:TKraftTimeStep); override;
+       procedure SolveVelocityConstraint(const Island:TKraftIsland;const TimeStep:TKraftTimeStep); override;
+       function SolvePositionConstraint(const Island:TKraftIsland;const TimeStep:TKraftTimeStep):boolean; override;
+       function GetAnchorA:TKraftVector3; override;
+       function GetAnchorB:TKraftVector3; override;
+       function GetReactionForce(const InverseDeltaTime:TKraftScalar):TKraftVector3; override;
+       function GetReactionTorque(const InverseDeltaTime:TKraftScalar):TKraftVector3; override;
+       property EnableSuspensionSpring:boolean read fEnableSuspensionSpring write fEnableSuspensionSpring;
+       property SuspensionFrequencyHz:TKraftScalar read fSuspensionFrequencyHz write fSuspensionFrequencyHz;
+       property SuspensionDampingRatio:TKraftScalar read fSuspensionDampingRatio write fSuspensionDampingRatio;
+       property EnableSuspensionLimit:boolean read fEnableSuspensionLimit write fEnableSuspensionLimit;
+       property LowerSuspensionLimit:TKraftScalar read fLowerSuspensionLimit write fLowerSuspensionLimit;
+       property UpperSuspensionLimit:TKraftScalar read fUpperSuspensionLimit write fUpperSuspensionLimit;
+       property EnableSpinMotor:boolean read fEnableSpinMotor write fEnableSpinMotor;
+       property MaximalSpinTorque:TKraftScalar read fMaximalSpinTorque write fMaximalSpinTorque;
+       property SpinSpeed:TKraftScalar read fSpinSpeed write fSpinSpeed;
+       property EnableSteering:boolean read fEnableSteering write fEnableSteering;
+       property SteeringFrequencyHz:TKraftScalar read fSteeringFrequencyHz write fSteeringFrequencyHz;
+       property SteeringDampingRatio:TKraftScalar read fSteeringDampingRatio write fSteeringDampingRatio;
+       property TargetSteeringAngle:TKraftScalar read fTargetSteeringAngle write fTargetSteeringAngle;
+       property MaximalSteeringTorque:TKraftScalar read fMaximalSteeringTorque write fMaximalSteeringTorque;
+       property EnableSteeringLimit:boolean read fEnableSteeringLimit write fEnableSteeringLimit;
+       property LowerSteeringLimit:TKraftScalar read fLowerSteeringLimit write fLowerSteeringLimit;
+       property UpperSteeringLimit:TKraftScalar read fUpperSteeringLimit write fUpperSteeringLimit;
      end;
 
      PKraftSolverVelocityStateContactPoint=^TKraftSolverVelocityStateContactPoint;
@@ -45492,6 +45696,17 @@ begin
 
  fAccumulatedImpulse:=Vector3Origin;
 
+ // Cone/twist limits default off, so the point-to-point behaviour is unchanged until SetSwingTwistLimits is called.
+ fEnableConeLimit:=false;
+ fEnableTwistLimit:=false;
+ fConeHalfAngle:=0.0;
+ fLowerTwistAngle:=0.0;
+ fUpperTwistAngle:=0.0;
+ fLocalTwistAxis:=Vector3(0.0,1.0,0.0);
+ fReferenceOrientation:=QuaternionIdentity;
+ fAccumulatedConeImpulse:=0.0;
+ fAccumulatedTwistImpulse:=0.0;
+
  if ACollideConnected then begin
   Include(fFlags,kcfCollideConnected);
  end else begin
@@ -45513,6 +45728,17 @@ begin
 
  fAccumulatedImpulse:=Vector3Origin;
 
+ // Cone/twist limits default off, so the point-to-point behaviour is unchanged until SetSwingTwistLimits is called.
+ fEnableConeLimit:=false;
+ fEnableTwistLimit:=false;
+ fConeHalfAngle:=0.0;
+ fLowerTwistAngle:=0.0;
+ fUpperTwistAngle:=0.0;
+ fLocalTwistAxis:=Vector3(0.0,1.0,0.0);
+ fReferenceOrientation:=QuaternionIdentity;
+ fAccumulatedConeImpulse:=0.0;
+ fAccumulatedTwistImpulse:=0.0;
+
  if ACollideConnected then begin
   Include(fFlags,kcfCollideConnected);
  end else begin
@@ -45532,12 +45758,43 @@ begin
  inherited Destroy;
 end;
 
+procedure TKraftConstraintJointBallSocket.SetSwingTwistLimits(const aEnableCone:boolean;const aConeHalfAngle:TKraftScalar;const aEnableTwist:boolean;const aLowerTwistAngle,aUpperTwistAngle:TKraftScalar;const aLocalTwistAxisA:TKraftVector3);
+var WorldAxis:TKraftVector3;
+begin
+
+ fEnableConeLimit:=aEnableCone;
+ fEnableTwistLimit:=aEnableTwist;
+ fConeHalfAngle:=aConeHalfAngle;
+ fLowerTwistAngle:=aLowerTwistAngle;
+ fUpperTwistAngle:=aUpperTwistAngle;
+
+ // Twist axis in body A local space; default to the current anchor-A->anchor-B direction when none is given.
+ if Vector3LengthSquared(aLocalTwistAxisA)>EPSILON then begin
+  fLocalTwistAxis:=Vector3Norm(aLocalTwistAxisA);
+ end else begin
+  WorldAxis:=Vector3Sub(GetAnchorB,GetAnchorA);
+  if Vector3LengthSquared(WorldAxis)>EPSILON then begin
+   fLocalTwistAxis:=Vector3Norm(Vector3TermQuaternionRotate(Vector3Norm(WorldAxis),QuaternionConjugate(fRigidBodies[0].fSweep.q)));
+  end else begin
+   fLocalTwistAxis:=Vector3(0.0,1.0,0.0);
+  end;
+ end;
+
+ // Snapshot the neutral pose as the INVERSE of the current relative orientation qB*inv(qA), matching the
+ // convention of the Fixed joint. In Init the current deviation is then current*fReferenceOrientation.
+ fReferenceOrientation:=QuaternionInverse(QuaternionTermNormalize(QuaternionMul(fRigidBodies[1].fSweep.q,QuaternionInverse(fRigidBodies[0].fSweep.q))));
+
+end;
+
 procedure TKraftConstraintJointBallSocket.InitializeConstraintsAndWarmStart(const Island:TKraftIsland;const TimeStep:TKraftTimeStep);
 var cA,vA,wA,cB,vB,wB:PKraftVector3;
     qA,qB:PKraftQuaternion;
     InverseMassOfBodies,BiasFactor:TKraftScalar;
     SkewSymmetricMatrices:array[0..1] of TKraftMatrix3x3;
     MassMatrix:TKraftMatrix3x3;
+    CurrentOrientationDifference,qDelta,TwistQ,SwingQ:TKraftQuaternion;
+    TwistDot,SwingLength,SwingAngle,ConeMass,TwistMass:TKraftScalar;
+    TwistAxisWorld,ConeP,TwistP:TKraftVector3;
 begin
 
  fIslandIndices[0]:=fRigidBodies[0].fIslandIndices[Island.fIslandIndex];
@@ -45630,11 +45887,81 @@ begin
 
  end;
 
+ // Cone/twist limits (opt-in): swing-twist decomposition of the deviation from the neutral pose, plus the
+ // scalar effective masses and warm start. Skipped entirely when neither limit is enabled.
+ if fEnableConeLimit or fEnableTwistLimit then begin
+
+  // Current relative orientation and its deviation from the neutral snapshot.
+  CurrentOrientationDifference:=QuaternionTermNormalize(QuaternionMul(qB^,QuaternionInverse(qA^)));
+  qDelta:=QuaternionMul(CurrentOrientationDifference,fReferenceOrientation);
+
+  // Take the shortest arc so the angles stay in a sensible range.
+  if qDelta.w<0.0 then begin
+   qDelta.x:=-qDelta.x;
+   qDelta.y:=-qDelta.y;
+   qDelta.z:=-qDelta.z;
+   qDelta.w:=-qDelta.w;
+  end;
+
+  // Twist axis: fLocalTwistAxis lives in body A local space, rotate it into world.
+  TwistAxisWorld:=Vector3Norm(Vector3TermQuaternionRotate(fLocalTwistAxis,qA^));
+  fWorldTwistAxis:=TwistAxisWorld;
+
+  // Split qDelta into a twist around TwistAxisWorld and the remaining swing.
+  TwistDot:=(qDelta.x*TwistAxisWorld.x)+(qDelta.y*TwistAxisWorld.y)+(qDelta.z*TwistAxisWorld.z);
+  TwistQ.x:=TwistDot*TwistAxisWorld.x;
+  TwistQ.y:=TwistDot*TwistAxisWorld.y;
+  TwistQ.z:=TwistDot*TwistAxisWorld.z;
+  TwistQ.w:=qDelta.w;
+  TwistQ:=QuaternionTermNormalize(TwistQ);
+  SwingQ:=QuaternionMul(qDelta,QuaternionConjugate(TwistQ));
+
+  // Signed twist angle and swing angle/axis.
+  fTwistError:=2.0*ArcTan2(TwistDot,qDelta.w);
+  SwingLength:=sqrt(sqr(SwingQ.x)+sqr(SwingQ.y)+sqr(SwingQ.z));
+  SwingAngle:=2.0*ArcTan2(SwingLength,SwingQ.w);
+  fConeError:=SwingAngle-fConeHalfAngle;
+  if SwingLength>EPSILON then begin
+   fSwingAxis:=Vector3ScalarMul(Vector3(SwingQ.x,SwingQ.y,SwingQ.z),1.0/SwingLength);
+  end else begin
+   fSwingAxis:=Vector3Origin;
+  end;
+
+  // Effective scalar masses along the swing and twist axes (angular only): 1 / (axis . (iA+iB) . axis).
+  ConeMass:=Vector3Dot(fSwingAxis,Vector3Add(Vector3TermMatrixMul(fSwingAxis,fWorldInverseInertiaTensors[0]),Vector3TermMatrixMul(fSwingAxis,fWorldInverseInertiaTensors[1])));
+  if ConeMass>0.0 then begin
+   fSwingMass:=1.0/ConeMass;
+  end else begin
+   fSwingMass:=0.0;
+  end;
+  TwistMass:=Vector3Dot(fWorldTwistAxis,Vector3Add(Vector3TermMatrixMul(fWorldTwistAxis,fWorldInverseInertiaTensors[0]),Vector3TermMatrixMul(fWorldTwistAxis,fWorldInverseInertiaTensors[1])));
+  if TwistMass>0.0 then begin
+   fTwistMass:=1.0/TwistMass;
+  end else begin
+   fTwistMass:=0.0;
+  end;
+
+  // Warm start the limit impulses (angular only).
+  if fPhysics.fWarmStarting then begin
+   fAccumulatedConeImpulse:=fAccumulatedConeImpulse*TimeStep.DeltaTimeRatio;
+   fAccumulatedTwistImpulse:=fAccumulatedTwistImpulse*TimeStep.DeltaTimeRatio;
+   ConeP:=Vector3ScalarMul(fSwingAxis,fAccumulatedConeImpulse);
+   TwistP:=Vector3ScalarMul(fWorldTwistAxis,fAccumulatedTwistImpulse);
+   Vector3DirectSub(wA^,Vector3TermMatrixMul(Vector3Add(ConeP,TwistP),fWorldInverseInertiaTensors[0]));
+   Vector3DirectAdd(wB^,Vector3TermMatrixMul(Vector3Add(ConeP,TwistP),fWorldInverseInertiaTensors[1]));
+  end else begin
+   fAccumulatedConeImpulse:=0.0;
+   fAccumulatedTwistImpulse:=0.0;
+  end;
+
+ end;
+
 end;
 
 procedure TKraftConstraintJointBallSocket.SolveVelocityConstraint(const Island:TKraftIsland;const TimeStep:TKraftTimeStep);
 var vA,wA,vB,wB:PKraftVector3;
-    vpA,vpB,Jv,Impulse:TKraftVector3;
+    vpA,vpB,Jv,Impulse,LimitP:TKraftVector3;
+    InverseDT,CdotLimit,C,LambdaLimit,Old:TKraftScalar;
 begin
 
  vA:=@fSolverVelocities[0]^.LinearVelocity;
@@ -45659,6 +45986,51 @@ begin
 
  Vector3DirectAdd(vB^,Vector3Mul(Impulse,Vector3ScalarMul(fSolverLinearFactors[1]^,fInverseMasses[1])));
  Vector3DirectAdd(wB^,Vector3TermMatrixMul(Vector3Cross(fRelativePositions[1],Impulse),fWorldInverseInertiaTensors[1]));
+
+ InverseDT:=TimeStep.InverseDeltaTime;
+
+ // Cone limit: upper limit on the swing angle, speculative, pulls the swing back in only.
+ if fEnableConeLimit and (fConeError>0.0) then begin
+
+  CdotLimit:=Vector3Dot(Vector3Sub(wB^,wA^),fSwingAxis);
+  LambdaLimit:=(-fSwingMass)*(CdotLimit+(fConeError*InverseDT));
+
+  Old:=fAccumulatedConeImpulse;
+  fAccumulatedConeImpulse:=Min(Old+LambdaLimit,0.0);
+  LambdaLimit:=fAccumulatedConeImpulse-Old;
+
+  LimitP:=Vector3ScalarMul(fSwingAxis,LambdaLimit);
+  Vector3DirectSub(wA^,Vector3TermMatrixMul(LimitP,fWorldInverseInertiaTensors[0]));
+  Vector3DirectAdd(wB^,Vector3TermMatrixMul(LimitP,fWorldInverseInertiaTensors[1]));
+
+ end;
+
+ // Twist limits: lower/upper on the signed twist angle, speculative, one active side at a time.
+ if fEnableTwistLimit then begin
+
+  CdotLimit:=Vector3Dot(Vector3Sub(wB^,wA^),fWorldTwistAxis);
+
+  if fTwistError<=fLowerTwistAngle then begin
+   C:=fTwistError-fLowerTwistAngle; // <=0, lower limit violated: push toward positive twist
+   LambdaLimit:=(-fTwistMass)*(CdotLimit+(Min(C,0.0)*InverseDT));
+   Old:=fAccumulatedTwistImpulse;
+   fAccumulatedTwistImpulse:=Max(Old+LambdaLimit,0.0);
+   LambdaLimit:=fAccumulatedTwistImpulse-Old;
+  end else if fTwistError>=fUpperTwistAngle then begin
+   C:=fTwistError-fUpperTwistAngle; // >=0, upper limit violated: push toward negative twist
+   LambdaLimit:=(-fTwistMass)*(CdotLimit+(Max(C,0.0)*InverseDT));
+   Old:=fAccumulatedTwistImpulse;
+   fAccumulatedTwistImpulse:=Min(Old+LambdaLimit,0.0);
+   LambdaLimit:=fAccumulatedTwistImpulse-Old;
+  end else begin
+   LambdaLimit:=0.0;
+  end;
+
+  LimitP:=Vector3ScalarMul(fWorldTwistAxis,LambdaLimit);
+  Vector3DirectSub(wA^,Vector3TermMatrixMul(LimitP,fWorldInverseInertiaTensors[0]));
+  Vector3DirectAdd(wB^,Vector3TermMatrixMul(LimitP,fWorldInverseInertiaTensors[1]));
+
+ end;
 
 end;
 
@@ -47329,6 +47701,1097 @@ begin
   fRigidBodies[0].SetToAwake;
   fRigidBodies[1].SetToAwake;
  end;
+end;
+
+constructor TKraftConstraintJointParallel.Create(const aPhysics:TKraft;const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const AFrequencyHz:TKraftScalar=5.0;const ADampingRatio:TKraftScalar=1.0;const AMaximalTorque:TKraftScalar=MAX_SCALAR;const ACollideConnected:boolean=false);
+begin
+
+ fRigidBodies[0]:=ARigidBodyA;
+ fRigidBodies[1]:=ARigidBodyB;
+
+ // Snapshot the current orientations so the current relative alignment becomes the neutral (parallel) pose.
+ fLocalFrames[0]:=QuaternionConjugate(ARigidBodyA.fSweep.q);
+ fLocalFrames[1]:=QuaternionConjugate(ARigidBodyB.fSweep.q);
+
+ fFrequencyHz:=AFrequencyHz;
+ fDampingRatio:=ADampingRatio;
+ fMaximalTorque:=AMaximalTorque;
+
+ fPerpImpulse[0]:=0.0;
+ fPerpImpulse[1]:=0.0;
+
+ if ACollideConnected then begin
+  Include(fFlags,kcfCollideConnected);
+ end else begin
+  Exclude(fFlags,kcfCollideConnected);
+ end;
+
+ inherited Create(aPhysics);
+
+end;
+
+destructor TKraftConstraintJointParallel.Destroy;
+begin
+ inherited Destroy;
+end;
+
+procedure TKraftConstraintJointParallel.InitializeConstraintsAndWarmStart(const Island:TKraftIsland;const TimeStep:TKraftTimeStep);
+var wA,wB:PKraftVector3;
+    qA,qB:PKraftQuaternion;
+    QuatA,QuatB,RelQ:TKraftQuaternion;
+    VecX,VecY,AngularImpulse,InvSumX,InvSumY:TKraftVector3;
+    Omega,A1,A2,A3,BiasRate,h:TKraftScalar;
+begin
+
+ fIslandIndices[0]:=fRigidBodies[0].fIslandIndices[Island.fIslandIndex];
+ fIslandIndices[1]:=fRigidBodies[1].fIslandIndices[Island.fIslandIndex];
+
+ fWorldInverseInertiaTensors[0]:=fRigidBodies[0].fWorldInverseInertiaTensor;
+ fWorldInverseInertiaTensors[1]:=fRigidBodies[1].fWorldInverseInertiaTensor;
+
+ fSolverVelocities[0]:=@Island.fSolver.fVelocities[fIslandIndices[0]];
+ fSolverVelocities[1]:=@Island.fSolver.fVelocities[fIslandIndices[1]];
+
+ fSolverPositions[0]:=@Island.fSolver.fPositions[fIslandIndices[0]];
+ fSolverPositions[1]:=@Island.fSolver.fPositions[fIslandIndices[1]];
+
+ qA:=@fSolverPositions[0]^.Orientation;
+ wA:=@fSolverVelocities[0]^.AngularVelocity;
+ qB:=@fSolverPositions[1]^.Orientation;
+ wB:=@fSolverVelocities[1]^.AngularVelocity;
+
+ // Current frame orientations.
+ QuatA:=QuaternionMul(qA^,fLocalFrames[0]);
+ QuatB:=QuaternionMul(qB^,fLocalFrames[1]);
+
+ // Take the shortest arc so the relative rotation stays in [-pi,pi].
+ if ((QuatA.x*QuatB.x)+(QuatA.y*QuatB.y)+(QuatA.z*QuatB.z)+(QuatA.w*QuatB.w))<0.0 then begin
+  QuatB.x:=-QuatB.x;
+  QuatB.y:=-QuatB.y;
+  QuatB.z:=-QuatB.z;
+  QuatB.w:=-QuatB.w;
+ end;
+
+ // Relative rotation of frame B in frame A.
+ RelQ:=QuaternionMul(QuaternionConjugate(QuatA),QuatB);
+
+ // Perpendicular Jacobian axes (world) mapping relative angular velocity onto the rate of RelQ.x / RelQ.y.
+ VecX:=Vector3(RelQ.w,RelQ.z,-RelQ.y);
+ VecY:=Vector3(-RelQ.z,RelQ.w,RelQ.x);
+ fPerpAxes[0]:=Vector3ScalarMul(Vector3TermQuaternionRotate(VecX,QuatA),0.5);
+ fPerpAxes[1]:=Vector3ScalarMul(Vector3TermQuaternionRotate(VecY,QuatA),0.5);
+
+ // 2x2 effective mass K = perp . (iA+iB) . perp.
+ InvSumX:=Vector3Add(Vector3TermMatrixMul(fPerpAxes[0],fWorldInverseInertiaTensors[0]),Vector3TermMatrixMul(fPerpAxes[0],fWorldInverseInertiaTensors[1]));
+ InvSumY:=Vector3Add(Vector3TermMatrixMul(fPerpAxes[1],fWorldInverseInertiaTensors[0]),Vector3TermMatrixMul(fPerpAxes[1],fWorldInverseInertiaTensors[1]));
+ fKxx:=Vector3Dot(fPerpAxes[0],InvSumX);
+ fKyy:=Vector3Dot(fPerpAxes[1],InvSumY);
+ fKxy:=Vector3Dot(fPerpAxes[0],InvSumY);
+
+ // Soft-constraint parameters from FrequencyHz/DampingRatio (b3MakeSoft).
+ h:=TimeStep.DeltaTime;
+ if fFrequencyHz>0.0 then begin
+  Omega:=(2.0*pi)*fFrequencyHz;
+  A1:=(2.0*fDampingRatio)+(h*Omega);
+  A2:=(h*Omega)*A1;
+  A3:=1.0/(1.0+A2);
+  BiasRate:=Omega/A1;
+  fMassScale:=A2*A3;
+  fImpulseScale:=A3;
+ end else begin
+  BiasRate:=0.0;
+  fMassScale:=1.0;
+  fImpulseScale:=0.0;
+ end;
+
+ // Position error c = (RelQ.x, RelQ.y); precompute the bias.
+ fBias[0]:=BiasRate*RelQ.x;
+ fBias[1]:=BiasRate*RelQ.y;
+
+ // Warm start (angular only).
+ if fPhysics.fWarmStarting then begin
+  AngularImpulse:=Vector3Add(Vector3ScalarMul(fPerpAxes[0],fPerpImpulse[0]),Vector3ScalarMul(fPerpAxes[1],fPerpImpulse[1]));
+  Vector3DirectSub(wA^,Vector3TermMatrixMul(AngularImpulse,fWorldInverseInertiaTensors[0]));
+  Vector3DirectAdd(wB^,Vector3TermMatrixMul(AngularImpulse,fWorldInverseInertiaTensors[1]));
+ end else begin
+  fPerpImpulse[0]:=0.0;
+  fPerpImpulse[1]:=0.0;
+ end;
+
+end;
+
+procedure TKraftConstraintJointParallel.SolveVelocityConstraint(const Island:TKraftIsland;const TimeStep:TKraftTimeStep);
+var wA,wB:PKraftVector3;
+    wRel,AngularImpulse:TKraftVector3;
+    CdotX,CdotY,RhsX,RhsY,Det,InvDet,SolX,SolY,DeltaX,DeltaY,OldX,OldY,MaxImpulse,LengthSquared,Scale:TKraftScalar;
+begin
+
+ if fMaximalTorque<=0.0 then begin
+  exit;
+ end;
+
+ wA:=@fSolverVelocities[0]^.AngularVelocity;
+ wB:=@fSolverVelocities[1]^.AngularVelocity;
+
+ // Cdot = relative angular velocity projected onto the two perpendicular axes.
+ wRel:=Vector3Sub(wB^,wA^);
+ CdotX:=Vector3Dot(wRel,fPerpAxes[0]);
+ CdotY:=Vector3Dot(wRel,fPerpAxes[1]);
+
+ RhsX:=CdotX+fBias[0];
+ RhsY:=CdotY+fBias[1];
+
+ // Solve the 2x2 system K * sol = rhs.
+ Det:=(fKxx*fKyy)-(fKxy*fKxy);
+ if abs(Det)>EPSILON then begin
+  InvDet:=1.0/Det;
+  SolX:=((fKyy*RhsX)-(fKxy*RhsY))*InvDet;
+  SolY:=((fKxx*RhsY)-(fKxy*RhsX))*InvDet;
+ end else begin
+  SolX:=0.0;
+  SolY:=0.0;
+ end;
+
+ // Soft accumulate.
+ OldX:=fPerpImpulse[0];
+ OldY:=fPerpImpulse[1];
+ fPerpImpulse[0]:=OldX+(((-fMassScale)*SolX)-(fImpulseScale*OldX));
+ fPerpImpulse[1]:=OldY+(((-fMassScale)*SolY)-(fImpulseScale*OldY));
+
+ // Clamp the accumulated impulse magnitude to h * maxTorque.
+ MaxImpulse:=TimeStep.DeltaTime*fMaximalTorque;
+ LengthSquared:=sqr(fPerpImpulse[0])+sqr(fPerpImpulse[1]);
+ if LengthSquared>sqr(MaxImpulse) then begin
+  Scale:=MaxImpulse/sqrt(LengthSquared);
+  fPerpImpulse[0]:=fPerpImpulse[0]*Scale;
+  fPerpImpulse[1]:=fPerpImpulse[1]*Scale;
+ end;
+
+ DeltaX:=fPerpImpulse[0]-OldX;
+ DeltaY:=fPerpImpulse[1]-OldY;
+
+ // Apply (angular only).
+ AngularImpulse:=Vector3Add(Vector3ScalarMul(fPerpAxes[0],DeltaX),Vector3ScalarMul(fPerpAxes[1],DeltaY));
+ Vector3DirectSub(wA^,Vector3TermMatrixMul(AngularImpulse,fWorldInverseInertiaTensors[0]));
+ Vector3DirectAdd(wB^,Vector3TermMatrixMul(AngularImpulse,fWorldInverseInertiaTensors[1]));
+
+end;
+
+function TKraftConstraintJointParallel.SolvePositionConstraint(const Island:TKraftIsland;const TimeStep:TKraftTimeStep):boolean;
+begin
+ // Spring constraint, no separate position correction.
+ result:=true;
+end;
+
+function TKraftConstraintJointParallel.GetAnchorA:TKraftVector3;
+begin
+ result:=fRigidBodies[0].fSweep.c;
+end;
+
+function TKraftConstraintJointParallel.GetAnchorB:TKraftVector3;
+begin
+ result:=fRigidBodies[1].fSweep.c;
+end;
+
+function TKraftConstraintJointParallel.GetReactionForce(const InverseDeltaTime:TKraftScalar):TKraftVector3;
+begin
+ // Purely angular joint, no linear reaction.
+ result:=Vector3Origin;
+end;
+
+function TKraftConstraintJointParallel.GetReactionTorque(const InverseDeltaTime:TKraftScalar):TKraftVector3;
+begin
+ result:=Vector3ScalarMul(Vector3Add(Vector3ScalarMul(fPerpAxes[0],fPerpImpulse[0]),Vector3ScalarMul(fPerpAxes[1],fPerpImpulse[1])),InverseDeltaTime);
+end;
+
+constructor TKraftConstraintJointMotor.Create(const aPhysics:TKraft;const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const AWorldAnchorPoint:TKraftVector3;const ACollideConnected:boolean=false);
+begin
+
+ fLocalAnchors[0]:=Vector3TermMatrixMulInverted(AWorldAnchorPoint,ARigidBodyA.fWorldTransform);
+ fLocalAnchors[1]:=Vector3TermMatrixMulInverted(AWorldAnchorPoint,ARigidBodyB.fWorldTransform);
+
+ // Neutral relative orientation, snapshotted at creation; the angular spring drives back towards this.
+ fInverseReferenceOrientation:=QuaternionInverse(QuaternionTermNormalize(QuaternionMul(ARigidBodyB.fSweep.q,QuaternionInverse(ARigidBodyA.fSweep.q))));
+
+ fLinearVelocityTarget:=Vector3Origin;
+ fAngularVelocityTarget:=Vector3Origin;
+ fMaximalVelocityForce:=0.0;
+ fMaximalVelocityTorque:=0.0;
+ fLinearFrequencyHz:=0.0;
+ fLinearDampingRatio:=1.0;
+ fMaximalSpringForce:=0.0;
+ fAngularFrequencyHz:=0.0;
+ fAngularDampingRatio:=1.0;
+ fMaximalSpringTorque:=0.0;
+
+ fLinearVelocityImpulse:=Vector3Origin;
+ fAngularVelocityImpulse:=Vector3Origin;
+ fLinearSpringImpulse:=Vector3Origin;
+ fAngularSpringImpulse:=Vector3Origin;
+
+ if ACollideConnected then begin
+  Include(fFlags,kcfCollideConnected);
+ end else begin
+  Exclude(fFlags,kcfCollideConnected);
+ end;
+
+ fRigidBodies[0]:=ARigidBodyA;
+ fRigidBodies[1]:=ARigidBodyB;
+
+ inherited Create(aPhysics);
+
+end;
+
+destructor TKraftConstraintJointMotor.Destroy;
+begin
+ inherited Destroy;
+end;
+
+procedure TKraftConstraintJointMotor.InitializeConstraintsAndWarmStart(const Island:TKraftIsland;const TimeStep:TKraftTimeStep);
+var cA,vA,wA,cB,vB,wB:PKraftVector3;
+    qA,qB:PKraftQuaternion;
+    qError:TKraftQuaternion;
+    InverseMassOfBodies,h,Omega,A1,A2,A3:TKraftScalar;
+    SkewSymmetricMatrices:array[0..1] of TKraftMatrix3x3;
+    LinearMassMatrix,AngularMassMatrix:TKraftMatrix3x3;
+    AngularError,LinearError,LinearImpulse,AngularImpulse:TKraftVector3;
+begin
+
+ fIslandIndices[0]:=fRigidBodies[0].fIslandIndices[Island.fIslandIndex];
+ fIslandIndices[1]:=fRigidBodies[1].fIslandIndices[Island.fIslandIndex];
+
+ fLocalCenters[0]:=fRigidBodies[0].fSweep.LocalCenter;
+ fLocalCenters[1]:=fRigidBodies[1].fSweep.LocalCenter;
+
+ fInverseMasses[0]:=fRigidBodies[0].fInverseMass;
+ fInverseMasses[1]:=fRigidBodies[1].fInverseMass;
+
+ fWorldInverseInertiaTensors[0]:=fRigidBodies[0].fWorldInverseInertiaTensor;
+ fWorldInverseInertiaTensors[1]:=fRigidBodies[1].fWorldInverseInertiaTensor;
+
+ fSolverVelocities[0]:=@Island.fSolver.fVelocities[fIslandIndices[0]];
+ fSolverVelocities[1]:=@Island.fSolver.fVelocities[fIslandIndices[1]];
+ fSolverPositions[0]:=@Island.fSolver.fPositions[fIslandIndices[0]];
+ fSolverPositions[1]:=@Island.fSolver.fPositions[fIslandIndices[1]];
+ fSolverLinearFactors[0]:=@Island.fSolver.fLinearFactors[fIslandIndices[0]];
+ fSolverLinearFactors[1]:=@Island.fSolver.fLinearFactors[fIslandIndices[1]];
+
+ cA:=@fSolverPositions[0]^.Position;
+ qA:=@fSolverPositions[0]^.Orientation;
+ vA:=@fSolverVelocities[0]^.LinearVelocity;
+ wA:=@fSolverVelocities[0]^.AngularVelocity;
+ cB:=@fSolverPositions[1]^.Position;
+ qB:=@fSolverPositions[1]^.Orientation;
+ vB:=@fSolverVelocities[1]^.LinearVelocity;
+ wB:=@fSolverVelocities[1]^.AngularVelocity;
+
+ fRelativePositions[0]:=Vector3TermQuaternionRotate(Vector3Sub(fLocalAnchors[0],fLocalCenters[0]),qA^);
+ fRelativePositions[1]:=Vector3TermQuaternionRotate(Vector3Sub(fLocalAnchors[1],fLocalCenters[1]),qB^);
+
+ InverseMassOfBodies:=fInverseMasses[0]+fInverseMasses[1];
+
+ // Linear 3x3 point-to-point effective mass.
+ SkewSymmetricMatrices[0]:=GetSkewSymmetricMatrixPlus(fRelativePositions[0]);
+ SkewSymmetricMatrices[1]:=GetSkewSymmetricMatrixPlus(fRelativePositions[1]);
+ LinearMassMatrix[0,0]:=InverseMassOfBodies;
+ LinearMassMatrix[0,1]:=0.0;
+ LinearMassMatrix[0,2]:=0.0;
+{$ifdef SIMD}
+ LinearMassMatrix[0,3]:=0.0;
+{$endif}
+ LinearMassMatrix[1,0]:=0.0;
+ LinearMassMatrix[1,1]:=InverseMassOfBodies;
+ LinearMassMatrix[1,2]:=0.0;
+{$ifdef SIMD}
+ LinearMassMatrix[1,3]:=0.0;
+{$endif}
+ LinearMassMatrix[2,0]:=0.0;
+ LinearMassMatrix[2,1]:=0.0;
+ LinearMassMatrix[2,2]:=InverseMassOfBodies;
+{$ifdef SIMD}
+ LinearMassMatrix[2,3]:=0.0;
+{$endif}
+ Matrix3x3Add(LinearMassMatrix,Matrix3x3TermMulTranspose(Matrix3x3TermMul(SkewSymmetricMatrices[0],fWorldInverseInertiaTensors[0]),SkewSymmetricMatrices[0]));
+ Matrix3x3Add(LinearMassMatrix,Matrix3x3TermMulTranspose(Matrix3x3TermMul(SkewSymmetricMatrices[1],fWorldInverseInertiaTensors[1]),SkewSymmetricMatrices[1]));
+ fInverseLinearMass:=Matrix3x3TermInverse(LinearMassMatrix);
+
+ // Angular 3x3 effective mass = inv(iA+iB).
+ AngularMassMatrix:=fWorldInverseInertiaTensors[0];
+ Matrix3x3Add(AngularMassMatrix,fWorldInverseInertiaTensors[1]);
+ fInverseAngularMass:=Matrix3x3TermInverse(AngularMassMatrix);
+
+ // Soft-constraint parameters for the two springs (b3MakeSoft).
+ h:=TimeStep.DeltaTime;
+ if fLinearFrequencyHz>0.0 then begin
+  Omega:=(2.0*pi)*fLinearFrequencyHz;
+  A1:=(2.0*fLinearDampingRatio)+(h*Omega);
+  A2:=(h*Omega)*A1;
+  A3:=1.0/(1.0+A2);
+  fLinearSpringMassScale:=A2*A3;
+  fLinearSpringImpulseScale:=A3;
+
+  // Linear position error (point-to-point) and its bias.
+  LinearError:=Vector3Sub(Vector3Add(cB^,fRelativePositions[1]),Vector3Add(cA^,fRelativePositions[0]));
+  fLinearSpringBias:=Vector3ScalarMul(LinearError,Omega/A1);
+ end else begin
+  fLinearSpringMassScale:=1.0;
+  fLinearSpringImpulseScale:=0.0;
+  fLinearSpringBias:=Vector3Origin;
+ end;
+
+ if fAngularFrequencyHz>0.0 then begin
+  Omega:=(2.0*pi)*fAngularFrequencyHz;
+  A1:=(2.0*fAngularDampingRatio)+(h*Omega);
+  A2:=(h*Omega)*A1;
+  A3:=1.0/(1.0+A2);
+  fAngularSpringMassScale:=A2*A3;
+  fAngularSpringImpulseScale:=A3;
+
+  // Angular position error (small-angle rotation vector) driving the relative orientation back to neutral.
+  qError:=QuaternionMul(QuaternionTermNormalize(QuaternionMul(qB^,QuaternionInverse(qA^))),fInverseReferenceOrientation);
+  if qError.w<0.0 then begin
+   qError.x:=-qError.x;
+   qError.y:=-qError.y;
+   qError.z:=-qError.z;
+   qError.w:=-qError.w;
+  end;
+  AngularError:=Vector3(2.0*qError.x,2.0*qError.y,2.0*qError.z);
+  fAngularSpringBias:=Vector3ScalarMul(AngularError,Omega/A1);
+ end else begin
+  fAngularSpringMassScale:=1.0;
+  fAngularSpringImpulseScale:=0.0;
+  fAngularSpringBias:=Vector3Origin;
+ end;
+
+ // Warm start all four accumulated impulses.
+ if fPhysics.fWarmStarting then begin
+  LinearImpulse:=Vector3Add(fLinearVelocityImpulse,fLinearSpringImpulse);
+  AngularImpulse:=Vector3Add(fAngularVelocityImpulse,fAngularSpringImpulse);
+  Vector3DirectSub(vA^,Vector3Mul(LinearImpulse,Vector3ScalarMul(fSolverLinearFactors[0]^,fInverseMasses[0])));
+  Vector3DirectSub(wA^,Vector3TermMatrixMul(Vector3Add(Vector3Cross(fRelativePositions[0],LinearImpulse),AngularImpulse),fWorldInverseInertiaTensors[0]));
+  Vector3DirectAdd(vB^,Vector3Mul(LinearImpulse,Vector3ScalarMul(fSolverLinearFactors[1]^,fInverseMasses[1])));
+  Vector3DirectAdd(wB^,Vector3TermMatrixMul(Vector3Add(Vector3Cross(fRelativePositions[1],LinearImpulse),AngularImpulse),fWorldInverseInertiaTensors[1]));
+ end else begin
+  fLinearVelocityImpulse:=Vector3Origin;
+  fAngularVelocityImpulse:=Vector3Origin;
+  fLinearSpringImpulse:=Vector3Origin;
+  fAngularSpringImpulse:=Vector3Origin;
+ end;
+
+end;
+
+procedure TKraftConstraintJointMotor.SolveVelocityConstraint(const Island:TKraftIsland;const TimeStep:TKraftTimeStep);
+var vA,wA,vB,wB:PKraftVector3;
+    Cdot,Impulse,Old,rA,rB:TKraftVector3;
+    h,MaximalImpulse,LengthSquared:TKraftScalar;
+begin
+
+ vA:=@fSolverVelocities[0]^.LinearVelocity;
+ wA:=@fSolverVelocities[0]^.AngularVelocity;
+ vB:=@fSolverVelocities[1]^.LinearVelocity;
+ wB:=@fSolverVelocities[1]^.AngularVelocity;
+
+ rA:=fRelativePositions[0];
+ rB:=fRelativePositions[1];
+ h:=TimeStep.DeltaTime;
+
+ // (1) Angular spring: drive the relative orientation back to neutral.
+ if (fMaximalSpringTorque>0.0) and (fAngularFrequencyHz>0.0) then begin
+
+  // Soft-constraint impulse from the relative angular velocity and the cached spring bias.
+  Cdot:=Vector3Sub(wB^,wA^);
+  Impulse:=Vector3Sub(Vector3ScalarMul(Vector3TermMatrixMul(Vector3Add(Cdot,fAngularSpringBias),fInverseAngularMass),-fAngularSpringMassScale),Vector3ScalarMul(fAngularSpringImpulse,fAngularSpringImpulseScale));
+
+  // Accumulate and clamp the magnitude to the spring torque budget.
+  Old:=fAngularSpringImpulse;
+  fAngularSpringImpulse:=Vector3Add(fAngularSpringImpulse,Impulse);
+  MaximalImpulse:=h*fMaximalSpringTorque;
+  LengthSquared:=Vector3LengthSquared(fAngularSpringImpulse);
+  if LengthSquared>sqr(MaximalImpulse) then begin
+   fAngularSpringImpulse:=Vector3ScalarMul(fAngularSpringImpulse,MaximalImpulse/sqrt(LengthSquared));
+  end;
+  Impulse:=Vector3Sub(fAngularSpringImpulse,Old);
+
+  // Apply the angular impulse.
+  Vector3DirectSub(wA^,Vector3TermMatrixMul(Impulse,fWorldInverseInertiaTensors[0]));
+  Vector3DirectAdd(wB^,Vector3TermMatrixMul(Impulse,fWorldInverseInertiaTensors[1]));
+
+ end;
+
+ // (2) Angular velocity motor: drive relative angular velocity to the target.
+ if fMaximalVelocityTorque>0.0 then begin
+
+  // Unclamped impulse driving the relative angular velocity to the target.
+  Cdot:=Vector3Sub(Vector3Sub(wB^,wA^),fAngularVelocityTarget);
+  Impulse:=Vector3Neg(Vector3TermMatrixMul(Cdot,fInverseAngularMass));
+
+  // Accumulate and clamp the magnitude to the motor torque budget.
+  Old:=fAngularVelocityImpulse;
+  fAngularVelocityImpulse:=Vector3Add(fAngularVelocityImpulse,Impulse);
+  MaximalImpulse:=h*fMaximalVelocityTorque;
+  LengthSquared:=Vector3LengthSquared(fAngularVelocityImpulse);
+  if LengthSquared>sqr(MaximalImpulse) then begin
+   fAngularVelocityImpulse:=Vector3ScalarMul(fAngularVelocityImpulse,MaximalImpulse/sqrt(LengthSquared));
+  end;
+  Impulse:=Vector3Sub(fAngularVelocityImpulse,Old);
+
+  // Apply the angular impulse.
+  Vector3DirectSub(wA^,Vector3TermMatrixMul(Impulse,fWorldInverseInertiaTensors[0]));
+  Vector3DirectAdd(wB^,Vector3TermMatrixMul(Impulse,fWorldInverseInertiaTensors[1]));
+
+ end;
+
+ // (3) Linear spring: drive the two anchors together (point-to-point).
+ if (fMaximalSpringForce>0.0) and (fLinearFrequencyHz>0.0) then begin
+
+  // Soft-constraint impulse from the relative anchor velocity and the cached spring bias.
+  Cdot:=Vector3Sub(Vector3Add(vB^,Vector3Cross(wB^,rB)),Vector3Add(vA^,Vector3Cross(wA^,rA)));
+  Impulse:=Vector3Sub(Vector3ScalarMul(Vector3TermMatrixMul(Vector3Add(Cdot,fLinearSpringBias),fInverseLinearMass),-fLinearSpringMassScale),Vector3ScalarMul(fLinearSpringImpulse,fLinearSpringImpulseScale));
+
+  // Accumulate and clamp the magnitude to the spring force budget.
+  Old:=fLinearSpringImpulse;
+  fLinearSpringImpulse:=Vector3Add(fLinearSpringImpulse,Impulse);
+  MaximalImpulse:=h*fMaximalSpringForce;
+  LengthSquared:=Vector3LengthSquared(fLinearSpringImpulse);
+  if LengthSquared>sqr(MaximalImpulse) then begin
+   fLinearSpringImpulse:=Vector3ScalarMul(fLinearSpringImpulse,MaximalImpulse/sqrt(LengthSquared));
+  end;
+  Impulse:=Vector3Sub(fLinearSpringImpulse,Old);
+
+  // Apply the impulse to both bodies (linear + angular).
+  Vector3DirectSub(vA^,Vector3Mul(Impulse,Vector3ScalarMul(fSolverLinearFactors[0]^,fInverseMasses[0])));
+  Vector3DirectSub(wA^,Vector3TermMatrixMul(Vector3Cross(rA,Impulse),fWorldInverseInertiaTensors[0]));
+  Vector3DirectAdd(vB^,Vector3Mul(Impulse,Vector3ScalarMul(fSolverLinearFactors[1]^,fInverseMasses[1])));
+  Vector3DirectAdd(wB^,Vector3TermMatrixMul(Vector3Cross(rB,Impulse),fWorldInverseInertiaTensors[1]));
+
+ end;
+
+ // (4) Linear velocity motor: drive relative anchor velocity to the target.
+ if fMaximalVelocityForce>0.0 then begin
+
+  // Unclamped impulse driving the relative anchor velocity to the target.
+  Cdot:=Vector3Sub(Vector3Sub(Vector3Add(vB^,Vector3Cross(wB^,rB)),Vector3Add(vA^,Vector3Cross(wA^,rA))),fLinearVelocityTarget);
+  Impulse:=Vector3Neg(Vector3TermMatrixMul(Cdot,fInverseLinearMass));
+
+  // Accumulate and clamp the magnitude to the motor force budget.
+  Old:=fLinearVelocityImpulse;
+  fLinearVelocityImpulse:=Vector3Add(fLinearVelocityImpulse,Impulse);
+  MaximalImpulse:=h*fMaximalVelocityForce;
+  LengthSquared:=Vector3LengthSquared(fLinearVelocityImpulse);
+  if LengthSquared>sqr(MaximalImpulse) then begin
+   fLinearVelocityImpulse:=Vector3ScalarMul(fLinearVelocityImpulse,MaximalImpulse/sqrt(LengthSquared));
+  end;
+  Impulse:=Vector3Sub(fLinearVelocityImpulse,Old);
+
+  // Apply the impulse to both bodies (linear + angular).
+  Vector3DirectSub(vA^,Vector3Mul(Impulse,Vector3ScalarMul(fSolverLinearFactors[0]^,fInverseMasses[0])));
+  Vector3DirectSub(wA^,Vector3TermMatrixMul(Vector3Cross(rA,Impulse),fWorldInverseInertiaTensors[0]));
+  Vector3DirectAdd(vB^,Vector3Mul(Impulse,Vector3ScalarMul(fSolverLinearFactors[1]^,fInverseMasses[1])));
+  Vector3DirectAdd(wB^,Vector3TermMatrixMul(Vector3Cross(rB,Impulse),fWorldInverseInertiaTensors[1]));
+
+ end;
+
+end;
+
+function TKraftConstraintJointMotor.SolvePositionConstraint(const Island:TKraftIsland;const TimeStep:TKraftTimeStep):boolean;
+begin
+ // Purely soft/velocity-driven, no separate position correction.
+ result:=true;
+end;
+
+function TKraftConstraintJointMotor.GetAnchorA:TKraftVector3;
+begin
+ result:=Vector3TermMatrixMul(fLocalAnchors[0],fRigidBodies[0].fWorldTransform);
+end;
+
+function TKraftConstraintJointMotor.GetAnchorB:TKraftVector3;
+begin
+ result:=Vector3TermMatrixMul(fLocalAnchors[1],fRigidBodies[1].fWorldTransform);
+end;
+
+function TKraftConstraintJointMotor.GetReactionForce(const InverseDeltaTime:TKraftScalar):TKraftVector3;
+begin
+ result:=Vector3ScalarMul(Vector3Add(fLinearVelocityImpulse,fLinearSpringImpulse),InverseDeltaTime);
+end;
+
+function TKraftConstraintJointMotor.GetReactionTorque(const InverseDeltaTime:TKraftScalar):TKraftVector3;
+begin
+ result:=Vector3ScalarMul(Vector3Add(fAngularVelocityImpulse,fAngularSpringImpulse),InverseDeltaTime);
+end;
+
+constructor TKraftConstraintJointWheel.Create(const aPhysics:TKraft;const AChassis,AWheel:TKraftRigidBody;const AWorldAnchorPoint,AWorldSuspensionAxis,AWorldSpinAxis:TKraftVector3;const ACollideConnected:boolean=false);
+var SuspensionAxis,SpinAxisRaw,AxisX,AxisY,AxisZ:TKraftVector3;
+    SideLength:TKraftScalar;
+    FrameMatrix:TKraftMatrix3x3;
+    FrameOrientation:TKraftQuaternion;
+begin
+
+ fLocalAnchors[0]:=Vector3TermMatrixMulInverted(AWorldAnchorPoint,AChassis.fWorldTransform);
+ fLocalAnchors[1]:=Vector3TermMatrixMulInverted(AWorldAnchorPoint,AWheel.fWorldTransform);
+
+ // Build one reference frame shared by both bodies, so that at rest the steering angle is zero and the
+ // collinearity relative orientation is identity (it expects localFrameA and localFrameB to coincide in the
+ // neutral pose). x = suspension axis, z = spin axis projected perpendicular to it, y = z x x (right-handed).
+ SuspensionAxis:=Vector3Norm(AWorldSuspensionAxis);
+ SpinAxisRaw:=Vector3Norm(AWorldSpinAxis);
+ AxisX:=SuspensionAxis;
+ AxisZ:=Vector3Sub(SpinAxisRaw,Vector3ScalarMul(SuspensionAxis,Vector3Dot(SpinAxisRaw,SuspensionAxis)));
+ SideLength:=Vector3Length(AxisZ);
+ if SideLength>EPSILON then begin
+  AxisZ:=Vector3ScalarMul(AxisZ,1.0/SideLength);
+  AxisY:=Vector3Norm(Vector3Cross(AxisZ,AxisX));
+  AxisZ:=Vector3Cross(AxisX,AxisY);
+ end else begin
+  // Degenerate case: the spin axis is parallel to the suspension axis. Fall back to an arbitrary basis.
+  ComputeBasis(AxisX,AxisY,AxisZ);
+ end;
+
+ // Frame quaternion from the basis: KRAFT stores the rotated axes in the matrix rows (row 0 = rotated x, etc.),
+ // which is the inverse layout that QuaternionFromMatrix3x3 expects.
+ FrameMatrix:=Matrix3x3Identity;
+ FrameMatrix[0,0]:=AxisX.x;
+ FrameMatrix[0,1]:=AxisX.y;
+ FrameMatrix[0,2]:=AxisX.z;
+ FrameMatrix[1,0]:=AxisY.x;
+ FrameMatrix[1,1]:=AxisY.y;
+ FrameMatrix[1,2]:=AxisY.z;
+ FrameMatrix[2,0]:=AxisZ.x;
+ FrameMatrix[2,1]:=AxisZ.y;
+ FrameMatrix[2,2]:=AxisZ.z;
+ FrameOrientation:=QuaternionTermNormalize(QuaternionFromMatrix3x3(FrameMatrix));
+
+ fLocalFrames[0]:=QuaternionTermNormalize(QuaternionMul(QuaternionInverse(AChassis.fSweep.q),FrameOrientation));
+ fLocalFrames[1]:=QuaternionTermNormalize(QuaternionMul(QuaternionInverse(AWheel.fSweep.q),FrameOrientation));
+
+ // Optional features, all off by default (neutral = rigid point-to-line + collinearity coupling).
+ fEnableSuspensionSpring:=false;
+ fSuspensionFrequencyHz:=0.0;
+ fSuspensionDampingRatio:=1.0;
+ fEnableSuspensionLimit:=false;
+ fLowerSuspensionLimit:=0.0;
+ fUpperSuspensionLimit:=0.0;
+ fEnableSpinMotor:=false;
+ fMaximalSpinTorque:=0.0;
+ fSpinSpeed:=0.0;
+ fEnableSteering:=false;
+ fSteeringFrequencyHz:=0.0;
+ fSteeringDampingRatio:=1.0;
+ fTargetSteeringAngle:=0.0;
+ fMaximalSteeringTorque:=0.0;
+ fEnableSteeringLimit:=false;
+ fLowerSteeringLimit:=0.0;
+ fUpperSteeringLimit:=0.0;
+
+ fSpinImpulse:=0.0;
+ fSuspensionSpringImpulse:=0.0;
+ fLowerSuspensionImpulse:=0.0;
+ fUpperSuspensionImpulse:=0.0;
+ fSteeringSpringImpulse:=0.0;
+ fLowerSteeringImpulse:=0.0;
+ fUpperSteeringImpulse:=0.0;
+ fCollinearImpulse[0]:=0.0;
+ fCollinearImpulse[1]:=0.0;
+ fPointToLineImpulse[0]:=0.0;
+ fPointToLineImpulse[1]:=0.0;
+
+ if ACollideConnected then begin
+  Include(fFlags,kcfCollideConnected);
+ end else begin
+  Exclude(fFlags,kcfCollideConnected);
+ end;
+
+ fRigidBodies[0]:=AChassis;
+ fRigidBodies[1]:=AWheel;
+
+ inherited Create(aPhysics);
+
+end;
+
+destructor TKraftConstraintJointWheel.Destroy;
+begin
+ inherited Destroy;
+end;
+
+procedure TKraftConstraintJointWheel.InitializeConstraintsAndWarmStart(const Island:TKraftIsland;const TimeStep:TKraftTimeStep);
+var cA,vA,wA,cB,vB,wB:PKraftVector3;
+    qA,qB:PKraftQuaternion;
+    QuatA,QuatB,RelQ:TKraftQuaternion;
+    d,rApd,VecX,VecY,u,InvSumX,InvSumY,InvSumU,SteeringCrossArg,InvSumSteering,InvSumSpin:TKraftVector3;
+    LinearImpulse,AngularImpulseA,AngularImpulseB,AngularCommon:TKraftVector3;
+    InverseMassOfBodies,h,Omega,A1,A2,A3,k,Cs,Ss,Den,InvDen,SuspensionTotal,SteeringTotal:TKraftScalar;
+begin
+
+ // Load island/body solver data.
+ fIslandIndices[0]:=fRigidBodies[0].fIslandIndices[Island.fIslandIndex];
+ fIslandIndices[1]:=fRigidBodies[1].fIslandIndices[Island.fIslandIndex];
+
+ fLocalCenters[0]:=fRigidBodies[0].fSweep.LocalCenter;
+ fLocalCenters[1]:=fRigidBodies[1].fSweep.LocalCenter;
+
+ fInverseMasses[0]:=fRigidBodies[0].fInverseMass;
+ fInverseMasses[1]:=fRigidBodies[1].fInverseMass;
+
+ fWorldInverseInertiaTensors[0]:=fRigidBodies[0].fWorldInverseInertiaTensor;
+ fWorldInverseInertiaTensors[1]:=fRigidBodies[1].fWorldInverseInertiaTensor;
+
+ fSolverVelocities[0]:=@Island.fSolver.fVelocities[fIslandIndices[0]];
+ fSolverVelocities[1]:=@Island.fSolver.fVelocities[fIslandIndices[1]];
+ fSolverPositions[0]:=@Island.fSolver.fPositions[fIslandIndices[0]];
+ fSolverPositions[1]:=@Island.fSolver.fPositions[fIslandIndices[1]];
+ fSolverLinearFactors[0]:=@Island.fSolver.fLinearFactors[fIslandIndices[0]];
+ fSolverLinearFactors[1]:=@Island.fSolver.fLinearFactors[fIslandIndices[1]];
+
+ cA:=@fSolverPositions[0]^.Position;
+ qA:=@fSolverPositions[0]^.Orientation;
+ vA:=@fSolverVelocities[0]^.LinearVelocity;
+ wA:=@fSolverVelocities[0]^.AngularVelocity;
+ cB:=@fSolverPositions[1]^.Position;
+ qB:=@fSolverPositions[1]^.Orientation;
+ vB:=@fSolverVelocities[1]^.LinearVelocity;
+ wB:=@fSolverVelocities[1]^.AngularVelocity;
+
+ // World-space anchor frame relative to each center of mass.
+ fRelativePositions[0]:=Vector3TermQuaternionRotate(Vector3Sub(fLocalAnchors[0],fLocalCenters[0]),qA^);
+ fRelativePositions[1]:=Vector3TermQuaternionRotate(Vector3Sub(fLocalAnchors[1],fLocalCenters[1]),qB^);
+
+ // World frame orientations. Keep body B's quaternion on the same hemisphere as A so the relative rotation
+ // stays in the [-pi, pi] range.
+ QuatA:=QuaternionTermNormalize(QuaternionMul(qA^,fLocalFrames[0]));
+ QuatB:=QuaternionTermNormalize(QuaternionMul(qB^,fLocalFrames[1]));
+ if ((((QuatA.x*QuatB.x)+(QuatA.y*QuatB.y))+(QuatA.z*QuatB.z))+(QuatA.w*QuatB.w))<0.0 then begin
+  QuatB.x:=-QuatB.x;
+  QuatB.y:=-QuatB.y;
+  QuatB.z:=-QuatB.z;
+  QuatB.w:=-QuatB.w;
+ end;
+
+ // Frame axes: matrixA columns cx/cy/cz and matrixB column cz (the spin axis).
+ fWorldSuspensionAxis:=Vector3TermQuaternionRotate(Vector3(1.0,0.0,0.0),QuatA);
+ fFrameYAxisA:=Vector3TermQuaternionRotate(Vector3(0.0,1.0,0.0),QuatA);
+ fFrameZAxisA:=Vector3TermQuaternionRotate(Vector3(0.0,0.0,1.0),QuatA);
+ fWorldSpinAxis:=Vector3TermQuaternionRotate(Vector3(0.0,0.0,1.0),QuatB);
+
+ // Anchor drift d = anchorB - anchorA and the translation along the suspension axis.
+ d:=Vector3Sub(Vector3Add(cB^,fRelativePositions[1]),Vector3Add(cA^,fRelativePositions[0]));
+ fTranslation:=Vector3Dot(fWorldSuspensionAxis,d);
+
+ // Jacobian angular rows: sA* = (rA + d) x axis, sB* = rB x axis.
+ rApd:=Vector3Add(fRelativePositions[0],d);
+ fSAX:=Vector3Cross(rApd,fWorldSuspensionAxis);
+ fSBX:=Vector3Cross(fRelativePositions[1],fWorldSuspensionAxis);
+ fSAY:=Vector3Cross(rApd,fFrameYAxisA);
+ fSBY:=Vector3Cross(fRelativePositions[1],fFrameYAxisA);
+ fSAZ:=Vector3Cross(rApd,fFrameZAxisA);
+ fSBZ:=Vector3Cross(fRelativePositions[1],fFrameZAxisA);
+
+ InverseMassOfBodies:=fInverseMasses[0]+fInverseMasses[1];
+ h:=TimeStep.DeltaTime;
+ fBiasFactor:=fPhysics.fConstraintBaumgarte/h;
+
+ // Suspension effective mass (along the suspension axis).
+ k:=InverseMassOfBodies+Vector3Dot(fSAX,Vector3TermMatrixMul(fSAX,fWorldInverseInertiaTensors[0]))+Vector3Dot(fSBX,Vector3TermMatrixMul(fSBX,fWorldInverseInertiaTensors[1]));
+ if k>0.0 then begin
+  fSuspensionMass:=1.0/k;
+ end else begin
+  fSuspensionMass:=0.0;
+ end;
+
+ // Spin effective mass (spinAxis . (iA+iB) . spinAxis).
+ InvSumSpin:=Vector3Add(Vector3TermMatrixMul(fWorldSpinAxis,fWorldInverseInertiaTensors[0]),Vector3TermMatrixMul(fWorldSpinAxis,fWorldInverseInertiaTensors[1]));
+ k:=Vector3Dot(fWorldSpinAxis,InvSumSpin);
+ if k>0.0 then begin
+  fSpinMass:=1.0/k;
+ end else begin
+  fSpinMass:=0.0;
+ end;
+
+ // Steering axis and effective mass around the suspension axis (twist parametrisation).
+ Cs:=Vector3Dot(fWorldSpinAxis,fFrameZAxisA);
+ Ss:=-Vector3Dot(fWorldSpinAxis,fFrameYAxisA);
+ Den:=(Cs*Cs)+(Ss*Ss);
+ if Den>0.0 then begin
+  InvDen:=1.0/Den;
+ end else begin
+  InvDen:=0.0;
+ end;
+ SteeringCrossArg:=Vector3Sub(Vector3ScalarMul(fFrameYAxisA,-Cs),Vector3ScalarMul(fFrameZAxisA,Ss));
+ fSteeringAxis:=Vector3ScalarMul(Vector3Cross(fWorldSpinAxis,SteeringCrossArg),InvDen);
+ fSteeringAngle:=ArcTan2(Ss,Cs);
+ InvSumSteering:=Vector3Add(Vector3TermMatrixMul(fSteeringAxis,fWorldInverseInertiaTensors[0]),Vector3TermMatrixMul(fSteeringAxis,fWorldInverseInertiaTensors[1]));
+ k:=Vector3Dot(fSteeringAxis,InvSumSteering);
+ if k>0.0 then begin
+  fSteeringMass:=1.0/k;
+ end else begin
+  fSteeringMass:=0.0;
+ end;
+
+ // Suspension spring softness.
+ if fSuspensionFrequencyHz>0.0 then begin
+  Omega:=(2.0*pi)*fSuspensionFrequencyHz;
+  A1:=(2.0*fSuspensionDampingRatio)+(h*Omega);
+  A2:=(h*Omega)*A1;
+  A3:=1.0/(1.0+A2);
+  fSuspensionSpringMassScale:=A2*A3;
+  fSuspensionSpringImpulseScale:=A3;
+  fSuspensionSpringBias:=(Omega/A1)*fTranslation;
+ end else begin
+  fSuspensionSpringMassScale:=1.0;
+  fSuspensionSpringImpulseScale:=0.0;
+  fSuspensionSpringBias:=0.0;
+ end;
+
+ // Steering spring softness.
+ if fSteeringFrequencyHz>0.0 then begin
+  Omega:=(2.0*pi)*fSteeringFrequencyHz;
+  A1:=(2.0*fSteeringDampingRatio)+(h*Omega);
+  A2:=(h*Omega)*A1;
+  A3:=1.0/(1.0+A2);
+  fSteeringSpringMassScale:=A2*A3;
+  fSteeringSpringImpulseScale:=A3;
+  fSteeringSpringBias:=(Omega/A1)*(fSteeringAngle-fTargetSteeringAngle);
+ end else begin
+  fSteeringSpringMassScale:=1.0;
+  fSteeringSpringImpulseScale:=0.0;
+  fSteeringSpringBias:=0.0;
+ end;
+
+ // Collinearity constraint keeping the spin axis fixed relative to the chassis. With steering it collapses to
+ // a single free rotation about the suspension axis (1-DOF); without steering it is a full 2x2 on the relative
+ // orientation deviation.
+ RelQ:=QuaternionMul(QuaternionInverse(QuatA),QuatB);
+ if fEnableSteering then begin
+
+  // 1-DOF: only the rotation about the suspension axis stays free, so the constraint axis is spin x suspension.
+  u:=Vector3Cross(fWorldSpinAxis,fWorldSuspensionAxis);
+  fCollinearAxis:=u;
+
+  // Effective mass along that axis and the Baumgarte bias from the residual misalignment.
+  InvSumU:=Vector3Add(Vector3TermMatrixMul(u,fWorldInverseInertiaTensors[0]),Vector3TermMatrixMul(u,fWorldInverseInertiaTensors[1]));
+  k:=Vector3Dot(u,InvSumU);
+  if k>0.0 then begin
+   fCollinearMass:=1.0/k;
+  end else begin
+   fCollinearMass:=0.0;
+  end;
+  fCollinearBias1DOF:=fBiasFactor*Vector3Dot(fWorldSuspensionAxis,fWorldSpinAxis);
+
+ end else begin
+
+  // 2x2: the two perpendicular axes come from the relative-orientation quaternion (collinearity form).
+  VecX:=Vector3(RelQ.w,RelQ.z,-RelQ.y);
+  VecY:=Vector3(-RelQ.z,RelQ.w,RelQ.x);
+  fPerpCollinearAxes[0]:=Vector3ScalarMul(Vector3TermQuaternionRotate(VecX,QuatA),0.5);
+  fPerpCollinearAxes[1]:=Vector3ScalarMul(Vector3TermQuaternionRotate(VecY,QuatA),0.5);
+
+  // 2x2 effective-mass matrix.
+  InvSumX:=Vector3Add(Vector3TermMatrixMul(fPerpCollinearAxes[0],fWorldInverseInertiaTensors[0]),Vector3TermMatrixMul(fPerpCollinearAxes[0],fWorldInverseInertiaTensors[1]));
+  InvSumY:=Vector3Add(Vector3TermMatrixMul(fPerpCollinearAxes[1],fWorldInverseInertiaTensors[0]),Vector3TermMatrixMul(fPerpCollinearAxes[1],fWorldInverseInertiaTensors[1]));
+  fCollinearKxx:=Vector3Dot(fPerpCollinearAxes[0],InvSumX);
+  fCollinearKyy:=Vector3Dot(fPerpCollinearAxes[1],InvSumY);
+  fCollinearKxy:=Vector3Dot(fPerpCollinearAxes[0],InvSumY);
+
+  // Baumgarte bias from the relative-orientation deviation.
+  fCollinearBias[0]:=fBiasFactor*RelQ.x;
+  fCollinearBias[1]:=fBiasFactor*RelQ.y;
+
+ end;
+
+ // Point-to-line 2x2 keeping the anchor on the suspension line.
+ fPointToLineKyy:=InverseMassOfBodies+Vector3Dot(fSAY,Vector3TermMatrixMul(fSAY,fWorldInverseInertiaTensors[0]))+Vector3Dot(fSBY,Vector3TermMatrixMul(fSBY,fWorldInverseInertiaTensors[1]));
+ fPointToLineKzz:=InverseMassOfBodies+Vector3Dot(fSAZ,Vector3TermMatrixMul(fSAZ,fWorldInverseInertiaTensors[0]))+Vector3Dot(fSBZ,Vector3TermMatrixMul(fSBZ,fWorldInverseInertiaTensors[1]));
+ fPointToLineKyz:=Vector3Dot(fSAY,Vector3TermMatrixMul(fSAZ,fWorldInverseInertiaTensors[0]))+Vector3Dot(fSBY,Vector3TermMatrixMul(fSBZ,fWorldInverseInertiaTensors[1]));
+ fPointToLineBias[0]:=fBiasFactor*Vector3Dot(fFrameYAxisA,d);
+ fPointToLineBias[1]:=fBiasFactor*Vector3Dot(fFrameZAxisA,d);
+
+ // Warm start all accumulated impulses.
+ if fPhysics.fWarmStarting then begin
+
+  // Linear part and its lever-arm torques: suspension along cx plus the point-to-line pair along cy/cz.
+  SuspensionTotal:=(fSuspensionSpringImpulse+fLowerSuspensionImpulse)-fUpperSuspensionImpulse;
+  LinearImpulse:=Vector3Add(Vector3ScalarMul(fWorldSuspensionAxis,SuspensionTotal),Vector3Add(Vector3ScalarMul(fFrameYAxisA,fPointToLineImpulse[0]),Vector3ScalarMul(fFrameZAxisA,fPointToLineImpulse[1])));
+  AngularImpulseA:=Vector3Add(Vector3ScalarMul(fSAX,SuspensionTotal),Vector3Add(Vector3ScalarMul(fSAY,fPointToLineImpulse[0]),Vector3ScalarMul(fSAZ,fPointToLineImpulse[1])));
+  AngularImpulseB:=Vector3Add(Vector3ScalarMul(fSBX,SuspensionTotal),Vector3Add(Vector3ScalarMul(fSBY,fPointToLineImpulse[0]),Vector3ScalarMul(fSBZ,fPointToLineImpulse[1])));
+
+  // Pure angular part shared by both bodies: spin plus collinearity, and steering when enabled.
+  if fEnableSteering then begin
+   SteeringTotal:=(fSteeringSpringImpulse+fLowerSteeringImpulse)-fUpperSteeringImpulse;
+   AngularCommon:=Vector3Add(Vector3ScalarMul(fCollinearAxis,fCollinearImpulse[0]),Vector3Add(Vector3ScalarMul(fWorldSpinAxis,fSpinImpulse),Vector3ScalarMul(fSteeringAxis,SteeringTotal)));
+  end else begin
+   AngularCommon:=Vector3Add(Vector3Add(Vector3ScalarMul(fPerpCollinearAxes[0],fCollinearImpulse[0]),Vector3ScalarMul(fPerpCollinearAxes[1],fCollinearImpulse[1])),Vector3ScalarMul(fWorldSpinAxis,fSpinImpulse));
+  end;
+
+  // Apply the combined warm-start impulse to both bodies.
+  Vector3DirectSub(vA^,Vector3Mul(LinearImpulse,Vector3ScalarMul(fSolverLinearFactors[0]^,fInverseMasses[0])));
+  Vector3DirectSub(wA^,Vector3TermMatrixMul(Vector3Add(AngularImpulseA,AngularCommon),fWorldInverseInertiaTensors[0]));
+  Vector3DirectAdd(vB^,Vector3Mul(LinearImpulse,Vector3ScalarMul(fSolverLinearFactors[1]^,fInverseMasses[1])));
+  Vector3DirectAdd(wB^,Vector3TermMatrixMul(Vector3Add(AngularImpulseB,AngularCommon),fWorldInverseInertiaTensors[1]));
+
+ end else begin
+
+  // No warm starting: drop all accumulated impulses.
+  fSpinImpulse:=0.0;
+  fSuspensionSpringImpulse:=0.0;
+  fLowerSuspensionImpulse:=0.0;
+  fUpperSuspensionImpulse:=0.0;
+  fSteeringSpringImpulse:=0.0;
+  fLowerSteeringImpulse:=0.0;
+  fUpperSteeringImpulse:=0.0;
+  fCollinearImpulse[0]:=0.0;
+  fCollinearImpulse[1]:=0.0;
+  fPointToLineImpulse[0]:=0.0;
+  fPointToLineImpulse[1]:=0.0;
+
+ end;
+
+end;
+
+procedure TKraftConstraintJointWheel.SolveVelocityConstraint(const Island:TKraftIsland;const TimeStep:TKraftTimeStep);
+var vA,wA,vB,wB:PKraftVector3;
+    P,LinearImpulse:TKraftVector3;
+    Cdot,CdotX,CdotY,C,Bias,Lambda,Old,Det,InvDet,SolX,SolY,DeltaX,DeltaY,h,InverseDT,MaximalImpulse:TKraftScalar;
+begin
+
+ vA:=@fSolverVelocities[0]^.LinearVelocity;
+ wA:=@fSolverVelocities[0]^.AngularVelocity;
+ vB:=@fSolverVelocities[1]^.LinearVelocity;
+ wB:=@fSolverVelocities[1]^.AngularVelocity;
+
+ h:=TimeStep.DeltaTime;
+ InverseDT:=TimeStep.InverseDeltaTime;
+
+ // (1) Spin motor about the spin axis.
+ if fEnableSpinMotor then begin
+
+  // Relative spin velocity error against the target speed.
+  Cdot:=Vector3Dot(Vector3Sub(wB^,wA^),fWorldSpinAxis)-fSpinSpeed;
+  Lambda:=(-fSpinMass)*Cdot;
+
+  // Accumulate and clamp to the motor torque budget.
+  Old:=fSpinImpulse;
+  MaximalImpulse:=h*fMaximalSpinTorque;
+  fSpinImpulse:=Min(Max(fSpinImpulse+Lambda,-MaximalImpulse),MaximalImpulse);
+  Lambda:=fSpinImpulse-Old;
+
+  // Apply the angular impulse about the spin axis.
+  P:=Vector3ScalarMul(fWorldSpinAxis,Lambda);
+  Vector3DirectSub(wA^,Vector3TermMatrixMul(P,fWorldInverseInertiaTensors[0]));
+  Vector3DirectAdd(wB^,Vector3TermMatrixMul(P,fWorldInverseInertiaTensors[1]));
+
+ end;
+
+ // (2) Suspension spring along the suspension axis.
+ if fEnableSuspensionSpring then begin
+
+  // Soft-constraint impulse from the along-axis velocity and the cached spring bias.
+  Cdot:=Vector3Dot(fWorldSuspensionAxis,Vector3Sub(vB^,vA^))+Vector3Dot(fSBX,wB^)-Vector3Dot(fSAX,wA^);
+  Lambda:=((-fSuspensionSpringMassScale)*fSuspensionMass*(Cdot+fSuspensionSpringBias))-(fSuspensionSpringImpulseScale*fSuspensionSpringImpulse);
+  fSuspensionSpringImpulse:=fSuspensionSpringImpulse+Lambda;
+
+  // Apply along the suspension axis to both bodies (linear + angular).
+  Vector3DirectSub(vA^,Vector3Mul(Vector3ScalarMul(fWorldSuspensionAxis,Lambda),Vector3ScalarMul(fSolverLinearFactors[0]^,fInverseMasses[0])));
+  Vector3DirectSub(wA^,Vector3TermMatrixMul(Vector3ScalarMul(fSAX,Lambda),fWorldInverseInertiaTensors[0]));
+  Vector3DirectAdd(vB^,Vector3Mul(Vector3ScalarMul(fWorldSuspensionAxis,Lambda),Vector3ScalarMul(fSolverLinearFactors[1]^,fInverseMasses[1])));
+  Vector3DirectAdd(wB^,Vector3TermMatrixMul(Vector3ScalarMul(fSBX,Lambda),fWorldInverseInertiaTensors[1]));
+
+ end;
+
+ // (3) Steering: soft spring toward the target angle, plus optional speculative limits.
+ if fEnableSteering then begin
+
+  // Spring impulse driving the steering angle toward its target, clamped to the steering torque budget.
+  Cdot:=Vector3Dot(fSteeringAxis,Vector3Sub(wB^,wA^));
+  Old:=fSteeringSpringImpulse;
+  Lambda:=((-fSteeringSpringMassScale)*fSteeringMass*(Cdot+fSteeringSpringBias))-(fSteeringSpringImpulseScale*Old);
+  MaximalImpulse:=h*fMaximalSteeringTorque;
+  fSteeringSpringImpulse:=Min(Max(Old+Lambda,-MaximalImpulse),MaximalImpulse);
+  Lambda:=fSteeringSpringImpulse-Old;
+
+  Vector3DirectSub(wA^,Vector3TermMatrixMul(Vector3ScalarMul(fSteeringAxis,Lambda),fWorldInverseInertiaTensors[0]));
+  Vector3DirectAdd(wB^,Vector3TermMatrixMul(Vector3ScalarMul(fSteeringAxis,Lambda),fWorldInverseInertiaTensors[1]));
+
+  if fEnableSteeringLimit then begin
+
+   // Lower limit: speculative bias while still inside the limit, Baumgarte correction once violated.
+   C:=fSteeringAngle-fLowerSteeringLimit;
+   if C>0.0 then begin
+    Bias:=C*InverseDT;
+   end else begin
+    Bias:=fBiasFactor*C;
+   end;
+
+   Cdot:=Vector3Dot(fSteeringAxis,Vector3Sub(wB^,wA^));
+   Lambda:=(-fSteeringMass)*(Cdot+Bias);
+
+   Old:=fLowerSteeringImpulse;
+   fLowerSteeringImpulse:=Max(fLowerSteeringImpulse+Lambda,0.0);
+   Lambda:=fLowerSteeringImpulse-Old;
+
+   Vector3DirectSub(wA^,Vector3TermMatrixMul(Vector3ScalarMul(fSteeringAxis,Lambda),fWorldInverseInertiaTensors[0]));
+   Vector3DirectAdd(wB^,Vector3TermMatrixMul(Vector3ScalarMul(fSteeringAxis,Lambda),fWorldInverseInertiaTensors[1]));
+
+   // Upper limit: signs flipped so c stays positive when the limit is satisfied.
+   C:=fUpperSteeringLimit-fSteeringAngle;
+   if C>0.0 then begin
+    Bias:=C*InverseDT;
+   end else begin
+    Bias:=fBiasFactor*C;
+   end;
+
+   Cdot:=Vector3Dot(fSteeringAxis,Vector3Sub(wA^,wB^));
+   Lambda:=(-fSteeringMass)*(Cdot+Bias);
+
+   Old:=fUpperSteeringImpulse;
+   fUpperSteeringImpulse:=Max(fUpperSteeringImpulse+Lambda,0.0);
+   Lambda:=fUpperSteeringImpulse-Old;
+
+   Vector3DirectAdd(wA^,Vector3TermMatrixMul(Vector3ScalarMul(fSteeringAxis,Lambda),fWorldInverseInertiaTensors[0]));
+   Vector3DirectSub(wB^,Vector3TermMatrixMul(Vector3ScalarMul(fSteeringAxis,Lambda),fWorldInverseInertiaTensors[1]));
+
+  end;
+
+ end;
+
+ // (4) Suspension limits (speculative), lower then upper.
+ if fEnableSuspensionLimit then begin
+
+  // Lower limit: speculative bias while inside the limit, Baumgarte correction once violated.
+  C:=fTranslation-fLowerSuspensionLimit;
+  if C>0.0 then begin
+   Bias:=C*InverseDT;
+  end else begin
+   Bias:=fBiasFactor*C;
+  end;
+
+  Cdot:=Vector3Dot(fWorldSuspensionAxis,Vector3Sub(vB^,vA^))+Vector3Dot(fSBX,wB^)-Vector3Dot(fSAX,wA^);
+  Lambda:=(-fSuspensionMass)*(Cdot+Bias);
+
+  Old:=fLowerSuspensionImpulse;
+  fLowerSuspensionImpulse:=Max(fLowerSuspensionImpulse+Lambda,0.0);
+  Lambda:=fLowerSuspensionImpulse-Old;
+
+  Vector3DirectSub(vA^,Vector3Mul(Vector3ScalarMul(fWorldSuspensionAxis,Lambda),Vector3ScalarMul(fSolverLinearFactors[0]^,fInverseMasses[0])));
+  Vector3DirectSub(wA^,Vector3TermMatrixMul(Vector3ScalarMul(fSAX,Lambda),fWorldInverseInertiaTensors[0]));
+  Vector3DirectAdd(vB^,Vector3Mul(Vector3ScalarMul(fWorldSuspensionAxis,Lambda),Vector3ScalarMul(fSolverLinearFactors[1]^,fInverseMasses[1])));
+  Vector3DirectAdd(wB^,Vector3TermMatrixMul(Vector3ScalarMul(fSBX,Lambda),fWorldInverseInertiaTensors[1]));
+
+  // Upper limit: signs flipped so c stays positive when the limit is satisfied.
+  C:=fUpperSuspensionLimit-fTranslation;
+  if C>0.0 then begin
+   Bias:=C*InverseDT;
+  end else begin
+   Bias:=fBiasFactor*C;
+  end;
+
+  Cdot:=Vector3Dot(fWorldSuspensionAxis,Vector3Sub(vA^,vB^))+Vector3Dot(fSAX,wA^)-Vector3Dot(fSBX,wB^);
+  Lambda:=(-fSuspensionMass)*(Cdot+Bias);
+
+  Old:=fUpperSuspensionImpulse;
+  fUpperSuspensionImpulse:=Max(fUpperSuspensionImpulse+Lambda,0.0);
+  Lambda:=fUpperSuspensionImpulse-Old;
+
+  Vector3DirectAdd(vA^,Vector3Mul(Vector3ScalarMul(fWorldSuspensionAxis,Lambda),Vector3ScalarMul(fSolverLinearFactors[0]^,fInverseMasses[0])));
+  Vector3DirectAdd(wA^,Vector3TermMatrixMul(Vector3ScalarMul(fSAX,Lambda),fWorldInverseInertiaTensors[0]));
+  Vector3DirectSub(vB^,Vector3Mul(Vector3ScalarMul(fWorldSuspensionAxis,Lambda),Vector3ScalarMul(fSolverLinearFactors[1]^,fInverseMasses[1])));
+  Vector3DirectSub(wB^,Vector3TermMatrixMul(Vector3ScalarMul(fSBX,Lambda),fWorldInverseInertiaTensors[1]));
+
+ end;
+
+ // (5) Collinearity: 1-DOF about the suspension axis when steering, otherwise a full 2x2.
+ if fEnableSteering then begin
+
+  // Single free rotation about the suspension axis; everything else is constrained.
+  Cdot:=Vector3Dot(Vector3Sub(wB^,wA^),fCollinearAxis)+fCollinearBias1DOF;
+  DeltaX:=(-fCollinearMass)*Cdot;
+  fCollinearImpulse[0]:=fCollinearImpulse[0]+DeltaX;
+
+  P:=Vector3ScalarMul(fCollinearAxis,DeltaX);
+  Vector3DirectSub(wA^,Vector3TermMatrixMul(P,fWorldInverseInertiaTensors[0]));
+  Vector3DirectAdd(wB^,Vector3TermMatrixMul(P,fWorldInverseInertiaTensors[1]));
+
+ end else begin
+
+  // Relative-orientation error along the two perpendicular axes.
+  CdotX:=Vector3Dot(Vector3Sub(wB^,wA^),fPerpCollinearAxes[0])+fCollinearBias[0];
+  CdotY:=Vector3Dot(Vector3Sub(wB^,wA^),fPerpCollinearAxes[1])+fCollinearBias[1];
+
+  // Invert the 2x2 effective-mass matrix.
+  Det:=(fCollinearKxx*fCollinearKyy)-(fCollinearKxy*fCollinearKxy);
+  if abs(Det)>EPSILON then begin
+   InvDet:=1.0/Det;
+   SolX:=((fCollinearKyy*CdotX)-(fCollinearKxy*CdotY))*InvDet;
+   SolY:=((fCollinearKxx*CdotY)-(fCollinearKxy*CdotX))*InvDet;
+  end else begin
+   SolX:=0.0;
+   SolY:=0.0;
+  end;
+
+  // Accumulate and apply the angular impulse.
+  DeltaX:=-SolX;
+  DeltaY:=-SolY;
+  fCollinearImpulse[0]:=fCollinearImpulse[0]+DeltaX;
+  fCollinearImpulse[1]:=fCollinearImpulse[1]+DeltaY;
+
+  P:=Vector3Add(Vector3ScalarMul(fPerpCollinearAxes[0],DeltaX),Vector3ScalarMul(fPerpCollinearAxes[1],DeltaY));
+  Vector3DirectSub(wA^,Vector3TermMatrixMul(P,fWorldInverseInertiaTensors[0]));
+  Vector3DirectAdd(wB^,Vector3TermMatrixMul(P,fWorldInverseInertiaTensors[1]));
+
+ end;
+
+ // (6) Point-to-line 2x2 (keeps the anchor on the suspension line).
+
+ // Perpendicular velocity error along the two frame axes, plus the cached position bias.
+ CdotX:=Vector3Dot(fFrameYAxisA,Vector3Sub(vB^,vA^))+Vector3Dot(fSBY,wB^)-Vector3Dot(fSAY,wA^)+fPointToLineBias[0];
+ CdotY:=Vector3Dot(fFrameZAxisA,Vector3Sub(vB^,vA^))+Vector3Dot(fSBZ,wB^)-Vector3Dot(fSAZ,wA^)+fPointToLineBias[1];
+
+ // Invert the 2x2 effective-mass matrix.
+ Det:=(fPointToLineKyy*fPointToLineKzz)-(fPointToLineKyz*fPointToLineKyz);
+ if abs(Det)>EPSILON then begin
+  InvDet:=1.0/Det;
+  SolX:=((fPointToLineKzz*CdotX)-(fPointToLineKyz*CdotY))*InvDet;
+  SolY:=((fPointToLineKyy*CdotY)-(fPointToLineKyz*CdotX))*InvDet;
+ end else begin
+  SolX:=0.0;
+  SolY:=0.0;
+ end;
+
+ // Accumulate and apply the impulse in the perpendicular plane (linear + angular).
+ DeltaX:=-SolX;
+ DeltaY:=-SolY;
+ fPointToLineImpulse[0]:=fPointToLineImpulse[0]+DeltaX;
+ fPointToLineImpulse[1]:=fPointToLineImpulse[1]+DeltaY;
+
+ LinearImpulse:=Vector3Add(Vector3ScalarMul(fFrameYAxisA,DeltaX),Vector3ScalarMul(fFrameZAxisA,DeltaY));
+ Vector3DirectSub(vA^,Vector3Mul(LinearImpulse,Vector3ScalarMul(fSolverLinearFactors[0]^,fInverseMasses[0])));
+ Vector3DirectSub(wA^,Vector3TermMatrixMul(Vector3Add(Vector3ScalarMul(fSAY,DeltaX),Vector3ScalarMul(fSAZ,DeltaY)),fWorldInverseInertiaTensors[0]));
+ Vector3DirectAdd(vB^,Vector3Mul(LinearImpulse,Vector3ScalarMul(fSolverLinearFactors[1]^,fInverseMasses[1])));
+ Vector3DirectAdd(wB^,Vector3TermMatrixMul(Vector3Add(Vector3ScalarMul(fSBY,DeltaX),Vector3ScalarMul(fSBZ,DeltaY)),fWorldInverseInertiaTensors[1]));
+
+end;
+
+function TKraftConstraintJointWheel.SolvePositionConstraint(const Island:TKraftIsland;const TimeStep:TKraftTimeStep):boolean;
+begin
+ // The rigid DOF use velocity-level Baumgarte bias, so no separate position pass is needed.
+ result:=true;
+end;
+
+function TKraftConstraintJointWheel.GetAnchorA:TKraftVector3;
+begin
+ result:=Vector3TermMatrixMul(fLocalAnchors[0],fRigidBodies[0].fWorldTransform);
+end;
+
+function TKraftConstraintJointWheel.GetAnchorB:TKraftVector3;
+begin
+ result:=Vector3TermMatrixMul(fLocalAnchors[1],fRigidBodies[1].fWorldTransform);
+end;
+
+function TKraftConstraintJointWheel.GetReactionForce(const InverseDeltaTime:TKraftScalar):TKraftVector3;
+begin
+ result:=Vector3ScalarMul(Vector3Add(Vector3ScalarMul(fFrameYAxisA,fPointToLineImpulse[0]),Vector3ScalarMul(fFrameZAxisA,fPointToLineImpulse[1])),InverseDeltaTime);
+end;
+
+function TKraftConstraintJointWheel.GetReactionTorque(const InverseDeltaTime:TKraftScalar):TKraftVector3;
+begin
+ result:=Vector3ScalarMul(fWorldSpinAxis,fSpinImpulse*InverseDeltaTime);
 end;
 
 constructor TKraftSolver.Create(const aPhysics:TKraft;const AIsland:TKraftIsland);
