@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-07-01-23-31-0000                       *
+ *                        Version 2026-07-03-11-24-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -169,6 +169,11 @@ unit kraft;
  // Feature-ownership arbitration over the shared mesh contact pair.
  {-$define KraftInternalEdgeFeatureOwnership}
 {$endif}
+
+// TGS-soft substepping solver path, selectable at runtime via TKraftSolverMode.
+// The classic sequential-impulse solver stays the default and is left byte-for-byte untouched.
+// The whole TGS path (the substep joint methods + the TKraftIsland.Solve substep loop) is in place.
+// The soft data lives in separate arrays touched only in the TGS path.
 
 {-$define DebugDraw}
 
@@ -358,6 +363,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      TKraftPositionCorrectionMode=(kpcmBaumgarte,                     // Faster but it can be inaccurate in some situations
                                    kpcmNonLinearGaussSeidel);         // Slower but it's more precise (default)
      PKraftPositionCorrectionMode=^TKraftPositionCorrectionMode;
+
+     TKraftSolverMode=(ksmSequentialImpulse,                          // Classic sequential-impulse solver, one velocity+position solve per step (default)
+                       ksmTGSSoft);                                   // Substepping soft-step (TGS-soft) solver, opt-in
+     PKraftSolverMode=^TKraftSolverMode;
 
      TKraftGravityMode=(kgmNORMAL,         // Normal gravity in a common direction vector
                         kgmMIDPOINT);      // A world midpoint as gravity target
@@ -926,10 +935,19 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      PKraftIndirectTriangle=^TKraftIndirectTriangle;
 
      TKraftTimeStep=record
+
+      // Solver shared stuff
       DeltaTime:TKraftScalar;
       InverseDeltaTime:TKraftScalar;
       DeltaTimeRatio:TKraftScalar;
       WarmStarting:boolean;
+
+      // TGS solver stuff
+      SubStepDeltaTime:TKraftScalar;         // h = DeltaTime / SubStepCount, the TGS-soft substep length
+      InverseSubStepDeltaTime:TKraftScalar;  // 1 / h
+      SubStepCount:TKraftInt32;              // number of substeps this step
+      UseBias:boolean;                       // TGS-soft: true during the solve pass, false during the relax pass
+
      end;
      PKraftTimeStep=^TKraftTimeStep;
 
@@ -3998,6 +4016,23 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftSolverSpeculativeContactStates=array of TKraftSolverSpeculativeContactState;
 
+     PKraftSolverSoftness=^TKraftSolverSoftness;
+     TKraftSolverSoftness=record
+      BiasRate:TKraftScalar;
+      MassScale:TKraftScalar;
+      ImpulseScale:TKraftScalar;
+     end;
+
+     PKraftSolverTGSContactState=^TKraftSolverTGSContactState;
+     TKraftSolverTGSContactState=record
+      Softness:TKraftSolverSoftness;
+      AdjustedSeparations:array[0..MAX_CONTACTS-1] of TKraftScalar; // Separation minus the anchor term, for the substep recompute
+      RelativeVelocities:array[0..MAX_CONTACTS-1] of TKraftScalar;  // Relative normal velocity at prepare, for the restitution pass
+     end;
+     TKraftSolverTGSContactStates=array of TKraftSolverTGSContactState;
+
+     TKraftSolverPrepareCenters=array of TKraftVector3;
+
      TKraftSolver=class
       private
 
@@ -4035,6 +4070,21 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fPositionCorrectionMode:TKraftPositionCorrectionMode;
 
+      private
+
+       // TGS part
+
+       // TGS-soft data, which lives in separate arrays that are only allocated and touched in the
+       // TGS path (SolverMode = ksmTGSSoft), so the classic sequential-impulse hot loop and its
+       // structs stay byte-for-byte and performance identical.
+
+       fTGSContactStates:TKraftSolverTGSContactStates;
+       fPrepareCenters:TKraftSolverPrepareCenters;
+       fContactSoftness:TKraftSolverSoftness;
+       fStaticSoftness:TKraftSolverSoftness;
+
+       function MakeSoft(const aHertz,aDampingRatio,aH:TKraftScalar):TKraftSolverSoftness;
+
       public
 
        constructor Create(const aPhysics:TKraft;const AIsland:TKraftIsland);
@@ -4057,6 +4107,24 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure SolveSpeculativeContactConstraints;
 
        procedure StoreImpulses;
+
+      public
+
+       // TGS part
+
+       // Called once per step, before the substep loop, with the step-start positions/velocities.
+       procedure PrepareContactsSoft(const TimeStep:TKraftTimeStep);
+
+       // Called once per substep: reapply the accumulated impulses.
+       procedure WarmStartSubStep;
+
+       // Called once per substep: aUseBias=true for the solve pass, false for the relax pass.
+       procedure SolveVelocitySubStep(const TimeStep:TKraftTimeStep;const aUseBias:boolean);
+
+       // Called once after all substeps: separate restitution pass.
+       procedure ApplyRestitution;
+
+     public
 
        property Physics:TKraft read fPhysics;
 
@@ -4335,6 +4403,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure AddContactPair(aContactPair:PKraftContactPair);
        procedure MergeContactPairs;
        procedure Solve(const aTimeStep:TKraftTimeStep);
+       procedure SolveSequentialImpulse(const aTimeStep:TKraftTimeStep);
+       procedure SolveTGSSubStepped(const aTimeStep:TKraftTimeStep);
        procedure SolveTimeOfImpact(const aTimeStep:TKraftTimeStep;const aIndexA,aIndexB:TKraftInt32);
 
        property Physics:TKraft read fPhysics;
@@ -4627,6 +4697,22 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fSpeculativeIterations:TKraftInt32;
 
+       // TGS begin
+
+       fSolverMode:TKraftSolverMode;
+
+       fSubStepCount:TKraftInt32;
+
+       fContactHertz:TKraftScalar;
+
+       fContactDampingRatio:TKraftScalar;
+
+       fJointHertz:TKraftScalar;
+
+       fJointDampingRatio:TKraftScalar;
+
+       // TGS end
+
        fTimeOfImpactIterations:TKraftInt32;
 
        fPerturbationIterations:TKraftInt32;
@@ -4904,6 +4990,26 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property PositionIterations:TKraftInt32 read fPositionIterations write fPositionIterations;
 
        property SpeculativeIterations:TKraftInt32 read fSpeculativeIterations write fSpeculativeIterations;
+
+       // Runtime switch between the classic sequential-impulse solver (default) and the TGS-soft substepping solver.
+       property SolverMode:TKraftSolverMode read fSolverMode write fSolverMode;
+
+       // TGS begin
+
+       // TGS-soft: number of substeps per step. More substeps give stiffer stacks/joints without more iterations.
+       property SubStepCount:TKraftInt32 read fSubStepCount write fSubStepCount;
+
+       // TGS-soft: contact softness in Hertz and damping ratio (higher Hertz = stiffer contacts).
+       property ContactHertz:TKraftScalar read fContactHertz write fContactHertz;
+
+       property ContactDampingRatio:TKraftScalar read fContactDampingRatio write fContactDampingRatio;
+
+       // TGS-soft: default joint softness in Hertz and damping ratio for constraints without their own spring.
+       property JointHertz:TKraftScalar read fJointHertz write fJointHertz;
+
+       property JointDampingRatio:TKraftScalar read fJointDampingRatio write fJointDampingRatio;
+
+       // TGS end
 
        property TimeOfImpactIterations:TKraftInt32 read fTimeOfImpactIterations write fTimeOfImpactIterations;
 
@@ -47259,16 +47365,26 @@ begin
 
  fCountContacts:=0;
 
+ // TGS-soft parallel arrays. Only grown and touched when SolverMode is ksmTGSSoft.
+
+ fTGSContactStates:=nil;
+ SetLength(fTGSContactStates,64);
+
+ fPrepareCenters:=nil;
+ SetLength(fPrepareCenters,64);
+
 end;
 
 destructor TKraftSolver.Destroy;
 begin
- SetLength(fVelocities,0);
- SetLength(fPositions,0);
- SetLength(fLinearFactors,0);
- SetLength(fVelocityStates,0);
- SetLength(fPositionStates,0);
- SetLength(fSpeculativeContactStates,0);
+ fVelocities:=nil;
+ fPositions:=nil;
+ fLinearFactors:=nil;
+ fVelocityStates:=nil;
+ fPositionStates:=nil;
+ fSpeculativeContactStates:=nil;
+ fTGSContactStates:=nil;
+ fPrepareCenters:=nil;
  inherited Destroy;
 end;
 
@@ -48304,6 +48420,463 @@ begin
  end;
 end;
 
+function TKraftSolver.MakeSoft(const aHertz,aDampingRatio,aH:TKraftScalar):TKraftSolverSoftness;
+var Omega,A1,A2,A3:TKraftScalar;
+begin
+
+ // Turn (Hertz, damping ratio, substep length) into the soft-constraint triple.
+
+ if aHertz<=0.0 then begin
+
+  result.BiasRate:=0.0;
+  result.MassScale:=1.0;
+  result.ImpulseScale:=0.0;
+
+ end else begin
+
+  Omega:=(2.0*pi)*aHertz;
+
+  A1:=(2.0*aDampingRatio)+(aH*Omega);
+  A2:=(aH*Omega)*A1;
+  A3:=1.0/(1.0+A2);
+
+  result.BiasRate:=Omega/A1;
+  result.MassScale:=A2*A3;
+  result.ImpulseScale:=A3;
+
+ end;
+
+end;
+
+procedure TKraftSolver.PrepareContactsSoft(const TimeStep:TKraftTimeStep);
+var ContactPairIndex,ContactIndex,TangentIndex,IndexA,IndexB:TKraftInt32;
+    VelocityState:PKraftSolverVelocityState;
+    PositionState:PKraftSolverPositionState;
+    ContactPoint:PKraftSolverVelocityStateContactPoint;
+    TGSState:PKraftSolverTGSContactState;
+    SolverContact:PKraftSolverContact;
+    iA,iB:PKraftMatrix3x3;
+    mA,mB,NormalMass,TangentMass,dv,h:TKraftScalar;
+    LocalCenterA,LocalCenterB,cA,vA,wA,rnA,rtA,cB,vB,wB,rnB,rtB,rA,rB,Temp:TKraftVector3;
+    TangentVectors:array[0..1] of TKraftVector3;
+    qA,qB:TKraftQuaternion;
+    tA,tB:TKraftMatrix4x4;
+    SolverContactManifold:TKraftSolverContactManifold;
+begin
+
+ h:=TimeStep.SubStepDeltaTime;
+ fContactSoftness:=MakeSoft(fPhysics.fContactHertz,fPhysics.fContactDampingRatio,h);
+ fStaticSoftness:=MakeSoft(2.0*fPhysics.fContactHertz,fPhysics.fContactDampingRatio,h);
+
+ // Snapshot the step-start centre of mass of every body, so the substep solve can recompute the separation
+ // from the accumulated delta positions.
+ if fCountPositions>length(fPrepareCenters) then begin
+  SetLength(fPrepareCenters,fCountPositions*2);
+ end;
+ for IndexA:=0 to fCountPositions-1 do begin
+  fPrepareCenters[IndexA]:=fPositions[IndexA].Position;
+ end;
+
+ if fCountContacts>length(fTGSContactStates) then begin
+  SetLength(fTGSContactStates,fCountContacts*2);
+ end;
+
+ TangentVectors[0]:=Vector3Origin;
+ TangentVectors[1]:=Vector3Origin;
+
+ for ContactPairIndex:=0 to fCountContacts-1 do begin
+
+  VelocityState:=@fVelocityStates[ContactPairIndex];
+  PositionState:=@fPositionStates[ContactPairIndex];
+  TGSState:=@fTGSContactStates[ContactPairIndex];
+
+  IndexA:=VelocityState^.Indices[0];
+  IndexB:=VelocityState^.Indices[1];
+
+  iA:=@VelocityState^.WorldInverseInertiaTensors[0];
+  iB:=@VelocityState^.WorldInverseInertiaTensors[1];
+
+  mA:=VelocityState^.InverseMasses[0];
+  mB:=VelocityState^.InverseMasses[1];
+
+  // Contacts against a static/kinematic body (no inverse mass on one side) get the stiffer softness.
+  if (mA=0.0) or (mB=0.0) then begin
+   TGSState^.Softness:=fStaticSoftness;
+  end else begin
+   TGSState^.Softness:=fContactSoftness;
+  end;
+
+  LocalCenterA:=PositionState^.LocalCenters[0];
+  LocalCenterB:=PositionState^.LocalCenters[1];
+
+  cA:=fPositions[IndexA].Position;
+  qA:=fPositions[IndexA].Orientation;
+  tA:=QuaternionToMatrix4x4(qA);
+  Temp:=Vector3Sub(cA,Vector3TermMatrixMulBasis(LocalCenterA,tA));
+  PKraftVector3(pointer(@tA[3,0]))^.xyz:=PKraftVector3(pointer(@Temp))^.xyz;
+
+  cB:=fPositions[IndexB].Position;
+  qB:=fPositions[IndexB].Orientation;
+  tB:=QuaternionToMatrix4x4(qB);
+  Temp:=Vector3Sub(cB,Vector3TermMatrixMulBasis(LocalCenterB,tB));
+  PKraftVector3(pointer(@tB[3,0]))^.xyz:=PKraftVector3(pointer(@Temp))^.xyz;
+
+  vA:=fVelocities[IndexA].LinearVelocity;
+  wA:=fVelocities[IndexA].AngularVelocity;
+  vB:=fVelocities[IndexB].LinearVelocity;
+  wB:=fVelocities[IndexB].AngularVelocity;
+
+  fIsland.fContactPairs[ContactPairIndex]^.GetSolverContactManifold(SolverContactManifold,tA,tB,kcpcmmVelocitySolver);
+
+  VelocityState^.CountPoints:=SolverContactManifold.CountContacts;
+  VelocityState^.Normal:=SolverContactManifold.Normal;
+
+  ComputeBasis(VelocityState^.Normal,TangentVectors[0],TangentVectors[1]);
+
+  for ContactIndex:=0 to SolverContactManifold.CountContacts-1 do begin
+
+   ContactPoint:=@VelocityState^.Points[ContactIndex];
+   SolverContact:=@SolverContactManifold.Contacts[ContactIndex];
+
+   // Contact anchors relative to each body's centre of mass.
+   rA:=Vector3Sub(SolverContact^.Point,cA);
+   rB:=Vector3Sub(SolverContact^.Point,cB);
+   ContactPoint^.RelativePositions[0]:=rA;
+   ContactPoint^.RelativePositions[1]:=rB;
+
+   // Effective normal mass (J M^-1 J^T along the contact normal).
+   rnA:=Vector3Cross(rA,VelocityState^.Normal);
+   rnB:=Vector3Cross(rB,VelocityState^.Normal);
+   NormalMass:=mA+mB+Vector3Dot(rnA,Vector3TermMatrixMul(rnA,iA^))+Vector3Dot(rnB,Vector3TermMatrixMul(rnB,iB^));
+   if NormalMass>0.0 then begin
+    ContactPoint^.NormalMass:=1.0/NormalMass;
+   end else begin
+    ContactPoint^.NormalMass:=0.0;
+   end;
+
+   // Effective mass for each of the two friction tangents.
+   for TangentIndex:=0 to 1 do begin
+    rtA:=Vector3Cross(TangentVectors[TangentIndex],rA);
+    rtB:=Vector3Cross(TangentVectors[TangentIndex],rB);
+    TangentMass:=mA+mB+Vector3Dot(rtA,Vector3TermMatrixMul(rtA,iA^))+Vector3Dot(rtB,Vector3TermMatrixMul(rtB,iB^));
+    if TangentMass>0.0 then begin
+     ContactPoint^.TangentMass[TangentIndex]:=1.0/TangentMass;
+    end else begin
+     ContactPoint^.TangentMass[TangentIndex]:=0.0;
+    end;
+   end;
+
+   // Adjusted separation, so the substep solve gets it back from the delta positions:
+   // s = AdjustedSeparation + dot((dcB + rB) - (dcA + rA), normal), which equals Separation at prepare.
+   TGSState^.AdjustedSeparations[ContactIndex]:=SolverContact^.Separation-Vector3Dot(Vector3Sub(rB,rA),VelocityState^.Normal);
+
+   // Relative normal velocity at prepare, for the separate restitution pass.
+   dv:=Vector3Dot(Vector3Sub(Vector3Add(vB,Vector3Cross(wB,rB)),Vector3Add(vA,Vector3Cross(wA,rA))),VelocityState^.Normal);
+   TGSState^.RelativeVelocities[ContactIndex]:=dv;
+
+   ContactPoint^.BaumgarteBias:=0.0;
+   ContactPoint^.Bias:=0.0;
+
+  end;
+
+ end;
+
+end;
+
+procedure TKraftSolver.WarmStartSubStep;
+var ContactPairIndex,ContactIndex,IndexA,IndexB,CountPoints:TKraftInt32;
+    VelocityState:PKraftSolverVelocityState;
+    ContactPoint:PKraftSolverVelocityStateContactPoint;
+    iA,iB:PKraftMatrix3x3;
+    mA,mB:TKraftScalar;
+    Normal,vA,lA,wA,vB,lB,wB,P:TKraftVector3;
+    TangentVectors:array[0..1] of TKraftVector3;
+begin
+
+ // Reapply the accumulated normal and friction impulses of every contact point (once per substep).
+ for ContactPairIndex:=0 to fCountContacts-1 do begin
+
+  VelocityState:=@fVelocityStates[ContactPairIndex];
+
+  // Load the contact pair state.
+  IndexA:=VelocityState^.Indices[0];
+  IndexB:=VelocityState^.Indices[1];
+  iA:=@VelocityState^.WorldInverseInertiaTensors[0];
+  iB:=@VelocityState^.WorldInverseInertiaTensors[1];
+  mA:=VelocityState^.InverseMasses[0];
+  mB:=VelocityState^.InverseMasses[1];
+  CountPoints:=VelocityState^.CountPoints;
+  Normal:=VelocityState^.Normal;
+
+  ComputeBasis(Normal,TangentVectors[0],TangentVectors[1]);
+
+  vA:=fVelocities[IndexA].LinearVelocity;
+  wA:=fVelocities[IndexA].AngularVelocity;
+  vB:=fVelocities[IndexB].LinearVelocity;
+  wB:=fVelocities[IndexB].AngularVelocity;
+
+  lA:=fLinearFactors[IndexA];
+  lB:=fLinearFactors[IndexB];
+
+  for ContactIndex:=0 to CountPoints-1 do begin
+
+   ContactPoint:=@VelocityState^.Points[ContactIndex];
+
+   // Combined normal + tangent impulse of this point.
+   P:=Vector3Add(Vector3ScalarMul(Normal,ContactPoint^.NormalImpulse),
+                 Vector3Add(Vector3ScalarMul(TangentVectors[0],ContactPoint^.TangentImpulse[0]),
+                            Vector3ScalarMul(TangentVectors[1],ContactPoint^.TangentImpulse[1])));
+
+   Vector3DirectSub(vA,Vector3Mul(P,Vector3ScalarMul(lA,mA)));
+   Vector3DirectSub(wA,Vector3TermMatrixMul(Vector3Cross(ContactPoint^.RelativePositions[0],P),iA^));
+
+   Vector3DirectAdd(vB,Vector3Mul(P,Vector3ScalarMul(lB,mB)));
+   Vector3DirectAdd(wB,Vector3TermMatrixMul(Vector3Cross(ContactPoint^.RelativePositions[1],P),iB^));
+
+  end;
+
+  // Write the updated velocities back.
+  fVelocities[IndexA].LinearVelocity:=vA;
+  fVelocities[IndexA].AngularVelocity:=wA;
+  fVelocities[IndexB].LinearVelocity:=vB;
+  fVelocities[IndexB].AngularVelocity:=wB;
+
+ end;
+
+end;
+
+procedure TKraftSolver.SolveVelocitySubStep(const TimeStep:TKraftTimeStep;const aUseBias:boolean);
+var ContactPairIndex,ContactIndex,TangentIndex,IndexA,IndexB,CountPoints:TKraftInt32;
+    VelocityState:PKraftSolverVelocityState;
+    ContactPoint:PKraftSolverVelocityStateContactPoint;
+    TGSState:PKraftSolverTGSContactState;
+    iA,iB:PKraftMatrix3x3;
+    mA,mB,Friction,Lambda,MaxLambda,vn,Old,Separation,Bias,MassScale,ImpulseScale,MaxBiasVelocity,InverseH:TKraftScalar;
+    Normal,vA,lA,wA,rA,vB,lB,wB,rB,dv,P,dcA,dcB:TKraftVector3;
+    TangentVectors:array[0..1] of TKraftVector3;
+begin
+
+ InverseH:=TimeStep.InverseSubStepDeltaTime;
+ MaxBiasVelocity:=fPhysics.fMaximalLinearCorrection*InverseH;
+
+ for ContactPairIndex:=0 to fCountContacts-1 do begin
+
+  VelocityState:=@fVelocityStates[ContactPairIndex];
+  TGSState:=@fTGSContactStates[ContactPairIndex];
+
+  // Load the contact pair state.
+  IndexA:=VelocityState^.Indices[0];
+  IndexB:=VelocityState^.Indices[1];
+  iA:=@VelocityState^.WorldInverseInertiaTensors[0];
+  iB:=@VelocityState^.WorldInverseInertiaTensors[1];
+  mA:=VelocityState^.InverseMasses[0];
+  mB:=VelocityState^.InverseMasses[1];
+  CountPoints:=VelocityState^.CountPoints;
+  Normal:=VelocityState^.Normal;
+  Friction:=VelocityState^.Friction;
+
+  ComputeBasis(Normal,TangentVectors[0],TangentVectors[1]);
+
+  vA:=fVelocities[IndexA].LinearVelocity;
+  wA:=fVelocities[IndexA].AngularVelocity;
+  vB:=fVelocities[IndexB].LinearVelocity;
+  wB:=fVelocities[IndexB].AngularVelocity;
+
+  lA:=fLinearFactors[IndexA];
+  lB:=fLinearFactors[IndexB];
+
+  // Accumulated centre-of-mass delta positions since prepare (anchors are kept at their prepare value).
+  dcA:=Vector3Sub(fPositions[IndexA].Position,fPrepareCenters[IndexA]);
+  dcB:=Vector3Sub(fPositions[IndexB].Position,fPrepareCenters[IndexB]);
+
+  // Normal constraint first (soft), so friction can clamp against the fresh normal impulse.
+  for ContactIndex:=0 to CountPoints-1 do begin
+
+   ContactPoint:=@VelocityState^.Points[ContactIndex];
+
+   rA:=ContactPoint^.RelativePositions[0];
+   rB:=ContactPoint^.RelativePositions[1];
+
+   // Recompute the current separation from the accumulated delta positions of both bodies.
+   Separation:=TGSState^.AdjustedSeparations[ContactIndex]+Vector3Dot(Vector3Sub(Vector3Add(dcB,rB),Vector3Add(dcA,rA)),Normal);
+
+   // Choose the bias regime for this point.
+   if Separation>0.0 then begin
+
+    // Speculative: point not yet touching, brake exactly at the contact plane, no softness.
+    Bias:=Separation*InverseH;
+    MassScale:=1.0;
+    ImpulseScale:=0.0;
+
+   end else if aUseBias then begin
+
+    // Solve pass: soft bias pushes the overlap out over the substep, capped so it cannot explode.
+    Bias:=Max(TGSState^.Softness.BiasRate*Separation,-MaxBiasVelocity);
+    MassScale:=TGSState^.Softness.MassScale;
+    ImpulseScale:=TGSState^.Softness.ImpulseScale;
+
+   end else begin
+
+    // Relax pass: no bias, so the extra energy the bias added is taken back out.
+    Bias:=0.0;
+    MassScale:=1.0;
+    ImpulseScale:=0.0;
+
+   end;
+
+   // Relative normal velocity at the contact point.
+   dv:=Vector3Sub(Vector3Add(vB,Vector3Cross(wB,rB)),Vector3Add(vA,Vector3Cross(wA,rA)));
+   vn:=Vector3Dot(dv,Normal);
+
+   // Soft normal impulse, accumulated and clamped to stay non-negative.
+   Lambda:=((-ContactPoint^.NormalMass)*MassScale*(vn+Bias))-(ImpulseScale*ContactPoint^.NormalImpulse);
+
+   Old:=ContactPoint^.NormalImpulse;
+   ContactPoint^.NormalImpulse:=Max(0.0,Old+Lambda);
+   Lambda:=ContactPoint^.NormalImpulse-Old;
+
+   // Apply the delta impulse to both bodies.
+   P:=Vector3ScalarMul(Normal,Lambda);
+
+   Vector3DirectSub(vA,Vector3Mul(P,Vector3ScalarMul(lA,mA)));
+   Vector3DirectSub(wA,Vector3TermMatrixMul(Vector3Cross(rA,P),iA^));
+
+   Vector3DirectAdd(vB,Vector3Mul(P,Vector3ScalarMul(lB,mB)));
+   Vector3DirectAdd(wB,Vector3TermMatrixMul(Vector3Cross(rB,P),iB^));
+
+  end;
+
+  // Friction after the normal impulse, clamped to the Coulomb cone of the current normal impulse.
+  if fEnableFriction then begin
+
+   for ContactIndex:=0 to CountPoints-1 do begin
+
+    ContactPoint:=@VelocityState^.Points[ContactIndex];
+
+    rA:=ContactPoint^.RelativePositions[0];
+    rB:=ContactPoint^.RelativePositions[1];
+
+    MaxLambda:=Friction*ContactPoint^.NormalImpulse;
+
+    // Two tangent directions per point.
+    for TangentIndex:=0 to 1 do begin
+
+     // Tangential relative velocity and its impulse, clamped into the friction cone.
+     dv:=Vector3Sub(Vector3Add(vB,Vector3Cross(wB,rB)),Vector3Add(vA,Vector3Cross(wA,rA)));
+     Lambda:=(-Vector3Dot(dv,TangentVectors[TangentIndex]))*ContactPoint^.TangentMass[TangentIndex];
+
+     Old:=ContactPoint^.TangentImpulse[TangentIndex];
+     ContactPoint^.TangentImpulse[TangentIndex]:=Min(Max(Old+Lambda,-MaxLambda),MaxLambda);
+     Lambda:=ContactPoint^.TangentImpulse[TangentIndex]-Old;
+
+     // Apply the delta friction impulse to both bodies.
+     P:=Vector3ScalarMul(TangentVectors[TangentIndex],Lambda);
+
+     Vector3DirectSub(vA,Vector3Mul(P,Vector3ScalarMul(lA,mA)));
+     Vector3DirectSub(wA,Vector3TermMatrixMul(Vector3Cross(rA,P),iA^));
+
+     Vector3DirectAdd(vB,Vector3Mul(P,Vector3ScalarMul(lB,mB)));
+     Vector3DirectAdd(wB,Vector3TermMatrixMul(Vector3Cross(rB,P),iB^));
+
+    end;
+
+   end;
+
+  end;
+
+  // Write the updated velocities back into the solver arrays.
+  fVelocities[IndexA].LinearVelocity:=vA;
+  fVelocities[IndexA].AngularVelocity:=wA;
+  fVelocities[IndexB].LinearVelocity:=vB;
+  fVelocities[IndexB].AngularVelocity:=wB;
+
+ end;
+
+end;
+
+procedure TKraftSolver.ApplyRestitution;
+var ContactPairIndex,ContactIndex,IndexA,IndexB,CountPoints:TKraftInt32;
+    VelocityState:PKraftSolverVelocityState;
+    ContactPoint:PKraftSolverVelocityStateContactPoint;
+    TGSState:PKraftSolverTGSContactState;
+    iA,iB:PKraftMatrix3x3;
+    mA,mB,Restitution,RestitutionThreshold,vn,Lambda,Old:TKraftScalar;
+    Normal,vA,lA,wA,rA,vB,lB,wB,rB,dv,P:TKraftVector3;
+begin
+
+ for ContactPairIndex:=0 to fCountContacts-1 do begin
+
+  VelocityState:=@fVelocityStates[ContactPairIndex];
+  TGSState:=@fTGSContactStates[ContactPairIndex];
+
+  // Restitution-free pairs need no bounce pass.
+  Restitution:=VelocityState^.Restitution;
+  if Restitution=0.0 then begin
+   continue;
+  end;
+
+  // Load the contact pair state.
+  IndexA:=VelocityState^.Indices[0];
+  IndexB:=VelocityState^.Indices[1];
+  iA:=@VelocityState^.WorldInverseInertiaTensors[0];
+  iB:=@VelocityState^.WorldInverseInertiaTensors[1];
+  mA:=VelocityState^.InverseMasses[0];
+  mB:=VelocityState^.InverseMasses[1];
+  CountPoints:=VelocityState^.CountPoints;
+  Normal:=VelocityState^.Normal;
+  RestitutionThreshold:=VelocityState^.RestitutionThreshold;
+
+  vA:=fVelocities[IndexA].LinearVelocity;
+  wA:=fVelocities[IndexA].AngularVelocity;
+  vB:=fVelocities[IndexB].LinearVelocity;
+  wB:=fVelocities[IndexB].AngularVelocity;
+
+  lA:=fLinearFactors[IndexA];
+  lB:=fLinearFactors[IndexB];
+
+  for ContactIndex:=0 to CountPoints-1 do begin
+
+   ContactPoint:=@VelocityState^.Points[ContactIndex];
+
+   // Only bounce points that were approaching fast enough at prepare and actually took a normal impulse.
+   if (TGSState^.RelativeVelocities[ContactIndex]>(-RestitutionThreshold)) or (ContactPoint^.NormalImpulse=0.0) then begin
+    continue;
+   end;
+
+   rA:=ContactPoint^.RelativePositions[0];
+   rB:=ContactPoint^.RelativePositions[1];
+
+   // Current relative normal velocity, and the restitution impulse that restores the bounce.
+   dv:=Vector3Sub(Vector3Add(vB,Vector3Cross(wB,rB)),Vector3Add(vA,Vector3Cross(wA,rA)));
+   vn:=Vector3Dot(dv,Normal);
+
+   Lambda:=(-ContactPoint^.NormalMass)*(vn+(Restitution*TGSState^.RelativeVelocities[ContactIndex]));
+
+   Old:=ContactPoint^.NormalImpulse;
+   ContactPoint^.NormalImpulse:=Max(0.0,Old+Lambda);
+   Lambda:=ContactPoint^.NormalImpulse-Old;
+
+   // Apply the delta impulse to both bodies.
+   P:=Vector3ScalarMul(Normal,Lambda);
+
+   Vector3DirectSub(vA,Vector3Mul(P,Vector3ScalarMul(lA,mA)));
+   Vector3DirectSub(wA,Vector3TermMatrixMul(Vector3Cross(rA,P),iA^));
+
+   Vector3DirectAdd(vB,Vector3Mul(P,Vector3ScalarMul(lB,mB)));
+   Vector3DirectAdd(wB,Vector3TermMatrixMul(Vector3Cross(rB,P),iB^));
+
+  end;
+
+  // Write the updated velocities back.
+  fVelocities[IndexA].LinearVelocity:=vA;
+  fVelocities[IndexA].AngularVelocity:=wA;
+  fVelocities[IndexB].LinearVelocity:=vB;
+  fVelocities[IndexB].AngularVelocity:=wB;
+
+ end;
+
+end;
+
 constructor TKraftParticleColor.Create(const aR,aG,aB,aA:TKraftUInt8);
 begin
  r:=aR;
@@ -48674,7 +49247,7 @@ begin
  end;
 end;
 
-procedure TKraftIsland.Solve(const aTimeStep:TKraftTimeStep);
+procedure TKraftIsland.SolveSequentialImpulse(const aTimeStep:TKraftTimeStep);
 var Iteration,Index:TKraftInt32;
     RigidBody:TKraftRigidBody;
     Constraint:TKraftConstraint;
@@ -48996,6 +49569,267 @@ begin
      fRigidBodies[Index].SetToSleep;
     end;
    end;
+  end;
+
+ end;
+
+end;
+
+procedure TKraftIsland.SolveTGSSubStepped(const aTimeStep:TKraftTimeStep);
+// TGS-soft substepping solve. Per substep: integrate velocities with h, warm start, solve (with bias),
+// integrate positions with h, relax (without bias); then one restitution pass. The classic sequential-impulse
+// TKraftIsland.Solve stays the default and is not touched. This first cut solves contacts only; joints are
+// added in a later stage (test with joint-free scenes for now).
+var SubStep,Iteration,Index:TKraftInt32;
+    RigidBody:TKraftRigidBody;
+    Constraint:TKraftConstraint;
+    MinSleepTime,h:TKraftScalar;
+    First,OK:boolean;
+    SolverVelocity:PKraftSolverVelocity;
+    SolverPosition:PKraftSolverPosition;
+    Position,LinearVelocity,AngularVelocity,Translation,Rotation,Gravity,Acceleration:TKraftVector3;
+    Orientation:TKraftQuaternion;
+begin
+
+ h:=aTimeStep.SubStepDeltaTime;
+
+ fSolver.Store;
+
+ fSolver.Initialize(aTimeStep);
+
+ // Transfer body state into the solver. No velocity integration here, that happens per substep below.
+ for Index:=0 to fCountRigidBodies-1 do begin
+  RigidBody:=fRigidBodies[Index];
+  RigidBody.fSweep.c0:=RigidBody.fSweep.c;
+  RigidBody.fSweep.q0:=RigidBody.fSweep.q;
+  if RigidBody.fRigidBodyType=krbtDynamic then begin
+   RigidBody.UpdateWorldInertiaTensor;
+  end;
+  fSolver.fVelocities[Index].LinearVelocity:=RigidBody.fLinearVelocity;
+  fSolver.fVelocities[Index].AngularVelocity:=RigidBody.fAngularVelocity;
+  fSolver.fPositions[Index].Position:=RigidBody.fSweep.c;
+  fSolver.fPositions[Index].Orientation:=RigidBody.fSweep.q;
+  fSolver.fLinearFactors[Index]:=RigidBody.fLinearFactor;
+ end;
+
+ fSolver.PrepareContactsSoft(aTimeStep);
+
+ // Joints reuse the classic constraint methods inside the substep loop. They operate on the solver velocity
+ // and position arrays (via fSolverVelocities/fSolverPositions), which the substep loop keeps current, so this
+ // is a working (not yet natively soft) joint path: prepare + warm start once, solve velocity every substep,
+ // then a position correction pass after the substeps. A native TGS-soft joint variant can replace this later.
+ for Index:=0 to fCountConstraints-1 do begin
+  Constraint:=fConstraints[Index];
+  if assigned(Constraint) and not (kcfBreaked in Constraint.fFlags) then begin
+   Constraint.InitializeConstraintsAndWarmStart(self,aTimeStep);
+  end;
+ end;
+
+ for SubStep:=1 to aTimeStep.SubStepCount do begin
+
+  // Integrate velocities with the substep length h. Gravity is applied as an acceleration per substep (not
+  // accumulated into fForce, which would multiply it by the substep count). Gyroscopic force and the extra
+  // damping model of the classic path are left out in this first cut.
+  for Index:=0 to fCountRigidBodies-1 do begin
+
+   RigidBody:=fRigidBodies[Index];
+
+   if RigidBody.fRigidBodyType=krbtDynamic then begin
+
+    // Resolve the gravity acceleration for this body (own or world gravity, normal or midpoint mode).
+    if krbfHasOwnGravity in RigidBody.fFlags then begin
+     case RigidBody.fGravityMode of
+      kgmMIDPOINT:begin
+       Gravity:=Vector3ScalarMul(Vector3Norm(Vector3Sub(RigidBody.fGravity,fSolver.fPositions[Index].Position)),RigidBody.fGravitySpeed*RigidBody.fGravityScale);
+      end;
+      else begin
+       Gravity:=Vector3ScalarMul(RigidBody.fGravity,RigidBody.fGravityScale);
+      end;
+     end;
+    end else begin
+     case fPhysics.fGravityMode of
+      kgmMIDPOINT:begin
+       Gravity:=Vector3ScalarMul(Vector3Norm(Vector3Sub(fPhysics.fGravity,fSolver.fPositions[Index].Position)),fPhysics.fGravitySpeed*RigidBody.fGravityScale);
+      end;
+      else begin
+       Gravity:=Vector3ScalarMul(fPhysics.fGravity,RigidBody.fGravityScale);
+      end;
+     end;
+    end;
+
+    LinearVelocity:=fSolver.fVelocities[Index].LinearVelocity;
+    AngularVelocity:=fSolver.fVelocities[Index].AngularVelocity;
+
+    // Linear velocity: v += (F/m + g) * h
+    Acceleration:=Vector3Add(Vector3Mul(RigidBody.fForce,Vector3ScalarMul(RigidBody.fLinearFactor,RigidBody.InverseMass)),Gravity);
+    LinearVelocity:=Vector3Add(LinearVelocity,Vector3ScalarMul(Acceleration,h));
+
+    // Angular velocity: w += (T * I^-1) * h
+    AngularVelocity:=Vector3Add(AngularVelocity,Vector3ScalarMul(Vector3TermMatrixMul(RigidBody.fTorque,RigidBody.fWorldInverseInertiaTensor),h));
+
+    // Padé damping over the substep length.
+    Vector3Scale(LinearVelocity,1.0/(1.0+(RigidBody.fLinearVelocityDamp*h)));
+    Vector3Scale(AngularVelocity,1.0/(1.0+(RigidBody.fAngularVelocityDamp*h)));
+
+    fSolver.fVelocities[Index].LinearVelocity:=LinearVelocity;
+    fSolver.fVelocities[Index].AngularVelocity:=AngularVelocity;
+
+   end;
+
+  end;
+
+  fSolver.WarmStartSubStep;
+
+  fSolver.SolveVelocitySubStep(aTimeStep,true);
+
+  for Index:=0 to fCountConstraints-1 do begin
+   Constraint:=fConstraints[Index];
+   if assigned(Constraint) and not (kcfBreaked in Constraint.fFlags) then begin
+    Constraint.SolveVelocityConstraint(self,aTimeStep);
+   end;
+  end;
+
+  // Integrate positions with the substep length h.
+  for Index:=0 to fCountRigidBodies-1 do begin
+   RigidBody:=fRigidBodies[Index];
+   if RigidBody.fRigidBodyType in [krbtDynamic,krbtKinematic] then begin
+    SolverPosition:=@fSolver.fPositions[Index];
+    SolverVelocity:=@fSolver.fVelocities[Index];
+    Position:=SolverPosition^.Position;
+    Orientation:=SolverPosition^.Orientation;
+    LinearVelocity:=SolverVelocity^.LinearVelocity;
+    AngularVelocity:=SolverVelocity^.AngularVelocity;
+    fPhysics.Integrate(Position,Orientation,LinearVelocity,AngularVelocity,h);
+    SolverPosition^.Position:=Position;
+    SolverPosition^.Orientation:=Orientation;
+   end;
+  end;
+
+  // Relax pass: solve again without bias to remove the energy the bias added.
+  fSolver.SolveVelocitySubStep(aTimeStep,false);
+
+ end;
+
+ fSolver.ApplyRestitution;
+
+ fSolver.StoreImpulses;
+
+ // Joint position correction pass (NonLinearGaussSeidel), after the substeps, on the final solver positions.
+ if fPhysics.fConstraintPositionCorrectionMode=kpcmNonLinearGaussSeidel then begin
+  for Iteration:=1 to fPhysics.fPositionIterations do begin
+   OK:=true;
+   for Index:=0 to fCountConstraints-1 do begin
+    Constraint:=fConstraints[Index];
+    if assigned(Constraint) and not (kcfBreaked in Constraint.fFlags) then begin
+     if not Constraint.SolvePositionConstraint(self,aTimeStep) then begin
+      OK:=false;
+     end;
+    end;
+   end;
+   if OK then begin
+    break;
+   end;
+  end;
+ end;
+
+ // Clamp velocities (like the classic path) and write the solver state back into the bodies.
+ for Index:=0 to fCountRigidBodies-1 do begin
+  RigidBody:=fRigidBodies[Index];
+  case RigidBody.fRigidBodyType of
+   krbtDynamic,krbtKinematic:begin
+    SolverPosition:=@fSolver.fPositions[Index];
+    SolverVelocity:=@fSolver.fVelocities[Index];
+    LinearVelocity:=SolverVelocity^.LinearVelocity;
+    AngularVelocity:=SolverVelocity^.AngularVelocity;
+
+    // Clamp the linear velocity to the world and per-body maxima (measured over the full step length).
+    if fPhysics.fMaximalLinearVelocity>EPSILON then begin
+     Translation:=Vector3ScalarMul(LinearVelocity,aTimeStep.DeltaTime);
+     if Vector3LengthSquared(Translation)>sqr(fPhysics.fMaximalLinearVelocity) then begin
+      Vector3Scale(LinearVelocity,fPhysics.fMaximalLinearVelocity/Vector3Length(Translation));
+     end;
+    end;
+
+    if RigidBody.fMaximalLinearVelocity>EPSILON then begin
+     Translation:=Vector3ScalarMul(LinearVelocity,aTimeStep.DeltaTime);
+     if Vector3LengthSquared(Translation)>sqr(RigidBody.fMaximalLinearVelocity) then begin
+      Vector3Scale(LinearVelocity,RigidBody.fMaximalLinearVelocity/Vector3Length(Translation));
+     end;
+    end;
+
+    // Clamp the angular velocity the same way.
+    if fPhysics.fMaximalAngularVelocity>EPSILON then begin
+     Rotation:=Vector3ScalarMul(AngularVelocity,aTimeStep.DeltaTime);
+     if Vector3LengthSquared(Rotation)>sqr(fPhysics.fMaximalAngularVelocity) then begin
+      Vector3Scale(AngularVelocity,fPhysics.fMaximalAngularVelocity/Vector3Length(Rotation));
+     end;
+    end;
+
+    if RigidBody.fMaximalAngularVelocity>EPSILON then begin
+     Rotation:=Vector3ScalarMul(AngularVelocity,aTimeStep.DeltaTime);
+     if Vector3LengthSquared(Rotation)>sqr(RigidBody.fMaximalAngularVelocity) then begin
+      Vector3Scale(AngularVelocity,RigidBody.fMaximalAngularVelocity/Vector3Length(Rotation));
+     end;
+    end;
+
+    // Write the final solver state back into the body and refresh its world transform and inertia.
+    RigidBody.fSweep.c:=SolverPosition^.Position;
+    RigidBody.fSweep.q:=SolverPosition^.Orientation;
+    RigidBody.fLinearVelocity:=LinearVelocity;
+    RigidBody.fAngularVelocity:=AngularVelocity;
+
+    RigidBody.SynchronizeTransformIncludingShapes;
+    RigidBody.UpdateWorldInertiaTensor;
+
+   end;
+   else begin
+   end;
+  end;
+ end;
+
+ // Sleeping (same policy as the classic path).
+ if fPhysics.fAllowSleep then begin
+  MinSleepTime:=3.40e+38;
+  First:=true;
+  for Index:=0 to fCountRigidBodies-1 do begin
+   RigidBody:=fRigidBodies[Index];
+   if RigidBody.fRigidBodyType<>krbtStatic then begin
+    if (Vector3LengthSquared(RigidBody.fLinearVelocity)>sqr(fPhysics.fLinearVelocityThreshold)) or
+       (Vector3LengthSquared(RigidBody.fAngularVelocity)>sqr(fPhysics.fAngularVelocityThreshold)) then begin
+     MinSleepTime:=0.0;
+     RigidBody.fSleepTime:=0.0;
+     First:=false;
+    end else if krbfAllowSleep in RigidBody.fFlags then begin
+     RigidBody.fSleepTime:=RigidBody.fSleepTime+aTimeStep.DeltaTime;
+     if First or (MinSleepTime>RigidBody.fSleepTime) then begin
+      First:=false;
+      MinSleepTime:=RigidBody.fSleepTime;
+     end;
+    end;
+   end;
+  end;
+  if MinSleepTime>fPhysics.fSleepTimeThreshold then begin
+   for Index:=0 to fCountRigidBodies-1 do begin
+    if krbfAllowSleep in fRigidBodies[Index].fFlags then begin
+     fRigidBodies[Index].SetToSleep;
+    end;
+   end;
+  end;
+ end;
+
+end;
+
+procedure TKraftIsland.Solve(const aTimeStep:TKraftTimeStep);
+begin
+
+ case fPhysics.fSolverMode of
+
+  ksmTGSSoft:begin
+   SolveTGSSubStepped(aTimeStep);
+  end;
+
+  else begin
+   SolveSequentialImpulse(aTimeStep);
   end;
 
  end;
@@ -49539,6 +50373,23 @@ begin
  fPositionIterations:=3;
 
  fSpeculativeIterations:=8;
+
+ fSolverMode:=ksmSequentialImpulse;
+
+ begin
+
+  // TGS
+  fSubStepCount:=4;
+
+  fContactHertz:=30.0;
+
+  fContactDampingRatio:=10.0;
+
+  fJointHertz:=60.0;
+
+  fJointDampingRatio:=2.0;
+
+ end;
 
  fTimeOfImpactIterations:=20;
 
@@ -51538,6 +52389,28 @@ begin
  end;
  TimeStep.DeltaTimeRatio:=fLastInverseDeltaTime*TimeStep.DeltaTime;
  TimeStep.WarmStarting:=fWarmStarting;
+
+ begin
+
+  // TGS
+
+  if fSolverMode=ksmTGSSoft then begin
+   TimeStep.SubStepCount:=Max(1,fSubStepCount);
+  end else begin
+   TimeStep.SubStepCount:=1;
+  end;
+
+  TimeStep.SubStepDeltaTime:=TimeStep.DeltaTime/TimeStep.SubStepCount;
+
+  if IsZero(TimeStep.SubStepDeltaTime) then begin
+   TimeStep.InverseSubStepDeltaTime:=1.0;
+  end else begin
+   TimeStep.InverseSubStepDeltaTime:=1.0/TimeStep.SubStepDeltaTime;
+  end;
+
+  TimeStep.UseBias:=true;
+
+ end;
 
 {$ifdef DebugDraw}
  fContactManager.fCountDebugClipVertexLists:=0;
