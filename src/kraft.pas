@@ -4310,6 +4310,13 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        procedure SolveSpeculativeContactConstraints;
 
+       // Speculative-contact prepare and warm start, extracted so both the classic path (called inline from
+       // InitializeConstraints / WarmStart) and the TGS-soft path (called explicitly before the substep loop)
+       // share the exact same code.
+       procedure InitializeSpeculativeContacts;
+
+       procedure WarmStartSpeculativeContacts;
+
        procedure StoreImpulses;
 
       public
@@ -49078,14 +49085,13 @@ var ContactPairIndex,ContactIndex,TangentIndex,IndexA,IndexB:TKraftInt32;
     ContactPoint:PKraftSolverVelocityStateContactPoint;
     SolverContact:PKraftSolverContact;
     iA,iB:PKraftMatrix3x3;
-    mA,mB,NormalMass,TangentMass,dv,LostSpeculativeBounce,RestitutionBias:TKraftScalar;
+    mA,mB,NormalMass,TangentMass,dv,LostSpeculativeBounce:TKraftScalar;
     LocalCenterA,LocalCenterB,cA,vA,wA,rnA,rtA,cB,vB,wB,rnB,rtB,P,Temp:TKraftVector3;
     TangentVectors:array[0..1] of TKraftVector3;
     qA,qB:TKraftQuaternion;
     tA,tB:TKraftMatrix4x4;
     SolverContactManifold:TKraftSolverContactManifold;
     //Normal,t0,t1:TKraftVector3;
-    SpeculativeContactState:PKraftSolverSpeculativeContactState;
 begin
 
  TangentVectors[0]:=Vector3Origin;
@@ -49206,6 +49212,26 @@ begin
 
  end;
 
+ InitializeSpeculativeContacts;
+
+end;
+
+procedure TKraftSolver.InitializeSpeculativeContacts;
+var ContactPairIndex,TangentIndex,IndexA,IndexB:TKraftInt32;
+    iA,iB:PKraftMatrix3x3;
+    mA,mB,NormalMass,TangentMass,dv,RestitutionBias:TKraftScalar;
+    LocalCenterA,LocalCenterB,cA,vA,wA,rnA,rtA,cB,vB,wB,rnB,rtB,Temp:TKraftVector3;
+    TangentVectors:array[0..1] of TKraftVector3;
+    qA,qB:TKraftQuaternion;
+    tA,tB:TKraftMatrix4x4;
+    SolverContactManifold:TKraftSolverContactManifold;
+    SolverContact:PKraftSolverContact;
+    SpeculativeContactState:PKraftSolverSpeculativeContactState;
+begin
+
+ TangentVectors[0]:=Vector3Origin;
+ TangentVectors[1]:=Vector3Origin;
+
  for ContactPairIndex:=0 to fCountSpeculativeContacts-1 do begin
 
   SpeculativeContactState:=@fSpeculativeContactStates[ContactPairIndex];
@@ -49243,6 +49269,10 @@ begin
   fIsland.fSpeculativeContactPairs[ContactPairIndex]^.GetSolverContactManifold(SolverContactManifold,tA,tB,kcpcmmVelocitySolver);
 
   SpeculativeContactState^.Normal:=SolverContactManifold.Normal;
+
+  // Tangent basis of the speculative contact normal (the classic inline loop used to inherit the last regular
+  // contact's basis here, which was wrong; WarmStart already recomputes it, so this matches WarmStart).
+  ComputeBasis(SpeculativeContactState^.Normal,TangentVectors[0],TangentVectors[1]);
 
   SolverContact:=@SolverContactManifold.Contacts[0];
 
@@ -49294,7 +49324,6 @@ begin
 
  end;
 
-
 end;
 
 procedure TKraftSolver.WarmStart;
@@ -49302,10 +49331,9 @@ var ContactPairIndex,ContactIndex,IndexA,IndexB,CountPoints:TKraftInt32;
     VelocityState:PKraftSolverVelocityState;
     ContactPoint:PKraftSolverVelocityStateContactPoint;
     iA,iB:PKraftMatrix3x3;
-    mA,mB,dv,RestitutionBias:TKraftScalar;
+    mA,mB,dv:TKraftScalar;
     Normal,vA,lA,wA,vB,lB,wB,P:TKraftVector3;
     TangentVectors:array[0..1] of TKraftVector3;
-    SpeculativeContactState:PKraftSolverSpeculativeContactState;
 begin
 
  for ContactPairIndex:=0 to fCountContacts-1 do begin
@@ -49373,6 +49401,19 @@ begin
   fVelocities[IndexB].AngularVelocity:=wB;
 
  end;
+
+ WarmStartSpeculativeContacts;
+
+end;
+
+procedure TKraftSolver.WarmStartSpeculativeContacts;
+var ContactPairIndex,IndexA,IndexB:TKraftInt32;
+    iA,iB:PKraftMatrix3x3;
+    mA,mB,dv,RestitutionBias:TKraftScalar;
+    Normal,vA,lA,wA,vB,lB,wB,P:TKraftVector3;
+    TangentVectors:array[0..1] of TKraftVector3;
+    SpeculativeContactState:PKraftSolverSpeculativeContactState;
+begin
 
  for ContactPairIndex:=0 to fCountSpeculativeContacts-1 do begin
 
@@ -51044,15 +51085,22 @@ procedure TKraftIsland.SolveTGSSubStepped(const aTimeStep:TKraftTimeStep);
 var SubStep,Iteration,Index:TKraftInt32;
     RigidBody:TKraftRigidBody;
     Constraint:TKraftConstraint;
-    MinSleepTime,h:TKraftScalar;
+    MinSleepTime,h,s:TKraftScalar;
     First,OK:boolean;
     SolverVelocity:PKraftSolverVelocity;
     SolverPosition:PKraftSolverPosition;
-    Position,LinearVelocity,AngularVelocity,Translation,Rotation,Gravity,Acceleration:TKraftVector3;
+    Position,LinearVelocity,AngularVelocity,Translation,Rotation,Gravity,Acceleration,GyroscopicForce,EffectiveTorque:TKraftVector3;
     Orientation:TKraftQuaternion;
+    SubStepTimeStep:TKraftTimeStep;
 begin
 
  h:=aTimeStep.SubStepDeltaTime;
+
+ // Per-substep time step for hooks that expect a full TKraftTimeStep (the user damping callback), so they see
+ // the substep length h instead of the whole frame's delta time.
+ SubStepTimeStep:=aTimeStep;
+ SubStepTimeStep.DeltaTime:=h;
+ SubStepTimeStep.InverseDeltaTime:=aTimeStep.InverseSubStepDeltaTime;
 
  fSolver.Store;
 
@@ -51075,6 +51123,13 @@ begin
 
  fSolver.PrepareContactsSoft(aTimeStep);
 
+ // Speculative contacts (fake CCD, only present when fContinuousMode=kcmSpeculativeContacts): prepare and warm
+ // start once with the shared classic methods, then solve once per substep below, before position integration.
+ fSolver.InitializeSpeculativeContacts;
+ if fPhysics.fWarmStarting then begin
+  fSolver.WarmStartSpeculativeContacts;
+ end;
+
  // Joints reuse the classic constraint methods inside the substep loop. They operate on the solver velocity
  // and position arrays (via fSolverVelocities/fSolverPositions), which the substep loop keeps current, so this
  // is a working (not yet natively soft) joint path: prepare + warm start once, solve velocity every substep,
@@ -51089,8 +51144,9 @@ begin
  for SubStep:=1 to aTimeStep.SubStepCount do begin
 
   // Integrate velocities with the substep length h. Gravity is applied as an acceleration per substep (not
-  // accumulated into fForce, which would multiply it by the substep count). Gyroscopic force and the extra
-  // damping model of the classic path are left out in this first cut.
+  // accumulated into fForce, which would multiply it by the substep count). Gyroscopic force, the user damping
+  // callback and the additional damping model are applied per substep exactly like the classic path does per
+  // step, only with h instead of the full delta time.
   for Index:=0 to fCountRigidBodies-1 do begin
 
    RigidBody:=fRigidBodies[Index];
@@ -51121,16 +51177,72 @@ begin
     LinearVelocity:=fSolver.fVelocities[Index].LinearVelocity;
     AngularVelocity:=fSolver.fVelocities[Index].AngularVelocity;
 
+    // Gyroscopic force from the full Newton-Euler equation with an implicit Euler step (stable). It is added to
+    // a local effective torque so the persistent fTorque is not disturbed across substeps.
+    EffectiveTorque:=RigidBody.fTorque;
+    if RigidBody.fEnableGyroscopicForce then begin
+     GyroscopicForce:=Vector3Sub(Vector3Sub(AngularVelocity,
+                                            Vector3TermMatrixMulInverse(EvaluateEulerEquation(AngularVelocity,
+                                                                                              AngularVelocity,
+                                                                                              Vector3Origin,
+                                                                                              h,
+                                                                                              RigidBody.fWorldInertiaTensor),
+                                                                        EvaluateEulerEquationDerivation(AngularVelocity,
+                                                                                                        AngularVelocity,
+                                                                                                        h,
+                                                                                                        RigidBody.fWorldInertiaTensor))),
+                                 AngularVelocity);
+     if (RigidBody.fMaximalGyroscopicForce>EPSILON) and (Vector3LengthSquared(GyroscopicForce)>sqr(RigidBody.fMaximalGyroscopicForce)) then begin
+      Vector3Scale(GyroscopicForce,RigidBody.fMaximalGyroscopicForce/Vector3Length(GyroscopicForce));
+     end;
+     EffectiveTorque:=Vector3Add(EffectiveTorque,GyroscopicForce);
+    end;
+
     // Linear velocity: v += (F/m + g) * h
     Acceleration:=Vector3Add(Vector3Mul(RigidBody.fForce,Vector3ScalarMul(RigidBody.fLinearFactor,RigidBody.InverseMass)),Gravity);
     LinearVelocity:=Vector3Add(LinearVelocity,Vector3ScalarMul(Acceleration,h));
 
-    // Angular velocity: w += (T * I^-1) * h
-    AngularVelocity:=Vector3Add(AngularVelocity,Vector3ScalarMul(Vector3TermMatrixMul(RigidBody.fTorque,RigidBody.fWorldInverseInertiaTensor),h));
+    // Angular velocity: w += (T * I^-1) * h  (T includes the gyroscopic contribution).
+    AngularVelocity:=Vector3Add(AngularVelocity,Vector3ScalarMul(Vector3TermMatrixMul(EffectiveTorque,RigidBody.fWorldInverseInertiaTensor),h));
+
+    // User damping callback. It reads and writes the body's velocities, so mirror the substep state into the
+    // body around the call and take the result back.
+    if assigned(RigidBody.fOnDamping) then begin
+     RigidBody.fLinearVelocity:=LinearVelocity;
+     RigidBody.fAngularVelocity:=AngularVelocity;
+     RigidBody.fOnDamping(RigidBody,SubStepTimeStep);
+     LinearVelocity:=RigidBody.fLinearVelocity;
+     AngularVelocity:=RigidBody.fAngularVelocity;
+    end;
 
     // Padé damping over the substep length.
     Vector3Scale(LinearVelocity,1.0/(1.0+(RigidBody.fLinearVelocityDamp*h)));
     Vector3Scale(AngularVelocity,1.0/(1.0+(RigidBody.fAngularVelocityDamp*h)));
+
+    // Additional damping model (from PAPPE 1.0): a stronger pull toward rest at low speeds.
+    if RigidBody.fAdditionalDamping then begin
+     if (Vector3LengthSquared(LinearVelocity)<RigidBody.fLinearVelocityAdditionalDampThresholdSqr) and
+        (Vector3LengthSquared(AngularVelocity)<RigidBody.fAngularVelocityAdditionalDampThresholdSqr) then begin
+      Vector3Scale(LinearVelocity,RigidBody.fAdditionalDamp);
+      Vector3Scale(AngularVelocity,RigidBody.fAdditionalDamp);
+     end;
+     s:=Vector3Length(LinearVelocity);
+     if s<RigidBody.fLinearVelocityDamp then begin
+      if s>RigidBody.fAdditionalDamp then begin
+       LinearVelocity:=Vector3Sub(LinearVelocity,Vector3ScalarMul(Vector3NormEx(LinearVelocity),RigidBody.fAdditionalDamp));
+      end else begin
+       LinearVelocity:=Vector3Origin;
+      end;
+     end;
+     s:=Vector3Length(AngularVelocity);
+     if s<RigidBody.fAngularVelocityDamp then begin
+      if s>RigidBody.fAdditionalDamp then begin
+       AngularVelocity:=Vector3Sub(AngularVelocity,Vector3ScalarMul(Vector3NormEx(AngularVelocity),RigidBody.fAdditionalDamp));
+      end else begin
+       AngularVelocity:=Vector3Origin;
+      end;
+     end;
+    end;
 
     fSolver.fVelocities[Index].LinearVelocity:=LinearVelocity;
     fSolver.fVelocities[Index].AngularVelocity:=AngularVelocity;
@@ -51148,6 +51260,11 @@ begin
    if assigned(Constraint) and not (kcfBreaked in Constraint.fFlags) then begin
     Constraint.SolveVelocityConstraint(self,aTimeStep);
    end;
+  end;
+
+  // Speculative contacts: brake approaching bodies to their contact plane before integrating positions.
+  if fSolver.fCountSpeculativeContacts>0 then begin
+   fSolver.SolveSpeculativeContactConstraints;
   end;
 
   // Integrate positions with the substep length h.
@@ -51174,6 +51291,18 @@ begin
  fSolver.ApplyRestitution;
 
  fSolver.StoreImpulses;
+
+ // Break breakable constraints whose final reaction exceeds their threshold (same test as the classic path),
+ // so the position correction below and the next step skip them.
+ for Index:=0 to fCountConstraints-1 do begin
+  Constraint:=fConstraints[Index];
+  if assigned(Constraint) and
+     (((Constraint.fFlags*[kcfActive,kcfBreakable,kcfBreaked])=[kcfActive,kcfBreakable]) and
+      ((Vector3Length(Constraint.GetReactionForce(aTimeStep.InverseDeltaTime))>Constraint.fBreakThresholdForce) or
+       (Vector3Length(Constraint.GetReactionTorque(aTimeStep.InverseDeltaTime))>Constraint.fBreakThresholdTorque))) then begin
+   Constraint.fFlags:=Constraint.fFlags+[kcfBreaked,kcfFreshBreaked];
+  end;
+ end;
 
  // Joint position correction pass (NonLinearGaussSeidel), after the substeps, on the final solver positions.
  if fPhysics.fConstraintPositionCorrectionMode=kpcmNonLinearGaussSeidel then begin
