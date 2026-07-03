@@ -49577,9 +49577,7 @@ end;
 
 procedure TKraftIsland.SolveTGSSubStepped(const aTimeStep:TKraftTimeStep);
 // TGS-soft substepping solve. Per substep: integrate velocities with h, warm start, solve (with bias),
-// integrate positions with h, relax (without bias); then one restitution pass. The classic sequential-impulse
-// TKraftIsland.Solve stays the default and is not touched. This first cut solves contacts only; joints are
-// added in a later stage (test with joint-free scenes for now).
+// integrate positions with h, relax (without bias); then one restitution pass.
 var SubStep,Iteration,Index:TKraftInt32;
     RigidBody:TKraftRigidBody;
     Constraint:TKraftConstraint;
