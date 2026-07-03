@@ -165,6 +165,11 @@ unit kraft;
 // clamping and the feature-ownership arbitration are always compiled; the edge-convexity precomputation
 // (TKraftMesh.IdentifyEdges) is always built.
 
+// Broad-phase contact-pair sort order. Off (default) = the old pointer-based order (kraft0.pas), which converges
+// box stacks in fewer SI velocity iterations. Define it for a cross-run-deterministic order keyed on the stable
+// shape ids (the same stack then needs more velocity iterations).
+{$define KraftDeterministicPairSort}
+
 // TGS-soft substepping solver path, selectable at runtime via TKraftSolverMode.
 // The classic sequential-impulse solver stays the default and is left byte-for-byte untouched.
 // The whole TGS path (the substep joint methods + the TKraftIsland.Solve substep loop) is in place.
@@ -946,9 +951,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
       WarmStarting:boolean;
 
       // TGS solver stuff
-      SubStepDeltaTime:TKraftScalar;         // h = DeltaTime / SubStepCount, the TGS-soft substep length
+      SubStepDeltaTime:TKraftScalar;         // h = DeltaTime / CountSubSteps, the TGS-soft substep length
       InverseSubStepDeltaTime:TKraftScalar;  // 1 / h
-      SubStepCount:TKraftInt32;              // number of substeps this step
+      CountSubSteps:TKraftInt32;              // number of substeps this step
       UseBias:boolean;                       // TGS-soft: true during the solve pass, false during the relax pass
 
      end;
@@ -4944,7 +4949,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fSolverMode:TKraftSolverMode;
 
-       fSubStepCount:TKraftInt32;
+       fCountSubSteps:TKraftInt32;
 
        fContactHertz:TKraftScalar;
 
@@ -5245,7 +5250,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        // TGS begin
 
        // TGS-soft: number of substeps per step. More substeps give stiffer stacks/joints without more iterations.
-       property SubStepCount:TKraftInt32 read fSubStepCount write fSubStepCount;
+       property CountSubSteps:TKraftInt32 read fCountSubSteps write fCountSubSteps;
 
        // TGS-soft: contact softness in Hertz and damping ratio (higher Hertz = stiffer contacts).
        property ContactHertz:TKraftScalar read fContactHertz write fContactHertz;
@@ -42264,26 +42269,18 @@ begin
 end;
 
 function CompareContactPairs(const a,b:pointer):TKraftInt32;
-var IDA,IDB:TKraftUInt64;
 begin
- // Sort by the shapes' stable creation-order ids (not their pointers), so the order is identical across runs.
- IDA:=PKraftBroadPhaseContactPair(a)^[0].fID;
- IDB:=PKraftBroadPhaseContactPair(b)^[0].fID;
- if IDA<IDB then begin
-  result:=-1;
- end else if IDA>IDB then begin
-  result:=1;
- end else begin
-  IDA:=PKraftBroadPhaseContactPair(a)^[1].fID;
-  IDB:=PKraftBroadPhaseContactPair(b)^[1].fID;
-  if IDA<IDB then begin
-   result:=-1;
-  end else if IDA>IDB then begin
-   result:=1;
-  end else begin
-   result:=0;
-  end;
+{$ifdef KraftDeterministicPairSort}
+ result:=Sign(TKraftInt64(PKraftBroadPhaseContactPair(a)^[0].fID)-TKraftInt64(PKraftBroadPhaseContactPair(b)^[0].fID));
+ if result=0 then begin
+  result:=Sign(TKraftInt64(PKraftBroadPhaseContactPair(a)^[1].fID)-TKraftInt64(PKraftBroadPhaseContactPair(b)^[1].fID));
  end;
+{$else}
+ result:=Sign(TKraftPtrInt(PKraftBroadPhaseContactPair(a)^[0])-TKraftPtrInt(PKraftBroadPhaseContactPair(b)^[0]));
+ if result=0 then begin
+  result:=Sign(TKraftPtrInt(PKraftBroadPhaseContactPair(a)^[1])-TKraftPtrInt(PKraftBroadPhaseContactPair(b)^[1]));
+ end;
+{$endif}
 end;
 
 procedure TKraftBroadPhase.AddPair(const ThreadIndex:TKraftInt32;ShapeA,ShapeB:TKraftShape);
@@ -42292,7 +42289,15 @@ var TempShape:TKraftShape;
     ContactPair:PKraftBroadPhaseContactPair;
 begin
  if (ShapeA<>ShapeB) and (ShapeA.RigidBody<>ShapeB.RigidBody) then begin
-  if (ShapeA.fShapeType>ShapeB.fShapeType) or ((ShapeA.fShapeType=ShapeB.fShapeType) and (ShapeA.fID>ShapeB.fID)) then begin
+  if (ShapeA.fShapeType>ShapeB.fShapeType) or
+     (
+      (ShapeA.fShapeType=ShapeB.fShapeType) and
+      {$ifdef KraftDeterministicPairSort}
+       (ShapeA.fID>ShapeB.fID)
+      {$else}
+       (ptruint(ShapeA)>ptruint(ShapeB))
+      {$endif}
+     ) then begin
    TempShape:=ShapeA;
    ShapeA:=ShapeB;
    ShapeB:=TempShape;
@@ -51389,7 +51394,7 @@ begin
   end;
  end;
 
- for SubStep:=1 to aTimeStep.SubStepCount do begin
+ for SubStep:=1 to aTimeStep.CountSubSteps do begin
 
   // Integrate velocities with the substep length h. Gravity is applied as an acceleration per substep (not
   // accumulated into fForce, which would multiply it by the substep count). Gyroscopic force, the user damping
@@ -52225,7 +52230,7 @@ begin
  begin
 
   // TGS
-  fSubStepCount:=4;
+  fCountSubSteps:=4;
 
   fContactHertz:=30.0;
 
@@ -54241,12 +54246,12 @@ begin
   // TGS
 
   if fSolverMode=ksmTGSSoft then begin
-   TimeStep.SubStepCount:=Max(1,fSubStepCount);
+   TimeStep.CountSubSteps:=Max(1,fCountSubSteps);
   end else begin
-   TimeStep.SubStepCount:=1;
+   TimeStep.CountSubSteps:=1;
   end;
 
-  TimeStep.SubStepDeltaTime:=TimeStep.DeltaTime/TimeStep.SubStepCount;
+  TimeStep.SubStepDeltaTime:=TimeStep.DeltaTime/TimeStep.CountSubSteps;
 
   if IsZero(TimeStep.SubStepDeltaTime) then begin
    TimeStep.InverseSubStepDeltaTime:=1.0;
