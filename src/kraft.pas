@@ -4263,6 +4263,15 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      end;
      TKraftSolverTGSContactStates=array of TKraftSolverTGSContactState;
 
+     // Optional rolling-resistance state for the classic SI path, kept in its own array so the hot
+     // TKraftSolverVelocityState stays untouched (only allocated/used when a contact has RollingResistance>0).
+     PKraftSolverSIRollingState=^TKraftSolverSIRollingState;
+     TKraftSolverSIRollingState=record
+      RollingMass:TKraftMatrix3x3;
+      RollingImpulse:TKraftVector3;
+     end;
+     TKraftSolverSIRollingStates=array of TKraftSolverSIRollingState;
+
      TKraftSolverPrepareCenters=array of TKraftVector3;
 
      TKraftSolver=class
@@ -4311,6 +4320,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        // structs stay byte-for-byte and performance identical.
 
        fTGSContactStates:TKraftSolverTGSContactStates;
+       fSIRollingStates:TKraftSolverSIRollingStates;
        fPrepareCenters:TKraftSolverPrepareCenters;
        fContactSoftness:TKraftSolverSoftness;
        fStaticSoftness:TKraftSolverSoftness;
@@ -48911,6 +48921,9 @@ begin
  fTGSContactStates:=nil;
  SetLength(fTGSContactStates,64);
 
+ fSIRollingStates:=nil;
+ SetLength(fSIRollingStates,64);
+
  fPrepareCenters:=nil;
  SetLength(fPrepareCenters,64);
 
@@ -48925,6 +48938,7 @@ begin
  fPositionStates:=nil;
  fSpeculativeContactStates:=nil;
  fTGSContactStates:=nil;
+ fSIRollingStates:=nil;
  fPrepareCenters:=nil;
  inherited Destroy;
 end;
@@ -49163,11 +49177,17 @@ var ContactPairIndex,ContactIndex,TangentIndex,IndexA,IndexB:TKraftInt32;
     qA,qB:TKraftQuaternion;
     tA,tB:TKraftMatrix4x4;
     SolverContactManifold:TKraftSolverContactManifold;
+    ISum:TKraftMatrix3x3;
     //Normal,t0,t1:TKraftVector3;
 begin
 
  TangentVectors[0]:=Vector3Origin;
  TangentVectors[1]:=Vector3Origin;
+
+ // Grow the optional SI rolling-resistance array to match the contact count.
+ if fCountContacts>length(fSIRollingStates) then begin
+  SetLength(fSIRollingStates,fCountContacts*2);
+ end;
 
  for ContactPairIndex:=0 to fCountContacts-1 do begin
 
@@ -49280,6 +49300,17 @@ begin
     ContactPoint^.Bias:=ContactPoint^.BaumgarteBias;
    end;
 
+  end;
+
+  // Optional rolling resistance: 3x3 effective mass = inv(iA+iB) with a Null fallback on a singular matrix (the
+  // Term-inverse would return identity there and explode the rolling term), plus the cross-frame warm-start seed
+  // from the persistent manifold (scaled like the per-point impulses; a fresh manifold has this at zero).
+  if VelocityState^.RollingResistance>0.0 then begin
+   ISum:=Matrix3x3TermAdd(iA^,iB^);
+   if not Matrix3x3Inverse(fSIRollingStates[ContactPairIndex].RollingMass,ISum) then begin
+    fSIRollingStates[ContactPairIndex].RollingMass:=Matrix3x3Null;
+   end;
+   fSIRollingStates[ContactPairIndex].RollingImpulse:=Vector3ScalarMul(fIsland.fContactPairs[ContactPairIndex]^.Manifold.CentralRollingImpulse,fDeltaTimeRatio);
   end;
 
  end;
@@ -49467,6 +49498,12 @@ begin
 
   end;
 
+  // Warm-start the rolling-resistance impulse (angular only), before the velocities are written back.
+  if VelocityState^.RollingResistance>0.0 then begin
+   Vector3DirectSub(wA,Vector3TermMatrixMul(fSIRollingStates[ContactPairIndex].RollingImpulse,iA^));
+   Vector3DirectAdd(wB,Vector3TermMatrixMul(fSIRollingStates[ContactPairIndex].RollingImpulse,iB^));
+  end;
+
   fVelocities[IndexA].LinearVelocity:=vA;
   fVelocities[IndexA].AngularVelocity:=wA;
   fVelocities[IndexB].LinearVelocity:=vB;
@@ -49547,8 +49584,8 @@ var ContactPairIndex,ContactIndex,TangentIndex,IndexA,IndexB,CountPoints:TKraftI
     VelocityState:PKraftSolverVelocityState;
     ContactPoint:PKraftSolverVelocityStateContactPoint;
     iA,iB:PKraftMatrix3x3;
-    mA,mB,Friction,Lambda,MaxLambda,vn,Old:TKraftScalar;
-    Normal,vA,lA,wA,rA,vB,lB,wB,rB,dv,P:TKraftVector3;
+    mA,mB,Friction,Lambda,MaxLambda,vn,Old,TotalNormalImpulse,MagSqr:TKraftScalar;
+    Normal,vA,lA,wA,rA,vB,lB,wB,rB,dv,P,dw,DeltaRoll,OldRoll:TKraftVector3;
     TangentVectors:array[0..1] of TKraftVector3;
 begin
 
@@ -49632,6 +49669,35 @@ begin
 
    Vector3DirectAdd(vB,Vector3Mul(P,Vector3ScalarMul(lB,mB)));
    Vector3DirectAdd(wB,Vector3TermMatrixMul(Vector3Cross(rB,P),iB^));
+
+  end;
+
+  // Optional rolling resistance (angular only), magnitude-clamped to rollingResistance * sum(normalImpulse).
+  if VelocityState^.RollingResistance>0.0 then begin
+
+   // Coulomb budget for rolling = sum of the current normal impulses.
+   TotalNormalImpulse:=0.0;
+   for ContactIndex:=0 to CountPoints-1 do begin
+    TotalNormalImpulse:=TotalNormalImpulse+VelocityState^.Points[ContactIndex].NormalImpulse;
+   end;
+
+   // Unclamped rolling impulse from the relative angular velocity.
+   dw:=Vector3Sub(wB,wA);
+   DeltaRoll:=Vector3Neg(Vector3TermMatrixMul(dw,fSIRollingStates[ContactPairIndex].RollingMass));
+   OldRoll:=fSIRollingStates[ContactPairIndex].RollingImpulse;
+   fSIRollingStates[ContactPairIndex].RollingImpulse:=Vector3Add(OldRoll,DeltaRoll);
+
+   // Clamp the accumulated impulse magnitude to the rolling-resistance budget.
+   MaxLambda:=VelocityState^.RollingResistance*TotalNormalImpulse;
+   MagSqr:=Vector3LengthSquared(fSIRollingStates[ContactPairIndex].RollingImpulse);
+   if MagSqr>((MaxLambda*MaxLambda)+EPSILON) then begin
+    fSIRollingStates[ContactPairIndex].RollingImpulse:=Vector3ScalarMul(fSIRollingStates[ContactPairIndex].RollingImpulse,MaxLambda/sqrt(MagSqr));
+   end;
+   DeltaRoll:=Vector3Sub(fSIRollingStates[ContactPairIndex].RollingImpulse,OldRoll);
+
+   // Apply the delta (angular only).
+   Vector3DirectSub(wA,Vector3TermMatrixMul(DeltaRoll,iA^));
+   Vector3DirectAdd(wB,Vector3TermMatrixMul(DeltaRoll,iB^));
 
   end;
 
@@ -49984,6 +50050,14 @@ begin
    Contact^.TangentImpulse[0]:=ContactPoint^.TangentImpulse[0];
    Contact^.TangentImpulse[1]:=ContactPoint^.TangentImpulse[1];
   end;
+
+  // Persist the rolling-resistance impulse in the manifold for next frame's cross-frame warm start. Guard on
+  // CountPoints>0 too, since (unlike the other methods) StoreImpulses has no skip for invalid pairs, and those
+  // never had their rolling state initialised in InitializeConstraints.
+  if (VelocityState^.RollingResistance>0.0) and (VelocityState^.CountPoints>0) then begin
+   ContactPair^.Manifold.CentralRollingImpulse:=fSIRollingStates[i].RollingImpulse;
+  end;
+
  end;
  for i:=0 to fCountSpeculativeContacts-1 do begin
   SpeculativeContactState:=@fSpeculativeContactStates[i];
