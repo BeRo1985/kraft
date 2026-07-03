@@ -160,6 +160,16 @@ unit kraft;
 
 {$define UseTriangleMeshFullPerturbation}
 
+// Internal/ghost edge handling for triangle meshes, to keep convex bodies from
+// snagging on the shared inner edges of tessellated surfaces.
+{$define KraftInternalEdgeHandling}
+{$ifdef KraftInternalEdgeHandling}
+ // Contact-normal clamping into the neighbour-face fan, applied locally per triangle contact.
+ {$define KraftInternalEdgeClamping}
+ // Feature-ownership arbitration over the shared mesh contact pair (kept for comparison, off by default).
+ {-$define KraftInternalEdgeFeatureOwnership}
+{$endif}
+
 {-$define DebugDraw}
 
 {-$define memdebug}
@@ -1809,6 +1819,11 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftMeshTriangleEdgePlanes=array[0..2] of TKraftPlane;
 
+     // Convexity class of a triangle edge relative to its neighbour triangle, used for internal/ghost edge handling.
+     TKraftMeshTriangleEdgeConvexity=array[0..2] of TKraftUInt8;
+
+     TKraftMeshTriangleEdgeNormals=array[0..2] of TKraftVector3;
+
      TKraftMeshTriangle=packed record
       Next:TKraftInt32;
       Vertices:TKraftMeshTriangleVertices;
@@ -1818,6 +1833,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
       Plane:TKraftPlane;
       EdgePlanes:TKraftMeshTriangleEdgePlanes;
       AABB:TKraftAABB;
+      // Edge k connects vertices (k, (k+1) mod 3). EdgeConvexity: 0=free/boundary, 1=convex, 2=concave, 3=flat.
+      // EdgeNeighborNormals holds the face normal of the triangle sharing edge k (own normal when there is none).
+      EdgeConvexity:TKraftMeshTriangleEdgeConvexity;
+      EdgeNeighborNormals:TKraftMeshTriangleEdgeNormals;
      end;
      PKraftMeshTriangle=^TKraftMeshTriangle;
 
@@ -1941,6 +1960,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure CalculateNormals;
 
        procedure SplitTooLargeTriangles;
+
+       procedure IdentifyEdges;
 
       public
 
@@ -4898,7 +4919,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 const KraftSignatureConvexHull:TKraftSignature=('K','R','P','H','C','O','H','U');
       KraftSignatureMesh:TKraftSignature=('K','R','P','H','M','E','S','T');
 
-      KraftFileFormatVersion:TKraftUInt32=7;
+      KraftFileFormatVersion:TKraftUInt32=8;
 
       Vector2Origin:TKraftVector2=(x:0.0;y:0.0);
       Vector2XAxis:TKraftVector2=(x:1.0;y:0.0);
@@ -29158,6 +29179,13 @@ begin
    if SIMD then begin
     AStream.ReadBuffer(Dummy,SizeOf(TKraftScalar));
    end;
+   AStream.ReadBuffer(fTriangles[Index].EdgeConvexity[0],3*SizeOf(TKraftUInt8));
+   for EdgeIndex:=0 to 2 do begin
+    AStream.ReadBuffer(fTriangles[Index].EdgeNeighborNormals[EdgeIndex],3*SizeOf(TKraftScalar));
+    if SIMD then begin
+     AStream.ReadBuffer(Dummy,SizeOf(TKraftScalar));
+    end;
+   end;
   end;
 
   AStream.ReadBuffer(fTreeNodeRoot,SizeOf(TKraftInt32));
@@ -29439,6 +29467,15 @@ begin
     Triangle^.EdgePlanes[2].Normal:=Vector3Cross(Triangle^.Plane.Normal,Vector3Sub(fVertices[Triangle^.Vertices[2]],fVertices[Triangle^.Vertices[1]]));
     Triangle^.EdgePlanes[2].Distance:=-Vector3Dot(Triangle^.EdgePlanes[2].Normal,fVertices[Triangle^.Vertices[2]]);
    end;
+
+   // Default the edge adjacency to "boundary" until IdentifyEdges classifies the shared edges in Finish.
+   Triangle^.EdgeConvexity[0]:=0;
+   Triangle^.EdgeConvexity[1]:=0;
+   Triangle^.EdgeConvexity[2]:=0;
+   Triangle^.EdgeNeighborNormals[0]:=Triangle^.Plane.Normal;
+   Triangle^.EdgeNeighborNormals[1]:=Triangle^.Plane.Normal;
+   Triangle^.EdgeNeighborNormals[2]:=Triangle^.Plane.Normal;
+
    fTriangleVerticesHashMap.Add(TriangleVertices,result);
   end;
  end;
@@ -30939,6 +30976,94 @@ begin
 
 end;
 
+procedure TKraftMesh.IdentifyEdges;
+// Build the shared-edge adjacency from the deduplicated vertex indices and classify each triangle edge as
+// convex, concave or flat relative to its neighbour. This feeds the internal/ghost edge handling in the
+// narrow phase, so bodies sliding over tessellated surfaces do not snag on the inner edges.
+const CoplanarCosineThreshold=0.9961947; // cos(5 degrees)
+      SignedDistanceEpsilon=1e-6;
+var TriangleIndex,EdgeIndex,OtherPacked,OtherTriangleIndex,OtherEdgeIndex,
+    VertexA,VertexB:TKraftInt32;
+    Key:TKraftMeshTriangleVertices;
+    EdgeHashMap:TKraftMeshTriangleVerticesHashMap;
+    Triangle,OtherTriangle:PKraftMeshTriangle;
+
+ procedure ClassifyEdge(const aTriangle,aNeighbor:PKraftMeshTriangle;const aEdgeIndex,aSharedVertexA,aSharedVertexB:TKraftInt32);
+ var NeighborApexIndex,VertexIndex:TKraftInt32;
+     CosAngle,SignedDistance:TKraftScalar;
+ begin
+  aTriangle^.EdgeNeighborNormals[aEdgeIndex]:=aNeighbor^.Plane.Normal;
+  CosAngle:=Vector3Dot(aTriangle^.Plane.Normal,aNeighbor^.Plane.Normal);
+  if CosAngle>=CoplanarCosineThreshold then begin
+   aTriangle^.EdgeConvexity[aEdgeIndex]:=3; // flat / coplanar
+  end else begin
+   // Signed distance of the neighbour apex to this triangle's plane decides convex vs concave.
+   NeighborApexIndex:=-1;
+   for VertexIndex:=0 to 2 do begin
+    if (aNeighbor^.Vertices[VertexIndex]<>aSharedVertexA) and (aNeighbor^.Vertices[VertexIndex]<>aSharedVertexB) then begin
+     NeighborApexIndex:=aNeighbor^.Vertices[VertexIndex];
+     break;
+    end;
+   end;
+   if NeighborApexIndex>=0 then begin
+    SignedDistance:=Vector3Dot(aTriangle^.Plane.Normal,fVertices[NeighborApexIndex])+aTriangle^.Plane.Distance;
+    if SignedDistance<(-SignedDistanceEpsilon) then begin
+     aTriangle^.EdgeConvexity[aEdgeIndex]:=1; // convex
+    end else if SignedDistance>SignedDistanceEpsilon then begin
+     aTriangle^.EdgeConvexity[aEdgeIndex]:=2; // concave
+    end else begin
+     aTriangle^.EdgeConvexity[aEdgeIndex]:=3; // flat
+    end;
+   end else begin
+    aTriangle^.EdgeConvexity[aEdgeIndex]:=3;
+   end;
+  end;
+ end;
+
+begin
+
+ // Map each undirected edge (min,max vertex index) to the first triangle+edge that owns it. On the second
+ // triangle sharing that edge, classify both sides. Non-manifold edges (more than two triangles) keep only
+ // the first pairing, which is fine for the closed game meshes this handling targets.
+ EdgeHashMap:=TKraftMeshTriangleVerticesHashMap.Create(-1);
+ try
+
+  for TriangleIndex:=0 to fCountTriangles-1 do begin
+   Triangle:=@fTriangles[TriangleIndex];
+   for EdgeIndex:=0 to 2 do begin
+
+    VertexA:=Triangle^.Vertices[EdgeIndex];
+    VertexB:=Triangle^.Vertices[(EdgeIndex+1) mod 3];
+
+    if VertexA<=VertexB then begin
+     Key[0]:=VertexA;
+     Key[1]:=VertexB;
+    end else begin
+     Key[0]:=VertexB;
+     Key[1]:=VertexA;
+    end;
+    Key[2]:=-1;
+
+    OtherPacked:=EdgeHashMap[Key];
+    if OtherPacked<0 then begin
+     EdgeHashMap.Add(Key,(TriangleIndex shl 2) or EdgeIndex);
+    end else begin
+     OtherTriangleIndex:=OtherPacked shr 2;
+     OtherEdgeIndex:=OtherPacked and 3;
+     OtherTriangle:=@fTriangles[OtherTriangleIndex];
+     ClassifyEdge(Triangle,OtherTriangle,EdgeIndex,VertexA,VertexB);
+     ClassifyEdge(OtherTriangle,Triangle,OtherEdgeIndex,VertexA,VertexB);
+    end;
+
+   end;
+  end;
+
+ finally
+  EdgeHashMap.Free;
+ end;
+
+end;
+
 procedure TKraftMesh.Finish(const aBVHBuildMode:TKraftMeshBVHBuildMode);
 type TDynamicAABBTreeNode=record
       AABB:TKraftAABB;
@@ -31593,6 +31718,9 @@ begin
   end;
 
   fAngularMotionDisc:=Vector3Length(fSphere.Center)+fSphere.Radius;
+
+  // Classify the shared edges now that vertices and triangles are final and reindexed.
+  IdentifyEdges;
 
  end;
 
@@ -37714,6 +37842,164 @@ var OldManifoldCountContacts:TKraftInt32;
    Contact^.FeatureID:=FeatureID;
   end;
  end;
+{$ifdef KraftInternalEdgeClamping}
+ function ClampNormalToEdgeFan(const aNormal,aEdgeDirection,aFaceNormal,aNeighborNormal:TKraftVector3):TKraftVector3;
+ var FaceNormal,NeighborNormal,FanTangent,ParallelComponent,PerpendicularComponent,ClampedPerpendicular:TKraftVector3;
+     PerpendicularLength,Angle,NeighborAngle,MinimumAngle,MaximumAngle,ClampedAngle:TKraftScalar;
+ begin
+
+  FaceNormal:=aFaceNormal;
+  NeighborNormal:=aNeighborNormal;
+
+  // Orient the face-to-neighbour fan onto the contact normal's hemisphere, since meshes collide double-sided.
+  if Vector3Dot(aNormal,FaceNormal)<0.0 then begin
+   FaceNormal:=Vector3Neg(FaceNormal);
+   NeighborNormal:=Vector3Neg(NeighborNormal);
+  end;
+
+  // Split the normal at the edge: the component along the edge is preserved, only the tilt across the edge
+  // (in the plane that contains both face normals) is clamped into the fan.
+  ParallelComponent:=Vector3ScalarMul(aEdgeDirection,Vector3Dot(aNormal,aEdgeDirection));
+  PerpendicularComponent:=Vector3Sub(aNormal,ParallelComponent);
+  PerpendicularLength:=Vector3Length(PerpendicularComponent);
+  if PerpendicularLength<EPSILON then begin
+   // Degenerate: normal (nearly) along the edge, nothing sensible to clamp.
+   result:=aNormal;
+   exit;
+  end;
+
+  // Signed angle of the cross-edge tilt in the (face normal, fan tangent) basis; the fan spans from the
+  // touched face (angle zero) to the neighbour face (NeighborAngle).
+  FanTangent:=Vector3SafeNorm(Vector3Cross(aEdgeDirection,FaceNormal));
+  Angle:=ArcTan2(Vector3Dot(PerpendicularComponent,FanTangent),Vector3Dot(PerpendicularComponent,FaceNormal));
+  NeighborAngle:=ArcTan2(Vector3Dot(NeighborNormal,FanTangent),Vector3Dot(NeighborNormal,FaceNormal));
+
+  if NeighborAngle>=0.0 then begin
+   MinimumAngle:=0.0;
+   MaximumAngle:=NeighborAngle;
+  end else begin
+   MinimumAngle:=NeighborAngle;
+   MaximumAngle:=0.0;
+  end;
+
+  ClampedAngle:=Angle;
+  if ClampedAngle<MinimumAngle then begin
+   ClampedAngle:=MinimumAngle;
+  end else if ClampedAngle>MaximumAngle then begin
+   ClampedAngle:=MaximumAngle;
+  end;
+
+  if ClampedAngle=Angle then begin
+   // Inside the fan: keep the natural normal, so agreeing contacts of neighbouring triangles stay agreeing.
+   result:=aNormal;
+  end else begin
+   // Outside the fan: rotate the cross-edge tilt back onto the nearest fan boundary, continuously.
+   ClampedPerpendicular:=Vector3ScalarMul(Vector3Add(Vector3ScalarMul(FaceNormal,cos(ClampedAngle)),Vector3ScalarMul(FanTangent,sin(ClampedAngle))),PerpendicularLength);
+   result:=Vector3SafeNorm(Vector3Add(ParallelComponent,ClampedPerpendicular));
+  end;
+
+ end;
+ procedure AdjustTriangleContactNormal(const aMeshTriangle:PKraftMeshTriangle);
+ const MaximumRotationCosine=0.8660254; // cos(30 degrees)
+ var ContactIndex,EdgeIndex,BestEdgeIndex:TKraftInt32;
+     HasInternalEdge,IsShapeASpace:boolean;
+     BestDistanceSquared,DistanceSquared,InverseCount:TKraftScalar;
+     WorldNormal,ClampedWorldNormal,AveragePoint,
+     WorldEdgeDirection,WorldFaceNormal,WorldNeighborNormal:TKraftVector3;
+     TriangleVertices:array[0..2] of TKraftVector3;
+ begin
+
+  // Only manifold types carrying an explicit stored normal can be adjusted; kcmtImplicit has none.
+  if (Manifold.CountContacts=0) or (Manifold.ContactManifoldType=kcmtImplicit) then begin
+   exit;
+  end;
+
+  // Nothing to smooth unless at least one shared edge of this triangle is convex or flat.
+  HasInternalEdge:=false;
+  for EdgeIndex:=0 to 2 do begin
+   if (aMeshTriangle^.EdgeConvexity[EdgeIndex]=1) or (aMeshTriangle^.EdgeConvexity[EdgeIndex]=3) then begin
+    HasInternalEdge:=true;
+    break;
+   end;
+  end;
+  if not HasInternalEdge then begin
+   exit;
+  end;
+
+  // Scaled triangle vertices in triangle-local space (same space as Contact.LocalPoints[1]).
+  TriangleVertices[0]:=ShapeTriangle.fConvexHull.fVertices[0].Position;
+  TriangleVertices[1]:=ShapeTriangle.fConvexHull.fVertices[1].Position;
+  TriangleVertices[2]:=ShapeTriangle.fConvexHull.fVertices[2].Position;
+
+  // Representative contact point on the triangle side of the manifold, used only to select the nearest
+  // edge (and with it the neighbour fan). No face-region early-out here: the fan clamp is the identity for
+  // normals inside the fan, so face contacts pass through untouched without a flickering region test.
+  AveragePoint:=Vector3Origin;
+  for ContactIndex:=0 to Manifold.CountContacts-1 do begin
+   AveragePoint:=Vector3Add(AveragePoint,Manifold.Contacts[ContactIndex].LocalPoints[1]);
+  end;
+  InverseCount:=1.0/Manifold.CountContacts;
+  AveragePoint:=Vector3ScalarMul(AveragePoint,InverseCount);
+
+  // Find the nearest triangle edge to the representative point.
+  BestEdgeIndex:=-1;
+  BestDistanceSquared:=MAX_SCALAR;
+  for EdgeIndex:=0 to 2 do begin
+   DistanceSquared:=SegmentSqrDistance(TriangleVertices[EdgeIndex],TriangleVertices[(EdgeIndex+1) mod 3],AveragePoint);
+   if DistanceSquared<BestDistanceSquared then begin
+    BestDistanceSquared:=DistanceSquared;
+    BestEdgeIndex:=EdgeIndex;
+   end;
+  end;
+
+  // Only clamp against internal convex or flat edges; boundary and concave edges keep their natural normal.
+  if (BestEdgeIndex<0) or
+     ((aMeshTriangle^.EdgeConvexity[BestEdgeIndex]<>1) and (aMeshTriangle^.EdgeConvexity[BestEdgeIndex]<>3)) then begin
+   exit;
+  end;
+
+  // The fan clamp is only geometrically valid for contacts that actually lie on the clamping edge: only
+  // there does the clamped separation equal the neighbour face-plane distance. Contacts elsewhere on the
+  // triangle (for example on another feature that merely happens to be closest to this edge) would get a
+  // wildly wrong separation along the rotated normal, so leave those alone.
+  if BestDistanceSquared>sqr(2.0*ContactManager.fPhysics.fLinearSlop) then begin
+   exit;
+  end;
+
+  // Read the contact normal in world space from whichever shape space the manifold stores it in.
+  IsShapeASpace:=(Manifold.ContactManifoldType=kcmtFaceA) or (Manifold.ContactManifoldType=kcmtEdges);
+  if IsShapeASpace then begin
+   WorldNormal:=Vector3TermMatrixMulBasis(Manifold.LocalNormal,Shapes[0].fWorldTransform);
+  end else begin
+   WorldNormal:=Vector3TermMatrixMulBasis(Manifold.LocalNormal,Shapes[1].fWorldTransform);
+  end;
+
+  WorldFaceNormal:=Vector3TermMatrixMulBasis(aMeshTriangle^.Plane.Normal,ShapeTriangle.fWorldTransform);
+  WorldNeighborNormal:=Vector3TermMatrixMulBasis(aMeshTriangle^.EdgeNeighborNormals[BestEdgeIndex],ShapeTriangle.fWorldTransform);
+  WorldEdgeDirection:=Vector3SafeNorm(Vector3TermMatrixMulBasis(Vector3Sub(TriangleVertices[(BestEdgeIndex+1) mod 3],TriangleVertices[BestEdgeIndex]),ShapeTriangle.fWorldTransform));
+
+  ClampedWorldNormal:=ClampNormalToEdgeFan(WorldNormal,WorldEdgeDirection,WorldFaceNormal,WorldNeighborNormal);
+
+  if Vector3Dot(ClampedWorldNormal,WorldNormal)>=(1.0-EPSILON) then begin
+   exit; // Unchanged.
+  end;
+
+  // Seam artefacts only tilt the normal by a few degrees. A correction that would rotate it further than
+  // that is no seam artefact but a genuinely different contact feature (for example a corner where the
+  // nearest-edge pick is ambiguous), so keep the natural normal there.
+  if Vector3Dot(ClampedWorldNormal,WorldNormal)<MaximumRotationCosine then begin
+   exit;
+  end;
+
+  // Write the clamped normal back into the same shape space it was read from.
+  if IsShapeASpace then begin
+   Manifold.LocalNormal:=Vector3TermMatrixMulTransposedBasis(ClampedWorldNormal,Shapes[0].fWorldTransform);
+  end else begin
+   Manifold.LocalNormal:=Vector3TermMatrixMulTransposedBasis(ClampedWorldNormal,Shapes[1].fWorldTransform);
+  end;
+
+ end;
+{$endif}
  procedure CollideSphereWithSphere(ShapeA,ShapeB:TKraftShapeSphere);
  var Distance:TKraftScalar;
      CenterA,CenterB:TKraftVector3;
@@ -39533,6 +39819,13 @@ begin
    end;
 
   end;
+
+{$ifdef KraftInternalEdgeClamping}
+  // Smooth the contact normal across shared inner edges of the mesh (prevents snagging on tessellation seams).
+  if assigned(MeshContactPair) then begin
+   AdjustTriangleContactNormal(MeshTriangle);
+  end;
+{$endif}
 
   if SpeculativeContacts then begin
    FindSpeculativeContacts(ShapeA,ShapeB);
