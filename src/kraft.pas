@@ -52224,8 +52224,7 @@ begin
 
  fSolverMode:=ksmSequentialImpulse;
 
- // Default to normal-clamping internal-edge handling (the previously shipped, live-validated behaviour).
- fInternalEdgeHandlingMode:=kiehmClamping;
+ fInternalEdgeHandlingMode:=kiehmNone;
 
  begin
 
