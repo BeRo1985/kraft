@@ -160,15 +160,10 @@ unit kraft;
 
 {$define UseTriangleMeshFullPerturbation}
 
-// Internal/ghost edge handling for triangle meshes, to keep convex bodies from
-// snagging on the shared inner edges of tessellated surfaces.
-{$define KraftInternalEdgeHandling}
-{$ifdef KraftInternalEdgeHandling}
- // Contact-normal clamping into the neighbour-face fan, applied locally per triangle contact.
- {$define KraftInternalEdgeClamping}
- // Feature-ownership arbitration over the shared mesh contact pair.
- {-$define KraftInternalEdgeFeatureOwnership}
-{$endif}
+// Internal/ghost edge handling for triangle meshes (keeps convex bodies from snagging on the shared inner edges
+// of tessellated surfaces) is selected at runtime via TKraft.InternalEdgeHandlingMode. Both the contact-normal
+// clamping and the feature-ownership arbitration are always compiled; the edge-convexity precomputation
+// (TKraftMesh.IdentifyEdges) is always built.
 
 // TGS-soft substepping solver path, selectable at runtime via TKraftSolverMode.
 // The classic sequential-impulse solver stays the default and is left byte-for-byte untouched.
@@ -367,6 +362,14 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      TKraftSolverMode=(ksmSequentialImpulse,                          // Classic sequential-impulse solver, one velocity+position solve per step (default)
                        ksmTGSSoft);                                   // Substepping soft-step (TGS-soft) solver, opt-in
      PKraftSolverMode=^TKraftSolverMode;
+
+     // Internal/ghost-edge handling for triangle meshes, switchable at runtime. The edge-convexity precomputation
+     // (TKraftMesh.IdentifyEdges) and the feature-ownership scratch structures are always built and freed, so the
+     // mode can be changed mid-simulation; only which handling is applied per step is selected here.
+     TKraftInternalEdgeHandlingMode=(kiehmNone,                       // No internal-edge handling
+                                     kiehmClamping,                   // Contact-normal clamping into the neighbour-face fan (default)
+                                     kiehmFeatureOwnership);          // Feature-ownership arbitration over the shared mesh contact pair
+     PKraftInternalEdgeHandlingMode=^TKraftInternalEdgeHandlingMode;
 
      TKraftGravityMode=(kgmNORMAL,         // Normal gravity in a common direction vector
                         kgmMIDPOINT);      // A world midpoint as gravity target
@@ -2921,10 +2924,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fMeshContactPairHashTable:TKraftMeshContactPairHashTable;
 
-{$ifdef KraftInternalEdgeFeatureOwnership}
        fFeatureOwnershipClaimedFeatures:TKraftMeshTriangleVerticesHashMap;
        fFeatureOwnershipContactPairs:TPKraftContactPairs;
-{$endif}
 
       public
 
@@ -2961,9 +2962,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure RebuildAABBTreeJobFunction(const Job:PPasMPJob;const ThreadIndex:TPasMPInt32);
 {$endif}
 
-{$ifdef KraftInternalEdgeFeatureOwnership}
        procedure ProcessMeshContactPairFeatureOwnership(const aMeshContactPair:TKraftMeshContactPair);
-{$endif}
 
        procedure DoNarrowPhase;
 
@@ -4908,6 +4907,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fSpeculativeIterations:TKraftInt32;
 
+       // Internal/ghost-edge handling mode for triangle meshes, switchable at runtime.
+       fInternalEdgeHandlingMode:TKraftInternalEdgeHandlingMode;
+
        // TGS begin
 
        fSolverMode:TKraftSolverMode;
@@ -5201,6 +5203,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property PositionIterations:TKraftInt32 read fPositionIterations write fPositionIterations;
 
        property SpeculativeIterations:TKraftInt32 read fSpeculativeIterations write fSpeculativeIterations;
+
+       // Runtime switch for internal/ghost-edge handling of triangle meshes (none / normal clamping / feature ownership).
+       property InternalEdgeHandlingMode:TKraftInternalEdgeHandlingMode read fInternalEdgeHandlingMode write fInternalEdgeHandlingMode;
 
        // Runtime switch between the classic sequential-impulse solver (default) and the TGS-soft substepping solver.
        property SolverMode:TKraftSolverMode read fSolverMode write fSolverMode;
@@ -38168,7 +38173,6 @@ var OldManifoldCountContacts:TKraftInt32;
    Contact^.FeatureID:=FeatureID;
   end;
  end;
-{$ifdef KraftInternalEdgeClamping}
  function ClampNormalToEdgeFan(const aNormal,aEdgeDirection,aFaceNormal,aNeighborNormal:TKraftVector3):TKraftVector3;
  var FaceNormal,NeighborNormal,FanTangent,ParallelComponent,PerpendicularComponent,ClampedPerpendicular:TKraftVector3;
      PerpendicularLength,Angle,NeighborAngle,MinimumAngle,MaximumAngle,ClampedAngle:TKraftScalar;
@@ -38325,7 +38329,6 @@ var OldManifoldCountContacts:TKraftInt32;
   end;
 
  end;
-{$endif}
  procedure CollideSphereWithSphere(ShapeA,ShapeB:TKraftShapeSphere);
  var Distance:TKraftScalar;
      CenterA,CenterB:TKraftVector3;
@@ -40146,12 +40149,10 @@ begin
 
   end;
 
-{$ifdef KraftInternalEdgeClamping}
   // Smooth the contact normal across shared inner edges of the mesh (prevents snagging on tessellation seams).
-  if assigned(MeshContactPair) then begin
+  if (ContactManager.fPhysics.fInternalEdgeHandlingMode=kiehmClamping) and assigned(MeshContactPair) then begin
    AdjustTriangleContactNormal(MeshTriangle);
   end;
-{$endif}
 
   if SpeculativeContacts then begin
    FindSpeculativeContacts(ShapeA,ShapeB);
@@ -40587,10 +40588,8 @@ begin
 
  fCountMeshContactPairs:=0;
 
-{$ifdef KraftInternalEdgeFeatureOwnership}
  fFeatureOwnershipClaimedFeatures:=TKraftMeshTriangleVerticesHashMap.Create(-1);
  fFeatureOwnershipContactPairs:=nil;
-{$endif}
 
  fOnContactBegin:=nil;
  fOnContactEnd:=nil;
@@ -40630,10 +40629,8 @@ begin
 
  SetLength(fActiveContactPairs,0);
 
-{$ifdef KraftInternalEdgeFeatureOwnership}
  FreeAndNil(fFeatureOwnershipClaimedFeatures);
  fFeatureOwnershipContactPairs:=nil;
-{$endif}
 
  while assigned(fContactPairFirst) do begin
   RemoveContact(fContactPairFirst);
@@ -41091,7 +41088,6 @@ begin
 end;
 {$endif}
 
-{$ifdef KraftInternalEdgeFeatureOwnership}
 procedure TKraftContactManager.ProcessMeshContactPairFeatureOwnership(const aMeshContactPair:TKraftMeshContactPair);
 // Arbitrates the per-triangle contacts of one mesh contact pair: face contacts own the edges and vertices
 // of their triangle, so edge/vertex contacts on shared inner features are redundant ghost contacts of the
@@ -41309,7 +41305,6 @@ begin
  end;
 
 end;
-{$endif}
 
 procedure TKraftContactManager.DoNarrowPhase;
 const ActionAccept=0;
@@ -41508,15 +41503,15 @@ begin
   end;
  end;
 
-{$ifdef KraftInternalEdgeFeatureOwnership}
  // Arbitrate the per-triangle contacts of each mesh contact pair, after all narrow phase results exist,
  // since the triangle contact pairs of one mesh contact pair may have been processed on different threads.
- MeshContactPair:=fMeshContactPairFirst;
- while assigned(MeshContactPair) do begin
-  ProcessMeshContactPairFeatureOwnership(MeshContactPair);
-  MeshContactPair:=MeshContactPair.fNext;
+ if fPhysics.fInternalEdgeHandlingMode=kiehmFeatureOwnership then begin
+  MeshContactPair:=fMeshContactPairFirst;
+  while assigned(MeshContactPair) do begin
+   ProcessMeshContactPairFeatureOwnership(MeshContactPair);
+   MeshContactPair:=MeshContactPair.fNext;
+  end;
  end;
-{$endif}
 
  for ActiveContactPairIndex:=0 to fCountActiveContactPairs-1 do begin
   ContactPair:=fActiveContactPairs[ActiveContactPairIndex];
@@ -51965,6 +51960,9 @@ begin
  fSpeculativeIterations:=8;
 
  fSolverMode:=ksmSequentialImpulse;
+
+ // Default to normal-clamping internal-edge handling (the previously shipped, live-validated behaviour).
+ fInternalEdgeHandlingMode:=kiehmClamping;
 
  begin
 
