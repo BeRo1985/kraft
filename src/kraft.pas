@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-07-04-16-45-0000                       *
+ *                        Version 2026-07-04-17-43-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -3868,6 +3868,12 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fIsConeLimitViolated:boolean;               // classic-path limit states with slop hysteresis
        fIsLowerTwistLimitViolated:boolean;
        fIsUpperTwistLimitViolated:boolean;
+       // Optional joint friction (default off): a torque-clamped servo toward zero relative angular
+       // velocity. The twist of a pinned thin limb has no natural damping at all (rolling produces no
+       // friction slip), so its limits otherwise keep a gravity-driven micro-oscillation alive forever.
+       fAngularFriction:TKraftScalar;
+       fAccumulatedFrictionImpulse:TKraftVector3;
+       fInverseMassMatrixAngularFriction:TKraftMatrix3x3;
        // Native TGS-soft point-to-point softness (only touched by the native soft-step path).
        fSoftBiasRate:TKraftScalar;
        fSoftMassScale:TKraftScalar;
@@ -3896,6 +3902,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property EnableTwistLimit:boolean read fEnableTwistLimit write fEnableTwistLimit;
        property LowerTwistAngle:TKraftScalar read fLowerTwistAngle write fLowerTwistAngle;
        property UpperTwistAngle:TKraftScalar read fUpperTwistAngle write fUpperTwistAngle;
+       property AngularFriction:TKraftScalar read fAngularFriction write fAngularFriction;
      end;
 
      // Forbids any translation or rotation between two bodies.
@@ -47283,6 +47290,9 @@ begin
  fIsLowerTwistLimitViolated:=false;
  fIsUpperTwistLimitViolated:=false;
 
+ fAngularFriction:=0.0;
+ fAccumulatedFrictionImpulse:=Vector3Origin;
+
  if ACollideConnected then begin
   Include(fFlags,kcfCollideConnected);
  end else begin
@@ -47320,6 +47330,9 @@ begin
  fIsConeLimitViolated:=false;
  fIsLowerTwistLimitViolated:=false;
  fIsUpperTwistLimitViolated:=false;
+
+ fAngularFriction:=0.0;
+ fAccumulatedFrictionImpulse:=Vector3Origin;
 
  if ACollideConnected then begin
   Include(fFlags,kcfCollideConnected);
@@ -47476,6 +47489,25 @@ begin
 
  end;
 
+ // Joint friction (opt-in): the shared 3D angular effective mass (step-constant, the world inertia tensors
+ // do not change within the step) and the accumulated impulse carry-over.
+ if fAngularFriction>0.0 then begin
+  if (fRigidBodies[0].fRigidBodyType=krbtDynamic) or (fRigidBodies[1].fRigidBodyType=krbtDynamic) then begin
+   fInverseMassMatrixAngularFriction:=Matrix3x3TermInverse(Matrix3x3TermAdd(fWorldInverseInertiaTensors[0],fWorldInverseInertiaTensors[1]));
+  end else begin
+   fInverseMassMatrixAngularFriction:=Matrix3x3Null;
+  end;
+  if fPhysics.fWarmStarting then begin
+   fAccumulatedFrictionImpulse:=Vector3ScalarMul(fAccumulatedFrictionImpulse,TimeStep.DeltaTimeRatio);
+   Vector3DirectSub(wA^,Vector3TermMatrixMul(fAccumulatedFrictionImpulse,fWorldInverseInertiaTensors[0]));
+   Vector3DirectAdd(wB^,Vector3TermMatrixMul(fAccumulatedFrictionImpulse,fWorldInverseInertiaTensors[1]));
+  end else begin
+   fAccumulatedFrictionImpulse:=Vector3Origin;
+  end;
+ end else begin
+  fAccumulatedFrictionImpulse:=Vector3Origin;
+ end;
+
  // Cone/twist limits (opt-in): swing-twist decomposition of the deviation from the neutral pose, plus the
  // scalar effective masses and warm start. Skipped entirely when neither limit is enabled.
  if fEnableConeLimit or fEnableTwistLimit then begin
@@ -47589,8 +47621,8 @@ end;
 
 procedure TKraftConstraintJointBallSocket.SolveVelocityConstraint(const Island:TKraftIsland;const TimeStep:TKraftTimeStep);
 var vA,wA,vB,wB:PKraftVector3;
-    vpA,vpB,Jv,Impulse,LimitP:TKraftVector3;
-    InverseDT,CdotLimit,C,BiasLimit,LambdaLimit,Old:TKraftScalar;
+    vpA,vpB,Jv,Impulse,LimitP,FrictionCdot,FrictionSolution,FrictionOldImpulse,FrictionDeltaImpulse:TKraftVector3;
+    InverseDT,CdotLimit,C,BiasLimit,LambdaLimit,Old,FrictionMaximalImpulse,FrictionLengthSquared:TKraftScalar;
 begin
 
  vA:=@fSolverVelocities[0]^.LinearVelocity;
@@ -47615,6 +47647,23 @@ begin
 
  Vector3DirectAdd(vB^,Vector3Mul(Impulse,Vector3ScalarMul(fSolverLinearFactors[1]^,fInverseMasses[1])));
  Vector3DirectAdd(wB^,Vector3TermMatrixMul(Vector3Cross(fRelativePositions[1],Impulse),fWorldInverseInertiaTensors[1]));
+
+ // Joint friction: torque-clamped servo toward zero relative angular velocity, before the limits so they
+ // still win last.
+ if fAngularFriction>0.0 then begin
+  FrictionCdot:=Vector3Sub(wB^,wA^);
+  FrictionSolution:=Vector3TermMatrixMul(FrictionCdot,fInverseMassMatrixAngularFriction);
+  FrictionOldImpulse:=fAccumulatedFrictionImpulse;
+  fAccumulatedFrictionImpulse:=Vector3Sub(FrictionOldImpulse,FrictionSolution);
+  FrictionMaximalImpulse:=TimeStep.DeltaTime*fAngularFriction;
+  FrictionLengthSquared:=Vector3LengthSquared(fAccumulatedFrictionImpulse);
+  if FrictionLengthSquared>sqr(FrictionMaximalImpulse) then begin
+   fAccumulatedFrictionImpulse:=Vector3ScalarMul(fAccumulatedFrictionImpulse,FrictionMaximalImpulse/sqrt(FrictionLengthSquared));
+  end;
+  FrictionDeltaImpulse:=Vector3Sub(fAccumulatedFrictionImpulse,FrictionOldImpulse);
+  Vector3DirectSub(wA^,Vector3TermMatrixMul(FrictionDeltaImpulse,fWorldInverseInertiaTensors[0]));
+  Vector3DirectAdd(wB^,Vector3TermMatrixMul(FrictionDeltaImpulse,fWorldInverseInertiaTensors[1]));
+ end;
 
  InverseDT:=TimeStep.InverseDeltaTime;
 
@@ -47910,6 +47959,23 @@ begin
   fAccumulatedImpulse:=Vector3Origin;
  end;
 
+ // Joint friction (opt-in): the shared 3D angular effective mass (step-constant) and the accumulated
+ // impulse carry-over.
+ if fAngularFriction>0.0 then begin
+  if (fRigidBodies[0].fRigidBodyType=krbtDynamic) or (fRigidBodies[1].fRigidBodyType=krbtDynamic) then begin
+   fInverseMassMatrixAngularFriction:=Matrix3x3TermInverse(Matrix3x3TermAdd(fWorldInverseInertiaTensors[0],fWorldInverseInertiaTensors[1]));
+  end else begin
+   fInverseMassMatrixAngularFriction:=Matrix3x3Null;
+  end;
+  if fPhysics.fWarmStarting then begin
+   fAccumulatedFrictionImpulse:=Vector3ScalarMul(fAccumulatedFrictionImpulse,TimeStep.DeltaTimeRatio);
+  end else begin
+   fAccumulatedFrictionImpulse:=Vector3Origin;
+  end;
+ end else begin
+  fAccumulatedFrictionImpulse:=Vector3Origin;
+ end;
+
  // Cone/twist limits (opt-in): cache the world swing/twist axes and their scalar effective masses from the
  // step-start swing-twist decomposition (Box3D keeps the axes fixed across the step and only refreshes the angles
  // per substep, which the solve does). Skipped entirely when neither limit is enabled.
@@ -48019,16 +48085,22 @@ begin
   Vector3DirectAdd(wB^,Vector3TermMatrixMul(AngularImpulse,fWorldInverseInertiaTensors[1]));
  end;
 
+ // Re-apply the accumulated joint friction impulse (angular only).
+ if fAngularFriction>0.0 then begin
+  Vector3DirectSub(wA^,Vector3TermMatrixMul(fAccumulatedFrictionImpulse,fWorldInverseInertiaTensors[0]));
+  Vector3DirectAdd(wB^,Vector3TermMatrixMul(fAccumulatedFrictionImpulse,fWorldInverseInertiaTensors[1]));
+ end;
+
 end;
 
 procedure TKraftConstraintJointBallSocket.SolveVelocitySubStep(const Island:TKraftIsland;const TimeStep:TKraftTimeStep;const aUseBias:boolean);
 var cA,cB,vA,wA,vB,wB:PKraftVector3;
     qA,qB:TKraftQuaternion;
-    rA,rB,cdot,separation,bias,x,Impulse,LimitP:TKraftVector3;
+    rA,rB,cdot,separation,bias,x,Impulse,LimitP,FrictionCdot,FrictionSolution,FrictionOldImpulse,FrictionDeltaImpulse:TKraftVector3;
     DeltaRotationA,DeltaRotationB,qDelta,TwistQ,SwingQ:TKraftQuaternion;
     SkewSymmetricMatrices:array[0..1] of TKraftMatrix3x3;
     MassMatrix:TKraftMatrix3x3;
-    InverseMassOfBodies,MassScale,ImpulseScale,InverseSubDT,TwistDot,SwingLength,SwingAngle,CdotLimit,C,LambdaLimit,Old:TKraftScalar;
+    InverseMassOfBodies,MassScale,ImpulseScale,InverseSubDT,TwistDot,SwingLength,SwingAngle,CdotLimit,C,LambdaLimit,Old,FrictionMaximalImpulse,FrictionLengthSquared:TKraftScalar;
 begin
 
  cA:=@fSolverPositions[0]^.Position;
@@ -48102,6 +48174,23 @@ begin
 
  Vector3DirectAdd(vB^,Vector3Mul(Impulse,Vector3ScalarMul(fSolverLinearFactors[1]^,fInverseMasses[1])));
  Vector3DirectAdd(wB^,Vector3TermMatrixMul(Vector3Cross(rB,Impulse),fWorldInverseInertiaTensors[1]));
+
+ // Joint friction: torque-clamped servo toward zero relative angular velocity, before the limits so they
+ // still win last.
+ if fAngularFriction>0.0 then begin
+  FrictionCdot:=Vector3Sub(wB^,wA^);
+  FrictionSolution:=Vector3TermMatrixMul(FrictionCdot,fInverseMassMatrixAngularFriction);
+  FrictionOldImpulse:=fAccumulatedFrictionImpulse;
+  fAccumulatedFrictionImpulse:=Vector3Sub(FrictionOldImpulse,FrictionSolution);
+  FrictionMaximalImpulse:=TimeStep.SubStepDeltaTime*fAngularFriction;
+  FrictionLengthSquared:=Vector3LengthSquared(fAccumulatedFrictionImpulse);
+  if FrictionLengthSquared>sqr(FrictionMaximalImpulse) then begin
+   fAccumulatedFrictionImpulse:=Vector3ScalarMul(fAccumulatedFrictionImpulse,FrictionMaximalImpulse/sqrt(FrictionLengthSquared));
+  end;
+  FrictionDeltaImpulse:=Vector3Sub(fAccumulatedFrictionImpulse,FrictionOldImpulse);
+  Vector3DirectSub(wA^,Vector3TermMatrixMul(FrictionDeltaImpulse,fWorldInverseInertiaTensors[0]));
+  Vector3DirectAdd(wB^,Vector3TermMatrixMul(FrictionDeltaImpulse,fWorldInverseInertiaTensors[1]));
+ end;
 
  // Cone/twist limits (opt-in): refresh the swing/twist angles from the CURRENT orientation each substep (a cached
  // step-start angle would overshoot as the substeps pull the body back), then solve the limits along the cached
@@ -48229,8 +48318,8 @@ end;
 
 function TKraftConstraintJointBallSocket.GetReactionTorque(const InverseDeltaTime:TKraftScalar):TKraftVector3;
 begin
- // The point-to-point part transfers no torque, but the optional cone/twist limits do.
- result:=Vector3ScalarMul(Vector3Add(Vector3ScalarMul(fSwingAxis,fAccumulatedConeImpulse),Vector3ScalarMul(fWorldTwistAxis,fAccumulatedLowerTwistImpulse+fAccumulatedUpperTwistImpulse)),InverseDeltaTime);
+ // The point-to-point part transfers no torque, but the optional cone/twist limits and the joint friction do.
+ result:=Vector3ScalarMul(Vector3Add(Vector3Add(Vector3ScalarMul(fSwingAxis,fAccumulatedConeImpulse),Vector3ScalarMul(fWorldTwistAxis,fAccumulatedLowerTwistImpulse+fAccumulatedUpperTwistImpulse)),fAccumulatedFrictionImpulse),InverseDeltaTime);
 end;
 
 constructor TKraftConstraintJointFixed.Create(const aPhysics:TKraft;const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const AWorldAnchorPoint:TKraftVector3;const ACollideConnected:boolean=false);

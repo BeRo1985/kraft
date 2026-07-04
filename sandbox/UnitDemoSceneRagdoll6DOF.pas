@@ -94,6 +94,12 @@ var Index:longint;
   result.TwistMode:=k6damLimited;
   result.LowerTwistAngle:=ALowerTwist;
   result.UpperTwistAngle:=AUpperTwist;
+  // Tiny joint friction: the twist of a pinned thin limb has no natural damping (rolling produces no
+  // friction slip), so without it the limits keep a gravity-driven micro-oscillation alive and the ragdoll
+  // never falls asleep.
+  result.EnableAngularVelocityDrive:=true;
+  result.TargetAngularVelocity:=Vector3Origin;
+  result.MaximalAngularDriveTorque:=0.005;
  end;
  // Hinge-like 6-DOF: translation locked, swing locked, twist limited about the hinge axis.
  function Create6DOFHinge(const ABodyA,ABodyB:TKraftRigidBody;const AAnchor,AAxis:TKraftVector3;const ALowerLimit,AUpperLimit:TKraftScalar):TKraftConstraintJoint6DOF;

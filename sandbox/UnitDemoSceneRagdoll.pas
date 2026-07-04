@@ -26,6 +26,9 @@ uses UnitFormMain;
 // Reference ragdoll built entirely from the existing joints: ball sockets with swing/twist limits for the
 // spine, neck, shoulders and hips, and hinges with angle limits for the elbows and knees. It spawns in a
 // T-pose slightly above the floor with a sideways toss towards a static ramp, so it tumbles and crumples.
+// The sockets get a tiny joint friction: the twist of a pinned thin limb has no natural damping (rolling
+// produces no friction slip), so without it the limits keep a gravity-driven micro-oscillation alive and
+// the ragdoll never falls asleep.
 constructor TDemoSceneRagdoll.Create(const AKraftPhysics:TKraft);
 const BaseY=0.9;
       TossVelocityX=1.5;
@@ -126,16 +129,20 @@ begin
  // Spine: pelvis to torso, tight cone with a little twist.
  BallSocketJoint:=TKraftConstraintJointBallSocket.Create(KraftPhysics,PelvisBody,TorsoBody,Vector3(0.0,1.15+BaseY,0.0),false);
  BallSocketJoint.SetSwingTwistLimits(true,0.35,true,-0.25,0.25,Vector3(0.0,1.0,0.0));
+ BallSocketJoint.AngularFriction:=0.005;
 
  // Neck: torso to head, wider cone and more twist for looking around.
  BallSocketJoint:=TKraftConstraintJointBallSocket.Create(KraftPhysics,TorsoBody,HeadBody,Vector3(0.0,1.60+BaseY,0.0),false);
  BallSocketJoint.SetSwingTwistLimits(true,0.6,true,-0.8,0.8,Vector3(0.0,1.0,0.0));
+ BallSocketJoint.AngularFriction:=0.005;
 
  // Shoulders: wide swing cone, moderate twist, twist axis along the arm.
  BallSocketJoint:=TKraftConstraintJointBallSocket.Create(KraftPhysics,TorsoBody,UpperArmRightBody,Vector3(0.21,1.48+BaseY,0.0),false);
  BallSocketJoint.SetSwingTwistLimits(true,1.3,true,-0.5,0.5,Vector3(1.0,0.0,0.0));
+ BallSocketJoint.AngularFriction:=0.005;
  BallSocketJoint:=TKraftConstraintJointBallSocket.Create(KraftPhysics,TorsoBody,UpperArmLeftBody,Vector3(-0.21,1.48+BaseY,0.0),false);
  BallSocketJoint.SetSwingTwistLimits(true,1.3,true,-0.5,0.5,Vector3(-1.0,0.0,0.0));
+ BallSocketJoint.AngularFriction:=0.005;
 
  // Elbows: hinges which only curl the forearm towards the head. The straight pose gets a small margin, so
  // the joints do not rest permanently ON their limit in the spawn pose.
@@ -145,8 +152,10 @@ begin
  // Hips: medium swing cone, little twist, twist axis along the leg.
  BallSocketJoint:=TKraftConstraintJointBallSocket.Create(KraftPhysics,PelvisBody,UpperLegRightBody,Vector3(0.10,0.90+BaseY,0.0),false);
  BallSocketJoint.SetSwingTwistLimits(true,0.9,true,-0.3,0.3,Vector3(0.0,1.0,0.0));
+ BallSocketJoint.AngularFriction:=0.005;
  BallSocketJoint:=TKraftConstraintJointBallSocket.Create(KraftPhysics,PelvisBody,UpperLegLeftBody,Vector3(-0.10,0.90+BaseY,0.0),false);
  BallSocketJoint.SetSwingTwistLimits(true,0.9,true,-0.3,0.3,Vector3(0.0,1.0,0.0));
+ BallSocketJoint.AngularFriction:=0.005;
 
  // Knees: hinges which only bend the lower leg backwards, with the same small straight-pose margin.
  TKraftConstraintJointHinge.Create(KraftPhysics,UpperLegRightBody,LowerLegRightBody,Vector3(0.10,0.48+BaseY,0.0),Vector3(1.0,0.0,0.0),true,false,-0.1,2.4,0.0,0.0,false);
