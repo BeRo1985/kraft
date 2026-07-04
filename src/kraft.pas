@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-07-04-23-27-0000                       *
+ *                        Version 2026-07-04-23-50-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -2845,10 +2845,13 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        TimeOfImpactCount:TKraftInt32;
        TimeOfImpact:TKraftScalar;
        // Contact recycling cache: the relative body pose (body B in the local frame of body A) and the
-       // absolute world orientations of both bodies at the time of the last real narrow phase run.
+       // absolute world orientations of both bodies at the time of the last real narrow phase run, plus,
+       // for pairs which produced no contacts, a lower bound on the surface separation at that time, which
+       // bounds how far the pair may drift before "not touching" has to be proven again.
        RecycleRelativePosition:TKraftVector3;
        RecycleRelativeOrientation:TKraftQuaternion;
        RecycleWorldOrientations:array[0..1] of TKraftQuaternion;
+       RecycleSeparation:TKraftScalar;
        procedure GetSolverContactManifold(out SolverContactManifold:TKraftSolverContactManifold;const WorldTransformA,WorldTransformB:TKraftMatrix4x4;const ContactManifoldMode:TKraftContactPairContactManifoldMode);
        procedure DetectCollisions(const ContactManager:TKraftContactManager;const TriangleShape:TKraftShape=nil;const ThreadIndex:TKraftInt32=0;const SpeculativeContacts:boolean=true;const DeltaTime:double=0.0);
      end;
@@ -5664,7 +5667,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property ContactBreakingThreshold:TKraftScalar read fContactBreakingThreshold write fContactBreakingThreshold;
 
        // Contact pairs whose relative body pose stayed within this distance since their last real narrow phase
-       // run skip the narrow phase and keep their manifold (zero or negative switches contact recycling off)
+       // run skip the narrow phase and keep their last result (zero or negative switches contact recycling off).
+       // For pairs without contacts the tolerance is additionally capped by the surface separation the pair had
+       // at that run, so a beginning touch can never be missed.
        property ContactRecycleDistance:TKraftScalar read fContactRecycleDistance write fContactRecycleDistance;
 
        // Optional additional recycling cap which also requires that neither body has rotated more than about
@@ -40558,7 +40563,8 @@ var Index,SubIndex:TKraftInt32;
     Physics:TKraft;
     InverseOrientationA,CurrentRelativeOrientation,DeltaOrientation:TKraftQuaternion;
     CurrentRelativePosition:TKraftVector3;
-    PositionDrift,RotationDrift,MaxAngularMotionDisc:TKraftScalar;
+    PositionDrift,RotationDrift,MaxAngularMotionDisc,RecycleTolerance:TKraftScalar;
+    RecycleGJK:TKraftGJK;
 begin
 
  Flags:=Flags+[kcfEnabled];
@@ -40576,7 +40582,7 @@ begin
  if (Physics.fContactRecycleDistance>0.0) and
     SpeculativeContacts and
     (kcfRecycleCacheValid in Flags) and
-    (Manifold.CountContacts>0) and
+    ((Manifold.CountContacts>0) or (RecycleSeparation>0.0)) and
     (Manifold.ContactManifoldType<>kcmtSpeculative) and
     assigned(RigidBodies[0]) and
     assigned(RigidBodies[1]) and
@@ -40588,6 +40594,15 @@ begin
     (ksfCollision in Shapes[1].fFlags) and
     (Shapes[0].fShapeType<>kstSignedDistanceField) and
     (Shapes[1].fShapeType<>kstSignedDistanceField) then begin
+
+  // Touching manifolds recycle within the full distance. Pairs without contacts recycle only while the
+  // drift stays below the surface separation they had at the last real run, so that a beginning touch can
+  // never be missed, no matter how small the contact acceptance window of the involved collide routine is.
+  if Manifold.CountContacts>0 then begin
+   RecycleTolerance:=Physics.fContactRecycleDistance;
+  end else begin
+   RecycleTolerance:=Min(Physics.fContactRecycleDistance,RecycleSeparation);
+  end;
 
   InverseOrientationA:=QuaternionConjugate(RigidBodies[0].fSweep.q);
   CurrentRelativeOrientation:=QuaternionMul(InverseOrientationA,RigidBodies[1].fSweep.q);
@@ -40610,25 +40625,37 @@ begin
   // still pass the distance bound below
   RotationDrift:=2.0*sqrt(sqr(DeltaOrientation.x)+sqr(DeltaOrientation.y)+sqr(DeltaOrientation.z))*MaxAngularMotionDisc;
 
-  if (PositionDrift+RotationDrift)<Physics.fContactRecycleDistance then begin
+  if (PositionDrift+RotationDrift)<RecycleTolerance then begin
 
    if (not Physics.fContactRecycleAbsoluteRotationCap) or
       (Min(sqr((RecycleWorldOrientations[0].x*RigidBodies[0].fSweep.q.x)+(RecycleWorldOrientations[0].y*RigidBodies[0].fSweep.q.y)+(RecycleWorldOrientations[0].z*RigidBodies[0].fSweep.q.z)+(RecycleWorldOrientations[0].w*RigidBodies[0].fSweep.q.w)),
            sqr((RecycleWorldOrientations[1].x*RigidBodies[1].fSweep.q.x)+(RecycleWorldOrientations[1].y*RigidBodies[1].fSweep.q.y)+(RecycleWorldOrientations[1].z*RigidBodies[1].fSweep.q.z)+(RecycleWorldOrientations[1].w*RigidBodies[1].fSweep.q.w)))>ContactRecycleAbsoluteRotationCosineSquared) then begin
 
-    // The recycled manifold counts as one more step of persistence for the warm start bookkeeping
-    for Index:=0 to Manifold.CountContacts-1 do begin
-     Contact:=@Manifold.Contacts[Index];
-     Contact^.WarmStartState:=Max(Contact^.WarmStartState,Contact^.WarmStartState+1);
-    end;
+    // Keep the contact event state machine running exactly as if the narrow phase had run for real
+    if Manifold.CountContacts>0 then begin
 
-    // Keep the contact event state machine running exactly as if the narrow phase had reported contact
-    if kcfColliding in Flags then begin
-     if not (kcfWasColliding in Flags) then begin
-      Include(Flags,kcfWasColliding);
+     // The recycled manifold counts as one more step of persistence for the warm start bookkeeping
+     for Index:=0 to Manifold.CountContacts-1 do begin
+      Contact:=@Manifold.Contacts[Index];
+      Contact^.WarmStartState:=Max(Contact^.WarmStartState,Contact^.WarmStartState+1);
      end;
+
+     if kcfColliding in Flags then begin
+      if not (kcfWasColliding in Flags) then begin
+       Include(Flags,kcfWasColliding);
+      end;
+     end else begin
+      Include(Flags,kcfColliding);
+     end;
+
     end else begin
-     Include(Flags,kcfColliding);
+
+     if kcfColliding in Flags then begin
+      Flags:=(Flags-[kcfColliding])+[kcfWasColliding];
+     end else begin
+      Exclude(Flags,kcfWasColliding);
+     end;
+
     end;
 
     inc(ContactManager.fRecycledContactPairCounts[ThreadIndex]);
@@ -40849,12 +40876,44 @@ begin
 
  // Cache the relative body pose this narrow phase result was built at for the contact recycling gate
  if assigned(RigidBodies[0]) and assigned(RigidBodies[1]) then begin
+
   InverseOrientationA:=QuaternionConjugate(RigidBodies[0].fSweep.q);
   RecycleRelativeOrientation:=QuaternionMul(InverseOrientationA,RigidBodies[1].fSweep.q);
   RecycleRelativePosition:=Vector3TermQuaternionRotate(Vector3Sub(RigidBodies[1].fSweep.c,RigidBodies[0].fSweep.c),InverseOrientationA);
   RecycleWorldOrientations[0]:=RigidBodies[0].fSweep.q;
   RecycleWorldOrientations[1]:=RigidBodies[1].fSweep.q;
+
+  // For pairs without contacts additionally cache a lower bound on the surface separation (GJK with the
+  // feature radii applied, warm started from the manifold simplex cache), which caps the recycle tolerance
+  // of the "not touching" result. Only computed for pairs which are recycling candidates at all, since a
+  // real narrow phase run already happened here anyway. For mesh pairs ShapeB is the per-thread triangle
+  // scratch shape, which still holds the triangle of this call at this point.
+  RecycleSeparation:=0.0;
+  if (Physics.fContactRecycleDistance>0.0) and
+     (Manifold.CountContacts=0) and
+     (krbfContactRecycling in RigidBodies[0].fFlags) and
+     (krbfContactRecycling in RigidBodies[1].fFlags) and
+     not ((krbfSensor in RigidBodies[0].fFlags) or (krbfSensor in RigidBodies[1].fFlags) or
+          (ksfSensor in Shapes[0].fFlags) or (ksfSensor in Shapes[1].fFlags)) and
+     (ksfCollision in Shapes[0].fFlags) and
+     (ksfCollision in Shapes[1].fFlags) and
+     (Shapes[0].fShapeType<>kstSignedDistanceField) and
+     (Shapes[1].fShapeType<>kstSignedDistanceField) then begin
+   RecycleGJK.CachedSimplex:=@Manifold.GJKCachedSimplex;
+   RecycleGJK.Simplex.Count:=0;
+   RecycleGJK.Shapes[0]:=ShapeA;
+   RecycleGJK.Shapes[1]:=ShapeB;
+   RecycleGJK.Transforms[0]:=@ShapeA.fWorldTransform;
+   RecycleGJK.Transforms[1]:=@ShapeB.fWorldTransform;
+   RecycleGJK.UseRadii:=true;
+   RecycleGJK.Run;
+   if (RecycleGJK.Distance>0.0) and not RecycleGJK.Failed then begin
+    RecycleSeparation:=RecycleGJK.Distance;
+   end;
+  end;
+
   Include(Flags,kcfRecycleCacheValid);
+
  end;
 
 {if ShapeB.fShapeType=kstPlane then begin
