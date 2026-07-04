@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-07-04-14-38-0000                       *
+ *                        Version 2026-07-04-16-10-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -57373,7 +57373,11 @@ begin
    fSolver.SolveSpeculativeContactConstraints;
   end;
 
-  // Integrate positions with the substep length h.
+  // Integrate positions with the substep length h. The velocities are clamped to the world and per-body
+  // maxima (same full-step-length measure as the end-of-step clamp) BEFORE every substep integration and
+  // written back, because a runaway feedback loop (a light limb kicked by a contact, its joint bias chasing
+  // the growing anchor separation) can otherwise integrate meters of position error within the substeps of
+  // one step before the end-of-step clamp ever sees a velocity.
   for Index:=0 to fCountRigidBodies-1 do begin
    RigidBody:=fRigidBodies[Index];
    if RigidBody.fRigidBodyType in [krbtDynamic,krbtKinematic] then begin
@@ -57383,6 +57387,32 @@ begin
     Orientation:=SolverPosition^.Orientation;
     LinearVelocity:=SolverVelocity^.LinearVelocity;
     AngularVelocity:=SolverVelocity^.AngularVelocity;
+    if fPhysics.fMaximalLinearVelocity>EPSILON then begin
+     Translation:=Vector3ScalarMul(LinearVelocity,aTimeStep.DeltaTime);
+     if Vector3LengthSquared(Translation)>sqr(fPhysics.fMaximalLinearVelocity) then begin
+      Vector3Scale(LinearVelocity,fPhysics.fMaximalLinearVelocity/Vector3Length(Translation));
+     end;
+    end;
+    if RigidBody.fMaximalLinearVelocity>EPSILON then begin
+     Translation:=Vector3ScalarMul(LinearVelocity,aTimeStep.DeltaTime);
+     if Vector3LengthSquared(Translation)>sqr(RigidBody.fMaximalLinearVelocity) then begin
+      Vector3Scale(LinearVelocity,RigidBody.fMaximalLinearVelocity/Vector3Length(Translation));
+     end;
+    end;
+    if fPhysics.fMaximalAngularVelocity>EPSILON then begin
+     Rotation:=Vector3ScalarMul(AngularVelocity,aTimeStep.DeltaTime);
+     if Vector3LengthSquared(Rotation)>sqr(fPhysics.fMaximalAngularVelocity) then begin
+      Vector3Scale(AngularVelocity,fPhysics.fMaximalAngularVelocity/Vector3Length(Rotation));
+     end;
+    end;
+    if RigidBody.fMaximalAngularVelocity>EPSILON then begin
+     Rotation:=Vector3ScalarMul(AngularVelocity,aTimeStep.DeltaTime);
+     if Vector3LengthSquared(Rotation)>sqr(RigidBody.fMaximalAngularVelocity) then begin
+      Vector3Scale(AngularVelocity,RigidBody.fMaximalAngularVelocity/Vector3Length(Rotation));
+     end;
+    end;
+    SolverVelocity^.LinearVelocity:=LinearVelocity;
+    SolverVelocity^.AngularVelocity:=AngularVelocity;
     fPhysics.Integrate(Position,Orientation,LinearVelocity,AngularVelocity,h);
     SolverPosition^.Position:=Position;
     SolverPosition^.Orientation:=Orientation;
