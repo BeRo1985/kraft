@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-07-04-14-12-0000                       *
+ *                        Version 2026-07-04-14-38-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -4322,7 +4322,12 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      // optional lower/upper limits, rotation as the twist about the frame z axis (lower/upper limits) plus
      // the swing of the frame z axis, bounded by an elliptical cone with separate half angles for the swing
      // rotation about the frame x and y axes. The overload with a swing reference axis controls where the
-     // frame x axis points, which is what aims the ellipse.
+     // frame x axis points, which is what aims the ellipse. Every limit group (each linear axis, the twist,
+     // the swing cone) is a hard stop by default and becomes a soft limit with its own spring when given a
+     // frequency/damping. Drives cover the full position/velocity times linear/angular matrix: a linear
+     // position drive and the slerp drive as force/torque-clamped springs toward a target separation or
+     // relative orientation, and linear/angular velocity drives as clamped servos (an angular velocity drive
+     // with target zero and a small torque is joint friction).
      TKraftConstraintJoint6DOF=class(TKraftConstraintJoint)
       private
        fIslandIndices:array[0..1] of TKraftInt32;
@@ -4345,9 +4350,23 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fUpperTwistAngle:TKraftScalar;
        fConeHalfAngleX:TKraftScalar;                   // elliptical cone: bounds the swing rotation about frame x
        fConeHalfAngleY:TKraftScalar;                   // elliptical cone: bounds the swing rotation about frame y
-       // Drives (all default off). The slerp drive is an angular spring toward a target relative orientation
-       // (in frame space, settable per frame for powered ragdolls), the velocity drives are pure torque/force
-       // clamped servos; an angular velocity drive with target zero and a small torque is joint friction.
+       // Per-group limit softness: a frequency of zero (the default) keeps the limit a hard stop, a positive
+       // frequency turns it into a soft limit with its own spring/damper.
+       fLinearLimitFrequencyHz:array[0..2] of TKraftScalar;
+       fLinearLimitDampingRatio:array[0..2] of TKraftScalar;
+       fTwistLimitFrequencyHz:TKraftScalar;
+       fTwistLimitDampingRatio:TKraftScalar;
+       fSwingLimitFrequencyHz:TKraftScalar;
+       fSwingLimitDampingRatio:TKraftScalar;
+       // Drives (all default off). The position drives are force/torque-clamped springs toward a target
+       // separation along the frame axes respectively a target relative orientation (settable per frame for
+       // powered ragdolls), the velocity drives are pure force/torque-clamped servos; an angular velocity
+       // drive with target zero and a small torque is joint friction.
+       fEnableLinearPositionDrive:boolean;
+       fLinearPositionDriveTarget:TKraftVector3;       // target anchor separation in frame A space
+       fLinearPositionDriveFrequencyHz:TKraftScalar;
+       fLinearPositionDriveDampingRatio:TKraftScalar;
+       fMaximalLinearPositionDriveForce:TKraftScalar;
        fEnableSlerpDrive:boolean;
        fSlerpDriveTarget:TKraftQuaternion;             // target orientation of frame B relative to frame A
        fSlerpDriveFrequencyHz:TKraftScalar;
@@ -4399,7 +4418,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fAccumulatedUpperLinearImpulse:array[0..2] of TKraftScalar;
        fAccumulatedSlerpDriveImpulse:TKraftVector3;
        fAccumulatedAngularDriveImpulse:TKraftVector3;
-       fAccumulatedLinearDriveImpulse:array[0..2] of TKraftScalar;
+       fAccumulatedLinearVelocityDriveImpulse:array[0..2] of TKraftScalar;
+       fAccumulatedLinearPositionDriveImpulse:array[0..2] of TKraftScalar;
        // Classic-path limit states with slop hysteresis
        fIsConeLimitViolated:boolean;
        fIsLowerTwistLimitViolated:boolean;
@@ -4410,10 +4430,25 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fSoftBiasRate:TKraftScalar;
        fSoftMassScale:TKraftScalar;
        fSoftImpulseScale:TKraftScalar;
-       // Slerp drive softness, from its frequency/damping over the step (classic) or substep (native) length
+       // Spring softness of the position drives and of the soft limit groups, from their frequency/damping
+       // over the step (classic) or substep (native) length. On the native path a hard limit group falls
+       // back to the world joint softness.
        fSlerpDriveSoftBiasRate:TKraftScalar;
        fSlerpDriveSoftMassScale:TKraftScalar;
        fSlerpDriveSoftImpulseScale:TKraftScalar;
+       fLinearPositionDriveSoftBiasRate:TKraftScalar;
+       fLinearPositionDriveSoftMassScale:TKraftScalar;
+       fLinearPositionDriveSoftImpulseScale:TKraftScalar;
+       fLinearLimitSoftBiasRate:array[0..2] of TKraftScalar;
+       fLinearLimitSoftMassScale:array[0..2] of TKraftScalar;
+       fLinearLimitSoftImpulseScale:array[0..2] of TKraftScalar;
+       fTwistLimitSoftBiasRate:TKraftScalar;
+       fTwistLimitSoftMassScale:TKraftScalar;
+       fTwistLimitSoftImpulseScale:TKraftScalar;
+       fSwingLimitSoftBiasRate:TKraftScalar;
+       fSwingLimitSoftMassScale:TKraftScalar;
+       fSwingLimitSoftImpulseScale:TKraftScalar;
+       class procedure ComputeSoftParameters(const aFrequencyHz,aDampingRatio,aDeltaTime:TKraftScalar;out aBiasRate,aMassScale,aImpulseScale:TKraftScalar); static;
        procedure BuildFrames(const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const AWorldAnchorPoint,AWorldTwistAxis,AWorldSwingReferenceAxis:TKraftVector3;const ACollideConnected:boolean);
        procedure ComputeFrameState(const aOrientationA,aOrientationB:TKraftQuaternion;const aPositionA,aPositionB:TKraftVector3); // rebuild axes/errors/angles from the given body state
        procedure SolveDrives(const aDeltaTime:TKraftScalar); // shared by the classic (step) and native (substep) velocity solves
@@ -4424,8 +4459,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        constructor Create(const aPhysics:TKraft;const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const AWorldAnchorPoint,AWorldTwistAxis,AWorldSwingReferenceAxis:TKraftVector3;const ACollideConnected:boolean=false); reintroduce; overload;
        destructor Destroy; override;
        // Configures one translational degree of freedom along a frame axis (0=x, 1=y, 2=z=twist axis); the
-       // limits only apply in the limited mode.
-       procedure SetLinearAxisMode(const aAxisIndex:longint;const aMode:TKraft6DOFAxisMode;const aLowerLimit:TKraftScalar=0.0;const aUpperLimit:TKraftScalar=0.0);
+       // limits only apply in the limited mode, and a positive limit frequency makes them soft limits with
+       // their own spring/damper instead of hard stops.
+       procedure SetLinearAxisMode(const aAxisIndex:longint;const aMode:TKraft6DOFAxisMode;const aLowerLimit:TKraftScalar=0.0;const aUpperLimit:TKraftScalar=0.0;const aLimitFrequencyHz:TKraftScalar=0.0;const aLimitDampingRatio:TKraftScalar=1.0);
        procedure InitializeConstraintsAndWarmStart(const Island:TKraftIsland;const TimeStep:TKraftTimeStep); override;
        procedure SolveVelocityConstraint(const Island:TKraftIsland;const TimeStep:TKraftTimeStep); override;
        function SolvePositionConstraint(const Island:TKraftIsland;const TimeStep:TKraftTimeStep):boolean; override;
@@ -4445,6 +4481,15 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property ConeHalfAngle:TKraftScalar read GetConeHalfAngle write SetConeHalfAngle;
        property ConeHalfAngleX:TKraftScalar read fConeHalfAngleX write fConeHalfAngleX;
        property ConeHalfAngleY:TKraftScalar read fConeHalfAngleY write fConeHalfAngleY;
+       property TwistLimitFrequencyHz:TKraftScalar read fTwistLimitFrequencyHz write fTwistLimitFrequencyHz;
+       property TwistLimitDampingRatio:TKraftScalar read fTwistLimitDampingRatio write fTwistLimitDampingRatio;
+       property SwingLimitFrequencyHz:TKraftScalar read fSwingLimitFrequencyHz write fSwingLimitFrequencyHz;
+       property SwingLimitDampingRatio:TKraftScalar read fSwingLimitDampingRatio write fSwingLimitDampingRatio;
+       property EnableLinearPositionDrive:boolean read fEnableLinearPositionDrive write fEnableLinearPositionDrive;
+       property LinearPositionDriveTarget:TKraftVector3 read fLinearPositionDriveTarget write fLinearPositionDriveTarget;
+       property LinearPositionDriveFrequencyHz:TKraftScalar read fLinearPositionDriveFrequencyHz write fLinearPositionDriveFrequencyHz;
+       property LinearPositionDriveDampingRatio:TKraftScalar read fLinearPositionDriveDampingRatio write fLinearPositionDriveDampingRatio;
+       property MaximalLinearPositionDriveForce:TKraftScalar read fMaximalLinearPositionDriveForce write fMaximalLinearPositionDriveForce;
        property EnableSlerpDrive:boolean read fEnableSlerpDrive write fEnableSlerpDrive;
        property SlerpDriveTarget:TKraftQuaternion read fSlerpDriveTarget write fSlerpDriveTarget;
        property SlerpDriveFrequencyHz:TKraftScalar read fSlerpDriveFrequencyHz write fSlerpDriveFrequencyHz;
@@ -52820,6 +52865,26 @@ begin
  result:=Vector3ScalarMul(fWorldSpinAxis,fSpinImpulse*InverseDeltaTime);
 end;
 
+// Soft-constraint parameters from a frequency/damping pair over the given time step length (b3MakeSoft). A
+// frequency of zero means no spring at all: the row and any stale accumulated impulse stay inert.
+class procedure TKraftConstraintJoint6DOF.ComputeSoftParameters(const aFrequencyHz,aDampingRatio,aDeltaTime:TKraftScalar;out aBiasRate,aMassScale,aImpulseScale:TKraftScalar);
+var Omega,A1,A2,A3:TKraftScalar;
+begin
+ if aFrequencyHz>0.0 then begin
+  Omega:=(2.0*pi)*aFrequencyHz;
+  A1:=(2.0*aDampingRatio)+(aDeltaTime*Omega);
+  A2:=(aDeltaTime*Omega)*A1;
+  A3:=1.0/(1.0+A2);
+  aBiasRate:=Omega/A1;
+  aMassScale:=A2*A3;
+  aImpulseScale:=A3;
+ end else begin
+  aBiasRate:=0.0;
+  aMassScale:=0.0;
+  aImpulseScale:=0.0;
+ end;
+end;
+
 procedure TKraftConstraintJoint6DOF.BuildFrames(const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const AWorldAnchorPoint,AWorldTwistAxis,AWorldSwingReferenceAxis:TKraftVector3;const ACollideConnected:boolean);
 var AxisX,AxisY,AxisZ:TKraftVector3;
     AxisIndex:longint;
@@ -52865,11 +52930,14 @@ begin
  fLocalFrames[0]:=QuaternionTermNormalize(QuaternionMul(QuaternionInverse(ARigidBodyA.fSweep.q),FrameOrientation));
  fLocalFrames[1]:=QuaternionTermNormalize(QuaternionMul(QuaternionInverse(ARigidBodyB.fSweep.q),FrameOrientation));
 
- // All degrees of freedom default to locked, so an unconfigured joint behaves like a fixed joint.
+ // All degrees of freedom default to locked, so an unconfigured joint behaves like a fixed joint, and all
+ // limits default to hard stops (a limit group becomes a soft limit when given a positive frequency).
  for AxisIndex:=0 to 2 do begin
   fLinearModes[AxisIndex]:=k6damLocked;
   fLowerLinearLimits[AxisIndex]:=0.0;
   fUpperLinearLimits[AxisIndex]:=0.0;
+  fLinearLimitFrequencyHz[AxisIndex]:=0.0;
+  fLinearLimitDampingRatio[AxisIndex]:=1.0;
   fAccumulatedLinearLockImpulse[AxisIndex]:=0.0;
   fAccumulatedLowerLinearImpulse[AxisIndex]:=0.0;
   fAccumulatedUpperLinearImpulse[AxisIndex]:=0.0;
@@ -52882,8 +52950,17 @@ begin
  fUpperTwistAngle:=0.0;
  fConeHalfAngleX:=0.0;
  fConeHalfAngleY:=0.0;
+ fTwistLimitFrequencyHz:=0.0;
+ fTwistLimitDampingRatio:=1.0;
+ fSwingLimitFrequencyHz:=0.0;
+ fSwingLimitDampingRatio:=1.0;
 
  // Drives default off and neutral.
+ fEnableLinearPositionDrive:=false;
+ fLinearPositionDriveTarget:=Vector3Origin;
+ fLinearPositionDriveFrequencyHz:=5.0;
+ fLinearPositionDriveDampingRatio:=1.0;
+ fMaximalLinearPositionDriveForce:=MAX_SCALAR;
  fEnableSlerpDrive:=false;
  fSlerpDriveTarget:=QuaternionIdentity;
  fSlerpDriveFrequencyHz:=5.0;
@@ -52898,7 +52975,8 @@ begin
  fAccumulatedSlerpDriveImpulse:=Vector3Origin;
  fAccumulatedAngularDriveImpulse:=Vector3Origin;
  for AxisIndex:=0 to 2 do begin
-  fAccumulatedLinearDriveImpulse[AxisIndex]:=0.0;
+  fAccumulatedLinearVelocityDriveImpulse[AxisIndex]:=0.0;
+  fAccumulatedLinearPositionDriveImpulse[AxisIndex]:=0.0;
  end;
 
  fTwistAngle:=0.0;
@@ -52942,12 +53020,14 @@ begin
  inherited Destroy;
 end;
 
-procedure TKraftConstraintJoint6DOF.SetLinearAxisMode(const aAxisIndex:longint;const aMode:TKraft6DOFAxisMode;const aLowerLimit:TKraftScalar=0.0;const aUpperLimit:TKraftScalar=0.0);
+procedure TKraftConstraintJoint6DOF.SetLinearAxisMode(const aAxisIndex:longint;const aMode:TKraft6DOFAxisMode;const aLowerLimit:TKraftScalar=0.0;const aUpperLimit:TKraftScalar=0.0;const aLimitFrequencyHz:TKraftScalar=0.0;const aLimitDampingRatio:TKraftScalar=1.0);
 begin
  if (aAxisIndex>=0) and (aAxisIndex<=2) then begin
   fLinearModes[aAxisIndex]:=aMode;
   fLowerLinearLimits[aAxisIndex]:=aLowerLimit;
   fUpperLinearLimits[aAxisIndex]:=aUpperLimit;
+  fLinearLimitFrequencyHz[aAxisIndex]:=aLimitFrequencyHz;
+  fLinearLimitDampingRatio[aAxisIndex]:=aLimitDampingRatio;
  end;
 end;
 
@@ -53090,11 +53170,11 @@ begin
   end;
  end;
 
- // Per-axis translational rows (needed when not all axes are locked, and by the linear velocity drive; the
- // fully locked case runs the coupled 3x3 point-to-point block instead): the frame axes carried by body A in
+ // Per-axis translational rows (needed when not all axes are locked, and by the linear drives; the fully
+ // locked case runs the coupled 3x3 point-to-point block instead): the frame axes carried by body A in
  // world space, the separation along them and the prismatic-style Jacobians a1 = (d+rA) x axis,
  // a2 = rB x axis with their effective masses.
- if (not fAllLinearLocked) or fEnableLinearVelocityDrive then begin
+ if (not fAllLinearLocked) or fEnableLinearPositionDrive or fEnableLinearVelocityDrive then begin
   rA:=Vector3TermQuaternionRotate(Vector3Sub(fLocalAnchors[0],fLocalCenters[0]),aOrientationA);
   rB:=Vector3TermQuaternionRotate(Vector3Sub(fLocalAnchors[1],fLocalCenters[1]),aOrientationB);
   d:=Vector3Sub(Vector3Add(aPositionB,rB),Vector3Add(aPositionA,rA));
@@ -53166,6 +53246,27 @@ begin
   Vector3DirectAdd(wB^,Vector3TermMatrixMul(DeltaImpulse,fWorldInverseInertiaTensors[1]));
  end;
 
+ // Linear position drive: soft per-axis spring toward the target anchor separation along the frame axes,
+ // the linear counterpart of the slerp drive, on both passes like every spring here.
+ if fEnableLinearPositionDrive and (fMaximalLinearPositionDriveForce>0.0) then begin
+  TargetComponents[0]:=fLinearPositionDriveTarget.x;
+  TargetComponents[1]:=fLinearPositionDriveTarget.y;
+  TargetComponents[2]:=fLinearPositionDriveTarget.z;
+  MaximalImpulse:=aDeltaTime*fMaximalLinearPositionDriveForce;
+  for AxisIndex:=0 to 2 do begin
+   CdotAxis:=Vector3Dot(fWorldLinearAxes[AxisIndex],Vector3Sub(vB^,vA^))+Vector3Dot(fLinearA2[AxisIndex],wB^)-Vector3Dot(fLinearA1[AxisIndex],wA^);
+   Lambda:=((-fLinearMasses[AxisIndex])*fLinearPositionDriveSoftMassScale*(CdotAxis+(fLinearPositionDriveSoftBiasRate*(fLinearErrors[AxisIndex]-TargetComponents[AxisIndex]))))-(fLinearPositionDriveSoftImpulseScale*fAccumulatedLinearPositionDriveImpulse[AxisIndex]);
+   OldScalar:=fAccumulatedLinearPositionDriveImpulse[AxisIndex];
+   fAccumulatedLinearPositionDriveImpulse[AxisIndex]:=Min(Max(OldScalar+Lambda,-MaximalImpulse),MaximalImpulse);
+   Lambda:=fAccumulatedLinearPositionDriveImpulse[AxisIndex]-OldScalar;
+   LinearP:=Vector3ScalarMul(fWorldLinearAxes[AxisIndex],Lambda);
+   Vector3DirectSub(vA^,Vector3Mul(LinearP,Vector3ScalarMul(fSolverLinearFactors[0]^,fInverseMasses[0])));
+   Vector3DirectSub(wA^,Vector3TermMatrixMul(Vector3ScalarMul(fLinearA1[AxisIndex],Lambda),fWorldInverseInertiaTensors[0]));
+   Vector3DirectAdd(vB^,Vector3Mul(LinearP,Vector3ScalarMul(fSolverLinearFactors[1]^,fInverseMasses[1])));
+   Vector3DirectAdd(wB^,Vector3TermMatrixMul(Vector3ScalarMul(fLinearA2[AxisIndex],Lambda),fWorldInverseInertiaTensors[1]));
+  end;
+ end;
+
  // Linear velocity drive: force-clamped per-axis servo along the frame axes, at the anchor.
  if fEnableLinearVelocityDrive and (fMaximalLinearDriveForce>0.0) then begin
   TargetComponents[0]:=fTargetLinearVelocity.x;
@@ -53175,9 +53276,9 @@ begin
   for AxisIndex:=0 to 2 do begin
    CdotAxis:=Vector3Dot(fWorldLinearAxes[AxisIndex],Vector3Sub(vB^,vA^))+Vector3Dot(fLinearA2[AxisIndex],wB^)-Vector3Dot(fLinearA1[AxisIndex],wA^);
    Lambda:=(-fLinearMasses[AxisIndex])*(CdotAxis-TargetComponents[AxisIndex]);
-   OldScalar:=fAccumulatedLinearDriveImpulse[AxisIndex];
-   fAccumulatedLinearDriveImpulse[AxisIndex]:=Min(Max(OldScalar+Lambda,-MaximalImpulse),MaximalImpulse);
-   Lambda:=fAccumulatedLinearDriveImpulse[AxisIndex]-OldScalar;
+   OldScalar:=fAccumulatedLinearVelocityDriveImpulse[AxisIndex];
+   fAccumulatedLinearVelocityDriveImpulse[AxisIndex]:=Min(Max(OldScalar+Lambda,-MaximalImpulse),MaximalImpulse);
+   Lambda:=fAccumulatedLinearVelocityDriveImpulse[AxisIndex]-OldScalar;
    LinearP:=Vector3ScalarMul(fWorldLinearAxes[AxisIndex],Lambda);
    Vector3DirectSub(vA^,Vector3Mul(LinearP,Vector3ScalarMul(fSolverLinearFactors[0]^,fInverseMasses[0])));
    Vector3DirectSub(wA^,Vector3TermMatrixMul(Vector3ScalarMul(fLinearA1[AxisIndex],Lambda),fWorldInverseInertiaTensors[0]));
@@ -53191,7 +53292,7 @@ end;
 procedure TKraftConstraintJoint6DOF.InitializeConstraintsAndWarmStart(const Island:TKraftIsland;const TimeStep:TKraftTimeStep);
 var cA,vA,wA,cB,vB,wB:PKraftVector3;
     qA,qB:PKraftQuaternion;
-    InverseMassOfBodies,BiasFactor,LinearImpulseSum,Omega,A1,A2,A3:TKraftScalar;
+    InverseMassOfBodies,BiasFactor,LinearImpulseSum:TKraftScalar;
     SkewSymmetricMatrices:array[0..1] of TKraftMatrix3x3;
     MassMatrix:TKraftMatrix3x3;
     TwistP,ConeP,SwingLockP,AngularImpulse,LinearP:TKraftVector3;
@@ -53302,29 +53403,41 @@ begin
   end;
  end;
 
- // Slerp drive softness from its frequency/damping over the step length (b3MakeSoft); no frequency means no
- // spring at all, and disabled drives drop their stale accumulated impulses.
+ // Position drive springs over the step length; drives without a spring drop their stale accumulated
+ // impulses, as do the disabled velocity drives.
  if fEnableSlerpDrive and (fSlerpDriveFrequencyHz>0.0) then begin
-  Omega:=(2.0*pi)*fSlerpDriveFrequencyHz;
-  A1:=(2.0*fSlerpDriveDampingRatio)+(TimeStep.DeltaTime*Omega);
-  A2:=(TimeStep.DeltaTime*Omega)*A1;
-  A3:=1.0/(1.0+A2);
-  fSlerpDriveSoftBiasRate:=Omega/A1;
-  fSlerpDriveSoftMassScale:=A2*A3;
-  fSlerpDriveSoftImpulseScale:=A3;
+  ComputeSoftParameters(fSlerpDriveFrequencyHz,fSlerpDriveDampingRatio,TimeStep.DeltaTime,fSlerpDriveSoftBiasRate,fSlerpDriveSoftMassScale,fSlerpDriveSoftImpulseScale);
  end else begin
   fSlerpDriveSoftBiasRate:=0.0;
   fSlerpDriveSoftMassScale:=0.0;
   fSlerpDriveSoftImpulseScale:=0.0;
   fAccumulatedSlerpDriveImpulse:=Vector3Origin;
  end;
+ if fEnableLinearPositionDrive and (fLinearPositionDriveFrequencyHz>0.0) then begin
+  ComputeSoftParameters(fLinearPositionDriveFrequencyHz,fLinearPositionDriveDampingRatio,TimeStep.DeltaTime,fLinearPositionDriveSoftBiasRate,fLinearPositionDriveSoftMassScale,fLinearPositionDriveSoftImpulseScale);
+ end else begin
+  fLinearPositionDriveSoftBiasRate:=0.0;
+  fLinearPositionDriveSoftMassScale:=0.0;
+  fLinearPositionDriveSoftImpulseScale:=0.0;
+  fAccumulatedLinearPositionDriveImpulse[0]:=0.0;
+  fAccumulatedLinearPositionDriveImpulse[1]:=0.0;
+  fAccumulatedLinearPositionDriveImpulse[2]:=0.0;
+ end;
  if not fEnableAngularVelocityDrive then begin
   fAccumulatedAngularDriveImpulse:=Vector3Origin;
  end;
  if not fEnableLinearVelocityDrive then begin
-  fAccumulatedLinearDriveImpulse[0]:=0.0;
-  fAccumulatedLinearDriveImpulse[1]:=0.0;
-  fAccumulatedLinearDriveImpulse[2]:=0.0;
+  fAccumulatedLinearVelocityDriveImpulse[0]:=0.0;
+  fAccumulatedLinearVelocityDriveImpulse[1]:=0.0;
+  fAccumulatedLinearVelocityDriveImpulse[2]:=0.0;
+ end;
+
+ // Soft-limit springs over the step length; a zero frequency keeps that limit group a hard stop and its
+ // rows on the hard Baumgarte/NGS path.
+ ComputeSoftParameters(fSwingLimitFrequencyHz,fSwingLimitDampingRatio,TimeStep.DeltaTime,fSwingLimitSoftBiasRate,fSwingLimitSoftMassScale,fSwingLimitSoftImpulseScale);
+ ComputeSoftParameters(fTwistLimitFrequencyHz,fTwistLimitDampingRatio,TimeStep.DeltaTime,fTwistLimitSoftBiasRate,fTwistLimitSoftMassScale,fTwistLimitSoftImpulseScale);
+ for AxisIndex:=0 to 2 do begin
+  ComputeSoftParameters(fLinearLimitFrequencyHz[AxisIndex],fLinearLimitDampingRatio[AxisIndex],TimeStep.DeltaTime,fLinearLimitSoftBiasRate[AxisIndex],fLinearLimitSoftMassScale[AxisIndex],fLinearLimitSoftImpulseScale[AxisIndex]);
  end;
 
  // Limit state flags with slop hysteresis (like the hinge limits), so a joint resting on a limit does not
@@ -53399,7 +53512,8 @@ begin
    fAccumulatedLinearLockImpulse[AxisIndex]:=fAccumulatedLinearLockImpulse[AxisIndex]*TimeStep.DeltaTimeRatio;
    fAccumulatedLowerLinearImpulse[AxisIndex]:=fAccumulatedLowerLinearImpulse[AxisIndex]*TimeStep.DeltaTimeRatio;
    fAccumulatedUpperLinearImpulse[AxisIndex]:=fAccumulatedUpperLinearImpulse[AxisIndex]*TimeStep.DeltaTimeRatio;
-   fAccumulatedLinearDriveImpulse[AxisIndex]:=fAccumulatedLinearDriveImpulse[AxisIndex]*TimeStep.DeltaTimeRatio;
+   fAccumulatedLinearVelocityDriveImpulse[AxisIndex]:=fAccumulatedLinearVelocityDriveImpulse[AxisIndex]*TimeStep.DeltaTimeRatio;
+   fAccumulatedLinearPositionDriveImpulse[AxisIndex]:=fAccumulatedLinearPositionDriveImpulse[AxisIndex]*TimeStep.DeltaTimeRatio;
   end;
   fAccumulatedSlerpDriveImpulse:=Vector3ScalarMul(fAccumulatedSlerpDriveImpulse,TimeStep.DeltaTimeRatio);
   fAccumulatedAngularDriveImpulse:=Vector3ScalarMul(fAccumulatedAngularDriveImpulse,TimeStep.DeltaTimeRatio);
@@ -53427,15 +53541,17 @@ begin
 
   end;
 
-  // Linear velocity drive impulses re-apply along the frame axes (available regardless of the lock layout).
-  if fEnableLinearVelocityDrive then begin
+  // Linear drive impulses (position + velocity) re-apply along the frame axes (available regardless of the
+  // lock layout).
+  if fEnableLinearPositionDrive or fEnableLinearVelocityDrive then begin
    for AxisIndex:=0 to 2 do begin
-    if fAccumulatedLinearDriveImpulse[AxisIndex]<>0.0 then begin
-     LinearP:=Vector3ScalarMul(fWorldLinearAxes[AxisIndex],fAccumulatedLinearDriveImpulse[AxisIndex]);
+    LinearImpulseSum:=fAccumulatedLinearPositionDriveImpulse[AxisIndex]+fAccumulatedLinearVelocityDriveImpulse[AxisIndex];
+    if LinearImpulseSum<>0.0 then begin
+     LinearP:=Vector3ScalarMul(fWorldLinearAxes[AxisIndex],LinearImpulseSum);
      Vector3DirectSub(vA^,Vector3Mul(LinearP,Vector3ScalarMul(fSolverLinearFactors[0]^,fInverseMasses[0])));
-     Vector3DirectSub(wA^,Vector3TermMatrixMul(Vector3ScalarMul(fLinearA1[AxisIndex],fAccumulatedLinearDriveImpulse[AxisIndex]),fWorldInverseInertiaTensors[0]));
+     Vector3DirectSub(wA^,Vector3TermMatrixMul(Vector3ScalarMul(fLinearA1[AxisIndex],LinearImpulseSum),fWorldInverseInertiaTensors[0]));
      Vector3DirectAdd(vB^,Vector3Mul(LinearP,Vector3ScalarMul(fSolverLinearFactors[1]^,fInverseMasses[1])));
-     Vector3DirectAdd(wB^,Vector3TermMatrixMul(Vector3ScalarMul(fLinearA2[AxisIndex],fAccumulatedLinearDriveImpulse[AxisIndex]),fWorldInverseInertiaTensors[1]));
+     Vector3DirectAdd(wB^,Vector3TermMatrixMul(Vector3ScalarMul(fLinearA2[AxisIndex],LinearImpulseSum),fWorldInverseInertiaTensors[1]));
     end;
    end;
   end;
@@ -53462,7 +53578,8 @@ begin
    fAccumulatedLinearLockImpulse[AxisIndex]:=0.0;
    fAccumulatedLowerLinearImpulse[AxisIndex]:=0.0;
    fAccumulatedUpperLinearImpulse[AxisIndex]:=0.0;
-   fAccumulatedLinearDriveImpulse[AxisIndex]:=0.0;
+   fAccumulatedLinearVelocityDriveImpulse[AxisIndex]:=0.0;
+   fAccumulatedLinearPositionDriveImpulse[AxisIndex]:=0.0;
   end;
 
  end;
@@ -53519,17 +53636,22 @@ begin
      Vector3DirectAdd(wB^,Vector3TermMatrixMul(Vector3ScalarMul(fLinearA2[AxisIndex],Lambda),fWorldInverseInertiaTensors[1]));
     end;
     k6damLimited:begin
-     // Limit rows, gated by their hysteresis limit states like the twist limits.
+     // Limit rows, gated by their hysteresis limit states like the twist limits. With a limit frequency the
+     // hard stops become soft limits driven by their own spring.
      if fIsLowerLinearLimitViolated[AxisIndex] then begin
       // Lower limit: pushes toward positive separation, accumulated impulse clamped >= 0.
       Cdot:=Vector3Dot(fWorldLinearAxes[AxisIndex],Vector3Sub(vB^,vA^))+Vector3Dot(fLinearA2[AxisIndex],wB^)-Vector3Dot(fLinearA1[AxisIndex],wA^);
       C:=fLinearErrors[AxisIndex]-fLowerLinearLimits[AxisIndex];
-      if fPhysics.fConstraintPositionCorrectionMode=kpcmBaumgarte then begin
-       BiasLimit:=Max(Min(C,0.0),-fPhysics.fMaximalLinearCorrection)*(fPhysics.fConstraintBaumgarte*InverseDT);
+      if fLinearLimitFrequencyHz[AxisIndex]>0.0 then begin
+       LambdaLimit:=((-fLinearMasses[AxisIndex])*fLinearLimitSoftMassScale[AxisIndex]*(Cdot+(C*fLinearLimitSoftBiasRate[AxisIndex])))-(fLinearLimitSoftImpulseScale[AxisIndex]*fAccumulatedLowerLinearImpulse[AxisIndex]);
       end else begin
-       BiasLimit:=0.0;
+       if fPhysics.fConstraintPositionCorrectionMode=kpcmBaumgarte then begin
+        BiasLimit:=Max(Min(C,0.0),-fPhysics.fMaximalLinearCorrection)*(fPhysics.fConstraintBaumgarte*InverseDT);
+       end else begin
+        BiasLimit:=0.0;
+       end;
+       LambdaLimit:=(-fLinearMasses[AxisIndex])*(Cdot+BiasLimit);
       end;
-      LambdaLimit:=(-fLinearMasses[AxisIndex])*(Cdot+BiasLimit);
       Old:=fAccumulatedLowerLinearImpulse[AxisIndex];
       fAccumulatedLowerLinearImpulse[AxisIndex]:=Max(Old+LambdaLimit,0.0);
       LambdaLimit:=fAccumulatedLowerLinearImpulse[AxisIndex]-Old;
@@ -53543,12 +53665,16 @@ begin
       // Upper limit: pushes toward negative separation, accumulated impulse clamped <= 0.
       Cdot:=Vector3Dot(fWorldLinearAxes[AxisIndex],Vector3Sub(vB^,vA^))+Vector3Dot(fLinearA2[AxisIndex],wB^)-Vector3Dot(fLinearA1[AxisIndex],wA^);
       C:=fLinearErrors[AxisIndex]-fUpperLinearLimits[AxisIndex];
-      if fPhysics.fConstraintPositionCorrectionMode=kpcmBaumgarte then begin
-       BiasLimit:=Min(Max(C,0.0),fPhysics.fMaximalLinearCorrection)*(fPhysics.fConstraintBaumgarte*InverseDT);
+      if fLinearLimitFrequencyHz[AxisIndex]>0.0 then begin
+       LambdaLimit:=((-fLinearMasses[AxisIndex])*fLinearLimitSoftMassScale[AxisIndex]*(Cdot+(C*fLinearLimitSoftBiasRate[AxisIndex])))-(fLinearLimitSoftImpulseScale[AxisIndex]*fAccumulatedUpperLinearImpulse[AxisIndex]);
       end else begin
-       BiasLimit:=0.0;
+       if fPhysics.fConstraintPositionCorrectionMode=kpcmBaumgarte then begin
+        BiasLimit:=Min(Max(C,0.0),fPhysics.fMaximalLinearCorrection)*(fPhysics.fConstraintBaumgarte*InverseDT);
+       end else begin
+        BiasLimit:=0.0;
+       end;
+       LambdaLimit:=(-fLinearMasses[AxisIndex])*(Cdot+BiasLimit);
       end;
-      LambdaLimit:=(-fLinearMasses[AxisIndex])*(Cdot+BiasLimit);
       Old:=fAccumulatedUpperLinearImpulse[AxisIndex];
       fAccumulatedUpperLinearImpulse[AxisIndex]:=Min(Old+LambdaLimit,0.0);
       LambdaLimit:=fAccumulatedUpperLinearImpulse[AxisIndex]-Old;
@@ -53596,15 +53722,22 @@ begin
   end;
   k6damLimited:begin
    // Cone limit: upper limit on the swing angle, pulls the swing back in only (accumulated impulse clamped
-   // <= 0). The row runs while its hysteresis limit state is active, exactly like the hinge limit rows.
+   // <= 0). The row runs while its hysteresis limit state is active, exactly like the hinge limit rows. With
+   // a limit frequency the hard stop becomes a soft limit driven by its own spring.
    if fIsConeLimitViolated then begin
     CdotLimit:=Vector3Dot(Vector3Sub(wB^,wA^),fSwingAxis);
-    if fPhysics.fConstraintPositionCorrectionMode=kpcmBaumgarte then begin
-     BiasLimit:=Min(Max(fConeError,0.0),fPhysics.fMaximalAngularCorrection)*(fPhysics.fConstraintBaumgarte*InverseDT);
+    if fSwingLimitFrequencyHz>0.0 then begin
+     // The spring error stays unclamped: a soft limit needs a linearly growing restoring force, and the
+     // soft accumulation keeps it stable on its own.
+     LambdaLimit:=((-fSwingMass)*fSwingLimitSoftMassScale*(CdotLimit+(fConeError*fSwingLimitSoftBiasRate)))-(fSwingLimitSoftImpulseScale*fAccumulatedConeImpulse);
     end else begin
-     BiasLimit:=0.0;
+     if fPhysics.fConstraintPositionCorrectionMode=kpcmBaumgarte then begin
+      BiasLimit:=Min(Max(fConeError,0.0),fPhysics.fMaximalAngularCorrection)*(fPhysics.fConstraintBaumgarte*InverseDT);
+     end else begin
+      BiasLimit:=0.0;
+     end;
+     LambdaLimit:=(-fSwingMass)*(CdotLimit+BiasLimit);
     end;
-    LambdaLimit:=(-fSwingMass)*(CdotLimit+BiasLimit);
     Old:=fAccumulatedConeImpulse;
     fAccumulatedConeImpulse:=Min(Old+LambdaLimit,0.0);
     LambdaLimit:=fAccumulatedConeImpulse-Old;
@@ -53627,17 +53760,22 @@ begin
   end;
   k6damLimited:begin
    // Twist limits: lower/upper on the signed continuous twist angle, each row gated by its own hysteresis
-   // limit state with its own accumulated impulse, mirroring the hinge limit rows.
+   // limit state with its own accumulated impulse, mirroring the hinge limit rows. With a limit frequency
+   // the hard stops become soft limits driven by their own spring.
    if fIsLowerTwistLimitViolated then begin
     // Lower limit: pushes toward positive twist, accumulated impulse clamped >= 0.
     CdotLimit:=Vector3Dot(Vector3Sub(wB^,wA^),fWorldTwistAxis);
     C:=fTwistAngle-fLowerTwistAngle;
-    if fPhysics.fConstraintPositionCorrectionMode=kpcmBaumgarte then begin
-     BiasLimit:=Max(Min(C,0.0),-fPhysics.fMaximalAngularCorrection)*(fPhysics.fConstraintBaumgarte*InverseDT);
+    if fTwistLimitFrequencyHz>0.0 then begin
+     LambdaLimit:=((-fTwistMass)*fTwistLimitSoftMassScale*(CdotLimit+(C*fTwistLimitSoftBiasRate)))-(fTwistLimitSoftImpulseScale*fAccumulatedLowerTwistImpulse);
     end else begin
-     BiasLimit:=0.0;
+     if fPhysics.fConstraintPositionCorrectionMode=kpcmBaumgarte then begin
+      BiasLimit:=Max(Min(C,0.0),-fPhysics.fMaximalAngularCorrection)*(fPhysics.fConstraintBaumgarte*InverseDT);
+     end else begin
+      BiasLimit:=0.0;
+     end;
+     LambdaLimit:=(-fTwistMass)*(CdotLimit+BiasLimit);
     end;
-    LambdaLimit:=(-fTwistMass)*(CdotLimit+BiasLimit);
     Old:=fAccumulatedLowerTwistImpulse;
     fAccumulatedLowerTwistImpulse:=Max(Old+LambdaLimit,0.0);
     LambdaLimit:=fAccumulatedLowerTwistImpulse-Old;
@@ -53649,12 +53787,16 @@ begin
     // Upper limit: pushes toward negative twist, accumulated impulse clamped <= 0.
     CdotLimit:=Vector3Dot(Vector3Sub(wB^,wA^),fWorldTwistAxis);
     C:=fTwistAngle-fUpperTwistAngle;
-    if fPhysics.fConstraintPositionCorrectionMode=kpcmBaumgarte then begin
-     BiasLimit:=Min(Max(C,0.0),fPhysics.fMaximalAngularCorrection)*(fPhysics.fConstraintBaumgarte*InverseDT);
+    if fTwistLimitFrequencyHz>0.0 then begin
+     LambdaLimit:=((-fTwistMass)*fTwistLimitSoftMassScale*(CdotLimit+(C*fTwistLimitSoftBiasRate)))-(fTwistLimitSoftImpulseScale*fAccumulatedUpperTwistImpulse);
     end else begin
-     BiasLimit:=0.0;
+     if fPhysics.fConstraintPositionCorrectionMode=kpcmBaumgarte then begin
+      BiasLimit:=Min(Max(C,0.0),fPhysics.fMaximalAngularCorrection)*(fPhysics.fConstraintBaumgarte*InverseDT);
+     end else begin
+      BiasLimit:=0.0;
+     end;
+     LambdaLimit:=(-fTwistMass)*(CdotLimit+BiasLimit);
     end;
-    LambdaLimit:=(-fTwistMass)*(CdotLimit+BiasLimit);
     Old:=fAccumulatedUpperTwistImpulse;
     fAccumulatedUpperTwistImpulse:=Min(Old+LambdaLimit,0.0);
     LambdaLimit:=fAccumulatedUpperTwistImpulse-Old;
@@ -53766,25 +53908,28 @@ begin
        result:=result and (abs(fLinearErrors[AxisIndex])<fPhysics.fLinearSlop);
       end;
       k6damLimited:begin
-       C:=fLinearErrors[AxisIndex]-fLowerLinearLimits[AxisIndex];
-       if C<0.0 then begin
-        LimitLambda:=-(Max(C,-fPhysics.fMaximalLinearCorrection)*fLinearMasses[AxisIndex]);
-        LinearP:=Vector3ScalarMul(fWorldLinearAxes[AxisIndex],LimitLambda);
-        Vector3DirectSub(cA^,Vector3Mul(LinearP,Vector3ScalarMul(fSolverLinearFactors[0]^,fInverseMasses[0])));
-        QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3ScalarMul(fLinearA1[AxisIndex],-LimitLambda),fWorldInverseInertiaTensors[0]),1.0);
-        Vector3DirectAdd(cB^,Vector3Mul(LinearP,Vector3ScalarMul(fSolverLinearFactors[1]^,fInverseMasses[1])));
-        QuaternionDirectSpin(qB^,Vector3TermMatrixMul(Vector3ScalarMul(fLinearA2[AxisIndex],LimitLambda),fWorldInverseInertiaTensors[1]),1.0);
-        result:=result and ((-C)<fPhysics.fLinearSlop);
-       end;
-       C:=fLinearErrors[AxisIndex]-fUpperLinearLimits[AxisIndex];
-       if C>0.0 then begin
-        LimitLambda:=-(Min(C,fPhysics.fMaximalLinearCorrection)*fLinearMasses[AxisIndex]);
-        LinearP:=Vector3ScalarMul(fWorldLinearAxes[AxisIndex],LimitLambda);
-        Vector3DirectSub(cA^,Vector3Mul(LinearP,Vector3ScalarMul(fSolverLinearFactors[0]^,fInverseMasses[0])));
-        QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3ScalarMul(fLinearA1[AxisIndex],-LimitLambda),fWorldInverseInertiaTensors[0]),1.0);
-        Vector3DirectAdd(cB^,Vector3Mul(LinearP,Vector3ScalarMul(fSolverLinearFactors[1]^,fInverseMasses[1])));
-        QuaternionDirectSpin(qB^,Vector3TermMatrixMul(Vector3ScalarMul(fLinearA2[AxisIndex],LimitLambda),fWorldInverseInertiaTensors[1]),1.0);
-        result:=result and (C<fPhysics.fLinearSlop);
+       // Soft limits are regulated by their own spring, so the position pass leaves them alone.
+       if fLinearLimitFrequencyHz[AxisIndex]<=0.0 then begin
+        C:=fLinearErrors[AxisIndex]-fLowerLinearLimits[AxisIndex];
+        if C<0.0 then begin
+         LimitLambda:=-(Max(C,-fPhysics.fMaximalLinearCorrection)*fLinearMasses[AxisIndex]);
+         LinearP:=Vector3ScalarMul(fWorldLinearAxes[AxisIndex],LimitLambda);
+         Vector3DirectSub(cA^,Vector3Mul(LinearP,Vector3ScalarMul(fSolverLinearFactors[0]^,fInverseMasses[0])));
+         QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3ScalarMul(fLinearA1[AxisIndex],-LimitLambda),fWorldInverseInertiaTensors[0]),1.0);
+         Vector3DirectAdd(cB^,Vector3Mul(LinearP,Vector3ScalarMul(fSolverLinearFactors[1]^,fInverseMasses[1])));
+         QuaternionDirectSpin(qB^,Vector3TermMatrixMul(Vector3ScalarMul(fLinearA2[AxisIndex],LimitLambda),fWorldInverseInertiaTensors[1]),1.0);
+         result:=result and ((-C)<fPhysics.fLinearSlop);
+        end;
+        C:=fLinearErrors[AxisIndex]-fUpperLinearLimits[AxisIndex];
+        if C>0.0 then begin
+         LimitLambda:=-(Min(C,fPhysics.fMaximalLinearCorrection)*fLinearMasses[AxisIndex]);
+         LinearP:=Vector3ScalarMul(fWorldLinearAxes[AxisIndex],LimitLambda);
+         Vector3DirectSub(cA^,Vector3Mul(LinearP,Vector3ScalarMul(fSolverLinearFactors[0]^,fInverseMasses[0])));
+         QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3ScalarMul(fLinearA1[AxisIndex],-LimitLambda),fWorldInverseInertiaTensors[0]),1.0);
+         Vector3DirectAdd(cB^,Vector3Mul(LinearP,Vector3ScalarMul(fSolverLinearFactors[1]^,fInverseMasses[1])));
+         QuaternionDirectSpin(qB^,Vector3TermMatrixMul(Vector3ScalarMul(fLinearA2[AxisIndex],LimitLambda),fWorldInverseInertiaTensors[1]),1.0);
+         result:=result and (C<fPhysics.fLinearSlop);
+        end;
        end;
       end;
      end;
@@ -53804,7 +53949,8 @@ begin
     result:=result and (fSwingAngle<fPhysics.fAngularSlop);
    end;
    k6damLimited:begin
-    if (fConeError>0.0) and (fSwingMass>0.0) then begin
+    // Soft limits are regulated by their own spring, so the position pass leaves them alone.
+    if (fSwingLimitFrequencyHz<=0.0) and (fConeError>0.0) and (fSwingMass>0.0) then begin
      LimitLambda:=-(Min(fConeError,fPhysics.fMaximalAngularCorrection)*fSwingMass);
      LimitP:=Vector3ScalarMul(fSwingAxis,LimitLambda);
      QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3Neg(LimitP),fWorldInverseInertiaTensors[0]),1.0);
@@ -53825,7 +53971,7 @@ begin
     result:=result and (abs(fTwistAngle)<fPhysics.fAngularSlop);
    end;
    k6damLimited:begin
-    if fTwistMass>0.0 then begin
+    if (fTwistLimitFrequencyHz<=0.0) and (fTwistMass>0.0) then begin
      C:=fTwistAngle-fLowerTwistAngle;
      if C<0.0 then begin
       LimitLambda:=-(Max(C,-fPhysics.fMaximalAngularCorrection)*fTwistMass);
@@ -53918,29 +54064,59 @@ begin
   fSoftImpulseScale:=0.0;
  end;
 
- // Slerp drive softness from its frequency/damping over the substep length (b3MakeSoft); no frequency means
- // no spring at all, and disabled drives drop their stale accumulated impulses.
+ // Position drive springs over the substep length; drives without a spring drop their stale accumulated
+ // impulses, as do the disabled velocity drives.
  if fEnableSlerpDrive and (fSlerpDriveFrequencyHz>0.0) then begin
-  Omega:=(2.0*pi)*fSlerpDriveFrequencyHz;
-  A1:=(2.0*fSlerpDriveDampingRatio)+(h*Omega);
-  A2:=(h*Omega)*A1;
-  A3:=1.0/(1.0+A2);
-  fSlerpDriveSoftBiasRate:=Omega/A1;
-  fSlerpDriveSoftMassScale:=A2*A3;
-  fSlerpDriveSoftImpulseScale:=A3;
+  ComputeSoftParameters(fSlerpDriveFrequencyHz,fSlerpDriveDampingRatio,h,fSlerpDriveSoftBiasRate,fSlerpDriveSoftMassScale,fSlerpDriveSoftImpulseScale);
  end else begin
   fSlerpDriveSoftBiasRate:=0.0;
   fSlerpDriveSoftMassScale:=0.0;
   fSlerpDriveSoftImpulseScale:=0.0;
   fAccumulatedSlerpDriveImpulse:=Vector3Origin;
  end;
+ if fEnableLinearPositionDrive and (fLinearPositionDriveFrequencyHz>0.0) then begin
+  ComputeSoftParameters(fLinearPositionDriveFrequencyHz,fLinearPositionDriveDampingRatio,h,fLinearPositionDriveSoftBiasRate,fLinearPositionDriveSoftMassScale,fLinearPositionDriveSoftImpulseScale);
+ end else begin
+  fLinearPositionDriveSoftBiasRate:=0.0;
+  fLinearPositionDriveSoftMassScale:=0.0;
+  fLinearPositionDriveSoftImpulseScale:=0.0;
+  fAccumulatedLinearPositionDriveImpulse[0]:=0.0;
+  fAccumulatedLinearPositionDriveImpulse[1]:=0.0;
+  fAccumulatedLinearPositionDriveImpulse[2]:=0.0;
+ end;
  if not fEnableAngularVelocityDrive then begin
   fAccumulatedAngularDriveImpulse:=Vector3Origin;
  end;
  if not fEnableLinearVelocityDrive then begin
-  fAccumulatedLinearDriveImpulse[0]:=0.0;
-  fAccumulatedLinearDriveImpulse[1]:=0.0;
-  fAccumulatedLinearDriveImpulse[2]:=0.0;
+  fAccumulatedLinearVelocityDriveImpulse[0]:=0.0;
+  fAccumulatedLinearVelocityDriveImpulse[1]:=0.0;
+  fAccumulatedLinearVelocityDriveImpulse[2]:=0.0;
+ end;
+
+ // Soft-limit springs over the substep length; a limit group with a zero frequency falls back to the world
+ // joint softness above, which is the hard-stop behaviour.
+ if fSwingLimitFrequencyHz>0.0 then begin
+  ComputeSoftParameters(fSwingLimitFrequencyHz,fSwingLimitDampingRatio,h,fSwingLimitSoftBiasRate,fSwingLimitSoftMassScale,fSwingLimitSoftImpulseScale);
+ end else begin
+  fSwingLimitSoftBiasRate:=fSoftBiasRate;
+  fSwingLimitSoftMassScale:=fSoftMassScale;
+  fSwingLimitSoftImpulseScale:=fSoftImpulseScale;
+ end;
+ if fTwistLimitFrequencyHz>0.0 then begin
+  ComputeSoftParameters(fTwistLimitFrequencyHz,fTwistLimitDampingRatio,h,fTwistLimitSoftBiasRate,fTwistLimitSoftMassScale,fTwistLimitSoftImpulseScale);
+ end else begin
+  fTwistLimitSoftBiasRate:=fSoftBiasRate;
+  fTwistLimitSoftMassScale:=fSoftMassScale;
+  fTwistLimitSoftImpulseScale:=fSoftImpulseScale;
+ end;
+ for AxisIndex:=0 to 2 do begin
+  if fLinearLimitFrequencyHz[AxisIndex]>0.0 then begin
+   ComputeSoftParameters(fLinearLimitFrequencyHz[AxisIndex],fLinearLimitDampingRatio[AxisIndex],h,fLinearLimitSoftBiasRate[AxisIndex],fLinearLimitSoftMassScale[AxisIndex],fLinearLimitSoftImpulseScale[AxisIndex]);
+  end else begin
+   fLinearLimitSoftBiasRate[AxisIndex]:=fSoftBiasRate;
+   fLinearLimitSoftMassScale[AxisIndex]:=fSoftMassScale;
+   fLinearLimitSoftImpulseScale[AxisIndex]:=fSoftImpulseScale;
+  end;
  end;
 
  // Carry all accumulated impulses across the frame time, or drop them when warm starting is off. The
@@ -53959,7 +54135,8 @@ begin
    fAccumulatedLinearLockImpulse[AxisIndex]:=fAccumulatedLinearLockImpulse[AxisIndex]*TimeStep.DeltaTimeRatio;
    fAccumulatedLowerLinearImpulse[AxisIndex]:=fAccumulatedLowerLinearImpulse[AxisIndex]*TimeStep.DeltaTimeRatio;
    fAccumulatedUpperLinearImpulse[AxisIndex]:=fAccumulatedUpperLinearImpulse[AxisIndex]*TimeStep.DeltaTimeRatio;
-   fAccumulatedLinearDriveImpulse[AxisIndex]:=fAccumulatedLinearDriveImpulse[AxisIndex]*TimeStep.DeltaTimeRatio;
+   fAccumulatedLinearVelocityDriveImpulse[AxisIndex]:=fAccumulatedLinearVelocityDriveImpulse[AxisIndex]*TimeStep.DeltaTimeRatio;
+   fAccumulatedLinearPositionDriveImpulse[AxisIndex]:=fAccumulatedLinearPositionDriveImpulse[AxisIndex]*TimeStep.DeltaTimeRatio;
   end;
  end else begin
   fAccumulatedImpulseTranslation:=Vector3Origin;
@@ -53975,7 +54152,8 @@ begin
    fAccumulatedLinearLockImpulse[AxisIndex]:=0.0;
    fAccumulatedLowerLinearImpulse[AxisIndex]:=0.0;
    fAccumulatedUpperLinearImpulse[AxisIndex]:=0.0;
-   fAccumulatedLinearDriveImpulse[AxisIndex]:=0.0;
+   fAccumulatedLinearVelocityDriveImpulse[AxisIndex]:=0.0;
+   fAccumulatedLinearPositionDriveImpulse[AxisIndex]:=0.0;
   end;
  end;
 
@@ -54033,15 +54211,17 @@ begin
 
  end;
 
- // Linear velocity drive impulses re-apply along the frame axes (available regardless of the lock layout).
- if fEnableLinearVelocityDrive then begin
+ // Linear drive impulses (position + velocity) re-apply along the frame axes (available regardless of the
+ // lock layout).
+ if fEnableLinearPositionDrive or fEnableLinearVelocityDrive then begin
   for AxisIndex:=0 to 2 do begin
-   if fAccumulatedLinearDriveImpulse[AxisIndex]<>0.0 then begin
-    LinearP:=Vector3ScalarMul(fWorldLinearAxes[AxisIndex],fAccumulatedLinearDriveImpulse[AxisIndex]);
+   LinearImpulseSum:=fAccumulatedLinearPositionDriveImpulse[AxisIndex]+fAccumulatedLinearVelocityDriveImpulse[AxisIndex];
+   if LinearImpulseSum<>0.0 then begin
+    LinearP:=Vector3ScalarMul(fWorldLinearAxes[AxisIndex],LinearImpulseSum);
     Vector3DirectSub(vA^,Vector3Mul(LinearP,Vector3ScalarMul(fSolverLinearFactors[0]^,fInverseMasses[0])));
-    Vector3DirectSub(wA^,Vector3TermMatrixMul(Vector3ScalarMul(fLinearA1[AxisIndex],fAccumulatedLinearDriveImpulse[AxisIndex]),fWorldInverseInertiaTensors[0]));
+    Vector3DirectSub(wA^,Vector3TermMatrixMul(Vector3ScalarMul(fLinearA1[AxisIndex],LinearImpulseSum),fWorldInverseInertiaTensors[0]));
     Vector3DirectAdd(vB^,Vector3Mul(LinearP,Vector3ScalarMul(fSolverLinearFactors[1]^,fInverseMasses[1])));
-    Vector3DirectAdd(wB^,Vector3TermMatrixMul(Vector3ScalarMul(fLinearA2[AxisIndex],fAccumulatedLinearDriveImpulse[AxisIndex]),fWorldInverseInertiaTensors[1]));
+    Vector3DirectAdd(wB^,Vector3TermMatrixMul(Vector3ScalarMul(fLinearA2[AxisIndex],LinearImpulseSum),fWorldInverseInertiaTensors[1]));
    end;
   end;
  end;
@@ -54168,20 +54348,29 @@ begin
      Vector3DirectAdd(wB^,Vector3TermMatrixMul(Vector3ScalarMul(fLinearA2[AxisIndex],Lambda),fWorldInverseInertiaTensors[1]));
     end;
     k6damLimited:begin
-     // Limit rows: both always run with their own accumulated impulses, so stale impulses drain through the
-     // clamps and fast approaches are braked speculatively.
+     // Limit rows, each with its own accumulated impulse. Hard stops always run (speculative braking inside,
+     // stale impulses drain through the clamps), soft limits act as one-sided springs on both passes and
+     // just relax their impulse away outside.
 
      // Lower limit: pushes toward positive separation, accumulated impulse clamped >= 0.
      CdotTwist:=Vector3Dot(fWorldLinearAxes[AxisIndex],Vector3Sub(vB^,vA^))+Vector3Dot(fLinearA2[AxisIndex],wB^)-Vector3Dot(fLinearA1[AxisIndex],wA^);
      C:=fLinearErrors[AxisIndex]-fLowerLinearLimits[AxisIndex];
-     if C<0.0 then begin
-      if aUseBias then begin
-       LambdaLimit:=((-fLinearMasses[AxisIndex])*fSoftMassScale*(CdotTwist+(Max(C,-fPhysics.fMaximalLinearCorrection)*fSoftBiasRate)))-(fSoftImpulseScale*fAccumulatedLowerLinearImpulse[AxisIndex]);
+     if fLinearLimitFrequencyHz[AxisIndex]>0.0 then begin
+      if C<0.0 then begin
+       LambdaLimit:=((-fLinearMasses[AxisIndex])*fLinearLimitSoftMassScale[AxisIndex]*(CdotTwist+(C*fLinearLimitSoftBiasRate[AxisIndex])))-(fLinearLimitSoftImpulseScale[AxisIndex]*fAccumulatedLowerLinearImpulse[AxisIndex]);
       end else begin
-       LambdaLimit:=(-fLinearMasses[AxisIndex])*CdotTwist;
+       LambdaLimit:=-(fLinearLimitSoftImpulseScale[AxisIndex]*fAccumulatedLowerLinearImpulse[AxisIndex]);
       end;
      end else begin
-      LambdaLimit:=(-fLinearMasses[AxisIndex])*(CdotTwist+(C*InverseSubDT));
+      if C<0.0 then begin
+       if aUseBias then begin
+        LambdaLimit:=((-fLinearMasses[AxisIndex])*fLinearLimitSoftMassScale[AxisIndex]*(CdotTwist+(Max(C,-fPhysics.fMaximalLinearCorrection)*fLinearLimitSoftBiasRate[AxisIndex])))-(fLinearLimitSoftImpulseScale[AxisIndex]*fAccumulatedLowerLinearImpulse[AxisIndex]);
+       end else begin
+        LambdaLimit:=(-fLinearMasses[AxisIndex])*CdotTwist;
+       end;
+      end else begin
+       LambdaLimit:=(-fLinearMasses[AxisIndex])*(CdotTwist+(C*InverseSubDT));
+      end;
      end;
      Old:=fAccumulatedLowerLinearImpulse[AxisIndex];
      fAccumulatedLowerLinearImpulse[AxisIndex]:=Max(Old+LambdaLimit,0.0);
@@ -54195,14 +54384,22 @@ begin
      // Upper limit: pushes toward negative separation, accumulated impulse clamped <= 0.
      CdotTwist:=Vector3Dot(fWorldLinearAxes[AxisIndex],Vector3Sub(vB^,vA^))+Vector3Dot(fLinearA2[AxisIndex],wB^)-Vector3Dot(fLinearA1[AxisIndex],wA^);
      C:=fLinearErrors[AxisIndex]-fUpperLinearLimits[AxisIndex];
-     if C>0.0 then begin
-      if aUseBias then begin
-       LambdaLimit:=((-fLinearMasses[AxisIndex])*fSoftMassScale*(CdotTwist+(Min(C,fPhysics.fMaximalLinearCorrection)*fSoftBiasRate)))-(fSoftImpulseScale*fAccumulatedUpperLinearImpulse[AxisIndex]);
+     if fLinearLimitFrequencyHz[AxisIndex]>0.0 then begin
+      if C>0.0 then begin
+       LambdaLimit:=((-fLinearMasses[AxisIndex])*fLinearLimitSoftMassScale[AxisIndex]*(CdotTwist+(C*fLinearLimitSoftBiasRate[AxisIndex])))-(fLinearLimitSoftImpulseScale[AxisIndex]*fAccumulatedUpperLinearImpulse[AxisIndex]);
       end else begin
-       LambdaLimit:=(-fLinearMasses[AxisIndex])*CdotTwist;
+       LambdaLimit:=-(fLinearLimitSoftImpulseScale[AxisIndex]*fAccumulatedUpperLinearImpulse[AxisIndex]);
       end;
      end else begin
-      LambdaLimit:=(-fLinearMasses[AxisIndex])*(CdotTwist+(C*InverseSubDT));
+      if C>0.0 then begin
+       if aUseBias then begin
+        LambdaLimit:=((-fLinearMasses[AxisIndex])*fLinearLimitSoftMassScale[AxisIndex]*(CdotTwist+(Min(C,fPhysics.fMaximalLinearCorrection)*fLinearLimitSoftBiasRate[AxisIndex])))-(fLinearLimitSoftImpulseScale[AxisIndex]*fAccumulatedUpperLinearImpulse[AxisIndex]);
+       end else begin
+        LambdaLimit:=(-fLinearMasses[AxisIndex])*CdotTwist;
+       end;
+      end else begin
+       LambdaLimit:=(-fLinearMasses[AxisIndex])*(CdotTwist+(C*InverseSubDT));
+      end;
      end;
      Old:=fAccumulatedUpperLinearImpulse[AxisIndex];
      fAccumulatedUpperLinearImpulse[AxisIndex]:=Min(Old+LambdaLimit,0.0);
@@ -54261,17 +54458,28 @@ begin
   end;
   k6damLimited:begin
    // Cone limit: upper limit on the swing angle, pulls the swing back in only (accumulated impulse clamped
-   // <= 0). The row always runs while the limit is enabled: inside the limit the speculative bias brakes fast
-   // approaches and drains any stale accumulated impulse through the clamp, violated it recovers softly.
+   // <= 0). A hard stop always runs: inside the limit the speculative bias brakes fast approaches and drains
+   // any stale accumulated impulse through the clamp, violated it recovers with the world joint softness. A
+   // soft limit is a one-sided spring instead: it acts on both passes (a spring is a physical restoring
+   // force, its unclamped error term included), never brakes the approach speculatively, and outside the
+   // limit just relaxes its accumulated impulse away.
    CdotLimit:=Vector3Dot(Vector3Sub(wB^,wA^),fSwingAxis);
-   if fConeError>0.0 then begin
-    if aUseBias then begin
-     LambdaLimit:=((-fSwingMass)*fSoftMassScale*(CdotLimit+(Min(fConeError,fPhysics.fMaximalAngularCorrection)*fSoftBiasRate)))-(fSoftImpulseScale*fAccumulatedConeImpulse);
+   if fSwingLimitFrequencyHz>0.0 then begin
+    if fConeError>0.0 then begin
+     LambdaLimit:=((-fSwingMass)*fSwingLimitSoftMassScale*(CdotLimit+(fConeError*fSwingLimitSoftBiasRate)))-(fSwingLimitSoftImpulseScale*fAccumulatedConeImpulse);
     end else begin
-     LambdaLimit:=(-fSwingMass)*CdotLimit;
+     LambdaLimit:=-(fSwingLimitSoftImpulseScale*fAccumulatedConeImpulse);
     end;
    end else begin
-    LambdaLimit:=(-fSwingMass)*(CdotLimit+(fConeError*InverseSubDT));
+    if fConeError>0.0 then begin
+     if aUseBias then begin
+      LambdaLimit:=((-fSwingMass)*fSwingLimitSoftMassScale*(CdotLimit+(Min(fConeError,fPhysics.fMaximalAngularCorrection)*fSwingLimitSoftBiasRate)))-(fSwingLimitSoftImpulseScale*fAccumulatedConeImpulse);
+     end else begin
+      LambdaLimit:=(-fSwingMass)*CdotLimit;
+     end;
+    end else begin
+     LambdaLimit:=(-fSwingMass)*(CdotLimit+(fConeError*InverseSubDT));
+    end;
    end;
    Old:=fAccumulatedConeImpulse;
    fAccumulatedConeImpulse:=Min(Old+LambdaLimit,0.0);
@@ -54297,21 +54505,29 @@ begin
    Vector3DirectAdd(wB^,Vector3TermMatrixMul(LimitP,fWorldInverseInertiaTensors[1]));
   end;
   k6damLimited:begin
-   // Twist limits: lower/upper on the signed continuous twist angle, both rows always run with their own
-   // accumulated impulses, so stale impulses drain through the clamps and fast approaches are braked
-   // speculatively.
+   // Twist limits: lower/upper on the signed continuous twist angle, each row with its own accumulated
+   // impulse. Hard stops always run (speculative braking inside, stale impulses drain through the clamps),
+   // soft limits act as one-sided springs on both passes and just relax their impulse away outside.
 
    // Lower limit: pushes toward positive twist, accumulated impulse clamped >= 0.
    CdotLimit:=Vector3Dot(Vector3Sub(wB^,wA^),fWorldTwistAxis);
    C:=fTwistAngle-fLowerTwistAngle;
-   if C<0.0 then begin
-    if aUseBias then begin
-     LambdaLimit:=((-fTwistMass)*fSoftMassScale*(CdotLimit+(Max(C,-fPhysics.fMaximalAngularCorrection)*fSoftBiasRate)))-(fSoftImpulseScale*fAccumulatedLowerTwistImpulse);
+   if fTwistLimitFrequencyHz>0.0 then begin
+    if C<0.0 then begin
+     LambdaLimit:=((-fTwistMass)*fTwistLimitSoftMassScale*(CdotLimit+(C*fTwistLimitSoftBiasRate)))-(fTwistLimitSoftImpulseScale*fAccumulatedLowerTwistImpulse);
     end else begin
-     LambdaLimit:=(-fTwistMass)*CdotLimit;
+     LambdaLimit:=-(fTwistLimitSoftImpulseScale*fAccumulatedLowerTwistImpulse);
     end;
    end else begin
-    LambdaLimit:=(-fTwistMass)*(CdotLimit+(C*InverseSubDT));
+    if C<0.0 then begin
+     if aUseBias then begin
+      LambdaLimit:=((-fTwistMass)*fTwistLimitSoftMassScale*(CdotLimit+(Max(C,-fPhysics.fMaximalAngularCorrection)*fTwistLimitSoftBiasRate)))-(fTwistLimitSoftImpulseScale*fAccumulatedLowerTwistImpulse);
+     end else begin
+      LambdaLimit:=(-fTwistMass)*CdotLimit;
+     end;
+    end else begin
+     LambdaLimit:=(-fTwistMass)*(CdotLimit+(C*InverseSubDT));
+    end;
    end;
    Old:=fAccumulatedLowerTwistImpulse;
    fAccumulatedLowerTwistImpulse:=Max(Old+LambdaLimit,0.0);
@@ -54323,14 +54539,22 @@ begin
    // Upper limit: pushes toward negative twist, accumulated impulse clamped <= 0.
    CdotLimit:=Vector3Dot(Vector3Sub(wB^,wA^),fWorldTwistAxis);
    C:=fTwistAngle-fUpperTwistAngle;
-   if C>0.0 then begin
-    if aUseBias then begin
-     LambdaLimit:=((-fTwistMass)*fSoftMassScale*(CdotLimit+(Min(C,fPhysics.fMaximalAngularCorrection)*fSoftBiasRate)))-(fSoftImpulseScale*fAccumulatedUpperTwistImpulse);
+   if fTwistLimitFrequencyHz>0.0 then begin
+    if C>0.0 then begin
+     LambdaLimit:=((-fTwistMass)*fTwistLimitSoftMassScale*(CdotLimit+(C*fTwistLimitSoftBiasRate)))-(fTwistLimitSoftImpulseScale*fAccumulatedUpperTwistImpulse);
     end else begin
-     LambdaLimit:=(-fTwistMass)*CdotLimit;
+     LambdaLimit:=-(fTwistLimitSoftImpulseScale*fAccumulatedUpperTwistImpulse);
     end;
    end else begin
-    LambdaLimit:=(-fTwistMass)*(CdotLimit+(C*InverseSubDT));
+    if C>0.0 then begin
+     if aUseBias then begin
+      LambdaLimit:=((-fTwistMass)*fTwistLimitSoftMassScale*(CdotLimit+(Min(C,fPhysics.fMaximalAngularCorrection)*fTwistLimitSoftBiasRate)))-(fTwistLimitSoftImpulseScale*fAccumulatedUpperTwistImpulse);
+     end else begin
+      LambdaLimit:=(-fTwistMass)*CdotLimit;
+     end;
+    end else begin
+     LambdaLimit:=(-fTwistMass)*(CdotLimit+(C*InverseSubDT));
+    end;
    end;
    Old:=fAccumulatedUpperTwistImpulse;
    fAccumulatedUpperTwistImpulse:=Min(Old+LambdaLimit,0.0);
@@ -54365,9 +54589,9 @@ begin
    result:=Vector3Add(result,Vector3ScalarMul(fWorldLinearAxes[AxisIndex],(fAccumulatedLinearLockImpulse[AxisIndex]+fAccumulatedLowerLinearImpulse[AxisIndex]+fAccumulatedUpperLinearImpulse[AxisIndex])*InverseDeltaTime));
   end;
  end;
- if fEnableLinearVelocityDrive then begin
+ if fEnableLinearPositionDrive or fEnableLinearVelocityDrive then begin
   for AxisIndex:=0 to 2 do begin
-   result:=Vector3Add(result,Vector3ScalarMul(fWorldLinearAxes[AxisIndex],fAccumulatedLinearDriveImpulse[AxisIndex]*InverseDeltaTime));
+   result:=Vector3Add(result,Vector3ScalarMul(fWorldLinearAxes[AxisIndex],(fAccumulatedLinearPositionDriveImpulse[AxisIndex]+fAccumulatedLinearVelocityDriveImpulse[AxisIndex])*InverseDeltaTime));
   end;
  end;
 end;

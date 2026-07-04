@@ -8,7 +8,7 @@ Kraft Physics Engine is an open source Object Pascal physics engine library that
 
 Author : Benjamin 'BeRo' Rosseaux
 
-Compatible with: Delphi 7-XE7 (but not with the Android and iOS targets), FreePascal >= 2.6.2 (with almost all FPC-supported targets including Android and iOS) 
+Compatible with: Delphi >= 10.2 and FreePascal >= 2.6.2 (with almost all FPC-supported targets including Android and iOS) 
 
 ## Support me
 
@@ -22,7 +22,7 @@ Kraft Physics Engine has the following features:
 - Discrete collision detection
 - Optional additional continuous collision detection with Motion Clamping or with Box2D-style time of impact sub stepping, either with Bilateral Advancement or Conservative Advancement.  
 - Optional additional support for speculative contacts as faster and more inaccurate fake continuous collision detection mode.
-- Full one-shot contact manifold collision shapes (spheres, capsules, convex hulls, boxes, and for static geometries also triangle meshes) based on combinations of for-warm-start-simplex-caching-able GJK, Gauss-Map optimized Clipping-SAT and implicit collision algorithms.
+- Full one-shot contact manifold collision shapes (spheres, capsules, convex hulls, boxes, planes, signed distance fields (highly experimental WIP), and for static geometries also triangle meshes) based on combinations of for-warm-start-simplex-caching-able GJK, Gauss-Map optimized Clipping-SAT and implicit collision algorithms.
 - Optional MPR-based (Minkowski Portal Refinement) incremental persistent contact manifold work mode (see TKraft.PersistentContactManifold boolean), but its usage isn't recommended, because the full one-shot contact manifold work mode is faster, more robust and more tested. It is implemented only as comparison reference (for example for debugging purposes), and for more reasons against incremental persistent contact manifold real usage, see http://media.steampowered.com/apps/valve/2015/DirkGregorius_Contacts.pdf .
 - Multiple collision shapes per rigid body without the need for a compound shape
 - Broadphase collision detection with a dynamic AABB tree
@@ -32,7 +32,9 @@ Kraft Physics Engine has the following features:
   - Baumgarte stabilization (which is also the old-school way) is faster but it can be inaccurate in some situations
 - Narrowphase collision detection
 - Collision response and friction (Sequential impulses with post projection)
-- Joint constraints (Grab, Distance, Rope, Ball Socket, Hinge, Slider, Fixed)
+- The choice of two velocity solvers, selectable at runtime: the classic sequential impulse solver or a substepped TGS soft-constraint solver with soft contacts and joints, where joints can run either through the classic solve path per step or substep or through native per-substep soft implementations, selectable per world and overridable per joint
+- Joint constraints (Grab, Distance, Rope, World Plane Distance, Ball Socket with optional swing/twist limits, Fixed, Hinge with limits and motor, Slider with limits and motor, Pulley, Parallel, Motor, Wheel with suspension spring, spin motor and steering, and a freely configurable 6-DOF joint with per-degree-of-freedom locked/free/limited modes, an elliptical swing cone, optional soft limits per limit group and a full set of position and velocity drives)
+- Ready-to-use vehicle add-on units (KraftArcadeCarPhysics and KraftRayCastVehicle)
 - Collision filtering with groups
 - Ray casting and sphere casting (ray "with" spherical thickness)
 - Sleeping of inactive rigid bodies
@@ -43,7 +45,6 @@ Kraft Physics Engine has the following features:
 ## Future possibly possible features
 
 - Linear casting
-- More joint constraint types (for example cone twist, universal and/or general 6DOF)
 - Cloths / Soft body
 
 ## License
@@ -53,6 +54,10 @@ The Kraft Physics Engine is released under the open-source [ZLib license](http:/
 ## PasMP
 
 For to use Kraft with PasMP, you must set a project global define called KraftPasMP (or use -dKraftPasMP as compiler command line parameter)
+
+## Sandbox
+
+The sandbox subdirectory contains a demo application with many test scenes, among them a joint gallery which shows every joint type in action, two ragdoll scenes (one built from ball sockets and hinges, one built entirely from the 6-DOF joint), vehicles, stacking tests and signed distance field terrains, although the signed distance field test scene is disabled by default in the list, since it is highly experimental and not yet fully working.
 
 ## Documentation
 
