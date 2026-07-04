@@ -8863,7 +8863,7 @@ begin
  end;
 end;
 
-{$push}{$optimization off}
+{$ifdef fpc}{$push}{$optimization off}{$endif} // Guards against an FPC trunk code generator bug observed in this body setup path
 function Matrix3x3InverseRobust(var mr:TKraftMatrix3x3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} ma:TKraftMatrix3x3):boolean;
 var Index,OtherIndex:TKraftInt32;
     Scale,InverseScale,Determinant,InverseDeterminant:TKraftScalar;
@@ -8923,7 +8923,7 @@ begin
   result:=false;
  end;
 end;
-{$pop}
+{$ifdef fpc}{$pop}{$endif}
 
 function Matrix3x3TermInverse({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix3x3):TKraftMatrix3x3;
 var Determinant:TKraftScalar;
