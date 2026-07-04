@@ -4,8 +4,8 @@ object FormMain: TFormMain
   Top = -8
   Width = 1009
   Caption = 'Kraft physics engine sandbox - Copyright (C) 2015-2023, Benjamin ''BeRo'' Rosseaux'
-  ClientHeight = 211
-  ClientWidth = 320
+  ClientHeight = 726
+  ClientWidth = 1009
   Color = clBtnFace
   Font.Color = clWindowText
   Font.Height = -11
@@ -16,7 +16,6 @@ object FormMain: TFormMain
   OnDestroy = FormDestroy
   OnShow = FormShow
   Position = poScreenCenter
-  LCLVersion = '2.3.0.0'
   WindowState = wsMaximized
   object sSplitter1: TSplitter
     Left = 305
@@ -73,13 +72,13 @@ object FormMain: TFormMain
         Width = 305
         Align = alClient
         Caption = 'Tree'
-        ClientHeight = 285
-        ClientWidth = 293
+        ClientHeight = 271
+        ClientWidth = 301
         ParentBackground = False
         TabOrder = 0
         object sTreeViewMain: TTreeView
           Left = 0
-          Height = 269
+          Height = 271
           Top = 0
           Width = 301
           Align = alClient
@@ -140,13 +139,13 @@ object FormMain: TFormMain
       Width = 185
       Align = alClient
       Caption = 'Demos'
-      ClientHeight = 714
-      ClientWidth = 173
+      ClientHeight = 700
+      ClientWidth = 181
       ParentBackground = False
       TabOrder = 0
       object sTreeViewDemos: TTreeView
         Left = 0
-        Height = 698
+        Height = 700
         Top = 0
         Width = 181
         Align = alClient
@@ -303,7 +302,7 @@ object FormMain: TFormMain
             Left = 8
             Height = 20
             Top = 8
-            Width = 160
+            Width = 151
             Caption = 'Draw dynamic AABB tree '
             TabOrder = 0
           end
@@ -311,7 +310,7 @@ object FormMain: TFormMain
             Left = 8
             Height = 20
             Top = 32
-            Width = 102
+            Width = 94
             Caption = 'Draw contacts'
             Checked = True
             State = cbChecked
@@ -321,7 +320,7 @@ object FormMain: TFormMain
             Left = 8
             Height = 20
             Top = 56
-            Width = 111
+            Width = 101
             Caption = 'Draw wireframe'
             TabOrder = 2
           end
@@ -329,7 +328,7 @@ object FormMain: TFormMain
             Left = 8
             Height = 20
             Top = 80
-            Width = 83
+            Width = 76
             Caption = 'Draw solid'
             Checked = True
             State = cbChecked
@@ -339,7 +338,7 @@ object FormMain: TFormMain
             Left = 8
             Height = 20
             Top = 104
-            Width = 116
+            Width = 106
             Caption = 'Draw constraints'
             Checked = True
             State = cbChecked

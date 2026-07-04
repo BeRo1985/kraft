@@ -543,6 +543,14 @@ begin
  PropertyGrid.Name:='PropertyGrid';
  PropertyGrid.Parent:=sGroupBoxPropertyEditor;
  PropertyGrid.Align:=alClient;
+ PropertyGrid.NameFont.Color:=clWindowText;
+ if (((ColorToRGB(clWindowText) shr 16) and $ff)>=$80) or
+    (((ColorToRGB(clWindowText) shr 8) and $ff)>=$80) or
+    (((ColorToRGB(clWindowText) shr 0) and $ff)>=$80) then begin
+  PropertyGrid.ValueFont.Color:=$aaaaaa;
+ end else begin
+  PropertyGrid.ValueFont.Color:=$444444;
+ end;
  SetObjectInspectorRoot(nil);
  //TheObjectInspector.Show;
 
