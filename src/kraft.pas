@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-07-04-16-10-0000                       *
+ *                        Version 2026-07-04-16-45-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -39280,7 +39280,11 @@ var OldManifoldCountContacts:TKraftInt32;
        if OK then begin
         for PointIndex:=0 to 1 do begin
          Distance:=PlaneVectorDistanceWithScale(Face^.Plane,ClosestPoints[PointIndex],ShapeB.fScale);
-         if Distance<=ShapeA.fRadius then begin
+         // A genuine shallow face contact has the point within one radius on EITHER side of the face plane.
+         // Without the lower bound a back face whose normal happens to align with the GJK normal passes the
+         // test with a hugely negative distance and anchors the contact far behind the hull (kilometers on
+         // the internal plane hull), which the substepped solver then pumps into a catapult impulse.
+         if (Distance<=ShapeA.fRadius) and (Distance>=(-ShapeA.fRadius)) then begin
           FaceNormal:=Face^.Plane.Normal;
           AddFaceBContact(FaceNormal,
                           Vector3TermMatrixMul(ClosestPoints[PointIndex],ShapeB.fWorldTransform),
