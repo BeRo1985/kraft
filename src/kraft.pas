@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-07-04-18-05-0000                       *
+ *                        Version 2026-07-04-23-27-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -290,6 +290,10 @@ const EPSILON={$ifdef KraftUseDouble}1e-14{$else}1e-5{$endif}; // actually {$ifd
 
       MAX_THREADS=256;            // Should be more than enough :-)
 
+      // Squared quaternion dot product bound (about 10 degrees of absolute body rotation since the cache was
+      // taken) for the optional absolute rotation cap of the contact recycling, same value as Box3D uses.
+      ContactRecycleAbsoluteRotationCosineSquared=0.99240388;
+
       MaxSATSupportVertices=64;
       MaxSATContacts=64;
 
@@ -365,7 +369,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      PKraftPositionCorrectionMode=^TKraftPositionCorrectionMode;
 
      TKraftSolverMode=(ksmSequentialImpulse,                          // Classic sequential-impulse solver, one velocity+position solve per step (default)
-                       ksmTGSSoft);                                   // Substepping soft-step (TGS-soft) solver, opt-in
+                       ksmTGSSoft);                                   // Box3D-style substepping soft-step (TGS-soft) solver, opt-in
      PKraftSolverMode=^TKraftSolverMode;
 
      // How joints are solved when the TGS-soft solver runs. In the adapter mode the classic sequential-impulse
@@ -407,7 +411,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
                         kcfWasColliding,  // Set when two objects stop colliding
                         kcfInIsland,      // For internal marking during island forming
                         kcfFiltered,      // For internal filering
-                        kcfTimeOfImpact); // For internal marking during time of impact stuff
+                        kcfTimeOfImpact,  // For internal marking during time of impact stuff
+                        kcfRecycleCacheValid); // Set when the contact recycling cache of the contact pair holds valid data
      PKraftContactFlag=^TKraftContactFlag;
 
      TKraftContactFlags=set of TKraftContactFlag;
@@ -480,7 +485,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
                           krbfLockRotationAxisZ,
                           krbfSensor,
                           krbfIslandVisited,
-                          krbfIslandStatic);
+                          krbfIslandStatic,
+                          krbfContactRecycling); // Contact pairs are only recycled when both involved rigid bodies have this flag set (default on)
      PKraftRigidBodyFlag=^TKraftRigidBodyFlag;
 
      TKraftRigidBodyFlags=set of TKraftRigidBodyFlag;
@@ -2838,6 +2844,11 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        Flags:TKraftContactFlags;
        TimeOfImpactCount:TKraftInt32;
        TimeOfImpact:TKraftScalar;
+       // Contact recycling cache: the relative body pose (body B in the local frame of body A) and the
+       // absolute world orientations of both bodies at the time of the last real narrow phase run.
+       RecycleRelativePosition:TKraftVector3;
+       RecycleRelativeOrientation:TKraftQuaternion;
+       RecycleWorldOrientations:array[0..1] of TKraftQuaternion;
        procedure GetSolverContactManifold(out SolverContactManifold:TKraftSolverContactManifold;const WorldTransformA,WorldTransformB:TKraftMatrix4x4;const ContactManifoldMode:TKraftContactPairContactManifoldMode);
        procedure DetectCollisions(const ContactManager:TKraftContactManager;const TriangleShape:TKraftShape=nil;const ThreadIndex:TKraftInt32=0;const SpeculativeContacts:boolean=true;const DeltaTime:double=0.0);
      end;
@@ -2963,6 +2974,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fCountActiveContactPairs:TKraftInt32;
        fCountRemainActiveContactPairsToDo:TKraftInt32;
 
+       fRecycledContactPairCounts:array[0..MAX_THREADS-1] of TKraftInt32;
+       fCountRecycledContactPairs:TKraftInt32;
+
        fConvexConvexContactPairHashTable:TKraftContactPairHashTable;
 
        fConvexMeshTriangleContactPairHashTable:TKraftContactPairHashTable;
@@ -3035,6 +3049,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property MeshContactPairLastFree:TKraftMeshContactPair read fMeshContactPairLastFree;
 
        property CountMeshContactPairs:TKraftInt32 read fCountMeshContactPairs;
+
+       // How many contact pairs skipped the narrow phase through contact recycling in the last DoNarrowPhase run
+       property CountRecycledContactPairs:TKraftInt32 read fCountRecycledContactPairs;
 
       published
 
@@ -5336,6 +5353,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fContactBreakingThreshold:TKraftScalar;
 
+       fContactRecycleDistance:TKraftScalar;
+
+       fContactRecycleAbsoluteRotationCap:boolean;
+
        fCountThreads:TKraftInt32;
 
 {$ifndef KraftPasMP}
@@ -5641,6 +5662,16 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property AngularVelocityRK4Integration:boolean read fAngularVelocityRK4Integration write fAngularVelocityRK4Integration;
 
        property ContactBreakingThreshold:TKraftScalar read fContactBreakingThreshold write fContactBreakingThreshold;
+
+       // Contact pairs whose relative body pose stayed within this distance since their last real narrow phase
+       // run skip the narrow phase and keep their manifold (zero or negative switches contact recycling off)
+       property ContactRecycleDistance:TKraftScalar read fContactRecycleDistance write fContactRecycleDistance;
+
+       // Optional additional recycling cap which also requires that neither body has rotated more than about
+       // ten degrees in the world since the cache was taken, like Box3D does it. KRAFT reprojects the shape
+       // local contact points into the world every frame, so the manifold validity depends only on the
+       // relative pose of the pair and this cap is off by default, but it stays available as a safety knob.
+       property ContactRecycleAbsoluteRotationCap:boolean read fContactRecycleAbsoluteRotationCap write fContactRecycleAbsoluteRotationCap;
 
        property DebugDrawLine:TKraftDebugDrawLine read fDebugDrawLine write fDebugDrawLine;
 
@@ -40524,9 +40555,91 @@ var Index,SubIndex:TKraftInt32;
     Contact,BestOldContact,OldContact:PKraftContact;
     BestContactDistance,ContactDistance:TKraftScalar;
     OldManifoldContacts:array[0..MAX_CONTACTS-1] of TKraftContact;
+    Physics:TKraft;
+    InverseOrientationA,CurrentRelativeOrientation,DeltaOrientation:TKraftQuaternion;
+    CurrentRelativePosition:TKraftVector3;
+    PositionDrift,RotationDrift,MaxAngularMotionDisc:TKraftScalar;
 begin
 
  Flags:=Flags+[kcfEnabled];
+
+ Physics:=ContactManager.fPhysics;
+
+ // Contact recycling, inspired by the contact recycling optimization in Box3D.
+ // When the relative pose of the two bodies has stayed close enough to the pose the manifold was built at,
+ // the whole narrow phase run is skipped and the manifold of the last step is kept as it is. A conservative
+ // advancement style bound over the relative translation plus the relative rotation times the angular motion
+ // disc limits how far any cached contact point can have drifted. Unlike Box3D no separation update is needed
+ // here, since KRAFT stores shape local contact points and reprojects them into the world at solver time
+ // anyway, which is also the reason why the absolute rotation cap of Box3D is not needed and just optionally
+ // available as paranoia knob, see the ContactRecycleAbsoluteRotationCap property at TKraft.
+ if (Physics.fContactRecycleDistance>0.0) and
+    SpeculativeContacts and
+    (kcfRecycleCacheValid in Flags) and
+    (Manifold.CountContacts>0) and
+    (Manifold.ContactManifoldType<>kcmtSpeculative) and
+    assigned(RigidBodies[0]) and
+    assigned(RigidBodies[1]) and
+    (krbfContactRecycling in RigidBodies[0].fFlags) and
+    (krbfContactRecycling in RigidBodies[1].fFlags) and
+    not ((krbfSensor in RigidBodies[0].fFlags) or (krbfSensor in RigidBodies[1].fFlags) or
+         (ksfSensor in Shapes[0].fFlags) or (ksfSensor in Shapes[1].fFlags)) and
+    (ksfCollision in Shapes[0].fFlags) and
+    (ksfCollision in Shapes[1].fFlags) and
+    (Shapes[0].fShapeType<>kstSignedDistanceField) and
+    (Shapes[1].fShapeType<>kstSignedDistanceField) then begin
+
+  InverseOrientationA:=QuaternionConjugate(RigidBodies[0].fSweep.q);
+  CurrentRelativeOrientation:=QuaternionMul(InverseOrientationA,RigidBodies[1].fSweep.q);
+  CurrentRelativePosition:=Vector3TermQuaternionRotate(Vector3Sub(RigidBodies[1].fSweep.c,RigidBodies[0].fSweep.c),InverseOrientationA);
+
+  // Static bodies do not move, so only the angular motion discs of the non-static bodies can let contact
+  // points drift under relative rotation. This also keeps huge static shapes like planes and meshes with
+  // their huge angular motion discs from blocking the recycling entirely.
+  MaxAngularMotionDisc:=0.0;
+  if (RigidBodies[0].fRigidBodyType<>krbtStatic) and (MaxAngularMotionDisc<Shapes[0].fAngularMotionDisc) then begin
+   MaxAngularMotionDisc:=Shapes[0].fAngularMotionDisc;
+  end;
+  if (RigidBodies[1].fRigidBodyType<>krbtStatic) and (MaxAngularMotionDisc<Shapes[1].fAngularMotionDisc) then begin
+   MaxAngularMotionDisc:=Shapes[1].fAngularMotionDisc;
+  end;
+
+  PositionDrift:=Vector3Dist(CurrentRelativePosition,RecycleRelativePosition);
+  DeltaOrientation:=QuaternionMul(QuaternionConjugate(RecycleRelativeOrientation),CurrentRelativeOrientation);
+  // 2*|xyz of DeltaOrientation| is 2*|sin(theta/2)|, which is about theta for the small angles which can
+  // still pass the distance bound below
+  RotationDrift:=2.0*sqrt(sqr(DeltaOrientation.x)+sqr(DeltaOrientation.y)+sqr(DeltaOrientation.z))*MaxAngularMotionDisc;
+
+  if (PositionDrift+RotationDrift)<Physics.fContactRecycleDistance then begin
+
+   if (not Physics.fContactRecycleAbsoluteRotationCap) or
+      (Min(sqr((RecycleWorldOrientations[0].x*RigidBodies[0].fSweep.q.x)+(RecycleWorldOrientations[0].y*RigidBodies[0].fSweep.q.y)+(RecycleWorldOrientations[0].z*RigidBodies[0].fSweep.q.z)+(RecycleWorldOrientations[0].w*RigidBodies[0].fSweep.q.w)),
+           sqr((RecycleWorldOrientations[1].x*RigidBodies[1].fSweep.q.x)+(RecycleWorldOrientations[1].y*RigidBodies[1].fSweep.q.y)+(RecycleWorldOrientations[1].z*RigidBodies[1].fSweep.q.z)+(RecycleWorldOrientations[1].w*RigidBodies[1].fSweep.q.w)))>ContactRecycleAbsoluteRotationCosineSquared) then begin
+
+    // The recycled manifold counts as one more step of persistence for the warm start bookkeeping
+    for Index:=0 to Manifold.CountContacts-1 do begin
+     Contact:=@Manifold.Contacts[Index];
+     Contact^.WarmStartState:=Max(Contact^.WarmStartState,Contact^.WarmStartState+1);
+    end;
+
+    // Keep the contact event state machine running exactly as if the narrow phase had reported contact
+    if kcfColliding in Flags then begin
+     if not (kcfWasColliding in Flags) then begin
+      Include(Flags,kcfWasColliding);
+     end;
+    end else begin
+     Include(Flags,kcfColliding);
+    end;
+
+    inc(ContactManager.fRecycledContactPairCounts[ThreadIndex]);
+
+    exit;
+
+   end;
+
+  end;
+
+ end;
 
  OldManifoldCountContacts:=Manifold.CountContacts;
  OldContactManifoldType:=Manifold.ContactManifoldType;
@@ -40732,6 +40845,16 @@ begin
    Exclude(Flags,kcfWasColliding);
   end;
 
+ end;
+
+ // Cache the relative body pose this narrow phase result was built at for the contact recycling gate
+ if assigned(RigidBodies[0]) and assigned(RigidBodies[1]) then begin
+  InverseOrientationA:=QuaternionConjugate(RigidBodies[0].fSweep.q);
+  RecycleRelativeOrientation:=QuaternionMul(InverseOrientationA,RigidBodies[1].fSweep.q);
+  RecycleRelativePosition:=Vector3TermQuaternionRotate(Vector3Sub(RigidBodies[1].fSweep.c,RigidBodies[0].fSweep.c),InverseOrientationA);
+  RecycleWorldOrientations[0]:=RigidBodies[0].fSweep.q;
+  RecycleWorldOrientations[1]:=RigidBodies[1].fSweep.q;
+  Include(Flags,kcfRecycleCacheValid);
  end;
 
 {if ShapeB.fShapeType=kstPlane then begin
@@ -41878,6 +42001,10 @@ begin
   end;
  end;
 
+ for ActiveContactPairIndex:=0 to MAX_THREADS-1 do begin
+  fRecycledContactPairCounts[ActiveContactPairIndex]:=0;
+ end;
+
  fCountActiveContactPairs:=0;
 
  ContactPair:=fContactPairFirst;
@@ -42002,6 +42129,12 @@ begin
   for ActiveContactPairIndex:=0 to fCountActiveContactPairs-1 do begin
    ProcessContactPair(fActiveContactPairs[ActiveContactPairIndex],0);
   end;
+ end;
+
+ // Sum the per-thread contact recycling counters of this narrow phase run
+ fCountRecycledContactPairs:=0;
+ for ActiveContactPairIndex:=0 to MAX_THREADS-1 do begin
+  inc(fCountRecycledContactPairs,fRecycledContactPairCounts[ActiveContactPairIndex]);
  end;
 
  // Arbitrate the per-triangle contacts of each mesh contact pair, after all narrow phase results exist,
@@ -43017,7 +43150,7 @@ begin
 
  fShapeCount:=0;
 
- fFlags:=[krbfContinuous,krbfAllowSleep,krbfAwake,krbfActive];
+ fFlags:=[krbfContinuous,krbfAllowSleep,krbfAwake,krbfActive,krbfContactRecycling];
 
  fWorldDisplacement:=Vector3Origin;
 
@@ -58249,6 +58382,10 @@ begin
  fAngularVelocityRK4Integration:=false;
 
  fContactBreakingThreshold:=0.02;
+
+ fContactRecycleDistance:=10.0*fLinearSlop;
+
+ fContactRecycleAbsoluteRotationCap:=false;
 
  fDebugDrawLine:=nil;
 
