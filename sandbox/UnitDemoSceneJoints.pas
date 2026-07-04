@@ -15,6 +15,8 @@ type { TDemoSceneJoints }
        PistonSliderJoint:TKraftConstraintJointSlider;
        TestRigWheelJoint:TKraftConstraintJointWheel;
        SimulationTime:double;
+       OldSolverMode:TKraftSolverMode;
+       OldTGSJointMode:TKraftTGSJointMode;
        constructor Create(const AKraftPhysics:TKraft); override;
        destructor Destroy; override;
        procedure Step(const DeltaTime:double); override;
@@ -65,11 +67,20 @@ var StationX:TKraftScalar;
     UprightBoxBody:TKraftRigidBody;
     PlatformBody:TKraftRigidBody;
     WheelBody:TKraftRigidBody;
+    EllipsePendulumBody:TKraftRigidBody;
+    PosedArmBody:TKraftRigidBody;
     ShapeBox:TKraftShapeBox;
     ShapeCapsule:TKraftShapeCapsule;
     MotorJoint:TKraftConstraintJointMotor;
+    SixDOFJoint:TKraftConstraintJoint6DOF;
 begin
  inherited Create(AKraftPhysics);
+
+ OldSolverMode:=KraftPhysics.SolverMode;
+ OldTGSJointMode:=KraftPhysics.TGSJointMode;
+
+ KraftPhysics.SolverMode:=ksmTGSSoft;
+ KraftPhysics.TGSJointMode:=ktjmNativeSoft;
 
  RigidBodyFloor:=TKraftRigidBody.Create(KraftPhysics);
  RigidBodyFloor.SetRigidBodyType(krbtSTATIC);
@@ -198,10 +209,40 @@ begin
  TestRigWheelJoint.LowerSteeringLimit:=-0.8;
  TestRigWheelJoint.UpperSteeringLimit:=0.8;
 
+ // Station 13: 6-DOF joint. Left, a hanging bar circling inside an elliptical swing cone: the swing reference
+ // axis aims the frame x axis at world x, so the bar can lean far along world z (rotation about frame x,
+ // half angle 1.1) but only a little along world x (rotation about frame y, half angle 0.25), which traces a
+ // visibly elliptical path. Right, a bar held in a tilted pose against gravity purely by the slerp drive
+ // spring, the powered-ragdoll building block.
+ StationX:=39.0;
+ AnchorBody:=CreateBoxBody(krbtSTATIC,Vector3(0.2,0.2,0.2),Vector3(StationX-1.2,5.0,0.0));
+ EllipsePendulumBody:=CreateBoxBody(krbtDYNAMIC,Vector3(0.15,1.0,0.15),Vector3(StationX-1.2,3.7,0.0));
+ SixDOFJoint:=TKraftConstraintJoint6DOF.Create(KraftPhysics,AnchorBody,EllipsePendulumBody,Vector3(StationX-1.2,5.0,0.0),Vector3(0.0,1.0,0.0),Vector3(1.0,0.0,0.0));
+ SixDOFJoint.SwingMode:=k6damLimited;
+ SixDOFJoint.ConeHalfAngleX:=1.1;
+ SixDOFJoint.ConeHalfAngleY:=0.25;
+ SixDOFJoint.TwistMode:=k6damLocked;
+ // Start with a diagonal push so the bar keeps circling along the elliptical cone boundary for a while
+ EllipsePendulumBody.AngularVelocity:=Vector3(3.0,0.0,1.5);
+
+ AnchorBody:=CreateBoxBody(krbtSTATIC,Vector3(0.2,0.2,0.2),Vector3(StationX+1.2,5.0,0.0));
+ PosedArmBody:=CreateBoxBody(krbtDYNAMIC,Vector3(0.15,1.0,0.15),Vector3(StationX+1.2,3.7,0.0));
+ SixDOFJoint:=TKraftConstraintJoint6DOF.Create(KraftPhysics,AnchorBody,PosedArmBody,Vector3(StationX+1.2,5.0,0.0),Vector3(0.0,1.0,0.0),Vector3(1.0,0.0,0.0));
+ SixDOFJoint.SwingMode:=k6damFree;
+ SixDOFJoint.TwistMode:=k6damFree;
+ SixDOFJoint.EnableSlerpDrive:=true;
+ SixDOFJoint.SlerpDriveFrequencyHz:=4.0;
+ SixDOFJoint.SlerpDriveDampingRatio:=0.7;
+ SixDOFJoint.MaximalSlerpDriveTorque:=200.0;
+ // Target pose: 45 degrees swung about the frame x axis (world x), held there against gravity
+ SixDOFJoint.SlerpDriveTarget:=QuaternionFromAxisAngle(Vector3(1.0,0.0,0.0),0.25*pi);
+
 end;
 
 destructor TDemoSceneJoints.Destroy;
 begin
+ KraftPhysics.SolverMode:=OldSolverMode;
+ KraftPhysics.TGSJointMode:=OldTGSJointMode;
  inherited Destroy;
 end;
 

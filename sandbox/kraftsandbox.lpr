@@ -44,6 +44,7 @@ uses
   UnitDemoSceneSignedDistanceField in 'UnitDemoSceneSignedDistanceField.pas',
   UnitDemoSceneJoints in 'UnitDemoSceneJoints.pas',
   UnitDemoSceneRagdoll in 'UnitDemoSceneRagdoll.pas',
+  UnitDemoSceneRagdoll6DOF in 'UnitDemoSceneRagdoll6DOF.pas',
   UnitDemoSceneConstraintVehicle in 'UnitDemoSceneConstraintVehicle.pas',
   UnitDemoSceneRaycastArcadeVehicle in 'UnitDemoSceneRaycastArcadeVehicle.pas',
   UnitDemoSceneRaycastVehicle;
