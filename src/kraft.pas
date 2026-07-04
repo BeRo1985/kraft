@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-07-04-17-43-0000                       *
+ *                        Version 2026-07-04-18-05-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -41277,10 +41277,13 @@ begin
  ContactPair^.Flags:=[kcfEnabled];
 
  ContactPair^.Friction:=sqrt(aShapeA.fFriction*aShapeB.fFriction);
- // Rolling resistance mix: max of the two coefficients scaled by the larger contact
- // radius (using the shapes' angular-motion disc as the radius analogue).
+ // Rolling resistance mix: max of the two coefficients scaled by the smaller contact
+ // radius (using the shapes' angular-motion disc as the radius analogue). The rolling lever belongs to the
+ // smaller (the rolling) body: against a huge static shape (the internal plane hull spans kilometers) the
+ // larger disc would scale the resistance into a near infinite brake that freezes any touching body
+ // rotationally in place.
  if (aShapeA.fRollingResistance>0.0) or (aShapeB.fRollingResistance>0.0) then begin
-  ContactPair^.RollingResistance:=Max(aShapeA.fRollingResistance,aShapeB.fRollingResistance)*Max(aShapeA.fAngularMotionDisc,aShapeB.fAngularMotionDisc);
+  ContactPair^.RollingResistance:=Max(aShapeA.fRollingResistance,aShapeB.fRollingResistance)*Min(aShapeA.fAngularMotionDisc,aShapeB.fAngularMotionDisc);
  end else begin
   ContactPair^.RollingResistance:=0.0;
  end;
