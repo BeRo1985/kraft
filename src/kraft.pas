@@ -374,7 +374,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      // been migrated to the native path is warm-started and solved per substep with soft-step bias and an
      // useBias/relax split; joints that are not migrated yet automatically fall back to the adapter, so the mode
      // can be switched at runtime and both paths stay usable side by side.
-     TKraftTGSJointMode=(ktjmAdapter,                                 // Reuse the classic joint methods as an adapter (default, the trusted path)
+     TKraftTGSJointMode=(ktjmAdapter,                                 // Reuse the classic joint methods as an adapter, prepared once per step (default, the trusted path)
+                         ktjmAdapterSubstep,                          // Classic joint methods as a full mini step per substep (fresh prepare + warm start with the substep time step)
                          ktjmNativeSoft);                             // Native soft-step joints, with per-joint adapter fallback
      PKraftTGSJointMode=^TKraftTGSJointMode;
 
@@ -385,6 +386,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      // the world runs natively soft.
      TKraftConstraintTGSJointMode=(kctjmInherit,                      // Follow the world's TGSJointMode (default)
                                    kctjmAdapter,                      // Force this joint onto the adapter path
+                                   kctjmAdapterSubstep,               // Force this joint onto the adapter-mini-step-per-substep path
                                    kctjmNativeSoft);                  // Force this joint onto the native soft-step path
      PKraftConstraintTGSJointMode=^TKraftConstraintTGSJointMode;
 
@@ -3578,6 +3580,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        // Resolves whether this joint runs on the native soft-step path this step: its per-joint override if set,
        // otherwise the world's TGSJointMode. Only consulted by the TGS-soft solver.
        function UsesNativeTGSSoftPath:boolean;
+       function UsesAdapterSubstepPath:boolean;
 
        function GetAnchorA:TKraftVector3; virtual;
        function GetAnchorB:TKraftVector3; virtual;
@@ -3845,7 +3848,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fLowerTwistAngle:TKraftScalar;
        fUpperTwistAngle:TKraftScalar;
        fLocalTwistAxis:TKraftVector3;              // twist axis in body A local space
-       fReferenceOrientation:TKraftQuaternion;     // neutral relative orientation qB*conj(qA), snapshotted at setup
+       fLimitReferenceOrientations:array[0..1] of TKraftQuaternion; // conjugated setup orientations, together they make the setup-time relative pose the body-local neutral
+       fReferenceTwistAxis:TKraftVector3;          // twist axis in setup-time world space, the frame the limit deviation is decomposed in
        fSwingAxis:TKraftVector3;                   // world swing axis, filled in InitializeConstraintsAndWarmStart
        fWorldTwistAxis:TKraftVector3;              // world twist axis
        fSwingMass:TKraftScalar;
@@ -3855,6 +3859,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fAccumulatedConeImpulse:TKraftScalar;
        fAccumulatedLowerTwistImpulse:TKraftScalar;
        fAccumulatedUpperTwistImpulse:TKraftScalar;
+       fIsConeLimitViolated:boolean;               // classic-path limit states with slop hysteresis
+       fIsLowerTwistLimitViolated:boolean;
+       fIsUpperTwistLimitViolated:boolean;
        // Native TGS-soft point-to-point softness (only touched by the native soft-step path).
        fSoftBiasRate:TKraftScalar;
        fSoftMassScale:TKraftScalar;
@@ -3965,6 +3972,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fSoftBiasRate:TKraftScalar;
        fSoftMassScale:TKraftScalar;
        fSoftImpulseScale:TKraftScalar;
+       fLastHingeAngle:TKraftScalar;               // continuous (unwrapped) angle memory for the limit handling
        function ComputeCurrentHingeAngle(const OrientationA,OrientationB:TKraftQuaternion):TKraftScalar;
       public
        constructor Create(const aPhysics:TKraft;
@@ -5658,6 +5666,7 @@ procedure Matrix3x3SetRow(var m:TKraftMatrix3x3;const r:TKraftInt32;{$ifdef USE_
 function Matrix3x3GetRow({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix3x3;const r:TKraftInt32):TKraftVector3; {$ifdef caninline}inline;{$endif}
 function Matrix3x3Compare({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m1,m2:TKraftMatrix3x3):boolean; {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function Matrix3x3Inverse(var mr:TKraftMatrix3x3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} ma:TKraftMatrix3x3):boolean; {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
+function Matrix3x3InverseRobust(var mr:TKraftMatrix3x3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} ma:TKraftMatrix3x3):boolean;
 function Matrix3x3TermInverse({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix3x3):TKraftMatrix3x3; {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 procedure Matrix3x3OrthoNormalize(var m:TKraftMatrix3x3); {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function Matrix3x3Slerp({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} a,b:TKraftMatrix3x3;const x:TKraftScalar):TKraftMatrix3x3; {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
@@ -8853,6 +8862,68 @@ begin
   result:=true;
  end;
 end;
+
+{$push}{$optimization off}
+function Matrix3x3InverseRobust(var mr:TKraftMatrix3x3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} ma:TKraftMatrix3x3):boolean;
+var Index,OtherIndex:TKraftInt32;
+    Scale,InverseScale,Determinant,InverseDeterminant:TKraftScalar;
+    Scaled:TKraftMatrix3x3;
+begin
+ // Factor the magnitude out before inverting, so that uniformly tiny but well-conditioned matrices (like the
+ // body inertia tensors of small bodies, whose determinants underflow the absolute epsilon of the plain
+ // inverse) still invert cleanly instead of falling back to identity. The inversion is written out inline
+ // here on purpose, without calling the other matrix helpers.
+ Scale:=0.0;
+ for Index:=0 to 2 do begin
+  for OtherIndex:=0 to 2 do begin
+   Scale:=Max(Scale,abs(ma[Index,OtherIndex]));
+  end;
+ end;
+ if Scale>0.0 then begin
+  InverseScale:=1.0/Scale;
+  for Index:=0 to 2 do begin
+   for OtherIndex:=0 to 2 do begin
+    Scaled[Index,OtherIndex]:=ma[Index,OtherIndex]*InverseScale;
+   end;
+{$ifdef SIMD}
+   Scaled[Index,3]:=0.0;
+{$endif}
+  end;
+  Determinant:=((Scaled[0,0]*((Scaled[1,1]*Scaled[2,2])-(Scaled[2,1]*Scaled[1,2])))-
+                (Scaled[0,1]*((Scaled[1,0]*Scaled[2,2])-(Scaled[2,0]*Scaled[1,2]))))+
+                (Scaled[0,2]*((Scaled[1,0]*Scaled[2,1])-(Scaled[2,0]*Scaled[1,1])));
+  if abs(Determinant)>1e-10 then begin
+   // inv(ma) = inv(Scaled)/Scale, folded into the adjugate scaling below.
+   InverseDeterminant:=InverseScale/Determinant;
+   mr[0,0]:=((Scaled[1,1]*Scaled[2,2])-(Scaled[2,1]*Scaled[1,2]))*InverseDeterminant;
+   mr[0,1]:=((Scaled[0,2]*Scaled[2,1])-(Scaled[0,1]*Scaled[2,2]))*InverseDeterminant;
+   mr[0,2]:=((Scaled[0,1]*Scaled[1,2])-(Scaled[0,2]*Scaled[1,1]))*InverseDeterminant;
+{$ifdef SIMD}
+   mr[0,3]:=0.0;
+{$endif}
+   mr[1,0]:=((Scaled[1,2]*Scaled[2,0])-(Scaled[1,0]*Scaled[2,2]))*InverseDeterminant;
+   mr[1,1]:=((Scaled[0,0]*Scaled[2,2])-(Scaled[0,2]*Scaled[2,0]))*InverseDeterminant;
+   mr[1,2]:=((Scaled[1,0]*Scaled[0,2])-(Scaled[0,0]*Scaled[1,2]))*InverseDeterminant;
+{$ifdef SIMD}
+   mr[1,3]:=0.0;
+{$endif}
+   mr[2,0]:=((Scaled[1,0]*Scaled[2,1])-(Scaled[2,0]*Scaled[1,1]))*InverseDeterminant;
+   mr[2,1]:=((Scaled[2,0]*Scaled[0,1])-(Scaled[0,0]*Scaled[2,1]))*InverseDeterminant;
+   mr[2,2]:=((Scaled[0,0]*Scaled[1,1])-(Scaled[1,0]*Scaled[0,1]))*InverseDeterminant;
+{$ifdef SIMD}
+   mr[2,3]:=0.0;
+{$endif}
+   result:=true;
+  end else begin
+   mr:=Matrix3x3Identity;
+   result:=false;
+  end;
+ end else begin
+  mr:=Matrix3x3Identity;
+  result:=false;
+ end;
+end;
+{$pop}
 
 function Matrix3x3TermInverse({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} m:TKraftMatrix3x3):TKraftMatrix3x3;
 var Determinant:TKraftScalar;
@@ -38922,6 +38993,10 @@ var OldManifoldCountContacts:TKraftInt32;
  end;
  procedure CollideCapsuleWithConvexHull(ShapeA:TKraftShapeCapsule;ShapeB:TKraftShapeConvexHull);
  const Tolerance=0.005;
+       // A lying capsule always wobbles a fraction of a degree while settling, so the two-point face contact
+       // must survive a few degrees of tilt (the per-point distance check still culls a really lifted end);
+       // with the tight generic tolerance it collapses to a single end contact and tips between its ends forever.
+       ParallelFaceTolerance=0.05;
  var FaceIndex,VertexIndex,OtherVertexIndex,PointIndex,MaxFaceIndex,MaxEdgeIndex,EdgeIndex:TKraftInt32;
      CapsuleRadius,Distance,MaxFaceSeparation,MaxEdgeSeparation,Separation,L:TKraftScalar;
      CapsulePosition,CapsuleAxis,CapsulePointStart,CapsulePointEnd,Normal,FaceNormal,{MaxFaceSeparateAxis,}
@@ -38982,7 +39057,7 @@ var OldManifoldCountContacts:TKraftInt32;
      Face:=@ShapeB.fConvexHull.fFaces[FaceIndex];
      FaceNormal:=Vector3Norm(Vector3TermMatrixMulBasis(Face^.Plane.Normal,ShapeB.fWorldTransform));
      if (Vector3Dot(FaceNormal,Normal)>0.0) and
-        (Vector3Length(Vector3Cross(FaceNormal,Normal))<(sqrt(Vector3LengthSquared(FaceNormal)*Vector3LengthSquared(Normal))*Tolerance)) then begin
+        (Vector3Length(Vector3Cross(FaceNormal,Normal))<(sqrt(Vector3LengthSquared(FaceNormal)*Vector3LengthSquared(Normal))*ParallelFaceTolerance)) then begin
       CapsulePosition:=Vector3TermMatrixMulInverted(Vector3TermMatrixMul(ShapeA.fLocalCentroid,ShapeA.fWorldTransform),ShapeB.fWorldTransform);
       CapsuleAxis:=Vector3Norm(Vector3TermMatrixMulTransposedBasis(Vector3(ShapeA.fWorldTransform[1,0],ShapeA.fWorldTransform[1,1],ShapeA.fWorldTransform[1,2]),ShapeB.fWorldTransform));
       ClosestPoints[0]:=Vector3Sub(CapsulePosition,Vector3ScalarMul(CapsuleAxis,ShapeA.fHeight*0.5));
@@ -43568,6 +43643,17 @@ procedure TKraftRigidBody.Finish;
 
     if fForcedMass>EPSILON then begin
      Matrix3x3ScalarMul(fBodyInertiaTensor,fForcedMass/fMass);
+{    // Written out inline instead of going through Matrix3x3ScalarMul, since that call proved fragile
+     // against a code generator bug right in this body setup path (see Matrix3x3InverseRobust).
+     fBodyInertiaTensor[0,0]:=fBodyInertiaTensor[0,0]*(fForcedMass/fMass);
+     fBodyInertiaTensor[0,1]:=fBodyInertiaTensor[0,1]*(fForcedMass/fMass);
+     fBodyInertiaTensor[0,2]:=fBodyInertiaTensor[0,2]*(fForcedMass/fMass);
+     fBodyInertiaTensor[1,0]:=fBodyInertiaTensor[1,0]*(fForcedMass/fMass);
+     fBodyInertiaTensor[1,1]:=fBodyInertiaTensor[1,1]*(fForcedMass/fMass);
+     fBodyInertiaTensor[1,2]:=fBodyInertiaTensor[1,2]*(fForcedMass/fMass);
+     fBodyInertiaTensor[2,0]:=fBodyInertiaTensor[2,0]*(fForcedMass/fMass);
+     fBodyInertiaTensor[2,1]:=fBodyInertiaTensor[2,1]*(fForcedMass/fMass);
+     fBodyInertiaTensor[2,2]:=fBodyInertiaTensor[2,2]*(fForcedMass/fMass);}
      fMass:=fForcedMass;
     end;
 
@@ -43595,7 +43681,7 @@ procedure TKraftRigidBody.Finish;
     fLinearFactor.w:=0.0;
 {$endif}
 
-    Matrix3x3Inverse(fBodyInverseInertiaTensor,fBodyInertiaTensor);
+    Matrix3x3InverseRobust(fBodyInverseInertiaTensor,fBodyInertiaTensor);
 
     if (fFlags*[krbfLockRotationAxisX,
                 krbfLockRotationAxisY,
@@ -43619,7 +43705,7 @@ procedure TKraftRigidBody.Finish;
       fBodyInverseInertiaTensor[2,2]:=0.0;
      end;
 
-     Matrix3x3Inverse(fBodyInertiaTensor,fBodyInverseInertiaTensor);
+     Matrix3x3InverseRobust(fBodyInertiaTensor,fBodyInverseInertiaTensor);
 
     end;
 
@@ -44451,8 +44537,8 @@ end;
 function TKraftConstraint.UsesNativeTGSSoftPath:boolean;
 begin
  case fTGSJointModeOverride of
-  kctjmAdapter:begin
-   // Forced onto the adapter path, regardless of the world setting.
+  kctjmAdapter,kctjmAdapterSubstep:begin
+   // Forced onto one of the adapter paths, regardless of the world setting.
    result:=false;
   end;
   kctjmNativeSoft:begin
@@ -44462,6 +44548,21 @@ begin
   else begin
    // kctjmInherit: follow the world's global TGS joint mode.
    result:=fPhysics.fTGSJointMode=ktjmNativeSoft;
+  end;
+ end;
+end;
+
+function TKraftConstraint.UsesAdapterSubstepPath:boolean;
+begin
+ case fTGSJointModeOverride of
+  kctjmAdapterSubstep:begin
+   result:=true;
+  end;
+  kctjmAdapter,kctjmNativeSoft:begin
+   result:=false;
+  end;
+  else begin
+   result:=fPhysics.fTGSJointMode=ktjmAdapterSubstep;
   end;
  end;
 end;
@@ -46965,10 +47066,15 @@ begin
  fLowerTwistAngle:=0.0;
  fUpperTwistAngle:=0.0;
  fLocalTwistAxis:=Vector3(0.0,1.0,0.0);
- fReferenceOrientation:=QuaternionIdentity;
+ fLimitReferenceOrientations[0]:=QuaternionIdentity;
+ fLimitReferenceOrientations[1]:=QuaternionIdentity;
+ fReferenceTwistAxis:=Vector3(0.0,1.0,0.0);
  fAccumulatedConeImpulse:=0.0;
  fAccumulatedLowerTwistImpulse:=0.0;
  fAccumulatedUpperTwistImpulse:=0.0;
+ fIsConeLimitViolated:=false;
+ fIsLowerTwistLimitViolated:=false;
+ fIsUpperTwistLimitViolated:=false;
 
  if ACollideConnected then begin
   Include(fFlags,kcfCollideConnected);
@@ -46998,10 +47104,15 @@ begin
  fLowerTwistAngle:=0.0;
  fUpperTwistAngle:=0.0;
  fLocalTwistAxis:=Vector3(0.0,1.0,0.0);
- fReferenceOrientation:=QuaternionIdentity;
+ fLimitReferenceOrientations[0]:=QuaternionIdentity;
+ fLimitReferenceOrientations[1]:=QuaternionIdentity;
+ fReferenceTwistAxis:=Vector3(0.0,1.0,0.0);
  fAccumulatedConeImpulse:=0.0;
  fAccumulatedLowerTwistImpulse:=0.0;
  fAccumulatedUpperTwistImpulse:=0.0;
+ fIsConeLimitViolated:=false;
+ fIsLowerTwistLimitViolated:=false;
+ fIsUpperTwistLimitViolated:=false;
 
  if ACollideConnected then begin
   Include(fFlags,kcfCollideConnected);
@@ -47044,9 +47155,15 @@ begin
   end;
  end;
 
- // Snapshot the neutral pose as the INVERSE of the current relative orientation qB*inv(qA), matching the
- // convention of the Fixed joint. In Init the current deviation is then current*fReferenceOrientation.
- fReferenceOrientation:=QuaternionInverse(QuaternionTermNormalize(QuaternionMul(fRigidBodies[1].fSweep.q,QuaternionInverse(fRigidBodies[0].fSweep.q))));
+ // Snapshot per-body references so the current relative pose becomes the body-local neutral. Composed per
+ // body instead of as one world-relative snapshot, since the latter misreads a rigid co-rotation of both
+ // bodies as swing/twist as soon as the setup orientations differ.
+ fLimitReferenceOrientations[0]:=QuaternionTermNormalize(QuaternionInverse(fRigidBodies[0].fSweep.q));
+ fLimitReferenceOrientations[1]:=QuaternionTermNormalize(QuaternionInverse(fRigidBodies[1].fSweep.q));
+
+ // The deviation quaternion built from these references lives in the setup-time frame, so the decomposition
+ // axis is the twist axis in setup-time world space, held constant.
+ fReferenceTwistAxis:=Vector3Norm(Vector3TermQuaternionRotate(fLocalTwistAxis,fRigidBodies[0].fSweep.q));
 
 end;
 
@@ -47056,9 +47173,10 @@ var cA,vA,wA,cB,vB,wB:PKraftVector3;
     InverseMassOfBodies,BiasFactor:TKraftScalar;
     SkewSymmetricMatrices:array[0..1] of TKraftMatrix3x3;
     MassMatrix:TKraftMatrix3x3;
-    CurrentOrientationDifference,qDelta,TwistQ,SwingQ:TKraftQuaternion;
+    DeltaRotationA,DeltaRotationB,qDelta,TwistQ,SwingQ:TKraftQuaternion;
     TwistDot,SwingLength,SwingAngle,ConeMass,TwistMass:TKraftScalar;
-    TwistAxisWorld,ConeP,TwistP:TKraftVector3;
+    ConeP,TwistP:TKraftVector3;
+    OldLimitStateFlag:boolean;
 begin
 
  fIslandIndices[0]:=fRigidBodies[0].fIslandIndices[Island.fIslandIndex];
@@ -47155,9 +47273,11 @@ begin
  // scalar effective masses and warm start. Skipped entirely when neither limit is enabled.
  if fEnableConeLimit or fEnableTwistLimit then begin
 
-  // Current relative orientation and its deviation from the neutral snapshot.
-  CurrentOrientationDifference:=QuaternionTermNormalize(QuaternionMul(qB^,QuaternionInverse(qA^)));
-  qDelta:=QuaternionMul(CurrentOrientationDifference,fReferenceOrientation);
+  // Deviation from the neutral pose, composed from the per-body references so that a rigid co-rotation of
+  // both bodies yields exactly zero deviation. The result lives in the setup-time frame.
+  DeltaRotationA:=QuaternionTermNormalize(QuaternionMul(qA^,fLimitReferenceOrientations[0]));
+  DeltaRotationB:=QuaternionTermNormalize(QuaternionMul(qB^,fLimitReferenceOrientations[1]));
+  qDelta:=QuaternionMul(QuaternionConjugate(DeltaRotationA),DeltaRotationB);
 
   // Take the shortest arc so the angles stay in a sensible range.
   if qDelta.w<0.0 then begin
@@ -47167,17 +47287,23 @@ begin
    qDelta.w:=-qDelta.w;
   end;
 
-  // Twist axis: fLocalTwistAxis lives in body A local space, rotate it into world.
-  TwistAxisWorld:=Vector3Norm(Vector3TermQuaternionRotate(fLocalTwistAxis,qA^));
-  fWorldTwistAxis:=TwistAxisWorld;
+  // The world twist axis for the jacobian rows is the setup axis carried along by body A.
+  fWorldTwistAxis:=Vector3Norm(Vector3TermQuaternionRotate(fReferenceTwistAxis,DeltaRotationA));
 
-  // Split qDelta into a twist around TwistAxisWorld and the remaining swing.
-  TwistDot:=(qDelta.x*TwistAxisWorld.x)+(qDelta.y*TwistAxisWorld.y)+(qDelta.z*TwistAxisWorld.z);
-  TwistQ.x:=TwistDot*TwistAxisWorld.x;
-  TwistQ.y:=TwistDot*TwistAxisWorld.y;
-  TwistQ.z:=TwistDot*TwistAxisWorld.z;
+  // Split qDelta into a twist around the setup-time twist axis (the frame qDelta lives in) and the remaining swing.
+  TwistDot:=(qDelta.x*fReferenceTwistAxis.x)+(qDelta.y*fReferenceTwistAxis.y)+(qDelta.z*fReferenceTwistAxis.z);
+  TwistQ.x:=TwistDot*fReferenceTwistAxis.x;
+  TwistQ.y:=TwistDot*fReferenceTwistAxis.y;
+  TwistQ.z:=TwistDot*fReferenceTwistAxis.z;
   TwistQ.w:=qDelta.w;
-  TwistQ:=QuaternionTermNormalize(TwistQ);
+  if (sqr(TwistDot)+sqr(qDelta.w))>EPSILON then begin
+   TwistQ:=QuaternionTermNormalize(TwistQ);
+  end else begin
+   // Degenerate at a 180 degree swing perpendicular to the twist axis: the twist is undefined there, so treat
+   // it as zero instead of normalizing a near-zero quaternion into garbage.
+   TwistQ:=QuaternionIdentity;
+   TwistDot:=0.0;
+  end;
   SwingQ:=QuaternionMul(qDelta,QuaternionConjugate(TwistQ));
 
   // Signed twist angle and swing angle/axis.
@@ -47186,7 +47312,7 @@ begin
   SwingAngle:=2.0*ArcTan2(SwingLength,SwingQ.w);
   fConeError:=SwingAngle-fConeHalfAngle;
   if SwingLength>EPSILON then begin
-   fSwingAxis:=Vector3ScalarMul(Vector3(SwingQ.x,SwingQ.y,SwingQ.z),1.0/SwingLength);
+   fSwingAxis:=Vector3Norm(Vector3TermQuaternionRotate(Vector3ScalarMul(Vector3(SwingQ.x,SwingQ.y,SwingQ.z),1.0/SwingLength),DeltaRotationA));
   end else begin
    fSwingAxis:=Vector3Origin;
   end;
@@ -47203,6 +47329,36 @@ begin
    fTwistMass:=1.0/TwistMass;
   end else begin
    fTwistMass:=0.0;
+  end;
+
+  // Limit state flags with slop hysteresis (like the hinge limits), so a joint resting on a limit does not
+  // flicker the flags (and with them the accumulated holding impulses) every step.
+  OldLimitStateFlag:=fIsConeLimitViolated;
+  if OldLimitStateFlag then begin
+   fIsConeLimitViolated:=fConeError>=(-fPhysics.fAngularSlop);
+  end else begin
+   fIsConeLimitViolated:=fConeError>=0.0;
+  end;
+  if fIsConeLimitViolated<>OldLimitStateFlag then begin
+   fAccumulatedConeImpulse:=0.0;
+  end;
+  OldLimitStateFlag:=fIsLowerTwistLimitViolated;
+  if OldLimitStateFlag then begin
+   fIsLowerTwistLimitViolated:=(fTwistError-fLowerTwistAngle)<=fPhysics.fAngularSlop;
+  end else begin
+   fIsLowerTwistLimitViolated:=(fTwistError-fLowerTwistAngle)<=0.0;
+  end;
+  if fIsLowerTwistLimitViolated<>OldLimitStateFlag then begin
+   fAccumulatedLowerTwistImpulse:=0.0;
+  end;
+  OldLimitStateFlag:=fIsUpperTwistLimitViolated;
+  if OldLimitStateFlag then begin
+   fIsUpperTwistLimitViolated:=(fTwistError-fUpperTwistAngle)>=(-fPhysics.fAngularSlop);
+  end else begin
+   fIsUpperTwistLimitViolated:=(fTwistError-fUpperTwistAngle)>=0.0;
+  end;
+  if fIsUpperTwistLimitViolated<>OldLimitStateFlag then begin
+   fAccumulatedUpperTwistImpulse:=0.0;
   end;
 
   // Warm start the limit impulses (angular only).
@@ -47256,15 +47412,15 @@ begin
  InverseDT:=TimeStep.InverseDeltaTime;
 
  // Cone limit: upper limit on the swing angle, pulls the swing back in only (accumulated impulse clamped <= 0).
- // The row always runs while the limit is enabled: inside the limit the speculative bias brakes fast approaches
- // and drains any stale accumulated impulse through the clamp, violated it recovers via Baumgarte.
- if fEnableConeLimit then begin
+ // The row runs while its hysteresis limit state is active, exactly like the hinge limit rows; under NGS the
+ // positional violation is corrected by the position pass, so the velocity row stays bias-free.
+ if fEnableConeLimit and fIsConeLimitViolated then begin
 
   CdotLimit:=Vector3Dot(Vector3Sub(wB^,wA^),fSwingAxis);
-  if fConeError>0.0 then begin
-   BiasLimit:=fConeError*(fPhysics.fConstraintBaumgarte*InverseDT);
+  if fPhysics.fConstraintPositionCorrectionMode=kpcmBaumgarte then begin
+   BiasLimit:=Min(Max(fConeError,0.0),fPhysics.fMaximalAngularCorrection)*(fPhysics.fConstraintBaumgarte*InverseDT);
   end else begin
-   BiasLimit:=fConeError*InverseDT;
+   BiasLimit:=0.0;
   end;
   LambdaLimit:=(-fSwingMass)*(CdotLimit+BiasLimit);
 
@@ -47278,43 +47434,47 @@ begin
 
  end;
 
- // Twist limits: lower/upper on the signed twist angle, both rows always run with their own accumulated
- // impulses, so stale impulses drain through the clamps and fast approaches are braked speculatively.
+ // Twist limits: lower/upper on the signed twist angle, each row gated by its own hysteresis limit state with
+ // its own accumulated impulse, mirroring the hinge limit rows.
  if fEnableTwistLimit then begin
 
-  // Lower limit: pushes toward positive twist, accumulated impulse clamped >= 0.
-  CdotLimit:=Vector3Dot(Vector3Sub(wB^,wA^),fWorldTwistAxis);
-  C:=fTwistError-fLowerTwistAngle;
-  if C<0.0 then begin
-   BiasLimit:=C*(fPhysics.fConstraintBaumgarte*InverseDT);
-  end else begin
-   BiasLimit:=C*InverseDT;
+  if fIsLowerTwistLimitViolated then begin
+   // Lower limit: pushes toward positive twist, accumulated impulse clamped >= 0.
+   CdotLimit:=Vector3Dot(Vector3Sub(wB^,wA^),fWorldTwistAxis);
+   C:=fTwistError-fLowerTwistAngle;
+   if fPhysics.fConstraintPositionCorrectionMode=kpcmBaumgarte then begin
+    BiasLimit:=Max(Min(C,0.0),-fPhysics.fMaximalAngularCorrection)*(fPhysics.fConstraintBaumgarte*InverseDT);
+   end else begin
+    BiasLimit:=0.0;
+   end;
+   LambdaLimit:=(-fTwistMass)*(CdotLimit+BiasLimit);
+   Old:=fAccumulatedLowerTwistImpulse;
+   fAccumulatedLowerTwistImpulse:=Max(Old+LambdaLimit,0.0);
+   LambdaLimit:=fAccumulatedLowerTwistImpulse-Old;
+
+   LimitP:=Vector3ScalarMul(fWorldTwistAxis,LambdaLimit);
+   Vector3DirectSub(wA^,Vector3TermMatrixMul(LimitP,fWorldInverseInertiaTensors[0]));
+   Vector3DirectAdd(wB^,Vector3TermMatrixMul(LimitP,fWorldInverseInertiaTensors[1]));
   end;
-  LambdaLimit:=(-fTwistMass)*(CdotLimit+BiasLimit);
-  Old:=fAccumulatedLowerTwistImpulse;
-  fAccumulatedLowerTwistImpulse:=Max(Old+LambdaLimit,0.0);
-  LambdaLimit:=fAccumulatedLowerTwistImpulse-Old;
 
-  LimitP:=Vector3ScalarMul(fWorldTwistAxis,LambdaLimit);
-  Vector3DirectSub(wA^,Vector3TermMatrixMul(LimitP,fWorldInverseInertiaTensors[0]));
-  Vector3DirectAdd(wB^,Vector3TermMatrixMul(LimitP,fWorldInverseInertiaTensors[1]));
+  if fIsUpperTwistLimitViolated then begin
+   // Upper limit: pushes toward negative twist, accumulated impulse clamped <= 0.
+   CdotLimit:=Vector3Dot(Vector3Sub(wB^,wA^),fWorldTwistAxis);
+   C:=fTwistError-fUpperTwistAngle;
+   if fPhysics.fConstraintPositionCorrectionMode=kpcmBaumgarte then begin
+    BiasLimit:=Min(Max(C,0.0),fPhysics.fMaximalAngularCorrection)*(fPhysics.fConstraintBaumgarte*InverseDT);
+   end else begin
+    BiasLimit:=0.0;
+   end;
+   LambdaLimit:=(-fTwistMass)*(CdotLimit+BiasLimit);
+   Old:=fAccumulatedUpperTwistImpulse;
+   fAccumulatedUpperTwistImpulse:=Min(Old+LambdaLimit,0.0);
+   LambdaLimit:=fAccumulatedUpperTwistImpulse-Old;
 
-  // Upper limit: pushes toward negative twist, accumulated impulse clamped <= 0.
-  CdotLimit:=Vector3Dot(Vector3Sub(wB^,wA^),fWorldTwistAxis);
-  C:=fTwistError-fUpperTwistAngle;
-  if C>0.0 then begin
-   BiasLimit:=C*(fPhysics.fConstraintBaumgarte*InverseDT);
-  end else begin
-   BiasLimit:=C*InverseDT;
+   LimitP:=Vector3ScalarMul(fWorldTwistAxis,LambdaLimit);
+   Vector3DirectSub(wA^,Vector3TermMatrixMul(LimitP,fWorldInverseInertiaTensors[0]));
+   Vector3DirectAdd(wB^,Vector3TermMatrixMul(LimitP,fWorldInverseInertiaTensors[1]));
   end;
-  LambdaLimit:=(-fTwistMass)*(CdotLimit+BiasLimit);
-  Old:=fAccumulatedUpperTwistImpulse;
-  fAccumulatedUpperTwistImpulse:=Min(Old+LambdaLimit,0.0);
-  LambdaLimit:=fAccumulatedUpperTwistImpulse-Old;
-
-  LimitP:=Vector3ScalarMul(fWorldTwistAxis,LambdaLimit);
-  Vector3DirectSub(wA^,Vector3TermMatrixMul(LimitP,fWorldInverseInertiaTensors[0]));
-  Vector3DirectAdd(wB^,Vector3TermMatrixMul(LimitP,fWorldInverseInertiaTensors[1]));
 
  end;
 
@@ -47323,10 +47483,11 @@ end;
 function TKraftConstraintJointBallSocket.SolvePositionConstraint(const Island:TKraftIsland;const TimeStep:TKraftTimeStep):boolean;
 var cA,cB:PKraftVector3;
     qA,qB:PKraftQuaternion;
-    rA,rB,TranslationError,Impulse:TKraftVector3;
-    InverseMassOfBodies:TKraftScalar;
+    rA,rB,TranslationError,Impulse,SwingAxis,WorldTwistAxis,LimitP:TKraftVector3;
+    InverseMassOfBodies,TwistDot,SwingLength,SwingAngle,ConeError,TwistError,C,InverseLimitMass,LimitLambda:TKraftScalar;
     SkewSymmetricMatrices:array[0..1] of TKraftMatrix3x3;
     MassMatrix:TKraftMatrix3x3;
+    DeltaRotationA,DeltaRotationB,qDelta,TwistQ,SwingQ:TKraftQuaternion;
 begin
 
  if fPhysics.fConstraintPositionCorrectionMode=kpcmNonLinearGaussSeidel then begin
@@ -47373,6 +47534,12 @@ begin
 
   TranslationError:=Vector3Sub(Vector3Add(cB^,rB),Vector3Add(cA^,rA));
 
+  // Clamp the positional correction, so deep errors get resolved over several steps instead of teleporting
+  // light bodies into their contacts.
+  if Vector3Length(TranslationError)>fPhysics.fMaximalLinearCorrection then begin
+   TranslationError:=Vector3ScalarMul(TranslationError,fPhysics.fMaximalLinearCorrection/Vector3Length(TranslationError));
+  end;
+
   Impulse:=Vector3TermMatrixMul(Vector3Neg(TranslationError),fInverseMassMatrix);
 
  // writeln('BallPos ',Vector3Length(fAccumulatedImpulse):1:8,' ',TranslationError.x:1:8,' ',TranslationError.y:1:8,' ',TranslationError.z:1:8);
@@ -47384,6 +47551,77 @@ begin
   QuaternionDirectSpin(qB^,Vector3TermMatrixMul(Vector3Cross(rB,Impulse),fWorldInverseInertiaTensors[1]),1.0);
 
   result:=Vector3Length(TranslationError)<fPhysics.fLinearSlop;
+
+  // Cone/twist limit position correction (opt-in, one-sided): under NGS the velocity rows run bias-free and
+  // the positional violation is resolved here, mirroring the hinge limit handling.
+  if fEnableConeLimit or fEnableTwistLimit then begin
+
+   DeltaRotationA:=QuaternionTermNormalize(QuaternionMul(qA^,fLimitReferenceOrientations[0]));
+   DeltaRotationB:=QuaternionTermNormalize(QuaternionMul(qB^,fLimitReferenceOrientations[1]));
+   qDelta:=QuaternionMul(QuaternionConjugate(DeltaRotationA),DeltaRotationB);
+   if qDelta.w<0.0 then begin
+    qDelta.x:=-qDelta.x;
+    qDelta.y:=-qDelta.y;
+    qDelta.z:=-qDelta.z;
+    qDelta.w:=-qDelta.w;
+   end;
+
+   TwistDot:=(qDelta.x*fReferenceTwistAxis.x)+(qDelta.y*fReferenceTwistAxis.y)+(qDelta.z*fReferenceTwistAxis.z);
+   TwistQ.x:=TwistDot*fReferenceTwistAxis.x;
+   TwistQ.y:=TwistDot*fReferenceTwistAxis.y;
+   TwistQ.z:=TwistDot*fReferenceTwistAxis.z;
+   TwistQ.w:=qDelta.w;
+   if (sqr(TwistDot)+sqr(qDelta.w))>EPSILON then begin
+    TwistQ:=QuaternionTermNormalize(TwistQ);
+   end else begin
+    // Degenerate at a 180 degree swing perpendicular to the twist axis: the twist is undefined there, so treat
+    // it as zero instead of normalizing a near-zero quaternion into garbage.
+    TwistQ:=QuaternionIdentity;
+    TwistDot:=0.0;
+   end;
+   SwingQ:=QuaternionMul(qDelta,QuaternionConjugate(TwistQ));
+
+   TwistError:=2.0*ArcTan2(TwistDot,qDelta.w);
+   SwingLength:=sqrt(sqr(SwingQ.x)+sqr(SwingQ.y)+sqr(SwingQ.z));
+   SwingAngle:=2.0*ArcTan2(SwingLength,SwingQ.w);
+   ConeError:=SwingAngle-fConeHalfAngle;
+
+   if fEnableConeLimit and (ConeError>0.0) and (SwingLength>EPSILON) then begin
+    SwingAxis:=Vector3Norm(Vector3TermQuaternionRotate(Vector3ScalarMul(Vector3(SwingQ.x,SwingQ.y,SwingQ.z),1.0/SwingLength),DeltaRotationA));
+    InverseLimitMass:=Vector3Dot(SwingAxis,Vector3Add(Vector3TermMatrixMul(SwingAxis,fWorldInverseInertiaTensors[0]),Vector3TermMatrixMul(SwingAxis,fWorldInverseInertiaTensors[1])));
+    if InverseLimitMass>0.0 then begin
+     LimitLambda:=-(Min(ConeError,fPhysics.fMaximalAngularCorrection)/InverseLimitMass);
+     LimitP:=Vector3ScalarMul(SwingAxis,LimitLambda);
+     QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3Neg(LimitP),fWorldInverseInertiaTensors[0]),1.0);
+     QuaternionDirectSpin(qB^,Vector3TermMatrixMul(LimitP,fWorldInverseInertiaTensors[1]),1.0);
+    end;
+    result:=result and (ConeError<fPhysics.fAngularSlop);
+   end;
+
+   if fEnableTwistLimit then begin
+    WorldTwistAxis:=Vector3Norm(Vector3TermQuaternionRotate(fReferenceTwistAxis,DeltaRotationA));
+    InverseLimitMass:=Vector3Dot(WorldTwistAxis,Vector3Add(Vector3TermMatrixMul(WorldTwistAxis,fWorldInverseInertiaTensors[0]),Vector3TermMatrixMul(WorldTwistAxis,fWorldInverseInertiaTensors[1])));
+    if InverseLimitMass>0.0 then begin
+     C:=TwistError-fLowerTwistAngle;
+     if C<0.0 then begin
+      LimitLambda:=-(Max(C,-fPhysics.fMaximalAngularCorrection)/InverseLimitMass);
+      LimitP:=Vector3ScalarMul(WorldTwistAxis,LimitLambda);
+      QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3Neg(LimitP),fWorldInverseInertiaTensors[0]),1.0);
+      QuaternionDirectSpin(qB^,Vector3TermMatrixMul(LimitP,fWorldInverseInertiaTensors[1]),1.0);
+      result:=result and ((-C)<fPhysics.fAngularSlop);
+     end;
+     C:=TwistError-fUpperTwistAngle;
+     if C>0.0 then begin
+      LimitLambda:=-(Min(C,fPhysics.fMaximalAngularCorrection)/InverseLimitMass);
+      LimitP:=Vector3ScalarMul(WorldTwistAxis,LimitLambda);
+      QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3Neg(LimitP),fWorldInverseInertiaTensors[0]),1.0);
+      QuaternionDirectSpin(qB^,Vector3TermMatrixMul(LimitP,fWorldInverseInertiaTensors[1]),1.0);
+      result:=result and (C<fPhysics.fAngularSlop);
+     end;
+    end;
+   end;
+
+  end;
 
  end else begin
 
@@ -47401,9 +47639,9 @@ end;
 
 procedure TKraftConstraintJointBallSocket.PrepareSubStep(const Island:TKraftIsland;const TimeStep:TKraftTimeStep);
 var qA,qB:TKraftQuaternion;
-    rA,rB,TwistAxisWorld:TKraftVector3;
+    rA,rB:TKraftVector3;
     h,Hertz,Omega,A1,A2,A3,ConeMass,TwistMass,TwistDot,SwingLength:TKraftScalar;
-    CurrentOrientationDifference,qDelta,TwistQ,SwingQ:TKraftQuaternion;
+    DeltaRotationA,DeltaRotationB,qDelta,TwistQ,SwingQ:TKraftQuaternion;
 begin
 
  // Bind the joint to its two bodies' solver slots, exactly like the classic prepare does.
@@ -47470,8 +47708,9 @@ begin
  // per substep, which the solve does). Skipped entirely when neither limit is enabled.
  if fEnableConeLimit or fEnableTwistLimit then begin
 
-  CurrentOrientationDifference:=QuaternionTermNormalize(QuaternionMul(qB,QuaternionInverse(qA)));
-  qDelta:=QuaternionMul(CurrentOrientationDifference,fReferenceOrientation);
+  DeltaRotationA:=QuaternionTermNormalize(QuaternionMul(qA,fLimitReferenceOrientations[0]));
+  DeltaRotationB:=QuaternionTermNormalize(QuaternionMul(qB,fLimitReferenceOrientations[1]));
+  qDelta:=QuaternionMul(QuaternionConjugate(DeltaRotationA),DeltaRotationB);
   if qDelta.w<0.0 then begin
    qDelta.x:=-qDelta.x;
    qDelta.y:=-qDelta.y;
@@ -47479,22 +47718,29 @@ begin
    qDelta.w:=-qDelta.w;
   end;
 
-  // Twist axis: fLocalTwistAxis lives in body A local space, rotate it into world.
-  TwistAxisWorld:=Vector3Norm(Vector3TermQuaternionRotate(fLocalTwistAxis,qA));
-  fWorldTwistAxis:=TwistAxisWorld;
+  // The world twist axis for the jacobian rows is the setup axis carried along by body A.
+  fWorldTwistAxis:=Vector3Norm(Vector3TermQuaternionRotate(fReferenceTwistAxis,DeltaRotationA));
 
-  // Split qDelta into a twist around TwistAxisWorld and the remaining swing, for the swing axis.
-  TwistDot:=(qDelta.x*TwistAxisWorld.x)+(qDelta.y*TwistAxisWorld.y)+(qDelta.z*TwistAxisWorld.z);
-  TwistQ.x:=TwistDot*TwistAxisWorld.x;
-  TwistQ.y:=TwistDot*TwistAxisWorld.y;
-  TwistQ.z:=TwistDot*TwistAxisWorld.z;
+  // Split qDelta into a twist around the setup-time twist axis (the frame qDelta lives in) and the remaining
+  // swing, for the swing axis.
+  TwistDot:=(qDelta.x*fReferenceTwistAxis.x)+(qDelta.y*fReferenceTwistAxis.y)+(qDelta.z*fReferenceTwistAxis.z);
+  TwistQ.x:=TwistDot*fReferenceTwistAxis.x;
+  TwistQ.y:=TwistDot*fReferenceTwistAxis.y;
+  TwistQ.z:=TwistDot*fReferenceTwistAxis.z;
   TwistQ.w:=qDelta.w;
-  TwistQ:=QuaternionTermNormalize(TwistQ);
+  if (sqr(TwistDot)+sqr(qDelta.w))>EPSILON then begin
+   TwistQ:=QuaternionTermNormalize(TwistQ);
+  end else begin
+   // Degenerate at a 180 degree swing perpendicular to the twist axis: the twist is undefined there, so treat
+   // it as zero instead of normalizing a near-zero quaternion into garbage.
+   TwistQ:=QuaternionIdentity;
+   TwistDot:=0.0;
+  end;
   SwingQ:=QuaternionMul(qDelta,QuaternionConjugate(TwistQ));
 
   SwingLength:=sqrt(sqr(SwingQ.x)+sqr(SwingQ.y)+sqr(SwingQ.z));
   if SwingLength>EPSILON then begin
-   fSwingAxis:=Vector3ScalarMul(Vector3(SwingQ.x,SwingQ.y,SwingQ.z),1.0/SwingLength);
+   fSwingAxis:=Vector3Norm(Vector3TermQuaternionRotate(Vector3ScalarMul(Vector3(SwingQ.x,SwingQ.y,SwingQ.z),1.0/SwingLength),DeltaRotationA));
   end else begin
    fSwingAxis:=Vector3Origin;
   end;
@@ -47572,7 +47818,7 @@ procedure TKraftConstraintJointBallSocket.SolveVelocitySubStep(const Island:TKra
 var cA,cB,vA,wA,vB,wB:PKraftVector3;
     qA,qB:TKraftQuaternion;
     rA,rB,cdot,separation,bias,x,Impulse,LimitP:TKraftVector3;
-    CurrentOrientationDifference,qDelta,TwistQ,SwingQ:TKraftQuaternion;
+    DeltaRotationA,DeltaRotationB,qDelta,TwistQ,SwingQ:TKraftQuaternion;
     SkewSymmetricMatrices:array[0..1] of TKraftMatrix3x3;
     MassMatrix:TKraftMatrix3x3;
     InverseMassOfBodies,MassScale,ImpulseScale,InverseSubDT,TwistDot,SwingLength,SwingAngle,CdotLimit,C,LambdaLimit,Old:TKraftScalar;
@@ -47657,8 +47903,9 @@ begin
 
   InverseSubDT:=TimeStep.InverseSubStepDeltaTime;
 
-  CurrentOrientationDifference:=QuaternionTermNormalize(QuaternionMul(qB,QuaternionInverse(qA)));
-  qDelta:=QuaternionMul(CurrentOrientationDifference,fReferenceOrientation);
+  DeltaRotationA:=QuaternionTermNormalize(QuaternionMul(qA,fLimitReferenceOrientations[0]));
+  DeltaRotationB:=QuaternionTermNormalize(QuaternionMul(qB,fLimitReferenceOrientations[1]));
+  qDelta:=QuaternionMul(QuaternionConjugate(DeltaRotationA),DeltaRotationB);
   if qDelta.w<0.0 then begin
    qDelta.x:=-qDelta.x;
    qDelta.y:=-qDelta.y;
@@ -47666,13 +47913,21 @@ begin
    qDelta.w:=-qDelta.w;
   end;
 
-  // Twist angle around the cached world twist axis, and the swing angle from the remaining rotation.
-  TwistDot:=(qDelta.x*fWorldTwistAxis.x)+(qDelta.y*fWorldTwistAxis.y)+(qDelta.z*fWorldTwistAxis.z);
-  TwistQ.x:=TwistDot*fWorldTwistAxis.x;
-  TwistQ.y:=TwistDot*fWorldTwistAxis.y;
-  TwistQ.z:=TwistDot*fWorldTwistAxis.z;
+  // Twist angle around the setup-time twist axis (the frame qDelta lives in), and the swing angle from the
+  // remaining rotation. The jacobian rows below keep using the cached world axes from the substep prepare.
+  TwistDot:=(qDelta.x*fReferenceTwistAxis.x)+(qDelta.y*fReferenceTwistAxis.y)+(qDelta.z*fReferenceTwistAxis.z);
+  TwistQ.x:=TwistDot*fReferenceTwistAxis.x;
+  TwistQ.y:=TwistDot*fReferenceTwistAxis.y;
+  TwistQ.z:=TwistDot*fReferenceTwistAxis.z;
   TwistQ.w:=qDelta.w;
-  TwistQ:=QuaternionTermNormalize(TwistQ);
+  if (sqr(TwistDot)+sqr(qDelta.w))>EPSILON then begin
+   TwistQ:=QuaternionTermNormalize(TwistQ);
+  end else begin
+   // Degenerate at a 180 degree swing perpendicular to the twist axis: the twist is undefined there, so treat
+   // it as zero instead of normalizing a near-zero quaternion into garbage.
+   TwistQ:=QuaternionIdentity;
+   TwistDot:=0.0;
+  end;
   SwingQ:=QuaternionMul(qDelta,QuaternionConjugate(TwistQ));
 
   fTwistError:=2.0*ArcTan2(TwistDot,qDelta.w);
@@ -47687,7 +47942,7 @@ begin
    CdotLimit:=Vector3Dot(Vector3Sub(wB^,wA^),fSwingAxis);
    if fConeError>0.0 then begin
     if aUseBias then begin
-     LambdaLimit:=((-fSwingMass)*fSoftMassScale*(CdotLimit+(fConeError*fSoftBiasRate)))-(fSoftImpulseScale*fAccumulatedConeImpulse);
+     LambdaLimit:=((-fSwingMass)*fSoftMassScale*(CdotLimit+(Min(fConeError,fPhysics.fMaximalAngularCorrection)*fSoftBiasRate)))-(fSoftImpulseScale*fAccumulatedConeImpulse);
     end else begin
      LambdaLimit:=(-fSwingMass)*CdotLimit;
     end;
@@ -47711,7 +47966,7 @@ begin
    C:=fTwistError-fLowerTwistAngle;
    if C<0.0 then begin
     if aUseBias then begin
-     LambdaLimit:=((-fTwistMass)*fSoftMassScale*(CdotLimit+(C*fSoftBiasRate)))-(fSoftImpulseScale*fAccumulatedLowerTwistImpulse);
+     LambdaLimit:=((-fTwistMass)*fSoftMassScale*(CdotLimit+(Max(C,-fPhysics.fMaximalAngularCorrection)*fSoftBiasRate)))-(fSoftImpulseScale*fAccumulatedLowerTwistImpulse);
     end else begin
      LambdaLimit:=(-fTwistMass)*CdotLimit;
     end;
@@ -47730,7 +47985,7 @@ begin
    C:=fTwistError-fUpperTwistAngle;
    if C>0.0 then begin
     if aUseBias then begin
-     LambdaLimit:=((-fTwistMass)*fSoftMassScale*(CdotLimit+(C*fSoftBiasRate)))-(fSoftImpulseScale*fAccumulatedUpperTwistImpulse);
+     LambdaLimit:=((-fTwistMass)*fSoftMassScale*(CdotLimit+(Min(C,fPhysics.fMaximalAngularCorrection)*fSoftBiasRate)))-(fSoftImpulseScale*fAccumulatedUpperTwistImpulse);
     end else begin
      LambdaLimit:=(-fTwistMass)*CdotLimit;
     end;
@@ -48011,6 +48266,12 @@ begin
   TranslationError:=Vector3Sub(Vector3Add(cB^,rB),Vector3Add(cA^,rA));
 
   result:=Vector3Length(TranslationError)<fPhysics.fLinearSlop;
+
+  // Clamp the positional correction, so deep errors get resolved over several steps instead of teleporting
+  // light bodies into their contacts.
+  if Vector3Length(TranslationError)>fPhysics.fMaximalLinearCorrection then begin
+   TranslationError:=Vector3ScalarMul(TranslationError,fPhysics.fMaximalLinearCorrection/Vector3Length(TranslationError));
+  end;
 
   Impulse:=Vector3TermMatrixMul(Vector3Neg(TranslationError),fInverseMassMatrixTranslation);
 
@@ -48397,18 +48658,14 @@ begin
  // Convert the angle from range [-2*pi; 2*pi] into the range [-pi; pi]
  result:=ComputeNormalizedAngle(result);
 
- // Compute and return the corresponding angle near one the two limits
- if fLowerLimit<fUpperLimit then begin
-  if result>fUpperLimit then begin
-   if abs(ComputeNormalizedAngle(result-fUpperLimit))>abs(ComputeNormalizedAngle(result-fLowerLimit)) then begin
-    result:=result-pi2;
-   end;
-  end else if result<fLowerLimit then begin
-   if abs(ComputeNormalizedAngle(fUpperLimit-result))<=abs(ComputeNormalizedAngle(fLowerLimit-result)) then begin
-    result:=result+pi2;
-   end;
-  end;
+ // With limits the angle is tracked as a CONTINUOUS quantity across calls: a fast spinning hinge otherwise
+ // wraps past the half circle, the nearest-limit interpretation flips from the upper to the lower limit (or
+ // vice versa), the limit torque reverses its direction and accelerates the spin instead of braking it, up
+ // to a full runaway. The unwrapped angle stays bounded here, since the limits themselves catch it.
+ if fLimitState then begin
+  result:=fLastHingeAngle+ComputeNormalizedAngle(result-fLastHingeAngle);
  end;
+ fLastHingeAngle:=result;
 
 end;
 
@@ -48461,13 +48718,23 @@ begin
 
  LowerLimitError:=HingeAngle-fLowerLimit;
  UpperLimitError:=fUpperLimit-HingeAngle;
+ // The violated flags use an angular-slop hysteresis for leaving the violated state, so a joint resting
+ // exactly on its limit does not flicker the flag (and with it the accumulated holding impulse) every step.
  OldIsLowerLimitViolated:=fIsLowerLimitViolated;
- fIsLowerLimitViolated:=LowerLimitError<=0.0;
+ if OldIsLowerLimitViolated then begin
+  fIsLowerLimitViolated:=LowerLimitError<=fPhysics.fAngularSlop;
+ end else begin
+  fIsLowerLimitViolated:=LowerLimitError<=0.0;
+ end;
  if fIsLowerLimitViolated<>OldIsLowerLimitViolated then begin
   fAccumulatedImpulseLowerLimit:=0.0;
  end;
  OldIsUpperLimitViolated:=fIsUpperLimitViolated;
- fIsUpperLimitViolated:=UpperLimitError<=0.0;
+ if OldIsUpperLimitViolated then begin
+  fIsUpperLimitViolated:=UpperLimitError<=fPhysics.fAngularSlop;
+ end else begin
+  fIsUpperLimitViolated:=UpperLimitError<=0.0;
+ end;
  if fIsUpperLimitViolated<>OldIsUpperLimitViolated then begin
   fAccumulatedImpulseUpperLimit:=0.0;
  end;
@@ -48687,6 +48954,7 @@ var cA,cB:PKraftVector3;
     rA,rB,TranslationError,Impulse,a2,b2,c2,I1B2CrossA1,I1C2CrossA1,I2B2CrossA1,I2C2CrossA1:TKraftVector3;
     RotationError,RotationImpulse:TKraftVector2;
     InverseMassOfBodies,HingeAngle,LowerLimitError,UpperLimitError,ImpulseLower,ImpulseUpper:TKraftScalar;
+    IsLowerLimitViolatedNow,IsUpperLimitViolatedNow:boolean;
     SkewSymmetricMatrices:array[0..1] of TKraftMatrix3x3;
     MassMatrix:TKraftMatrix3x3;
     RotationKMatrix:TKraftMatrix2x2;
@@ -48707,8 +48975,10 @@ begin
 
   LowerLimitError:=HingeAngle-fLowerLimit;
   UpperLimitError:=fUpperLimit-HingeAngle;
-  fIsLowerLimitViolated:=LowerLimitError<=0.0;
-  fIsUpperLimitViolated:=UpperLimitError<=0.0;
+  // Local violation states only: overwriting the persistent flags here would bypass the hysteresis of the
+  // velocity-constraint initialization and flicker the accumulated holding impulses away again.
+  IsLowerLimitViolatedNow:=LowerLimitError<=0.0;
+  IsUpperLimitViolatedNow:=UpperLimitError<=0.0;
 
   fA1:=Vector3NormEx(Vector3TermQuaternionRotate(fLocalAxes[0],qA^));
   a2:=Vector3NormEx(Vector3TermQuaternionRotate(fLocalAxes[1],qB^));
@@ -48754,6 +49024,12 @@ begin
 
   result:=Vector3Length(TranslationError)<fPhysics.fLinearSlop;
 
+  // Clamp the positional correction, so deep errors get resolved over several steps instead of teleporting
+  // light bodies into their contacts.
+  if Vector3Length(TranslationError)>fPhysics.fMaximalLinearCorrection then begin
+   TranslationError:=Vector3ScalarMul(TranslationError,fPhysics.fMaximalLinearCorrection/Vector3Length(TranslationError));
+  end;
+
   Impulse:=Vector3TermMatrixMul(Vector3Neg(TranslationError),fInverseMassMatrixTranslation);
 
   Vector3DirectSub(cA^,Vector3Mul(Impulse,Vector3ScalarMul(fSolverLinearFactors[0]^,fInverseMasses[0])));
@@ -48783,6 +49059,11 @@ begin
 
   result:=result and (Vector2Length(RotationError)<fPhysics.fAngularSlop);
 
+  // Clamp the rotational correction like the translational one above.
+  if Vector2Length(RotationError)>fPhysics.fMaximalAngularCorrection then begin
+   RotationError:=Vector2ScalarMul(RotationError,fPhysics.fMaximalAngularCorrection/Vector2Length(RotationError));
+  end;
+
   RotationImpulse.x:=-((RotationError.x*fInverseMassMatrixRotation[0,0])+(RotationError.y*fInverseMassMatrixRotation[0,1]));
   RotationImpulse.y:=-((RotationError.x*fInverseMassMatrixRotation[1,0])+(RotationError.y*fInverseMassMatrixRotation[1,1]));
 
@@ -48795,7 +49076,7 @@ begin
   (**** Limits ****)
 
   if fLimitState then begin
-   if fIsLowerLimitViolated or fIsUpperLimitViolated then begin
+   if IsLowerLimitViolatedNow or IsUpperLimitViolatedNow then begin
     // Recompute the 1x1 limit effective mass from the fresh hinge axis, since the value from the velocity
     // constraint initialization can be stale or was never computed at all for a limit which only got
     // violated during this step.
@@ -48807,15 +49088,15 @@ begin
      fInverseMassMatrixLimitMotor:=0.0;
     end;
    end;
-   if fIsLowerLimitViolated then begin
-    ImpulseLower:=fInverseMassMatrixLimitMotor*(-LowerLimitError);
+   if IsLowerLimitViolatedNow then begin
+    ImpulseLower:=fInverseMassMatrixLimitMotor*(-Max(LowerLimitError,-fPhysics.fMaximalAngularCorrection));
     result:=result and ((-LowerLimitError)<fPhysics.fAngularSlop);
     Impulse:=Vector3ScalarMul(fA1,ImpulseLower);
     QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3Neg(Impulse),fWorldInverseInertiaTensors[0]),1.0);
     QuaternionDirectSpin(qB^,Vector3TermMatrixMul(Impulse,fWorldInverseInertiaTensors[1]),1.0);
    end;
-   if fIsUpperLimitViolated then begin
-    ImpulseUpper:=fInverseMassMatrixLimitMotor*(-UpperLimitError);
+   if IsUpperLimitViolatedNow then begin
+    ImpulseUpper:=fInverseMassMatrixLimitMotor*(-Max(UpperLimitError,-fPhysics.fMaximalAngularCorrection));
     result:=result and ((-UpperLimitError)<fPhysics.fAngularSlop);
     Impulse:=Vector3ScalarMul(fA1,-ImpulseUpper);
     QuaternionDirectSpin(qA^,Vector3TermMatrixMul(Vector3Neg(Impulse),fWorldInverseInertiaTensors[0]),1.0);
@@ -48987,6 +49268,13 @@ begin
  c2:=Vector3Cross(a2,b2);
  B2CrossA1:=Vector3Cross(b2,a1);
  C2CrossA1:=Vector3Cross(c2,a1);
+
+ // Publish the fresh axes to the fields: ComputeCurrentHingeAngle disambiguates the angle sign against fA1,
+ // and with a zero or stale axis every measured angle comes out positive, which makes the limit rows push a
+ // negative-range hinge ever deeper into its violation. The reaction-torque query reads the other two.
+ fA1:=a1;
+ fB2CrossA1:=B2CrossA1;
+ fC2CrossA1:=C2CrossA1;
 
  // Translation (point-to-point): rebuild the 3x3 effective mass from the current anchors and invert it, then solve
  // with the soft position bias on the solve pass and a pure velocity solve on the relax pass.
@@ -49416,13 +49704,23 @@ begin
 
  LowerLimitError:=uDotSliderAxis-fLowerLimit;
  UpperLimitError:=fUpperLimit-uDotSliderAxis;
+ // The violated flags use a linear-slop hysteresis for leaving the violated state, so a body resting exactly
+ // on its limit does not flicker the flag (and with it the accumulated holding impulse) every step.
  OldIsLowerLimitViolated:=fIsLowerLimitViolated;
- fIsLowerLimitViolated:=LowerLimitError<=0.0;
+ if OldIsLowerLimitViolated then begin
+  fIsLowerLimitViolated:=LowerLimitError<=fPhysics.fLinearSlop;
+ end else begin
+  fIsLowerLimitViolated:=LowerLimitError<=0.0;
+ end;
  if fIsLowerLimitViolated<>OldIsLowerLimitViolated then begin
   fAccumulatedImpulseLowerLimit:=0.0;
  end;
  OldIsUpperLimitViolated:=fIsUpperLimitViolated;
- fIsUpperLimitViolated:=UpperLimitError<=0.0;
+ if OldIsUpperLimitViolated then begin
+  fIsUpperLimitViolated:=UpperLimitError<=fPhysics.fLinearSlop;
+ end else begin
+  fIsUpperLimitViolated:=UpperLimitError<=0.0;
+ end;
  if fIsUpperLimitViolated<>OldIsUpperLimitViolated then begin
   fAccumulatedImpulseUpperLimit:=0.0;
  end;
@@ -49657,6 +49955,7 @@ var cA,cB:PKraftVector3;
     LinearImpulse,AngularImpulseA,AngularImpulseB,RotationError,RotationImpulse:TKraftVector3;
     TranslationError,TranslationImpulse:TKraftVector2;
     uDotSliderAxis,InverseMassOfBodies,LowerLimitError,UpperLimitError,ImpulseLower,ImpulseUpper:TKraftScalar;
+    IsLowerLimitViolatedNow,IsUpperLimitViolatedNow:boolean;
     TranslationKMatrix:TKraftMatrix2x2;
     CurrentOrientationDifference,qError:TKraftQuaternion;
 begin
@@ -49688,8 +49987,10 @@ begin
 
   LowerLimitError:=uDotSliderAxis-fLowerLimit;
   UpperLimitError:=fUpperLimit-uDotSliderAxis;
-  fIsLowerLimitViolated:=LowerLimitError<=0.0;
-  fIsUpperLimitViolated:=UpperLimitError<=0.0;
+  // Local violation states only: overwriting the persistent flags here would bypass the hysteresis of the
+  // velocity-constraint initialization and flicker the accumulated holding impulses away again.
+  IsLowerLimitViolatedNow:=LowerLimitError<=0.0;
+  IsUpperLimitViolatedNow:=UpperLimitError<=0.0;
 
   fR2CrossN1:=Vector3Cross(fRelativePositions[1],fN1);
   fR2CrossN2:=Vector3Cross(fRelativePositions[1],fN2);
@@ -49768,7 +50069,7 @@ begin
   (**** Limits ****)
 
   if fLimitState then begin
-   if fIsLowerLimitViolated or fIsUpperLimitViolated then begin
+   if IsLowerLimitViolatedNow or IsUpperLimitViolatedNow then begin
     fInverseMassMatrixLimit:=InverseMassOfBodies+
                             Vector3Dot(fR1PlusUCrossSliderAxis,Vector3TermMatrixMul(fR1PlusUCrossSliderAxis,fWorldInverseInertiaTensors[0]))+
                             Vector3Dot(fR2CrossSliderAxis,Vector3TermMatrixMul(fR2CrossSliderAxis,fWorldInverseInertiaTensors[1]));
@@ -49778,7 +50079,7 @@ begin
      fInverseMassMatrixLimit:=0.0;
     end;
    end;
-   if fIsLowerLimitViolated then begin
+   if IsLowerLimitViolatedNow then begin
     ImpulseLower:=fInverseMassMatrixLimit*(-LowerLimitError);
     LinearImpulse:=Vector3ScalarMul(fSliderAxisWorld,ImpulseLower);
     AngularImpulseA:=Vector3ScalarMul(fR1PlusUCrossSliderAxis,ImpulseLower);
@@ -49789,7 +50090,7 @@ begin
     Vector3DirectAdd(cB^,Vector3Mul(LinearImpulse,Vector3ScalarMul(fSolverLinearFactors[1]^,fInverseMasses[1])));
     QuaternionDirectSpin(qB^,Vector3TermMatrixMul(AngularImpulseB,fWorldInverseInertiaTensors[1]),1.0);
    end;
-   if fIsUpperLimitViolated then begin
+   if IsUpperLimitViolatedNow then begin
     ImpulseUpper:=-(fInverseMassMatrixLimit*(-UpperLimitError));
     LinearImpulse:=Vector3ScalarMul(fSliderAxisWorld,ImpulseUpper);
     AngularImpulseA:=Vector3ScalarMul(fR1PlusUCrossSliderAxis,ImpulseUpper);
@@ -54946,16 +55247,19 @@ begin
  // Joints operate on the solver velocity and position arrays (via fSolverVelocities/fSolverPositions), which the
  // substep loop keeps current. On the adapter path they reuse the classic constraint methods: prepare + warm start
  // once here, solve velocity every substep, then a position correction (NGS) pass after the substeps. On the
- // native-soft path the migrated joints instead prepare once here and are warm-started + solved per substep with
- // the useBias/relax split below; joints that are not migrated fall back to the same classic prepare via the
- // default PrepareSubStep. The path is resolved per joint (its override, else the world's TGSJointMode), so a single
- // hard joint can stay on the adapter while the rest of the world runs natively soft.
+ // native-soft path the migrated joints prepare once here and are warm-started + solved per substep with the
+ // useBias/relax split below. Adapter joints instead run their whole classic prepare + warm start + solve as a
+ // mini step per substep inside the loop (with the substep time step), then get the classic position correction
+ // (NGS) pass after the substeps. The path is resolved per joint (its override, else the world's TGSJointMode),
+ // so a single hard joint can stay on the adapter while the rest of the world runs natively soft.
  for Index:=0 to fCountConstraints-1 do begin
   Constraint:=fConstraints[Index];
   if assigned(Constraint) and not (kcfBreaked in Constraint.fFlags) then begin
    if Constraint.UsesNativeTGSSoftPath then begin
     Constraint.PrepareSubStep(self,aTimeStep);
-   end else begin
+   end else if not Constraint.UsesAdapterSubstepPath then begin
+    // Plain adapter: classic prepare + warm start once per step, the mini-step variant instead prepares
+    // freshly inside the substep loop below.
     Constraint.InitializeConstraintsAndWarmStart(self,aTimeStep);
    end;
   end;
@@ -55084,15 +55388,22 @@ begin
 
   fSolver.SolveVelocitySubStep(aTimeStep,true);
 
-  // Joint velocity solve (solve pass). Native-soft joints solve with bias; adapter joints run their single classic
-  // velocity solve (their SolveVelocitySubStep fallback ignores the bias flag).
+  // Joint velocity solve (solve pass). Native-soft joints solve with bias; adapter joints run a full classic
+  // mini step per substep: a fresh prepare and warm start with the substep time step, so their jacobians,
+  // biases and accumulated impulses all live consistently on the substep cadence, instead of mixing a
+  // once-per-step setup with per-substep solves on stale step-start data.
   for Index:=0 to fCountConstraints-1 do begin
    Constraint:=fConstraints[Index];
    if assigned(Constraint) and not (kcfBreaked in Constraint.fFlags) then begin
     if Constraint.UsesNativeTGSSoftPath then begin
      Constraint.SolveVelocitySubStep(self,aTimeStep,true);
     end else begin
-     Constraint.SolveVelocityConstraint(self,aTimeStep);
+     if Constraint.UsesAdapterSubstepPath then begin
+      Constraint.InitializeConstraintsAndWarmStart(self,SubStepTimeStep);
+      Constraint.SolveVelocityConstraint(self,SubStepTimeStep);
+     end else begin
+      Constraint.SolveVelocityConstraint(self,aTimeStep);
+     end;
     end;
    end;
   end;
@@ -55833,8 +56144,7 @@ begin
 
   fJointDampingRatio:=2.0;
 
-  // Joints default to the trusted adapter path; switch to ktjmNativeSoft to solve migrated joints natively soft.
-  fTGSJointMode:=ktjmAdapter;
+  fTGSJointMode:=ktjmNativeSoft;
 
  end;
 

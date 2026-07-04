@@ -43,6 +43,7 @@ uses
   UnitDemoSceneConvexHull in 'UnitDemoSceneConvexHull.pas',
   UnitDemoSceneSignedDistanceField in 'UnitDemoSceneSignedDistanceField.pas',
   UnitDemoSceneJoints in 'UnitDemoSceneJoints.pas',
+  UnitDemoSceneRagdoll in 'UnitDemoSceneRagdoll.pas',
   UnitDemoSceneConstraintVehicle in 'UnitDemoSceneConstraintVehicle.pas',
   UnitDemoSceneRaycastArcadeVehicle in 'UnitDemoSceneRaycastArcadeVehicle.pas',
   UnitDemoSceneRaycastVehicle;

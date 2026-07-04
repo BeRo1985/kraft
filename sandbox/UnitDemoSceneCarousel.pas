@@ -129,6 +129,8 @@ begin
   ShapeBox.Finish;
   RigidBodySeat.ForcedMass:=5.0;
   RigidBodySeat.Finish;
+  // Swinging seats settle like real suspended seats instead of wobbling endlessly on their four chains.
+  RigidBodySeat.AngularVelocityDamp:=1.0;
   m:=Matrix4x4TermMul(Matrix4x4Translate(0.0,CarouselDownBasisHeight+CarouselTopBasisHeight+0.5,CarouselTopBasisCircleRadius-1.0),Matrix4x4RotateY(v));
   RigidBodySeat.SetWorldTransformation(m);
   for EdgeIndex:=0 to 3 do begin
@@ -155,8 +157,14 @@ begin
     RigidBody[SubIndex].SetRigidBodyType(krbtDYNAMIC);
     ShapeSphere:=TKraftShapeSphere.Create(KraftPhysics,RigidBody[SubIndex],0.1);
     ShapeSphere.Restitution:=0.3;
-    ShapeSphere.Density:=1.0;
+    // Chain links heavy enough that the solver can transmit the chain tension (with near-massless links the
+    // mass ratio against the heavy disc goes into the tens of thousands and the chains stretch apart and
+    // tear), but light enough that the total chain mass does not eat the spin-up and the centrifugal swing.
+    ShapeSphere.Density:=100.0;
     RigidBody[SubIndex].Finish;
+    // A chain link has no meaningful own rotation, and with its real (tiny) sphere inertia it would spin and
+    // jitter forever, so its rotation is damped away strongly.
+    RigidBody[SubIndex].AngularVelocityDamp:=10.0;
     RigidBody[SubIndex].SetWorldTransformation(Matrix4x4Translate(Vector3Lerp(vTo,vFrom,SubIndex/CountChainSpheres)));
     RigidBody[SubIndex].CollisionGroups:=[0];
    end;
