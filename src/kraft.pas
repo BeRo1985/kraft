@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-07-04-23-50-0000                       *
+ *                        Version 2026-07-05-00-39-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -402,6 +402,17 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
                                      kiehmFeatureOwnership);          // Feature-ownership arbitration over the shared mesh contact pair
      PKraftInternalEdgeHandlingMode=^TKraftInternalEdgeHandlingMode;
 
+     // How the contacts of convex-versus-triangle-mesh pairs reach the solver, switchable at runtime. In the
+     // per-triangle mode every touching triangle keeps its own contact manifold, like always before. In the
+     // clustered mode the manifolds of coplanar-ish touching triangles are merged per surface patch into one
+     // representative manifold with up to MAX_CONTACTS points (fewer and cleaner constraints, central friction
+     // per patch instead of per triangle, ghost contacts suppressed by the feature-ownership arbitration which
+     // then always runs for mesh contact pairs), while the other triangle pairs of the patch carry no solver
+     // contacts. The clamping internal-edge handling stays usable on top of the clustered mode.
+     TKraftMeshManifoldMode=(kmmmPerTriangle,
+                             kmmmClustered);
+     PKraftMeshManifoldMode=^TKraftMeshManifoldMode;
+
      TKraftGravityMode=(kgmNORMAL,         // Normal gravity in a common direction vector
                         kgmMIDPOINT);      // A world midpoint as gravity target
      PKraftGravityMode=^TKraftGravityMode;
@@ -412,7 +423,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
                         kcfInIsland,      // For internal marking during island forming
                         kcfFiltered,      // For internal filering
                         kcfTimeOfImpact,  // For internal marking during time of impact stuff
-                        kcfRecycleCacheValid); // Set when the contact recycling cache of the contact pair holds valid data
+                        kcfRecycleCacheValid, // Set when the contact recycling cache of the contact pair holds valid data
+                        kcfMeshClusterRepresentative); // Set when the pair carries the cluster manifold of its mesh surface patch in the clustered mesh manifold mode
      PKraftContactFlag=^TKraftContactFlag;
 
      TKraftContactFlags=set of TKraftContactFlag;
@@ -2865,6 +2877,25 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      PKraftContactIndices=^TKraftContactIndices;
      TKraftContactIndices=array[0..MAX_CONTACTS-1] of TKraftInt32;
 
+     // Cluster cache entry of a mesh contact pair in the clustered mesh manifold mode: the post-solve impulse
+     // state of one cluster manifold, harvested at the begin of the narrow phase (before the per-triangle
+     // manifolds get rebuilt) and matched back onto the fresh clusters afterwards by normal and feature id.
+     PKraftMeshContactPairCluster=^TKraftMeshContactPairCluster;
+     TKraftMeshContactPairCluster=record
+      WorldNormal:TKraftVector3;
+      CentralFrictionImpulse:TKraftVector3;
+      CentralTwistImpulse:TKraftScalar;
+      CentralRollingImpulse:TKraftVector3;
+      Consumed:longbool;
+      CountContacts:TKraftInt32;
+      FeatureIDs:array[0..MAX_CONTACTS-1] of TKraftContactFeatureID;
+      NormalImpulses:array[0..MAX_CONTACTS-1] of TKraftScalar;
+      TangentImpulses:array[0..MAX_CONTACTS-1,0..1] of TKraftScalar;
+      WarmStartStates:array[0..MAX_CONTACTS-1] of TKraftUInt32;
+     end;
+
+     TKraftMeshContactPairClusters=array of TKraftMeshContactPairCluster;
+
      TKraftMeshContactPair=class
       private
 
@@ -2893,6 +2924,21 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fConvexAABBInMeshLocalSpace:TKraftAABB;
 
        fGeneration:TKraftUInt64;
+
+       fClusterCount:TKraftInt32;
+       fClusters:TKraftMeshContactPairClusters;
+
+       // Whole-mesh-pair contact recycling state of the clustered mesh manifold mode: the relative body pose
+       // the current cluster state was built at (validity tracked via kcfRecycleCacheValid in fFlags), the
+       // per-step recycling decision and the drift against the cached pose for the separated-pair checks.
+       // fClustersDirty is written as plain "true" from the parallel narrow phase threads, which is a benign
+       // race, and read only by the serial post pass.
+       fClustersRecycling:boolean;
+       fClustersDirty:boolean;
+       fClustersRecycleDrift:TKraftScalar;
+       fRecycleRelativePosition:TKraftVector3;
+       fRecycleRelativeOrientation:TKraftQuaternion;
+       fRecycleWorldOrientations:array[0..1] of TKraftQuaternion;
 
       public
 
@@ -2935,6 +2981,26 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      end;
 
      TKraftContactManagerMeshTriangleContactQueueItems=array of TKraftContactManagerMeshTriangleContactQueueItem;
+
+     // Scratch structures of the clustered mesh manifold mode (serial post pass, so shared over the manager)
+     PKraftMeshClusteringPairInfo=^TKraftMeshClusteringPairInfo;
+     TKraftMeshClusteringPairInfo=record
+      ContactPair:PKraftContactPair;
+      WorldNormal:TKraftVector3;
+      TriangleNormal:TKraftVector3;
+      ClusterIndex:TKraftInt32;
+     end;
+
+     TKraftMeshClusteringPairInfos=array of TKraftMeshClusteringPairInfo;
+
+     PKraftMeshClusteringCluster=^TKraftMeshClusteringCluster;
+     TKraftMeshClusteringCluster=record
+      WorldNormal:TKraftVector3;
+      TriangleNormal:TKraftVector3;
+      RepresentativeIndex:TKraftInt32;
+     end;
+
+     TKraftMeshClusteringClusters=array of TKraftMeshClusteringCluster;
 
      TKraftContactManager=class
       private
@@ -2989,6 +3055,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fFeatureOwnershipClaimedFeatures:TKraftMeshTriangleVerticesHashMap;
        fFeatureOwnershipContactPairs:TPKraftContactPairs;
 
+       fMeshClusteringPairInfos:TKraftMeshClusteringPairInfos;
+       fMeshClusteringClusters:TKraftMeshClusteringClusters;
+
       public
 
        constructor Create(const aPhysics:TKraft);
@@ -3025,6 +3094,12 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 {$endif}
 
        procedure ProcessMeshContactPairFeatureOwnership(const aMeshContactPair:TKraftMeshContactPair);
+
+       function TryRecycleMeshContactPairClusters(const aMeshContactPair:TKraftMeshContactPair):boolean;
+
+       procedure HarvestMeshContactPairClusters(const aMeshContactPair:TKraftMeshContactPair);
+
+       procedure ProcessMeshContactPairClustering(const aMeshContactPair:TKraftMeshContactPair);
 
        procedure DoNarrowPhase;
 
@@ -5322,6 +5397,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        // Internal/ghost-edge handling mode for triangle meshes, switchable at runtime.
        fInternalEdgeHandlingMode:TKraftInternalEdgeHandlingMode;
 
+       fMeshManifoldMode:TKraftMeshManifoldMode;
+
        // TGS begin
 
        fSolverMode:TKraftSolverMode;
@@ -5626,6 +5703,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        // Runtime switch for internal/ghost-edge handling of triangle meshes (none / normal clamping / feature ownership).
        property InternalEdgeHandlingMode:TKraftInternalEdgeHandlingMode read fInternalEdgeHandlingMode write fInternalEdgeHandlingMode;
+
+       property MeshManifoldMode:TKraftMeshManifoldMode read fMeshManifoldMode write fMeshManifoldMode;
 
        // Runtime switch between the classic sequential-impulse solver (default) and the TGS-soft substepping solver.
        property SolverMode:TKraftSolverMode read fSolverMode write fSolverMode;
@@ -40571,6 +40650,41 @@ begin
 
  Physics:=ContactManager.fPhysics;
 
+ // Whole-mesh-pair contact recycling in the clustered mesh manifold mode: the decision was already made once
+ // per mesh contact pair at the begin of the narrow phase (TryRecycleMeshContactPairClusters), so no per-pair
+ // pose math is needed here. Representative pairs keep their live cluster manifolds, raw-touching member
+ // pairs keep their empty manifolds (their contacts live in the clusters) and provably separated pairs stay
+ // separated as long as the pose drift stays below their cached surface separation; everything else falls
+ // through to a real narrow phase run (a new touch then flags the mesh contact pair as dirty below).
+ if assigned(MeshContactPair) and
+    MeshContactPair.fClustersRecycling and
+    SpeculativeContacts and
+    (kcfRecycleCacheValid in Flags) then begin
+  if (kcfMeshClusterRepresentative in Flags) or (kcfColliding in Flags) then begin
+   for Index:=0 to Manifold.CountContacts-1 do begin
+    Contact:=@Manifold.Contacts[Index];
+    Contact^.WarmStartState:=Max(Contact^.WarmStartState,Contact^.WarmStartState+1);
+   end;
+   if kcfColliding in Flags then begin
+    if not (kcfWasColliding in Flags) then begin
+     Include(Flags,kcfWasColliding);
+    end;
+   end else begin
+    Include(Flags,kcfColliding);
+   end;
+   inc(ContactManager.fRecycledContactPairCounts[ThreadIndex]);
+   exit;
+  end else if MeshContactPair.fClustersRecycleDrift<RecycleSeparation then begin
+   if kcfColliding in Flags then begin
+    Flags:=(Flags-[kcfColliding])+[kcfWasColliding];
+   end else begin
+    Exclude(Flags,kcfWasColliding);
+   end;
+   inc(ContactManager.fRecycledContactPairCounts[ThreadIndex]);
+   exit;
+  end;
+ end;
+
  // Contact recycling, inspired by the contact recycling optimization in Box3D.
  // When the relative pose of the two bodies has stayed close enough to the pose the manifold was built at,
  // the whole narrow phase run is skipped and the manifold of the last step is kept as it is. A conservative
@@ -40874,6 +40988,14 @@ begin
 
  end;
 
+ // A real narrow phase run of a triangle pair which found contacts while its mesh contact pair recycles its
+ // clusters (touch onset of a fresh or separated triangle) makes the cluster state incomplete: the new raw
+ // manifold coexists with the clusters for this step, and the dirty flag forces a full rebuild at the next
+ // step. Plain "true" writes from parallel threads are a benign race.
+ if assigned(MeshContactPair) and MeshContactPair.fClustersRecycling and (Manifold.CountContacts>0) then begin
+  MeshContactPair.fClustersDirty:=true;
+ end;
+
  // Cache the relative body pose this narrow phase result was built at for the contact recycling gate
  if assigned(RigidBodies[0]) and assigned(RigidBodies[1]) then begin
 
@@ -40958,6 +41080,12 @@ begin
  fRigidBodyMesh:=nil;
 
  fGeneration:=0;
+
+ fClusterCount:=0;
+ fClusters:=nil;
+
+ fClustersRecycling:=false;
+ fClustersDirty:=false;
 
 end;
 
@@ -41112,6 +41240,11 @@ begin
   fNext:=nil;
 
   fGeneration:=0;
+
+  fClusterCount:=0;
+
+  fClustersRecycling:=false;
+  fClustersDirty:=false;
 
  end;
 end;
@@ -41682,6 +41815,10 @@ begin
  end;
 
  if assigned(aContactPair^.MeshContactPair) then begin
+  // A removed triangle pair invalidates the whole-mesh-pair contact recycling, since its contacts may live
+  // in a cluster manifold which would otherwise be kept alive. Must happen before the unlink below, which
+  // clears the MeshContactPair reference of the contact pair.
+  aContactPair^.MeshContactPair.fFlags:=aContactPair^.MeshContactPair.fFlags-[kcfRecycleCacheValid];
   aContactPair^.MeshContactPair.RemoveContactPair(aContactPair);
  end;
 
@@ -41989,6 +42126,479 @@ begin
 
 end;
 
+function TKraftContactManager.TryRecycleMeshContactPairClusters(const aMeshContactPair:TKraftMeshContactPair):boolean;
+// Whole-mesh-pair contact recycling for the clustered mesh manifold mode: all triangle pairs of a mesh
+// contact pair share the same two bodies, so one relative pose check (the same conservative advancement
+// bound as the per-pair contact recycling) decides for the whole pair. When it passes, the harvest is
+// skipped, the representative pairs keep their live cluster manifolds with their accumulated impulses, the
+// raw-touching member pairs keep their empty manifolds (their contacts live in the clusters) and the
+// clustering pass is skipped as well; the per-triangle narrow phase runs are then skipped over the
+// fClustersRecycling flag in DetectCollisions. Returns true when the harvest should be skipped.
+var ContactPair:PKraftContactPair;
+    Physics:TKraft;
+    InverseOrientationA,CurrentRelativeOrientation,DeltaOrientation:TKraftQuaternion;
+    CurrentRelativePosition:TKraftVector3;
+    PositionDrift,RotationDrift,MaxAngularMotionDisc:TKraftScalar;
+begin
+
+ aMeshContactPair.fClustersRecycling:=false;
+ aMeshContactPair.fClustersDirty:=false;
+
+ // Sleeping pairs do not rerun the narrow phase at all, keep everything untouched for the wake up.
+ if ((aMeshContactPair.fRigidBodyConvex.fFlags*[krbfAwake,krbfActive])<>[krbfAwake,krbfActive]) and
+    ((aMeshContactPair.fRigidBodyMesh.fFlags*[krbfAwake,krbfActive])<>[krbfAwake,krbfActive]) then begin
+  result:=true;
+  exit;
+ end;
+
+ result:=false;
+
+ Physics:=fPhysics;
+
+ if (Physics.fContactRecycleDistance>0.0) and
+    (kcfRecycleCacheValid in aMeshContactPair.fFlags) and
+    (krbfContactRecycling in aMeshContactPair.fRigidBodyConvex.fFlags) and
+    (krbfContactRecycling in aMeshContactPair.fRigidBodyMesh.fFlags) and
+    not ((krbfSensor in aMeshContactPair.fRigidBodyConvex.fFlags) or (krbfSensor in aMeshContactPair.fRigidBodyMesh.fFlags) or
+         (ksfSensor in aMeshContactPair.fShapeConvex.fFlags) or (ksfSensor in aMeshContactPair.fShapeMesh.fFlags)) and
+    (ksfCollision in aMeshContactPair.fShapeConvex.fFlags) and
+    (ksfCollision in aMeshContactPair.fShapeMesh.fFlags) and
+    (aMeshContactPair.fShapeConvex.fShapeType<>kstSignedDistanceField) then begin
+
+  InverseOrientationA:=QuaternionConjugate(aMeshContactPair.fRigidBodyConvex.fSweep.q);
+  CurrentRelativeOrientation:=QuaternionMul(InverseOrientationA,aMeshContactPair.fRigidBodyMesh.fSweep.q);
+  CurrentRelativePosition:=Vector3TermQuaternionRotate(Vector3Sub(aMeshContactPair.fRigidBodyMesh.fSweep.c,aMeshContactPair.fRigidBodyConvex.fSweep.c),InverseOrientationA);
+
+  MaxAngularMotionDisc:=0.0;
+  if (aMeshContactPair.fRigidBodyConvex.fRigidBodyType<>krbtStatic) and (MaxAngularMotionDisc<aMeshContactPair.fShapeConvex.fAngularMotionDisc) then begin
+   MaxAngularMotionDisc:=aMeshContactPair.fShapeConvex.fAngularMotionDisc;
+  end;
+  if (aMeshContactPair.fRigidBodyMesh.fRigidBodyType<>krbtStatic) and (MaxAngularMotionDisc<aMeshContactPair.fShapeMesh.fAngularMotionDisc) then begin
+   MaxAngularMotionDisc:=aMeshContactPair.fShapeMesh.fAngularMotionDisc;
+  end;
+
+  PositionDrift:=Vector3Dist(CurrentRelativePosition,aMeshContactPair.fRecycleRelativePosition);
+  DeltaOrientation:=QuaternionMul(QuaternionConjugate(aMeshContactPair.fRecycleRelativeOrientation),CurrentRelativeOrientation);
+  RotationDrift:=2.0*sqrt(sqr(DeltaOrientation.x)+sqr(DeltaOrientation.y)+sqr(DeltaOrientation.z))*MaxAngularMotionDisc;
+
+  if (PositionDrift+RotationDrift)<Physics.fContactRecycleDistance then begin
+
+   if (not Physics.fContactRecycleAbsoluteRotationCap) or
+      (Min(sqr((aMeshContactPair.fRecycleWorldOrientations[0].x*aMeshContactPair.fRigidBodyConvex.fSweep.q.x)+(aMeshContactPair.fRecycleWorldOrientations[0].y*aMeshContactPair.fRigidBodyConvex.fSweep.q.y)+(aMeshContactPair.fRecycleWorldOrientations[0].z*aMeshContactPair.fRigidBodyConvex.fSweep.q.z)+(aMeshContactPair.fRecycleWorldOrientations[0].w*aMeshContactPair.fRigidBodyConvex.fSweep.q.w)),
+           sqr((aMeshContactPair.fRecycleWorldOrientations[1].x*aMeshContactPair.fRigidBodyMesh.fSweep.q.x)+(aMeshContactPair.fRecycleWorldOrientations[1].y*aMeshContactPair.fRigidBodyMesh.fSweep.q.y)+(aMeshContactPair.fRecycleWorldOrientations[1].z*aMeshContactPair.fRigidBodyMesh.fSweep.q.z)+(aMeshContactPair.fRecycleWorldOrientations[1].w*aMeshContactPair.fRigidBodyMesh.fSweep.q.w)))>ContactRecycleAbsoluteRotationCosineSquared) then begin
+
+    // Sanity walk: every marked representative pair must still carry its cluster manifold. A mode switch
+    // or a continuous collision rebuild may have overwritten one, then the whole pair rebuilds normally.
+    result:=true;
+    ContactPair:=aMeshContactPair.fFirstContactPair;
+    while assigned(ContactPair) do begin
+     if (kcfMeshClusterRepresentative in ContactPair^.Flags) and
+        ((ContactPair^.Manifold.ContactManifoldType<>kcmtImplicitNormal) or (ContactPair^.Manifold.CountContacts=0)) then begin
+      result:=false;
+      break;
+     end;
+     ContactPair:=ContactPair^.MeshContactPairNextContactPair;
+    end;
+
+    if result then begin
+     aMeshContactPair.fClustersRecycling:=true;
+     aMeshContactPair.fClustersRecycleDrift:=PositionDrift+RotationDrift;
+    end;
+
+   end;
+
+  end;
+
+ end;
+
+end;
+
+procedure TKraftContactManager.HarvestMeshContactPairClusters(const aMeshContactPair:TKraftMeshContactPair);
+// In the clustered mesh manifold mode the cluster manifolds of the representative contact pairs still hold
+// the post-solve impulse state of the last step at this point. Harvest it into the cluster cache of the mesh
+// contact pair and clear the cluster manifolds, so the narrow phase rebuilds clean per-triangle manifolds and
+// the clustering pass afterwards can restore the impulses by normal and feature id matching.
+var Count,Index,SortIndex,ContactIndex:TKraftInt32;
+    ContactPair:PKraftContactPair;
+    Cluster:PKraftMeshContactPairCluster;
+    Manifold:PKraftContactManifold;
+    MeshShape:TKraftShapeMesh;
+begin
+
+ // Sleeping pairs do not rerun the narrow phase and must keep their cluster manifolds for the wake up.
+ if ((aMeshContactPair.fRigidBodyConvex.fFlags*[krbfAwake,krbfActive])<>[krbfAwake,krbfActive]) and
+    ((aMeshContactPair.fRigidBodyMesh.fFlags*[krbfAwake,krbfActive])<>[krbfAwake,krbfActive]) then begin
+  exit;
+ end;
+
+ MeshShape:=TKraftShapeMesh(aMeshContactPair.fShapeMesh);
+
+ aMeshContactPair.fClusterCount:=0;
+
+ // Collect the representative pairs of the last step.
+ Count:=0;
+ ContactPair:=aMeshContactPair.fFirstContactPair;
+ while assigned(ContactPair) do begin
+  if kcfMeshClusterRepresentative in ContactPair^.Flags then begin
+   if (ContactPair^.Manifold.ContactManifoldType=kcmtImplicitNormal) and (ContactPair^.Manifold.CountContacts>0) then begin
+    if Count>=length(fFeatureOwnershipContactPairs) then begin
+     SetLength(fFeatureOwnershipContactPairs,(Count+1)*2);
+    end;
+    fFeatureOwnershipContactPairs[Count]:=ContactPair;
+    inc(Count);
+   end else begin
+    // Something else overwrote the cluster manifold (for example a mode switch), so just drop the mark.
+    ContactPair^.Flags:=ContactPair^.Flags-[kcfMeshClusterRepresentative];
+   end;
+  end;
+  ContactPair:=ContactPair^.MeshContactPairNextContactPair;
+ end;
+
+ // Sort by (mesh,triangle) index, so the cluster cache order does not depend on the contact pair list history.
+ for Index:=1 to Count-1 do begin
+  ContactPair:=fFeatureOwnershipContactPairs[Index];
+  SortIndex:=Index-1;
+  while (SortIndex>=0) and
+        ((fFeatureOwnershipContactPairs[SortIndex]^.ContainerIndex>ContactPair^.ContainerIndex) or
+         ((fFeatureOwnershipContactPairs[SortIndex]^.ContainerIndex=ContactPair^.ContainerIndex) and
+          (fFeatureOwnershipContactPairs[SortIndex]^.ElementIndex>ContactPair^.ElementIndex))) do begin
+   fFeatureOwnershipContactPairs[SortIndex+1]:=fFeatureOwnershipContactPairs[SortIndex];
+   dec(SortIndex);
+  end;
+  fFeatureOwnershipContactPairs[SortIndex+1]:=ContactPair;
+ end;
+
+ // Harvest the impulse state and clear the cluster manifolds.
+ for Index:=0 to Count-1 do begin
+
+  ContactPair:=fFeatureOwnershipContactPairs[Index];
+  Manifold:=@ContactPair^.Manifold;
+
+  if aMeshContactPair.fClusterCount>=length(aMeshContactPair.fClusters) then begin
+   SetLength(aMeshContactPair.fClusters,(aMeshContactPair.fClusterCount+1)*2);
+  end;
+  Cluster:=@aMeshContactPair.fClusters[aMeshContactPair.fClusterCount];
+  inc(aMeshContactPair.fClusterCount);
+
+  Cluster^.WorldNormal:=Vector3TermMatrixMulBasis(Manifold^.LocalNormal,MeshShape.fWorldTransform);
+  Cluster^.CentralFrictionImpulse:=Manifold^.CentralFrictionImpulse;
+  Cluster^.CentralTwistImpulse:=Manifold^.CentralTwistImpulse;
+  Cluster^.CentralRollingImpulse:=Manifold^.CentralRollingImpulse;
+  Cluster^.Consumed:=false;
+  Cluster^.CountContacts:=Manifold^.CountContacts;
+  for ContactIndex:=0 to Manifold^.CountContacts-1 do begin
+   Cluster^.FeatureIDs[ContactIndex]:=Manifold^.Contacts[ContactIndex].FeatureID;
+   Cluster^.NormalImpulses[ContactIndex]:=Manifold^.Contacts[ContactIndex].NormalImpulse;
+   Cluster^.TangentImpulses[ContactIndex,0]:=Manifold^.Contacts[ContactIndex].TangentImpulse[0];
+   Cluster^.TangentImpulses[ContactIndex,1]:=Manifold^.Contacts[ContactIndex].TangentImpulse[1];
+   Cluster^.WarmStartStates[ContactIndex]:=Manifold^.Contacts[ContactIndex].WarmStartState;
+  end;
+
+  Manifold^.ContactManifoldType:=kcmtUnknown;
+  Manifold^.CountContacts:=0;
+  Manifold^.CentralFrictionImpulse:=Vector3Origin;
+  Manifold^.CentralTwistImpulse:=0.0;
+  Manifold^.CentralRollingImpulse:=Vector3Origin;
+  ContactPair^.Flags:=ContactPair^.Flags-[kcfMeshClusterRepresentative];
+
+ end;
+
+end;
+
+procedure TKraftContactManager.ProcessMeshContactPairClustering(const aMeshContactPair:TKraftMeshContactPair);
+// Clusters the per-triangle contact manifolds of one mesh contact pair per coplanar-ish surface patch into
+// one representative manifold with up to MAX_CONTACTS contact points. The feature ownership arbitration runs
+// first as ghost contact suppression, then the surviving manifolds are grouped by contact normal and triangle
+// normal, their contacts converted into plain surface point pairs, merged, reduced and written into the first
+// pair of each group, while the other pairs of the group carry no solver contacts for this step. The warm
+// start impulses migrate over the cluster cache of the mesh contact pair, so they survive the regrouping.
+const ClusterCosineThreshold=0.996; // About five degrees, tighter than the warm start matching tolerance
+      WarmStartMatchCosineThreshold=0.995;
+var CountPairInfos,CountClusters,Index,SortIndex,ContactIndex,ClusterIndex,BestPreviousClusterIndex,
+    CountGatheredContacts,CountFinalContacts,PreviousClusterIndex,PreviousContactIndex:TKraftInt32;
+    BestDot,DotProduct,Radius0,Radius1,PlaneDistance:TKraftScalar;
+    ContactPair,RepresentativePair:PKraftContactPair;
+    PairInfo:PKraftMeshClusteringPairInfo;
+    ClusterInfo:PKraftMeshClusteringCluster;
+    PreviousCluster:PKraftMeshContactPairCluster;
+    MeshShape:TKraftShapeMesh;
+    ConvexShape:TKraftShape;
+    Manifold:PKraftContactManifold;
+    SolverContactManifold:TKraftSolverContactManifold;
+    FaceNormal,ClipPoint,PlanePoint,PointA,PointB,SurfacePointA,SurfacePointB,ClusterWorldNormal:TKraftVector3;
+    InverseOrientationA:TKraftQuaternion;
+    SourceContact,GatheredContact:PKraftContact;
+    GatheredContacts:array[0..MAX_TEMPORARY_CONTACTS-1] of TKraftContact;
+    FinalContacts:array[0..MAX_CONTACTS-1] of TKraftContact;
+    PairInfoSortValue:TKraftMeshClusteringPairInfo;
+begin
+
+ // Sleeping pairs did not rerun the narrow phase, their manifolds must stay untouched for the wake up.
+ if ((aMeshContactPair.fRigidBodyConvex.fFlags*[krbfAwake,krbfActive])<>[krbfAwake,krbfActive]) and
+    ((aMeshContactPair.fRigidBodyMesh.fFlags*[krbfAwake,krbfActive])<>[krbfAwake,krbfActive]) then begin
+  exit;
+ end;
+
+ // Whole-mesh-pair contact recycling: the clusters stayed live and the triangle pairs kept their state, so
+ // there is nothing to regroup. When a real narrow phase run found new contacts next to the live clusters,
+ // they coexist for this step like per-triangle manifolds, and the invalidated pose cache forces a full
+ // harvest and rebuild at the next step.
+ if aMeshContactPair.fClustersRecycling then begin
+  aMeshContactPair.fClustersRecycling:=false;
+  if aMeshContactPair.fClustersDirty then begin
+   aMeshContactPair.fFlags:=aMeshContactPair.fFlags-[kcfRecycleCacheValid];
+  end;
+  exit;
+ end;
+
+ // Ghost contact suppression, the same arbitration as the feature ownership internal edge handling mode,
+ // here always on in the clustered mode.
+ ProcessMeshContactPairFeatureOwnership(aMeshContactPair);
+
+ MeshShape:=TKraftShapeMesh(aMeshContactPair.fShapeMesh);
+ ConvexShape:=aMeshContactPair.fShapeConvex;
+
+ // Cache the relative body pose the cluster state of this step is built at, for the whole-mesh-pair
+ // contact recycling gate of the next steps.
+ InverseOrientationA:=QuaternionConjugate(aMeshContactPair.fRigidBodyConvex.fSweep.q);
+ aMeshContactPair.fRecycleRelativeOrientation:=QuaternionMul(InverseOrientationA,aMeshContactPair.fRigidBodyMesh.fSweep.q);
+ aMeshContactPair.fRecycleRelativePosition:=Vector3TermQuaternionRotate(Vector3Sub(aMeshContactPair.fRigidBodyMesh.fSweep.c,aMeshContactPair.fRigidBodyConvex.fSweep.c),InverseOrientationA);
+ aMeshContactPair.fRecycleWorldOrientations[0]:=aMeshContactPair.fRigidBodyConvex.fSweep.q;
+ aMeshContactPair.fRecycleWorldOrientations[1]:=aMeshContactPair.fRigidBodyMesh.fSweep.q;
+ aMeshContactPair.fFlags:=aMeshContactPair.fFlags+[kcfRecycleCacheValid];
+
+ // Collect the touching per-triangle contact pairs with clusterable manifold types, together with their world
+ // contact and triangle normals. Speculative and persistent manifolds stay per-triangle.
+ CountPairInfos:=0;
+ ContactPair:=aMeshContactPair.fFirstContactPair;
+ while assigned(ContactPair) do begin
+  if (ContactPair^.Manifold.CountContacts>0) and
+     (ContactPair^.Manifold.ContactManifoldType in [kcmtImplicit,kcmtFaceA,kcmtFaceB,kcmtEdges,kcmtImplicitEdge,kcmtImplicitNormal]) and
+     (ContactPair^.ContainerIndex>=0) and
+     (ContactPair^.ContainerIndex<MeshShape.fCountMeshes) and
+     (ContactPair^.ElementIndex>=0) and
+     (ContactPair^.ElementIndex<MeshShape.fMeshes[ContactPair^.ContainerIndex].fCountTriangles) then begin
+   if CountPairInfos>=length(fMeshClusteringPairInfos) then begin
+    SetLength(fMeshClusteringPairInfos,(CountPairInfos+1)*2);
+   end;
+   PairInfo:=@fMeshClusteringPairInfos[CountPairInfos];
+   inc(CountPairInfos);
+   PairInfo^.ContactPair:=ContactPair;
+   ContactPair^.GetSolverContactManifold(SolverContactManifold,ContactPair^.RigidBodies[0].fWorldTransform,ContactPair^.RigidBodies[1].fWorldTransform,kcpcmmVelocitySolver);
+   PairInfo^.WorldNormal:=SolverContactManifold.Normal;
+   PairInfo^.TriangleNormal:=Vector3TermMatrixMulBasis(MeshShape.fMeshes[ContactPair^.ContainerIndex].fTriangles[ContactPair^.ElementIndex].Plane.Normal,MeshShape.fWorldTransform);
+   PairInfo^.ClusterIndex:=-1;
+  end;
+  ContactPair:=ContactPair^.MeshContactPairNextContactPair;
+ end;
+
+ if CountPairInfos=0 then begin
+  exit;
+ end;
+
+ // Sort by (mesh,triangle) index, so the clustering does not depend on the contact pair list history.
+ for Index:=1 to CountPairInfos-1 do begin
+  PairInfoSortValue:=fMeshClusteringPairInfos[Index];
+  SortIndex:=Index-1;
+  while (SortIndex>=0) and
+        ((fMeshClusteringPairInfos[SortIndex].ContactPair^.ContainerIndex>PairInfoSortValue.ContactPair^.ContainerIndex) or
+         ((fMeshClusteringPairInfos[SortIndex].ContactPair^.ContainerIndex=PairInfoSortValue.ContactPair^.ContainerIndex) and
+          (fMeshClusteringPairInfos[SortIndex].ContactPair^.ElementIndex>PairInfoSortValue.ContactPair^.ElementIndex))) do begin
+   fMeshClusteringPairInfos[SortIndex+1]:=fMeshClusteringPairInfos[SortIndex];
+   dec(SortIndex);
+  end;
+  fMeshClusteringPairInfos[SortIndex+1]:=PairInfoSortValue;
+ end;
+
+ // First-fit clustering over contact normal and triangle normal, both within a tight cosine threshold, so
+ // only manifolds of the same coplanar-ish surface patch merge.
+ CountClusters:=0;
+ for Index:=0 to CountPairInfos-1 do begin
+  PairInfo:=@fMeshClusteringPairInfos[Index];
+  for ClusterIndex:=0 to CountClusters-1 do begin
+   ClusterInfo:=@fMeshClusteringClusters[ClusterIndex];
+   if (Vector3Dot(ClusterInfo^.WorldNormal,PairInfo^.WorldNormal)>ClusterCosineThreshold) and
+      (Vector3Dot(ClusterInfo^.TriangleNormal,PairInfo^.TriangleNormal)>ClusterCosineThreshold) then begin
+    PairInfo^.ClusterIndex:=ClusterIndex;
+    break;
+   end;
+  end;
+  if PairInfo^.ClusterIndex<0 then begin
+   if CountClusters>=length(fMeshClusteringClusters) then begin
+    SetLength(fMeshClusteringClusters,(CountClusters+1)*2);
+   end;
+   ClusterInfo:=@fMeshClusteringClusters[CountClusters];
+   ClusterInfo^.WorldNormal:=PairInfo^.WorldNormal;
+   ClusterInfo^.TriangleNormal:=PairInfo^.TriangleNormal;
+   ClusterInfo^.RepresentativeIndex:=Index;
+   PairInfo^.ClusterIndex:=CountClusters;
+   inc(CountClusters);
+  end;
+ end;
+
+ // Merge, reduce and write each cluster.
+ for ClusterIndex:=0 to CountClusters-1 do begin
+
+  ClusterInfo:=@fMeshClusteringClusters[ClusterIndex];
+  ClusterWorldNormal:=ClusterInfo^.WorldNormal;
+
+  // Gather the contacts of all member manifolds, converted into plain zero-radius surface point pairs, so
+  // that manifolds of different types (and radius conventions) can merge into one kcmtImplicitNormal
+  // manifold with unchanged separations.
+  CountGatheredContacts:=0;
+  for Index:=0 to CountPairInfos-1 do begin
+
+   PairInfo:=@fMeshClusteringPairInfos[Index];
+   if PairInfo^.ClusterIndex<>ClusterIndex then begin
+    continue;
+   end;
+
+   ContactPair:=PairInfo^.ContactPair;
+   Manifold:=@ContactPair^.Manifold;
+   Radius0:=Manifold^.LocalRadius[0];
+   Radius1:=Manifold^.LocalRadius[1];
+   ContactPair^.GetSolverContactManifold(SolverContactManifold,ContactPair^.RigidBodies[0].fWorldTransform,ContactPair^.RigidBodies[1].fWorldTransform,kcpcmmVelocitySolver);
+
+   for ContactIndex:=0 to Manifold^.CountContacts-1 do begin
+
+    if CountGatheredContacts>=MAX_TEMPORARY_CONTACTS then begin
+     break;
+    end;
+
+    SourceContact:=@Manifold^.Contacts[ContactIndex];
+
+    // Reconstruct the world surface points exactly like the velocity solver path of GetSolverContactManifold
+    // does it for the source manifold type.
+    case Manifold^.ContactManifoldType of
+     kcmtFaceA:begin
+      PlanePoint:=Vector3TermMatrixMul(SourceContact^.LocalPoints[0],ConvexShape.fWorldTransform);
+      ClipPoint:=Vector3TermMatrixMul(SourceContact^.LocalPoints[1],MeshShape.fWorldTransform);
+      PlaneDistance:=Vector3Dot(Vector3Sub(ClipPoint,PlanePoint),SolverContactManifold.Normal);
+      SurfacePointA:=Vector3Add(ClipPoint,Vector3ScalarMul(SolverContactManifold.Normal,Radius0-PlaneDistance));
+      SurfacePointB:=Vector3Sub(ClipPoint,Vector3ScalarMul(SolverContactManifold.Normal,Radius1));
+     end;
+     kcmtFaceB:begin
+      ClipPoint:=Vector3TermMatrixMul(SourceContact^.LocalPoints[0],ConvexShape.fWorldTransform);
+      PlanePoint:=Vector3TermMatrixMul(SourceContact^.LocalPoints[1],MeshShape.fWorldTransform);
+      FaceNormal:=Vector3Neg(SolverContactManifold.Normal);
+      PlaneDistance:=Vector3Dot(Vector3Sub(ClipPoint,PlanePoint),FaceNormal);
+      SurfacePointA:=Vector3Sub(ClipPoint,Vector3ScalarMul(FaceNormal,Radius0));
+      SurfacePointB:=Vector3Add(ClipPoint,Vector3ScalarMul(FaceNormal,Radius1-PlaneDistance));
+     end;
+     else begin
+      PointA:=Vector3TermMatrixMul(SourceContact^.LocalPoints[0],ConvexShape.fWorldTransform);
+      PointB:=Vector3TermMatrixMul(SourceContact^.LocalPoints[1],MeshShape.fWorldTransform);
+      SurfacePointA:=Vector3Add(PointA,Vector3ScalarMul(SolverContactManifold.Normal,Radius0));
+      SurfacePointB:=Vector3Sub(PointB,Vector3ScalarMul(SolverContactManifold.Normal,Radius1));
+     end;
+    end;
+
+    GatheredContact:=@GatheredContacts[CountGatheredContacts];
+    inc(CountGatheredContacts);
+    GatheredContact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(SurfacePointA,ConvexShape.fWorldTransform);
+    GatheredContact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(SurfacePointB,MeshShape.fWorldTransform);
+    GatheredContact^.Penetration:=-SolverContactManifold.Contacts[ContactIndex].Separation;
+    GatheredContact^.NormalImpulse:=0.0;
+    GatheredContact^.TangentImpulse[0]:=0.0;
+    GatheredContact^.TangentImpulse[1]:=0.0;
+    GatheredContact^.Bias:=0.0;
+    GatheredContact^.NormalMass:=0.0;
+    GatheredContact^.TangentMass[0]:=0.0;
+    GatheredContact^.TangentMass[1]:=0.0;
+    GatheredContact^.WarmStartState:=0;
+    // Feature id which stays stable over steps: the triangle index plus a hash of the original feature id,
+    // for the warm start matching against the cluster cache.
+    GatheredContact^.FeatureID.ElementA:=TKraftUInt32(ContactPair^.ElementIndex);
+    GatheredContact^.FeatureID.ElementB:=(TKraftUInt32(ContactPair^.ContainerIndex) shl 28) xor
+                                         (SourceContact^.FeatureID.ElementA*TKraftUInt32($9e3779b1)) xor
+                                         (SourceContact^.FeatureID.ElementB*TKraftUInt32($85ebca6b));
+
+   end;
+
+  end;
+
+  if CountGatheredContacts=0 then begin
+   continue;
+  end;
+
+  // Reduce to at most MAX_CONTACTS points (largest area selection, in the convex local space).
+  CountFinalContacts:=ReduceContacts(pointer(@GatheredContacts[0]),CountGatheredContacts,pointer(@FinalContacts[0]),Vector3TermMatrixMulTransposedBasis(ClusterWorldNormal,ConvexShape.fWorldTransform));
+
+  if CountFinalContacts=0 then begin
+   continue;
+  end;
+
+  // Warm start migration: find the best matching cluster of the last step by normal and restore the contact
+  // impulses by feature id.
+  BestPreviousClusterIndex:=-1;
+  BestDot:=WarmStartMatchCosineThreshold;
+  for PreviousClusterIndex:=0 to aMeshContactPair.fClusterCount-1 do begin
+   PreviousCluster:=@aMeshContactPair.fClusters[PreviousClusterIndex];
+   if not PreviousCluster^.Consumed then begin
+    DotProduct:=Vector3Dot(PreviousCluster^.WorldNormal,ClusterWorldNormal);
+    if DotProduct>BestDot then begin
+     BestDot:=DotProduct;
+     BestPreviousClusterIndex:=PreviousClusterIndex;
+    end;
+   end;
+  end;
+
+  RepresentativePair:=fMeshClusteringPairInfos[ClusterInfo^.RepresentativeIndex].ContactPair;
+  Manifold:=@RepresentativePair^.Manifold;
+
+  if BestPreviousClusterIndex>=0 then begin
+   PreviousCluster:=@aMeshContactPair.fClusters[BestPreviousClusterIndex];
+   PreviousCluster^.Consumed:=true;
+   for Index:=0 to CountFinalContacts-1 do begin
+    for PreviousContactIndex:=0 to PreviousCluster^.CountContacts-1 do begin
+     if FinalContacts[Index].FeatureID.Key=PreviousCluster^.FeatureIDs[PreviousContactIndex].Key then begin
+      FinalContacts[Index].NormalImpulse:=PreviousCluster^.NormalImpulses[PreviousContactIndex];
+      FinalContacts[Index].TangentImpulse[0]:=PreviousCluster^.TangentImpulses[PreviousContactIndex,0];
+      FinalContacts[Index].TangentImpulse[1]:=PreviousCluster^.TangentImpulses[PreviousContactIndex,1];
+      FinalContacts[Index].WarmStartState:=Max(PreviousCluster^.WarmStartStates[PreviousContactIndex],PreviousCluster^.WarmStartStates[PreviousContactIndex]+1);
+      break;
+     end;
+    end;
+   end;
+   Manifold^.CentralFrictionImpulse:=PreviousCluster^.CentralFrictionImpulse;
+   Manifold^.CentralTwistImpulse:=PreviousCluster^.CentralTwistImpulse;
+   Manifold^.CentralRollingImpulse:=PreviousCluster^.CentralRollingImpulse;
+  end else begin
+   Manifold^.CentralFrictionImpulse:=Vector3Origin;
+   Manifold^.CentralTwistImpulse:=0.0;
+   Manifold^.CentralRollingImpulse:=Vector3Origin;
+  end;
+
+  // Write the cluster manifold into the representative pair.
+  Manifold^.ContactManifoldType:=kcmtImplicitNormal;
+  Manifold^.LocalNormal:=Vector3TermMatrixMulTransposedBasis(ClusterWorldNormal,MeshShape.fWorldTransform);
+  Manifold^.LocalRadius[0]:=0.0;
+  Manifold^.LocalRadius[1]:=0.0;
+  Manifold^.CountContacts:=CountFinalContacts;
+  for Index:=0 to CountFinalContacts-1 do begin
+   Manifold^.Contacts[Index]:=FinalContacts[Index];
+  end;
+  RepresentativePair^.Flags:=RepresentativePair^.Flags+[kcfMeshClusterRepresentative];
+
+  // The other member pairs of the cluster carry no solver contacts for this step; the contact pairs
+  // themselves and their event flags stay untouched, like in the feature ownership arbitration.
+  for Index:=0 to CountPairInfos-1 do begin
+   PairInfo:=@fMeshClusteringPairInfos[Index];
+   if (PairInfo^.ClusterIndex=ClusterIndex) and (Index<>ClusterInfo^.RepresentativeIndex) then begin
+    ContactPair:=PairInfo^.ContactPair;
+    ContactPair^.Manifold.ContactManifoldType:=kcmtUnknown;
+    ContactPair^.Manifold.CountContacts:=0;
+    ContactPair^.Manifold.CentralFrictionImpulse:=Vector3Origin;
+    ContactPair^.Manifold.CentralTwistImpulse:=0.0;
+    ContactPair^.Manifold.CentralRollingImpulse:=Vector3Origin;
+    ContactPair^.Flags:=ContactPair^.Flags-[kcfMeshClusterRepresentative];
+   end;
+  end;
+
+ end;
+
+end;
+
 procedure TKraftContactManager.DoNarrowPhase;
 const ActionAccept=0;
       ActionRemove=1;
@@ -42057,6 +42667,21 @@ begin
    if fPhysics.fKinematicAABBTree.fRebuildDirty then begin
     fPhysics.fKinematicAABBTree.Rebuild;
    end;
+  end;
+ end;
+
+ // In the clustered mesh manifold mode the cluster manifolds of the last step still hold the post-solve
+ // impulse state. When the whole mesh contact pair recycles (relative pose within the recycle tolerance),
+ // the clusters simply stay live; otherwise harvest the impulse state into the per mesh contact pair cluster
+ // caches and clear the cluster manifolds, before the narrow phase overwrites them with fresh per-triangle
+ // results.
+ if fPhysics.fMeshManifoldMode=kmmmClustered then begin
+  MeshContactPair:=fMeshContactPairFirst;
+  while assigned(MeshContactPair) do begin
+   if not TryRecycleMeshContactPairClusters(MeshContactPair) then begin
+    HarvestMeshContactPairClusters(MeshContactPair);
+   end;
+   MeshContactPair:=MeshContactPair.fNext;
   end;
  end;
 
@@ -42196,9 +42821,17 @@ begin
   inc(fCountRecycledContactPairs,fRecycledContactPairCounts[ActiveContactPairIndex]);
  end;
 
- // Arbitrate the per-triangle contacts of each mesh contact pair, after all narrow phase results exist,
+ // Post-process the per-triangle contacts of each mesh contact pair, after all narrow phase results exist,
  // since the triangle contact pairs of one mesh contact pair may have been processed on different threads.
- if fPhysics.fInternalEdgeHandlingMode=kiehmFeatureOwnership then begin
+ // The clustered mesh manifold mode includes the feature ownership arbitration as its ghost contact
+ // suppression step, so it replaces a separate feature ownership pass.
+ if fPhysics.fMeshManifoldMode=kmmmClustered then begin
+  MeshContactPair:=fMeshContactPairFirst;
+  while assigned(MeshContactPair) do begin
+   ProcessMeshContactPairClustering(MeshContactPair);
+   MeshContactPair:=MeshContactPair.fNext;
+  end;
+ end else if fPhysics.fInternalEdgeHandlingMode=kiehmFeatureOwnership then begin
   MeshContactPair:=fMeshContactPairFirst;
   while assigned(MeshContactPair) do begin
    ProcessMeshContactPairFeatureOwnership(MeshContactPair);
@@ -58408,6 +59041,8 @@ begin
  fSolverMode:=ksmSequentialImpulse;
 
  fInternalEdgeHandlingMode:=kiehmNone;
+
+ fMeshManifoldMode:=kmmmPerTriangle;
 
  begin
 
