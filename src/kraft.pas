@@ -4611,6 +4611,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftSolverPrepareCenters=array of TKraftVector3;
 
+     TKraftSolverPrepareOrientations=array of TKraftQuaternion;
+
      TKraftSolver=class
       private
 
@@ -4659,6 +4661,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fTGSContactStates:TKraftSolverTGSContactStates;
        fSIRollingStates:TKraftSolverSIRollingStates;
        fPrepareCenters:TKraftSolverPrepareCenters;
+       fPrepareOrientations:TKraftSolverPrepareOrientations;
        fContactSoftness:TKraftSolverSoftness;
        fStaticSoftness:TKraftSolverSoftness;
 
@@ -35411,21 +35414,25 @@ end;
 
 procedure TKraftShapeBox.CalculateMassData;
 begin
- fMassData.Volume:=fExtents.x*fExtents.y*fExtents.z;
+ // fExtents are half extents (the collision code treats the box as -Extents..+Extents), so the full edge
+ // lengths are twice that: the volume gets the factor eight, and the solid-box inertia (m/12)*(b^2+c^2)
+ // over full edges becomes (m/3) over the half extents, matching the analytic values, the convex hull
+ // integrator.
+ fMassData.Volume:=8.0*(fExtents.x*fExtents.y*fExtents.z);
  if fForcedMass>EPSILON then begin
   fMassData.Mass:=fForcedMass;
  end else begin
   fMassData.Mass:=fMassData.Volume*fDensity;
  end;
- fMassData.Inertia[0,0]:=((sqr(fExtents.y)+sqr(fExtents.z))*fMassData.Mass)/12.0;
+ fMassData.Inertia[0,0]:=((sqr(fExtents.y)+sqr(fExtents.z))*fMassData.Mass)/3.0;
  fMassData.Inertia[0,1]:=0.0;
  fMassData.Inertia[0,2]:=0.0;
  fMassData.Inertia[1,0]:=0.0;
- fMassData.Inertia[1,1]:=((sqr(fExtents.x)+sqr(fExtents.z))*fMassData.Mass)/12.0;
+ fMassData.Inertia[1,1]:=((sqr(fExtents.x)+sqr(fExtents.z))*fMassData.Mass)/3.0;
  fMassData.Inertia[1,2]:=0.0;
  fMassData.Inertia[2,0]:=0.0;
  fMassData.Inertia[2,1]:=0.0;
- fMassData.Inertia[2,2]:=((sqr(fExtents.x)+sqr(fExtents.y))*fMassData.Mass)/12.0;
+ fMassData.Inertia[2,2]:=((sqr(fExtents.x)+sqr(fExtents.y))*fMassData.Mass)/3.0;
  if ksfHasForcedCenterOfMass in fFlags then begin
   fMassData.Center:=Vector3TermMatrixMul(fForcedCenterOfMass,fLocalTransform);
  end else begin
@@ -54651,6 +54658,9 @@ begin
  fPrepareCenters:=nil;
  SetLength(fPrepareCenters,64);
 
+ fPrepareOrientations:=nil;
+ SetLength(fPrepareOrientations,64);
+
 end;
 
 destructor TKraftSolver.Destroy;
@@ -54664,6 +54674,7 @@ begin
  fTGSContactStates:=nil;
  fSIRollingStates:=nil;
  fPrepareCenters:=nil;
+ fPrepareOrientations:=nil;
  inherited Destroy;
 end;
 
@@ -55845,13 +55856,17 @@ begin
  fContactSoftness:=MakeSoft(fPhysics.fContactHertz,fPhysics.fContactDampingRatio,h);
  fStaticSoftness:=MakeSoft(2.0*fPhysics.fContactHertz,fPhysics.fContactDampingRatio,h);
 
- // Snapshot the step-start centre of mass of every body, so the substep solve can recompute the separation
- // from the accumulated delta positions.
+ // Snapshot the step-start centre of mass and orientation of every body, so the substep solve can recompute
+ // the separation from the accumulated delta positions and delta rotations.
  if fCountPositions>length(fPrepareCenters) then begin
   SetLength(fPrepareCenters,fCountPositions*2);
  end;
+ if fCountPositions>length(fPrepareOrientations) then begin
+  SetLength(fPrepareOrientations,fCountPositions*2);
+ end;
  for IndexA:=0 to fCountPositions-1 do begin
   fPrepareCenters[IndexA]:=fPositions[IndexA].Position;
+  fPrepareOrientations[IndexA]:=fPositions[IndexA].Orientation;
  end;
 
  if fCountContacts>length(fTGSContactStates) then begin
@@ -56117,6 +56132,7 @@ var ContactPairIndex,ContactIndex,IndexA,IndexB,CountPoints:TKraftInt32;
     iA,iB:PKraftMatrix3x3;
     mA,mB,Friction,Lambda,MaxLambda,vn,Old,Separation,Bias,MassScale,ImpulseScale,MaxBiasVelocity,InverseH,TotalNormalImpulse,TotalTwistLimit,TwistSpeed,MagSqr,LenSqr,Scale,NewX,NewY,DX,DY,VTx,VTy,TMx,TMy:TKraftScalar;
     Normal,vA,lA,wA,rA,vB,lB,wB,rB,dv,P,dcA,dcB,dw,DeltaRoll,OldRoll:TKraftVector3;
+    dqA,dqB:TKraftQuaternion;
     TangentVectors:array[0..1] of TKraftVector3;
 begin
 
@@ -56149,9 +56165,14 @@ begin
   lA:=fLinearFactors[IndexA];
   lB:=fLinearFactors[IndexB];
 
-  // Accumulated centre-of-mass delta positions since prepare (anchors are kept at their prepare value).
+  // Accumulated centre-of-mass delta positions and delta rotations since prepare. The anchors themselves
+  // are kept at their prepare value for the Jacobians (contact points are not material body points), but
+  // the separation recompute below carries them along with the delta rotations, so approach caused by pure
+  // rotation within the step is seen too.
   dcA:=Vector3Sub(fPositions[IndexA].Position,fPrepareCenters[IndexA]);
   dcB:=Vector3Sub(fPositions[IndexB].Position,fPrepareCenters[IndexB]);
+  dqA:=QuaternionTermNormalize(QuaternionMul(fPositions[IndexA].Orientation,QuaternionConjugate(fPrepareOrientations[IndexA])));
+  dqB:=QuaternionTermNormalize(QuaternionMul(fPositions[IndexB].Orientation,QuaternionConjugate(fPrepareOrientations[IndexB])));
 
   // Central-friction limits accumulated over the normal loop.
   TotalNormalImpulse:=0.0;
@@ -56165,8 +56186,10 @@ begin
    rA:=ContactPoint^.RelativePositions[0];
    rB:=ContactPoint^.RelativePositions[1];
 
-   // Recompute the current separation from the accumulated delta positions of both bodies.
-   Separation:=TGSState^.AdjustedSeparations[ContactIndex]+Vector3Dot(Vector3Sub(Vector3Add(dcB,rB),Vector3Add(dcA,rA)),Normal);
+   // Recompute the current separation from the accumulated delta positions and delta rotations of both
+   // bodies (the anchors ride along with the delta rotations here, while the impulses below keep using the
+   // fixed prepare anchors).
+   Separation:=TGSState^.AdjustedSeparations[ContactIndex]+Vector3Dot(Vector3Sub(Vector3Add(dcB,Vector3TermQuaternionRotate(rB,dqB)),Vector3Add(dcA,Vector3TermQuaternionRotate(rA,dqA))),Normal);
 
    // Choose the bias regime for this point.
    if Separation>0.0 then begin
