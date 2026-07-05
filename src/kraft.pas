@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-07-05-03-40-0000                       *
+ *                        Version 2026-07-05-08-16-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -289,6 +289,17 @@ const EPSILON={$ifdef KraftUseDouble}1e-14{$else}1e-5{$endif}; // actually {$ifd
       MAX_TEMPORARY_CONTACTS=256; // Before largest-area contact reduction
 
       MAX_THREADS=256;            // Should be more than enough :-)
+
+      // Solver stage pipeline (Box3D-style block claiming model): sentinel publication value which ends
+      // the resident worker spin loops, the block sizes of the stage kinds (in constraints per claimable
+      // block) and the initial size of the per step block slot pool.
+      KraftSolverPipelineSentinel=longint($7fffffff);
+      KraftSolverPipelineContactBlockSize=4;
+      KraftSolverPipelineJointBlockSize=2;
+      KraftSolverPipelineIndependentBlockSize=16;
+      KraftSolverPipelineBodyBlockSize=16;
+      KraftSolverPipelineWideBatchBlockSize=1;
+      KraftSolverPipelineInitialBlockPoolSize=65536;
 
       // Squared quaternion dot product bound (about 10 degrees of absolute body rotation since the cache was
       // taken) for the optional absolute rotation cap of the contact recycling, same value as Box3D uses.
@@ -637,6 +648,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      TKraftContactManager=class;
 
      TKraftIsland=class;
+
+     TKraftPersistentIsland=class;
 
      TKraftShape=class;
 
@@ -3299,6 +3312,12 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        // body lifetime; the constraint graph color bitsets are keyed on it.
        fBodyIndex:TKraftInt32;
 
+       // Persistent connectivity island membership of movable bodies (nil for static and unknown ones),
+       // see TKraftPersistentIsland; the visit generation is the traversal marker of the lazy split pass.
+       fPersistentIsland:TKraftPersistentIsland;
+       fPersistentIslandLocalIndex:TKraftInt32;
+       fPersistentIslandVisitGeneration:TKraftUInt64;
+
        // Position in the awake rigid body list of TKraft (dynamic and kinematic bodies with krbfAwake),
        // maintained incrementally over SetToAwake, SetToSleep, SetRigidBodyType and the body lifetime;
        // negative when the body is not in the list.
@@ -4784,9 +4803,104 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      // stages of the colored solver parallel modes (see TKraftSolver.DispatchContactStage).
      TKraftSolverStageRangeMethod=procedure(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32) of object;
 
+     // One claimable unit of a published solver pipeline stage: a slice of the index range a stage range
+     // method runs over. A worker wins a block over an atomic compare exchange of its sync index from zero
+     // to one; every publication cuts its blocks from fresh pool slots, so a delayed worker can never win
+     // a block of a newer publication with a stale descriptor (its compare exchanges simply fail).
+     PKraftSolverPipelineBlock=^TKraftSolverPipelineBlock;
+     TKraftSolverPipelineBlock=record
+      StartIndex:TKraftInt32;
+      Count:TKraftInt32;
+      SyncIndex:TKraftInt32;
+      Reserved:TKraftInt32;
+     end;
+
+     TKraftSolverPipelineBlocks=array of TKraftSolverPipelineBlock;
+
+     // One published solver pipeline stage: an immutable descriptor slot (the analog of the Box3D stage
+     // array). The publication counter carries the slot index plus one, and a slot is completely written
+     // before it publishes and never changes afterwards, so a worker can never observe a torn descriptor,
+     // no matter how it interleaves with newer publications; a delayed worker holding an old descriptor
+     // only ever revisits the old blocks, whose claims all fail. The completion count lives per stage for
+     // the same reason.
+     PKraftSolverPipelineStage=^TKraftSolverPipelineStage;
+     TKraftSolverPipelineStage=record
+      RangeMethod:TKraftSolverStageRangeMethod;
+      BlockFirst:TKraftInt32;
+      CountBlocks:TKraftInt32;
+      CompletionCount:TKraftInt32;
+      Reserved:TKraftInt32;
+     end;
+
+     TKraftSolverPipelineStages=array of TKraftSolverPipelineStage;
+
      TKraftSolverPrepareCenters=array of TKraftVector3;
 
      TKraftSolverPrepareOrientations=array of TKraftQuaternion;
+
+     // Four wide contact solver data for the TGS-soft path (Box3D-style wide model as the template):
+     // one lane is one contact pair of one constraint graph color, so the four lanes of a batch
+     // never share a movable body and can solve together. The memory layout is lane major structure of
+     // arrays (every quantity is a contiguous four scalar block), which is the layout a later SIMD assembler
+     // stage can load directly; the pure Pascal kernels walk the lanes with the exact same scalar operations
+     // and operation order as the scalar range methods, which keeps the wide path bit identical to the
+     // scalar path within the same solver parallel mode.
+     TKraftSolverWideLane=array[0..3] of TKraftScalar;
+
+     PKraftSolverWideVector3=^TKraftSolverWideVector3;
+     TKraftSolverWideVector3=record
+      x:TKraftSolverWideLane;
+      y:TKraftSolverWideLane;
+      z:TKraftSolverWideLane;
+     end;
+
+     TKraftSolverWideMatrix3x3=array[0..2,0..2] of TKraftSolverWideLane;
+
+     PKraftSolverWideContactPoint=^TKraftSolverWideContactPoint;
+     TKraftSolverWideContactPoint=record
+      RelativePositionsA:TKraftSolverWideVector3;
+      RelativePositionsB:TKraftSolverWideVector3;
+      AdjustedSeparations:TKraftSolverWideLane;
+      RelativeVelocities:TKraftSolverWideLane;
+      NormalMasses:TKraftSolverWideLane;
+      NormalImpulses:TKraftSolverWideLane;
+      LeverArms:TKraftSolverWideLane;
+     end;
+
+     PKraftSolverWideContactBatch=^TKraftSolverWideContactBatch;
+     TKraftSolverWideContactBatch=record
+      Points:array[0..MAX_CONTACTS-1] of TKraftSolverWideContactPoint;
+      ContactPairIndices:array[0..3] of TKraftInt32;
+      IndicesA:array[0..3] of TKraftInt32;
+      IndicesB:array[0..3] of TKraftInt32;
+      CountPoints:array[0..3] of TKraftInt32;
+      CountLanes:TKraftInt32;
+      InverseMassesA:TKraftSolverWideLane;
+      InverseMassesB:TKraftSolverWideLane;
+      WorldInverseInertiaTensorsA:TKraftSolverWideMatrix3x3;
+      WorldInverseInertiaTensorsB:TKraftSolverWideMatrix3x3;
+      Normals:TKraftSolverWideVector3;
+      Tangents0:TKraftSolverWideVector3;
+      Tangents1:TKraftSolverWideVector3;
+      OriginsA:TKraftSolverWideVector3;
+      OriginsB:TKraftSolverWideVector3;
+      TangentMasses2x2:array[0..1,0..1] of TKraftSolverWideLane;
+      TangentVelocities:array[0..1] of TKraftSolverWideLane;
+      RollingMasses:TKraftSolverWideMatrix3x3;
+      TwistMasses:TKraftSolverWideLane;
+      TwistImpulses:TKraftSolverWideLane;
+      FrictionImpulses:array[0..1] of TKraftSolverWideLane;
+      RollingImpulses:TKraftSolverWideVector3;
+      Frictions:TKraftSolverWideLane;
+      RollingResistances:TKraftSolverWideLane;
+      Restitutions:TKraftSolverWideLane;
+      RestitutionThresholds:TKraftSolverWideLane;
+      SoftnessBiasRates:TKraftSolverWideLane;
+      SoftnessMassScales:TKraftSolverWideLane;
+      SoftnessImpulseScales:TKraftSolverWideLane;
+     end;
+
+     TKraftSolverWideContactBatches=array of TKraftSolverWideContactBatch;
 
      TKraftSolver=class
       private
@@ -4857,6 +4971,16 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fStageJobOffset:TKraftInt32;
        fStageMinSeparations:array[0..MAX_THREADS-1] of TKraftScalar;
 
+       // Four wide contact batches per constraint graph color for the TGS-soft stages, packed per color by
+       // PackWideContacts after the soft prepare (only pairs with points; the overflow color and pairs
+       // without points stay on the scalar range methods). Only active when the wide contact solver toggle
+       // is on and the solver parallel mode provides the colors of the colored modes.
+       fWideContactBatches:TKraftSolverWideContactBatches;
+       fCountWideContactBatches:TKraftInt32;
+       fWideBatchColorRangeFirsts:array[0..KraftConstraintGraphColorCount-1] of TKraftInt32;
+       fWideBatchColorRangeCounts:array[0..KraftConstraintGraphColorCount-1] of TKraftInt32;
+       fWideActive:boolean;
+
        function MakeSoft(const aHertz,aDampingRatio,aH:TKraftScalar):TKraftSolverSoftness;
 
 {$ifdef KraftPasMP}
@@ -4865,6 +4989,17 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure ContactStageJob(const JobIndex,ThreadIndex:TKraftInt32);
 {$endif}
        procedure DispatchContactStage(const aRangeMethod:TKraftSolverStageRangeMethod);
+       procedure DispatchIndependentStage(const aRangeMethod:TKraftSolverStageRangeMethod;const aCount:TKraftInt32);
+
+       // Wide contact solver machinery (TGS-soft path): PackWideContacts and UnpackWideContacts frame the
+       // substep loop, DispatchWideContactStage runs one wide stage color by color, and the per batch range
+       // kernels run as solver stage pipeline stages over batch index ranges or serially.
+       procedure DispatchWideContactStage(const aWideRangeMethod,aScalarRangeMethod:TKraftSolverStageRangeMethod);
+       procedure PackWideContacts;
+       procedure UnpackWideContacts;
+       procedure WarmStartSubStepWideRange(const aFromBatchIndex,aToBatchIndex,aThreadIndex:TKraftInt32);
+       procedure SolveVelocitySubStepWideRange(const aFromBatchIndex,aToBatchIndex,aThreadIndex:TKraftInt32);
+       procedure ApplyRestitutionWideRange(const aFromBatchIndex,aToBatchIndex,aThreadIndex:TKraftInt32);
 
       public
 
@@ -4872,10 +5007,13 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        destructor Destroy; override;
 
        procedure Store;
+       procedure StoreRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
+       procedure StoreSpeculativeContacts;
 
        procedure Initialize(const TimeStep:TKraftTimeStep);
 
        procedure InitializeConstraints;
+       procedure InitializeConstraintsRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
 
        procedure WarmStart;
        procedure WarmStartRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
@@ -4905,6 +5043,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        // Called once per step, before the substep loop, with the step-start positions/velocities.
        procedure PrepareContactsSoft(const TimeStep:TKraftTimeStep);
+       procedure PrepareContactsSoftRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
 
        // Called once per substep: reapply the accumulated impulses.
        procedure WarmStartSubStep;
@@ -4921,6 +5060,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        // Called once after StoreImpulses (TGS path): write the central friction/twist/rolling impulses back into
        // the persistent manifolds, for next frame's cross-frame warm start.
        procedure StoreSoftContactImpulses;
+       procedure StoreSoftContactImpulsesRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
 
      public
 
@@ -5167,6 +5307,28 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property LifetimeGranularity:TKraftScalar read fLifetimeGranularity write fLifetimeGranularity;
      end;
 
+     { TKraftPersistentIsland }
+     // Persistent connectivity island over the movable (dynamic and kinematic) bodies, the Box3D island
+     // model: maintained incrementally instead of rebuilt per step, with links independent of the sleep
+     // state, eager merging when a new touching link connects two islands, and lazy splitting (one dirty
+     // island per step gets repartitioned) after links vanished. Used by the global graph solver parallel
+     // mode for the sleep grouping; the classic modes keep their per step island build.
+     TKraftPersistentIsland=class
+      private
+       fPhysics:TKraft;
+       fPhysicsIndex:TKraftInt32;
+       fRigidBodies:array of TKraftRigidBody;
+       fCountRigidBodies:TKraftInt32;
+       fNeedsSplitCheck:boolean;
+      public
+       constructor Create(const aPhysics:TKraft);
+       destructor Destroy; override;
+       procedure AddRigidBody(const aRigidBody:TKraftRigidBody);
+       procedure RemoveRigidBody(const aRigidBody:TKraftRigidBody);
+       property CountRigidBodies:TKraftInt32 read fCountRigidBodies;
+       property NeedsSplitCheck:boolean read fNeedsSplitCheck;
+     end;
+
      PKraftConstraintGraphColor=^TKraftConstraintGraphColor;
      TKraftConstraintGraphColor=record
       BodySet:array of TKraftUInt32;
@@ -5252,6 +5414,18 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fConstraintColorRangeFirsts:array[0..KraftConstraintGraphColorCount-1] of TKraftInt32;
        fConstraintColorRangeCounts:array[0..KraftConstraintGraphColorCount-1] of TKraftInt32;
 
+       // Parallel joint stage dispatch state, the joint counterpart of the contact stage dispatch of the
+       // solver (see TKraftSolver.DispatchContactStage); the OK slots collect the per thread convergence
+       // votes of the position stages.
+       fJointStageRangeMethod:TKraftSolverStageRangeMethod;
+       fJointStageJobOffset:TKraftInt32;
+       fJointStageOKs:array[0..MAX_THREADS-1] of boolean;
+       fSolveTimeStep:TKraftTimeStep;
+       fSolveSubStepTimeStep:TKraftTimeStep;
+       // At least one island body carries a user damping callback, so the velocity integration stage has
+       // to run serially (the callback is user code without any thread safety contract)
+       fHasBodyDampingCallbacks:boolean;
+
       public
 
        constructor Create(const aPhysics:TKraft;const aIndex:TKraftInt32);
@@ -5262,6 +5436,28 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure AddContactPair(aContactPair:PKraftContactPair);
        procedure MergeContactPairs;
        procedure BuildSolveOrders;
+{$ifdef KraftPasMP}
+       procedure JointStageParallelForFunction(const Job:PPasMPJob;const ThreadIndex:TKraftInt32;const Data:pointer;const FromIndex,ToIndex:TPasMPNativeInt);
+{$else}
+       procedure JointStageJob(const JobIndex,ThreadIndex:TKraftInt32);
+{$endif}
+       procedure DispatchJointStage(const aRangeMethod:TKraftSolverStageRangeMethod);
+       procedure DispatchIndependentJointStage(const aRangeMethod:TKraftSolverStageRangeMethod);
+       procedure JointInitializeAndWarmStartRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
+       procedure JointSolveVelocityRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
+       procedure JointBreakSweepRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
+       procedure JointSolvePositionRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
+       procedure JointPrepareSubStepRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
+       procedure JointWarmStartSubStepRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
+       procedure JointSolveVelocitySubStepRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
+       procedure JointRelaxSubStepRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
+       procedure JointSolvePositionAdapterRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
+       // Per substep body integration as pipeline body block stages (the Box3D integrate velocities and
+       // integrate positions stages): parallel over the island bodies when the solver stage pipeline runs
+       // (every body only touches its own state), serial exactly like the classic inline loops otherwise.
+       procedure DispatchBodyStage(const aRangeMethod:TKraftSolverStageRangeMethod);
+       procedure SubStepIntegrateVelocitiesRange(const aFromIndex,aToIndex,aThreadIndex:TKraftInt32);
+       procedure SubStepIntegratePositionsRange(const aFromIndex,aToIndex,aThreadIndex:TKraftInt32);
        procedure PutToSleep;
        procedure Solve(const aTimeStep:TKraftTimeStep);
        procedure SolveSequentialImpulse(const aTimeStep:TKraftTimeStep);
@@ -5433,6 +5629,11 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fConstraintGraph:TKraftConstraintGraph;
 
+       fPersistentIslands:array of TKraftPersistentIsland;
+       fCountPersistentIslands:TKraftInt32;
+       fPersistentIslandVisitGeneration:TKraftUInt64;
+       fPersistentIslandStack:TKraftRigidBodies;
+
        fAwakeRigidBodies:TKraftRigidBodies;
        fCountAwakeRigidBodies:TKraftInt32;
 
@@ -5580,6 +5781,27 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fSolverParallelThreshold:TKraftInt32;
 
+       fWideContactSolver:boolean;
+
+       // Solver stage pipeline (Box3D-style block claiming model): during the solves of the big islands
+       // of the colored modes the worker threads stay resident in one spin loop and every parallel stage
+       // publishes itself over one atomic publication counter, instead of paying one job manager wake up
+       // and wait barrier per color and stage. Every publication takes a fresh immutable stage descriptor
+       // slot and fresh block slots from per step pools; the publication counter carries the descriptor
+       // slot index plus one.
+       fSolverStagePipeline:boolean;
+       fPipelineRunning:boolean;
+       fPipelineSyncBits:TKraftInt32;
+       fPipelineStages:TKraftSolverPipelineStages;
+       fPipelineStagePoolOffset:TKraftInt32;
+       fPipelineBlocks:TKraftSolverPipelineBlocks;
+       fPipelineBlockPoolOffset:TKraftInt32;
+       fPipelinePoolWanted:boolean;
+       fPipelineCountWorkers:TKraftInt32;
+{$ifdef KraftPasMP}
+       fPipelineJob:PPasMPJob;
+{$endif}
+
        fCountSubSteps:TKraftInt32;
 
        fContactHertz:TKraftScalar;
@@ -5631,13 +5853,36 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure Integrate(var aPosition:TKraftVector3;var aOrientation:TKraftQuaternion;const aLinearVelocity,aAngularVelocity:TKraftVector3;const aDeltaTime:TKraftScalar);
 
        procedure BuildIslands;
+
+       procedure BuildGlobalIsland;
        procedure CleanIslands;
 {$ifdef KraftPasMP}
        procedure ProcessSolveIslandParallelForFunction(const aJob:PPasMPJob;const aThreadIndex:TKraftInt32;const aData:pointer;const aFromIndex,aToIndex:TPasMPNativeInt);
 {$else}
        procedure ProcessSolveIslandJob(const aJobIndex,aThreadIndex:TKraftInt32);
 {$endif}
+
+       // Solver stage pipeline (see the fSolverStagePipeline field group)
+       function SolverPipelineLoadSyncBits:TKraftInt32;
+       procedure SolverPipelineExecuteStage(const aStage:PKraftSolverPipelineStage;const aWorkerSlot,aThreadIndex:TKraftInt32);
+       procedure SolverPipelinePublishStage(const aRangeMethod:TKraftSolverStageRangeMethod;const aRangeFirst,aRangeCount,aBlockSize:TKraftInt32);
+       procedure SolverPipelineWorkerRun(const aWorkerSlot,aThreadIndex:TKraftInt32);
+{$ifdef KraftPasMP}
+       procedure SolverPipelineWorkerParallelForFunction(const aJob:PPasMPJob;const aThreadIndex:TKraftInt32;const aData:pointer;const aFromIndex,aToIndex:TPasMPNativeInt);
+{$else}
+       procedure SolverPipelineWorkerJob(const aJobIndex,aThreadIndex:TKraftInt32);
+{$endif}
+       procedure StartSolverPipeline;
+       procedure StopSolverPipeline;
+
        procedure SolveIslands(const aTimeStep:TKraftTimeStep);
+
+       // Persistent connectivity islands (see TKraftPersistentIsland)
+       procedure EnsurePersistentIsland(const aRigidBody:TKraftRigidBody);
+       procedure ReleaseFromPersistentIsland(const aRigidBody:TKraftRigidBody);
+       procedure LinkPersistentIslands(const aRigidBodyA,aRigidBodyB:TKraftRigidBody);
+       procedure MarkPersistentIslandsDirty(const aRigidBodyA,aRigidBodyB:TKraftRigidBody);
+       procedure ProcessPersistentIslandSplits;
 
        function GetConservativeAdvancementTimeOfImpact(const aShapeA:TKraftShape;const aSweepA:TKraftSweep;const aShapeB:TKraftShape;const aShapeBMeshIndex,aShapeBTriangleIndex:TKraftInt32;const aSweepB:TKraftSweep;const aTimeStep:TKraftTimeStep;const aThreadIndex:TKraftInt32;var aBeta:TKraftScalar):boolean;
 
@@ -5765,6 +6010,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property RigidBodyIndexPool:TKraftIndexPool read fRigidBodyIndexPool;
 
        property ConstraintGraph:TKraftConstraintGraph read fConstraintGraph;
+
+       function ValidatePersistentIslands(out aError:string):boolean;
 
        property ShapeIDCounter:TKraftUInt64 read fShapeIDCounter;
 
@@ -5902,6 +6149,18 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        // with at least this many constraints leave the parallel island loop and solve with parallel color
        // stages instead, and a single color range dispatches in parallel only from this many constraints on.
        property SolverParallelThreshold:TKraftInt32 read fSolverParallelThreshold write fSolverParallelThreshold;
+
+       // Solver stage pipeline of the colored solver parallel modes (Box3D-style block claiming model):
+       // the parallel stages of a big island run over resident spinning workers with atomic block claiming
+       // instead of one job manager barrier per color and stage. A pure synchronization mechanism switch
+       // without any result influence, the stage work and its order stay identical.
+       property SolverStagePipeline:boolean read fSolverStagePipeline write fSolverStagePipeline;
+
+       // Four wide contact solver for the TGS-soft contact stages (Box3D-style wide contact solver model): the
+       // constraint graph colors make the four lanes of a batch body disjoint, so the pure Pascal kernels run
+       // exactly the scalar operations in the same order and the results stay bit identical to the scalar path
+       // of the same mode. The lane major layout is the base for an optional SIMD assembler stage.
+       property WideContactSolver:boolean read fWideContactSolver write fWideContactSolver;
 
        // TGS begin
 
@@ -16541,6 +16800,60 @@ begin
 
  result:=true;
 
+end;
+
+{ TKraftPersistentIsland }
+
+constructor TKraftPersistentIsland.Create(const aPhysics:TKraft);
+begin
+ inherited Create;
+ fPhysics:=aPhysics;
+ fRigidBodies:=nil;
+ fCountRigidBodies:=0;
+ fNeedsSplitCheck:=false;
+ if fPhysics.fCountPersistentIslands>=length(fPhysics.fPersistentIslands) then begin
+  SetLength(fPhysics.fPersistentIslands,(fPhysics.fCountPersistentIslands+1)*2);
+ end;
+ fPhysicsIndex:=fPhysics.fCountPersistentIslands;
+ fPhysics.fPersistentIslands[fPhysicsIndex]:=self;
+ inc(fPhysics.fCountPersistentIslands);
+end;
+
+destructor TKraftPersistentIsland.Destroy;
+var MovedIsland:TKraftPersistentIsland;
+begin
+ dec(fPhysics.fCountPersistentIslands);
+ if fPhysicsIndex<fPhysics.fCountPersistentIslands then begin
+  MovedIsland:=fPhysics.fPersistentIslands[fPhysics.fCountPersistentIslands];
+  fPhysics.fPersistentIslands[fPhysicsIndex]:=MovedIsland;
+  MovedIsland.fPhysicsIndex:=fPhysicsIndex;
+ end;
+ fRigidBodies:=nil;
+ inherited Destroy;
+end;
+
+procedure TKraftPersistentIsland.AddRigidBody(const aRigidBody:TKraftRigidBody);
+begin
+ if fCountRigidBodies>=length(fRigidBodies) then begin
+  SetLength(fRigidBodies,(fCountRigidBodies+1)*2);
+ end;
+ fRigidBodies[fCountRigidBodies]:=aRigidBody;
+ aRigidBody.fPersistentIsland:=self;
+ aRigidBody.fPersistentIslandLocalIndex:=fCountRigidBodies;
+ inc(fCountRigidBodies);
+end;
+
+procedure TKraftPersistentIsland.RemoveRigidBody(const aRigidBody:TKraftRigidBody);
+var MovedRigidBody:TKraftRigidBody;
+begin
+ dec(fCountRigidBodies);
+ if aRigidBody.fPersistentIslandLocalIndex<fCountRigidBodies then begin
+  MovedRigidBody:=fRigidBodies[fCountRigidBodies];
+  fRigidBodies[aRigidBody.fPersistentIslandLocalIndex]:=MovedRigidBody;
+  MovedRigidBody.fPersistentIslandLocalIndex:=aRigidBody.fPersistentIslandLocalIndex;
+ end;
+ aRigidBody.fPersistentIsland:=nil;
+ aRigidBody.fPersistentIslandLocalIndex:=-1;
 end;
 
 function CalculateArea(const v0,v1,v2:TKraftVector3):TKraftScalar; overload;
@@ -42506,6 +42819,10 @@ begin
   fPhysics.fConstraintGraph.InternalRemoveContactPair(aContactPair);
  end;
 
+ if kcfColliding in aContactPair^.Flags then begin
+  fPhysics.MarkPersistentIslandsDirty(aContactPair^.RigidBodies[0],aContactPair^.RigidBodies[1]);
+ end;
+
  if assigned(aContactPair^.MeshContactPair) then begin
   // A removed triangle pair invalidates the whole-mesh-pair contact recycling, since its contacts may live
   // in a cluster manifold which would otherwise be kept alive. Must happen before the unlink below, which
@@ -43524,11 +43841,20 @@ begin
   if kcfGraphDirty in ContactPair^.Flags then begin
    ContactPair^.Flags:=ContactPair^.Flags-[kcfGraphDirty];
    fPhysics.fConstraintGraph.SynchronizeContactPair(ContactPair);
+   // The same colliding state transition also maintains the persistent connectivity islands
+   if kcfColliding in ContactPair^.Flags then begin
+    fPhysics.LinkPersistentIslands(ContactPair^.RigidBodies[0],ContactPair^.RigidBodies[1]);
+   end else begin
+    fPhysics.MarkPersistentIslandsDirty(ContactPair^.RigidBodies[0],ContactPair^.RigidBodies[1]);
+   end;
   end;
  end;
  Constraint:=fPhysics.fConstraintFirst;
  while assigned(Constraint) do begin
   fPhysics.fConstraintGraph.SynchronizeConstraint(Constraint);
+  if (Constraint.fFlags*[kcfActive,kcfBreaked])=[kcfActive] then begin
+   fPhysics.LinkPersistentIslands(Constraint.fRigidBodies[0],Constraint.fRigidBodies[1]);
+  end;
   Constraint:=Constraint.fNext;
  end;
 
@@ -44559,6 +44885,10 @@ begin
 
  fAwakeIndex:=-1;
 
+ fPersistentIsland:=nil;
+ fPersistentIslandLocalIndex:=-1;
+ fPersistentIslandVisitGeneration:=0;
+
  fWorldDisplacement:=Vector3Origin;
 
  fWorldBoundExpansion:=Vector3Origin;
@@ -44867,6 +45197,8 @@ begin
 
  UpdateAwakeListMembership;
 
+ fPhysics.ReleaseFromPersistentIsland(self);
+
  fPhysics.fRigidBodyIndexPool.ReleaseIndex(fBodyIndex);
  fBodyIndex:=-1;
 
@@ -44954,6 +45286,8 @@ end;
 procedure TKraftRigidBody.SetRigidBodyType(const aRigidBodyType:TKraftRigidBodyType);
 var Shape:TKraftShape;
     OtherRigidBody:TKraftRigidBody;
+    ContactPairEdge:PKraftContactPairEdge;
+    ConstraintEdge:PKraftConstraintEdge;
 begin
 
  if fRigidBodyType<>aRigidBodyType then begin
@@ -45265,6 +45599,30 @@ begin
   // The color class of a constraint (movable versus static partner) and the body occupancy bits of the
   // constraint graph depend on the body type, so the graph residency of this body gets rebuilt.
   fPhysics.fConstraintGraph.RefreshRigidBody(self);
+
+  // Persistent island membership follows the movability of the body. A body which just became movable
+  // relinks over its already touching contacts and active joints at once, since those produce no new
+  // colliding state transition which would link it over the narrow phase bookkeeping.
+  if fRigidBodyType in [krbtDynamic,krbtKinematic] then begin
+   fPhysics.EnsurePersistentIsland(self);
+   ContactPairEdge:=fContactPairEdgeFirst;
+   while assigned(ContactPairEdge) do begin
+    if kcfColliding in ContactPairEdge^.ContactPair^.Flags then begin
+     fPhysics.LinkPersistentIslands(self,ContactPairEdge^.OtherRigidBody);
+    end;
+    ContactPairEdge:=ContactPairEdge^.Next;
+   end;
+   ConstraintEdge:=fConstraintEdgeFirst;
+   while assigned(ConstraintEdge) do begin
+    if assigned(ConstraintEdge^.Constraint) and
+       ((ConstraintEdge^.Constraint.fFlags*[kcfActive,kcfBreaked])=[kcfActive]) then begin
+     fPhysics.LinkPersistentIslands(self,ConstraintEdge^.OtherRigidBody);
+    end;
+    ConstraintEdge:=ConstraintEdge^.Next;
+   end;
+  end else begin
+   fPhysics.ReleaseFromPersistentIsland(self);
+  end;
 
  end;
 
@@ -46224,6 +46582,7 @@ begin
  if fGraphColorIndex>=0 then begin
   fPhysics.fConstraintGraph.InternalRemoveConstraint(self);
  end;
+ fPhysics.MarkPersistentIslandsDirty(fRigidBodies[0],fRigidBodies[1]);
 
  if assigned(fParent) then begin
   for ConstraintIndex:=0 to fParent.fCountChildren-1 do begin
@@ -49538,7 +49897,7 @@ begin
  fRelativePositions[1]:=rB;
 
  // Point-to-point softness over the substep length: the world joint softness, clamped to a quarter of the substep
- // rate for stability (Box3D b3PrepareJoint / constraintSoftness).
+ // rate for stability (as in Box3D).
  h:=TimeStep.SubStepDeltaTime;
  Hertz:=Min(fPhysics.fJointHertz,0.25*TimeStep.InverseSubStepDeltaTime);
  if Hertz>0.0 then begin
@@ -55751,7 +56110,7 @@ begin
  fAllLinearLocked:=(fLinearModes[0]=k6damLocked) and (fLinearModes[1]=k6damLocked) and (fLinearModes[2]=k6damLocked);
 
  // Constraint softness over the substep length: the world joint softness, clamped to a quarter of the substep
- // rate for stability (Box3D b3PrepareJoint / constraintSoftness).
+ // rate for stability (as in Box3D).
  h:=TimeStep.SubStepDeltaTime;
  Hertz:=Min(fPhysics.fJointHertz,0.25*TimeStep.InverseSubStepDeltaTime);
  if Hertz>0.0 then begin
@@ -56358,6 +56717,10 @@ begin
  fPrepareOrientations:=nil;
  SetLength(fPrepareOrientations,64);
 
+ fWideContactBatches:=nil;
+ fCountWideContactBatches:=0;
+ fWideActive:=false;
+
 end;
 
 destructor TKraftSolver.Destroy;
@@ -56372,6 +56735,7 @@ begin
  fSIRollingStates:=nil;
  fPrepareCenters:=nil;
  fPrepareOrientations:=nil;
+ fWideContactBatches:=nil;
  inherited Destroy;
 end;
 
@@ -56427,7 +56791,23 @@ begin
  end;
  fCountSpeculativeContactStates:=fCountSpeculativeContacts;
 
- for ContactPairIndex:=0 to fCountContacts-1 do begin
+ DispatchIndependentStage(StoreRange,fCountContacts);
+
+ StoreSpeculativeContacts;
+
+end;
+
+procedure TKraftSolver.StoreRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
+var ContactPairIndex,ContactIndex,BodyIndex:TKraftInt32;
+    VelocityState:PKraftSolverVelocityState;
+    PositionState:PKraftSolverPositionState;
+    ContactPair:PKraftContactPair;
+    Contact:PKraftContact;
+    ContactPoint:PKraftSolverVelocityStateContactPoint;
+    SpeculativeContactState:PKraftSolverSpeculativeContactState;
+begin
+
+ for ContactPairIndex:=aFromOrderIndex to aToOrderIndex do begin
 
   ContactPair:=fIsland.fContactPairs[ContactPairIndex];
 
@@ -56530,6 +56910,15 @@ begin
 
  end;
 
+end;
+
+procedure TKraftSolver.StoreSpeculativeContacts;
+var ContactPairIndex,BodyIndex:TKraftInt32;
+    ContactPair:PKraftContactPair;
+    Contact:PKraftContact;
+    SpeculativeContactState:PKraftSolverSpeculativeContactState;
+begin
+
  for ContactPairIndex:=0 to fCountSpeculativeContacts-1 do begin
   ContactPair:=fIsland.fSpeculativeContactPairs[ContactPairIndex];
 
@@ -56621,7 +57010,30 @@ begin
   SetLength(fSIRollingStates,fCountContacts*2);
  end;
 
- for ContactPairIndex:=0 to fCountContacts-1 do begin
+ DispatchIndependentStage(InitializeConstraintsRange,fCountContacts);
+
+end;
+
+procedure TKraftSolver.InitializeConstraintsRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
+var ContactPairIndex,ContactIndex,TangentIndex,IndexA,IndexB:TKraftInt32;
+    VelocityState:PKraftSolverVelocityState;
+    PositionState:PKraftSolverPositionState;
+    ContactPoint:PKraftSolverVelocityStateContactPoint;
+    SolverContact:PKraftSolverContact;
+    iA,iB:PKraftMatrix3x3;
+    mA,mB,NormalMass,TangentMass,dv,LostSpeculativeBounce:TKraftScalar;
+    LocalCenterA,LocalCenterB,cA,vA,wA,rnA,rtA,cB,vB,wB,rnB,rtB,P,Temp:TKraftVector3;
+    TangentVectors:array[0..1] of TKraftVector3;
+    qA,qB:TKraftQuaternion;
+    tA,tB:TKraftMatrix4x4;
+    SolverContactManifold:TKraftSolverContactManifold;
+    ISum:TKraftMatrix3x3;
+begin
+
+ TangentVectors[0]:=Vector3Origin;
+ TangentVectors[1]:=Vector3Origin;
+
+ for ContactPairIndex:=aFromOrderIndex to aToOrderIndex do begin
 
   VelocityState:=@fVelocityStates[ContactPairIndex];
 
@@ -56893,6 +57305,8 @@ begin
     RangeFirst:=fContactColorRangeFirsts[ColorIndex];
     if (ColorIndex=KraftConstraintGraphOverflowIndex) or (RangeCount<fPhysics.fSolverParallelThreshold) then begin
      aRangeMethod(RangeFirst,(RangeFirst+RangeCount)-1,0);
+    end else if fPhysics.fPipelineRunning then begin
+     fPhysics.SolverPipelinePublishStage(aRangeMethod,RangeFirst,RangeCount,KraftSolverPipelineContactBlockSize);
     end else begin
      fStageRangeMethod:=aRangeMethod;
 {$ifdef KraftPasMP}
@@ -56906,6 +57320,33 @@ begin
 {$endif}
     end;
    end;
+  end;
+ end;
+end;
+
+procedure TKraftSolver.DispatchIndependentStage(const aRangeMethod:TKraftSolverStageRangeMethod;const aCount:TKraftInt32);
+// Runs one order independent stage (prepare and store passes, which only read the bodies and write their
+// own per constraint states): a plain parallel for over all constraints without any coloring, when this
+// island uses parallel stages and the work is big enough, serial otherwise. Result identical either way.
+begin
+ if aCount>0 then begin
+  if fIsland.fUseParallelStages and (aCount>=fPhysics.fSolverParallelThreshold) then begin
+   if fPhysics.fPipelineRunning then begin
+    fPhysics.SolverPipelinePublishStage(aRangeMethod,0,aCount,KraftSolverPipelineIndependentBlockSize);
+   end else begin
+    fStageRangeMethod:=aRangeMethod;
+{$ifdef KraftPasMP}
+    fPhysics.fPasMP.Invoke(fPhysics.fPasMP.ParallelFor(nil,0,aCount-1,ContactStageParallelForFunction,Max(16,aCount div (fPhysics.fCountThreads*4)),4,nil,0,fPhysics.fPasMPAreaMask,fPhysics.fPasMPAvoidAreaMask,true,fPhysics.fPasMPAffinityAllowMask,fPhysics.fPasMPAffinityAvoidMask));
+{$else}
+    fStageJobOffset:=0;
+    fPhysics.fJobManager.fOnProcessJob:=ContactStageJob;
+    fPhysics.fJobManager.fCountRemainJobs:=aCount;
+    fPhysics.fJobManager.fGranularity:=Max(16,aCount div (fPhysics.fCountThreads*4));
+    fPhysics.fJobManager.ProcessJobs;
+{$endif}
+   end;
+  end else begin
+   aRangeMethod(0,aCount-1,0);
   end;
  end;
 end;
@@ -57647,10 +58088,45 @@ begin
   SetLength(fTGSContactStates,fCountContacts*2);
  end;
 
+ fStageTimeStep:=TimeStep;
+
+ DispatchIndependentStage(PrepareContactsSoftRange,fCountContacts);
+
+ // The wide contact solver packs the prepared soft contact states into the four wide batches per color; the
+ // wide path needs the constraint graph colors for body disjoint lanes, so it stays off in the classic
+ // island mode.
+ fWideActive:=fPhysics.fWideContactSolver and (fPhysics.fSolverParallelMode<>kspmIslands);
+ if fWideActive then begin
+  PackWideContacts;
+ end;
+
+end;
+
+procedure TKraftSolver.PrepareContactsSoftRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
+var ContactPairIndex,ContactIndex,TangentIndex,IndexA,IndexB:TKraftInt32;
+    VelocityState:PKraftSolverVelocityState;
+    PositionState:PKraftSolverPositionState;
+    ContactPoint:PKraftSolverVelocityStateContactPoint;
+    TGSState:PKraftSolverTGSContactState;
+    SolverContact:PKraftSolverContact;
+    iA,iB:PKraftMatrix3x3;
+    mA,mB,NormalMass,TangentMass,dv,h,InvCount,kTwist:TKraftScalar;
+    LocalCenterA,LocalCenterB,cA,vA,wA,rnA,rtA,cB,vB,wB,rnB,rtB,rA,rB,Temp,CentroidA,CentroidB,rtA1,rtA2,rtB1,rtB2:TKraftVector3;
+    TangentVectors:array[0..1] of TKraftVector3;
+    qA,qB:TKraftQuaternion;
+    tA,tB:TKraftMatrix4x4;
+    K2:TKraftMatrix2x2;
+    ISum:TKraftMatrix3x3;
+    Manifold:PKraftContactManifold;
+    SolverContactManifold:TKraftSolverContactManifold;
+begin
+
+ h:=fStageTimeStep.SubStepDeltaTime;
+
  TangentVectors[0]:=Vector3Origin;
  TangentVectors[1]:=Vector3Origin;
 
- for ContactPairIndex:=0 to fCountContacts-1 do begin
+ for ContactPairIndex:=aFromOrderIndex to aToOrderIndex do begin
 
   VelocityState:=@fVelocityStates[ContactPairIndex];
   PositionState:=@fPositionStates[ContactPairIndex];
@@ -57817,7 +58293,11 @@ end;
 
 procedure TKraftSolver.WarmStartSubStep;
 begin
- DispatchContactStage(WarmStartSubStepRange);
+ if fWideActive then begin
+  DispatchWideContactStage(WarmStartSubStepWideRange,WarmStartSubStepRange);
+ end else begin
+  DispatchContactStage(WarmStartSubStepRange);
+ end;
 end;
 
 procedure TKraftSolver.WarmStartSubStepRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
@@ -57908,7 +58388,11 @@ procedure TKraftSolver.SolveVelocitySubStep(const TimeStep:TKraftTimeStep;const 
 begin
  fStageTimeStep:=TimeStep;
  fStageUseBias:=aUseBias;
- DispatchContactStage(SolveVelocitySubStepRange);
+ if fWideActive then begin
+  DispatchWideContactStage(SolveVelocitySubStepWideRange,SolveVelocitySubStepRange);
+ end else begin
+  DispatchContactStage(SolveVelocitySubStepRange);
+ end;
 end;
 
 procedure TKraftSolver.SolveVelocitySubStepRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
@@ -58132,7 +58616,14 @@ end;
 
 procedure TKraftSolver.ApplyRestitution;
 begin
- DispatchContactStage(ApplyRestitutionRange);
+ if fWideActive then begin
+  DispatchWideContactStage(ApplyRestitutionWideRange,ApplyRestitutionRange);
+  // Restitution is the last wide contact stage, so the accumulated impulses now go back to the scalar per
+  // pair states that the store passes and the next frame's warm start read.
+  UnpackWideContacts;
+ end else begin
+  DispatchContactStage(ApplyRestitutionRange);
+ end;
 end;
 
 procedure TKraftSolver.ApplyRestitutionRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
@@ -58230,7 +58721,20 @@ begin
 
  // Store the central friction / twist / rolling impulses in each persistent manifold, so the next frame's
  // PrepareContactsSoft can seed them for a cross-frame warm start.
- for ContactPairIndex:=0 to fCountContacts-1 do begin
+ DispatchIndependentStage(StoreSoftContactImpulsesRange,fCountContacts);
+
+end;
+
+procedure TKraftSolver.StoreSoftContactImpulsesRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
+var ContactPairIndex:TKraftInt32;
+    VelocityState:PKraftSolverVelocityState;
+    TGSState:PKraftSolverTGSContactState;
+    Manifold:PKraftContactManifold;
+    Normal:TKraftVector3;
+    TangentVectors:array[0..1] of TKraftVector3;
+begin
+
+ for ContactPairIndex:=aFromOrderIndex to aToOrderIndex do begin
 
   VelocityState:=@fVelocityStates[ContactPairIndex];
 
@@ -58250,6 +58754,618 @@ begin
 
   end;
 
+ end;
+
+end;
+
+procedure TKraftSolver.DispatchWideContactStage(const aWideRangeMethod,aScalarRangeMethod:TKraftSolverStageRangeMethod);
+// Runs one wide contact stage color by color over the wide batch ranges: published to the solver stage
+// pipeline when it runs (a batch of one color never shares a movable body, so its four lanes and all
+// batches of the color solve concurrently), serially otherwise; the overflow color always falls back to
+// the scalar range method over its solve order range, exactly like the scalar color dispatch does.
+var ColorIndex,RangeFirst,RangeCount:TKraftInt32;
+begin
+ for ColorIndex:=0 to KraftConstraintGraphColorCount-1 do begin
+  if ColorIndex=KraftConstraintGraphOverflowIndex then begin
+   RangeCount:=fContactColorRangeCounts[ColorIndex];
+   if RangeCount>0 then begin
+    RangeFirst:=fContactColorRangeFirsts[ColorIndex];
+    aScalarRangeMethod(RangeFirst,(RangeFirst+RangeCount)-1,0);
+   end;
+  end else begin
+   RangeCount:=fWideBatchColorRangeCounts[ColorIndex];
+   if RangeCount>0 then begin
+    RangeFirst:=fWideBatchColorRangeFirsts[ColorIndex];
+    if fPhysics.fPipelineRunning then begin
+     fPhysics.SolverPipelinePublishStage(aWideRangeMethod,RangeFirst,RangeCount,KraftSolverPipelineWideBatchBlockSize);
+    end else begin
+     aWideRangeMethod(RangeFirst,(RangeFirst+RangeCount)-1,0);
+    end;
+   end;
+  end;
+ end;
+end;
+
+procedure TKraftSolver.PackWideContacts;
+// Builds the four wide batches from the prepared soft contact states, color by color in solve order, so
+// the wide lane sequence equals the scalar solve sequence. Pairs without points are skipped entirely
+// (their scalar stages are pure no-ops) and the overflow color stays scalar.
+var ColorIndex,OrderIndex,RangeFirst,RangeCount,ContactPairIndex,LaneIndex,ContactIndex,RowIndex,ColumnIndex:TKraftInt32;
+    Batch:PKraftSolverWideContactBatch;
+    VelocityState:PKraftSolverVelocityState;
+    TGSState:PKraftSolverTGSContactState;
+    ContactPoint:PKraftSolverVelocityStateContactPoint;
+    WidePoint:PKraftSolverWideContactPoint;
+    TangentVectors:array[0..1] of TKraftVector3;
+begin
+
+ if (((fCountContacts+3) div 4)+KraftConstraintGraphColorCount)>length(fWideContactBatches) then begin
+  SetLength(fWideContactBatches,(((fCountContacts+3) div 4)+KraftConstraintGraphColorCount)*2);
+ end;
+
+ fCountWideContactBatches:=0;
+
+ for ColorIndex:=0 to KraftConstraintGraphColorCount-1 do begin
+
+  fWideBatchColorRangeFirsts[ColorIndex]:=fCountWideContactBatches;
+  fWideBatchColorRangeCounts[ColorIndex]:=0;
+
+  if ColorIndex<>KraftConstraintGraphOverflowIndex then begin
+
+   RangeCount:=fContactColorRangeCounts[ColorIndex];
+   if RangeCount>0 then begin
+
+    RangeFirst:=fContactColorRangeFirsts[ColorIndex];
+    Batch:=nil;
+
+    for OrderIndex:=RangeFirst to (RangeFirst+RangeCount)-1 do begin
+
+     ContactPairIndex:=fContactSolveOrder[OrderIndex];
+     VelocityState:=@fVelocityStates[ContactPairIndex];
+     if VelocityState^.CountPoints>0 then begin
+
+      if (not assigned(Batch)) or (Batch^.CountLanes>=4) then begin
+       Batch:=@fWideContactBatches[fCountWideContactBatches];
+       inc(fCountWideContactBatches);
+       inc(fWideBatchColorRangeCounts[ColorIndex]);
+       // Zero the whole batch, so the unused lanes and point slots are inert for a SIMD stage which
+       // processes all four lanes and all point slots unconditionally.
+       FillChar(Batch^,SizeOf(TKraftSolverWideContactBatch),AnsiChar(#0));
+      end;
+
+      LaneIndex:=Batch^.CountLanes;
+      inc(Batch^.CountLanes);
+
+      TGSState:=@fTGSContactStates[ContactPairIndex];
+
+      Batch^.ContactPairIndices[LaneIndex]:=ContactPairIndex;
+      Batch^.IndicesA[LaneIndex]:=VelocityState^.Indices[0];
+      Batch^.IndicesB[LaneIndex]:=VelocityState^.Indices[1];
+      Batch^.CountPoints[LaneIndex]:=VelocityState^.CountPoints;
+
+      Batch^.InverseMassesA[LaneIndex]:=VelocityState^.InverseMasses[0];
+      Batch^.InverseMassesB[LaneIndex]:=VelocityState^.InverseMasses[1];
+
+      for RowIndex:=0 to 2 do begin
+       for ColumnIndex:=0 to 2 do begin
+        Batch^.WorldInverseInertiaTensorsA[RowIndex,ColumnIndex][LaneIndex]:=VelocityState^.WorldInverseInertiaTensors[0][RowIndex,ColumnIndex];
+        Batch^.WorldInverseInertiaTensorsB[RowIndex,ColumnIndex][LaneIndex]:=VelocityState^.WorldInverseInertiaTensors[1][RowIndex,ColumnIndex];
+        Batch^.RollingMasses[RowIndex,ColumnIndex][LaneIndex]:=TGSState^.RollingMass[RowIndex,ColumnIndex];
+       end;
+      end;
+
+      Batch^.Normals.x[LaneIndex]:=VelocityState^.Normal.x;
+      Batch^.Normals.y[LaneIndex]:=VelocityState^.Normal.y;
+      Batch^.Normals.z[LaneIndex]:=VelocityState^.Normal.z;
+
+      // The tangent basis is a pure function of the normal, so packing it once gives the same values the
+      // scalar stages get from their per stage ComputeBasis calls.
+      ComputeBasis(VelocityState^.Normal,TangentVectors[0],TangentVectors[1]);
+      Batch^.Tangents0.x[LaneIndex]:=TangentVectors[0].x;
+      Batch^.Tangents0.y[LaneIndex]:=TangentVectors[0].y;
+      Batch^.Tangents0.z[LaneIndex]:=TangentVectors[0].z;
+      Batch^.Tangents1.x[LaneIndex]:=TangentVectors[1].x;
+      Batch^.Tangents1.y[LaneIndex]:=TangentVectors[1].y;
+      Batch^.Tangents1.z[LaneIndex]:=TangentVectors[1].z;
+
+      Batch^.OriginsA.x[LaneIndex]:=TGSState^.OriginA.x;
+      Batch^.OriginsA.y[LaneIndex]:=TGSState^.OriginA.y;
+      Batch^.OriginsA.z[LaneIndex]:=TGSState^.OriginA.z;
+      Batch^.OriginsB.x[LaneIndex]:=TGSState^.OriginB.x;
+      Batch^.OriginsB.y[LaneIndex]:=TGSState^.OriginB.y;
+      Batch^.OriginsB.z[LaneIndex]:=TGSState^.OriginB.z;
+
+      Batch^.TangentMasses2x2[0,0][LaneIndex]:=TGSState^.TangentMass2x2[0,0];
+      Batch^.TangentMasses2x2[0,1][LaneIndex]:=TGSState^.TangentMass2x2[0,1];
+      Batch^.TangentMasses2x2[1,0][LaneIndex]:=TGSState^.TangentMass2x2[1,0];
+      Batch^.TangentMasses2x2[1,1][LaneIndex]:=TGSState^.TangentMass2x2[1,1];
+
+      Batch^.TangentVelocities[0][LaneIndex]:=TGSState^.TangentVelocity[0];
+      Batch^.TangentVelocities[1][LaneIndex]:=TGSState^.TangentVelocity[1];
+
+      Batch^.TwistMasses[LaneIndex]:=TGSState^.TwistMass;
+      Batch^.TwistImpulses[LaneIndex]:=TGSState^.TwistImpulse;
+      Batch^.FrictionImpulses[0][LaneIndex]:=TGSState^.FrictionImpulse[0];
+      Batch^.FrictionImpulses[1][LaneIndex]:=TGSState^.FrictionImpulse[1];
+      Batch^.RollingImpulses.x[LaneIndex]:=TGSState^.RollingImpulse.x;
+      Batch^.RollingImpulses.y[LaneIndex]:=TGSState^.RollingImpulse.y;
+      Batch^.RollingImpulses.z[LaneIndex]:=TGSState^.RollingImpulse.z;
+
+      Batch^.Frictions[LaneIndex]:=VelocityState^.Friction;
+      Batch^.RollingResistances[LaneIndex]:=VelocityState^.RollingResistance;
+      Batch^.Restitutions[LaneIndex]:=VelocityState^.Restitution;
+      Batch^.RestitutionThresholds[LaneIndex]:=VelocityState^.RestitutionThreshold;
+
+      Batch^.SoftnessBiasRates[LaneIndex]:=TGSState^.Softness.BiasRate;
+      Batch^.SoftnessMassScales[LaneIndex]:=TGSState^.Softness.MassScale;
+      Batch^.SoftnessImpulseScales[LaneIndex]:=TGSState^.Softness.ImpulseScale;
+
+      for ContactIndex:=0 to VelocityState^.CountPoints-1 do begin
+       ContactPoint:=@VelocityState^.Points[ContactIndex];
+       WidePoint:=@Batch^.Points[ContactIndex];
+       WidePoint^.RelativePositionsA.x[LaneIndex]:=ContactPoint^.RelativePositions[0].x;
+       WidePoint^.RelativePositionsA.y[LaneIndex]:=ContactPoint^.RelativePositions[0].y;
+       WidePoint^.RelativePositionsA.z[LaneIndex]:=ContactPoint^.RelativePositions[0].z;
+       WidePoint^.RelativePositionsB.x[LaneIndex]:=ContactPoint^.RelativePositions[1].x;
+       WidePoint^.RelativePositionsB.y[LaneIndex]:=ContactPoint^.RelativePositions[1].y;
+       WidePoint^.RelativePositionsB.z[LaneIndex]:=ContactPoint^.RelativePositions[1].z;
+       WidePoint^.AdjustedSeparations[LaneIndex]:=TGSState^.AdjustedSeparations[ContactIndex];
+       WidePoint^.RelativeVelocities[LaneIndex]:=TGSState^.RelativeVelocities[ContactIndex];
+       WidePoint^.NormalMasses[LaneIndex]:=ContactPoint^.NormalMass;
+       WidePoint^.NormalImpulses[LaneIndex]:=ContactPoint^.NormalImpulse;
+       WidePoint^.LeverArms[LaneIndex]:=TGSState^.LeverArms[ContactIndex];
+      end;
+
+     end;
+
+    end;
+
+   end;
+
+  end;
+
+ end;
+
+end;
+
+procedure TKraftSolver.UnpackWideContacts;
+// Hands the impulse state the wide stages accumulated back to the scalar per pair states, which the
+// store passes and the next frame's warm start read.
+var BatchIndex,LaneIndex,ContactIndex,ContactPairIndex:TKraftInt32;
+    Batch:PKraftSolverWideContactBatch;
+    WidePoint:PKraftSolverWideContactPoint;
+    VelocityState:PKraftSolverVelocityState;
+    TGSState:PKraftSolverTGSContactState;
+begin
+ for BatchIndex:=0 to fCountWideContactBatches-1 do begin
+  Batch:=@fWideContactBatches[BatchIndex];
+  for LaneIndex:=0 to Batch^.CountLanes-1 do begin
+   ContactPairIndex:=Batch^.ContactPairIndices[LaneIndex];
+   VelocityState:=@fVelocityStates[ContactPairIndex];
+   TGSState:=@fTGSContactStates[ContactPairIndex];
+   for ContactIndex:=0 to Batch^.CountPoints[LaneIndex]-1 do begin
+    WidePoint:=@Batch^.Points[ContactIndex];
+    VelocityState^.Points[ContactIndex].NormalImpulse:=WidePoint^.NormalImpulses[LaneIndex];
+   end;
+   TGSState^.FrictionImpulse[0]:=Batch^.FrictionImpulses[0][LaneIndex];
+   TGSState^.FrictionImpulse[1]:=Batch^.FrictionImpulses[1][LaneIndex];
+   TGSState^.TwistImpulse:=Batch^.TwistImpulses[LaneIndex];
+   TGSState^.RollingImpulse:=Vector3(Batch^.RollingImpulses.x[LaneIndex],Batch^.RollingImpulses.y[LaneIndex],Batch^.RollingImpulses.z[LaneIndex]);
+  end;
+ end;
+end;
+
+procedure TKraftSolver.WarmStartSubStepWideRange(const aFromBatchIndex,aToBatchIndex,aThreadIndex:TKraftInt32);
+// Wide counterpart of WarmStartSubStepRange: the lanes run the identical scalar operations in the
+// identical order, only against the lane major batch storage.
+var BatchIndex,LaneIndex,ContactIndex,IndexA,IndexB,CountPoints,RowIndex,ColumnIndex:TKraftInt32;
+    Batch:PKraftSolverWideContactBatch;
+    WidePoint:PKraftSolverWideContactPoint;
+    iA,iB:TKraftMatrix3x3;
+    mA,mB:TKraftScalar;
+    Normal,vA,lA,wA,vB,lB,wB,P,rA,rB:TKraftVector3;
+    TangentVectors:array[0..1] of TKraftVector3;
+begin
+
+ for BatchIndex:=aFromBatchIndex to aToBatchIndex do begin
+  Batch:=@fWideContactBatches[BatchIndex];
+  for LaneIndex:=0 to Batch^.CountLanes-1 do begin
+
+   IndexA:=Batch^.IndicesA[LaneIndex];
+   IndexB:=Batch^.IndicesB[LaneIndex];
+   iA:=Matrix3x3Null;
+   iB:=Matrix3x3Null;
+   for RowIndex:=0 to 2 do begin
+    for ColumnIndex:=0 to 2 do begin
+     iA[RowIndex,ColumnIndex]:=Batch^.WorldInverseInertiaTensorsA[RowIndex,ColumnIndex][LaneIndex];
+     iB[RowIndex,ColumnIndex]:=Batch^.WorldInverseInertiaTensorsB[RowIndex,ColumnIndex][LaneIndex];
+    end;
+   end;
+   mA:=Batch^.InverseMassesA[LaneIndex];
+   mB:=Batch^.InverseMassesB[LaneIndex];
+   CountPoints:=Batch^.CountPoints[LaneIndex];
+   Normal:=Vector3(Batch^.Normals.x[LaneIndex],Batch^.Normals.y[LaneIndex],Batch^.Normals.z[LaneIndex]);
+   TangentVectors[0]:=Vector3(Batch^.Tangents0.x[LaneIndex],Batch^.Tangents0.y[LaneIndex],Batch^.Tangents0.z[LaneIndex]);
+   TangentVectors[1]:=Vector3(Batch^.Tangents1.x[LaneIndex],Batch^.Tangents1.y[LaneIndex],Batch^.Tangents1.z[LaneIndex]);
+
+   vA:=fVelocities[IndexA].LinearVelocity;
+   wA:=fVelocities[IndexA].AngularVelocity;
+   vB:=fVelocities[IndexB].LinearVelocity;
+   wB:=fVelocities[IndexB].AngularVelocity;
+
+   lA:=fLinearFactors[IndexA];
+   lB:=fLinearFactors[IndexB];
+
+   for ContactIndex:=0 to CountPoints-1 do begin
+
+    WidePoint:=@Batch^.Points[ContactIndex];
+
+    // Normal impulse of this point; friction is warm-started centrally after the loop, not per point.
+    P:=Vector3ScalarMul(Normal,WidePoint^.NormalImpulses[LaneIndex]);
+
+    rA:=Vector3(WidePoint^.RelativePositionsA.x[LaneIndex],WidePoint^.RelativePositionsA.y[LaneIndex],WidePoint^.RelativePositionsA.z[LaneIndex]);
+    rB:=Vector3(WidePoint^.RelativePositionsB.x[LaneIndex],WidePoint^.RelativePositionsB.y[LaneIndex],WidePoint^.RelativePositionsB.z[LaneIndex]);
+
+    Vector3DirectSub(vA,Vector3Mul(P,Vector3ScalarMul(lA,mA)));
+    Vector3DirectSub(wA,Vector3TermMatrixMul(Vector3Cross(rA,P),iA));
+
+    Vector3DirectAdd(vB,Vector3Mul(P,Vector3ScalarMul(lB,mB)));
+    Vector3DirectAdd(wB,Vector3TermMatrixMul(Vector3Cross(rB,P),iB));
+
+   end;
+
+   // Central friction / twist / rolling warm start, anchored at the manifold centroid.
+   if CountPoints>0 then begin
+
+    // Central tangential friction at the origin.
+    P:=Vector3Add(Vector3ScalarMul(TangentVectors[0],Batch^.FrictionImpulses[0][LaneIndex]),Vector3ScalarMul(TangentVectors[1],Batch^.FrictionImpulses[1][LaneIndex]));
+    rA:=Vector3(Batch^.OriginsA.x[LaneIndex],Batch^.OriginsA.y[LaneIndex],Batch^.OriginsA.z[LaneIndex]);
+    rB:=Vector3(Batch^.OriginsB.x[LaneIndex],Batch^.OriginsB.y[LaneIndex],Batch^.OriginsB.z[LaneIndex]);
+    Vector3DirectSub(vA,Vector3Mul(P,Vector3ScalarMul(lA,mA)));
+    Vector3DirectSub(wA,Vector3TermMatrixMul(Vector3Cross(rA,P),iA));
+    Vector3DirectAdd(vB,Vector3Mul(P,Vector3ScalarMul(lB,mB)));
+    Vector3DirectAdd(wB,Vector3TermMatrixMul(Vector3Cross(rB,P),iB));
+
+    // Central twist about the normal.
+    P:=Vector3ScalarMul(Normal,Batch^.TwistImpulses[LaneIndex]);
+    Vector3DirectSub(wA,Vector3TermMatrixMul(P,iA));
+    Vector3DirectAdd(wB,Vector3TermMatrixMul(P,iB));
+
+    // Rolling resistance (angular only).
+    P:=Vector3(Batch^.RollingImpulses.x[LaneIndex],Batch^.RollingImpulses.y[LaneIndex],Batch^.RollingImpulses.z[LaneIndex]);
+    Vector3DirectSub(wA,Vector3TermMatrixMul(P,iA));
+    Vector3DirectAdd(wB,Vector3TermMatrixMul(P,iB));
+
+   end;
+
+   // Write the updated velocities back.
+   fVelocities[IndexA].LinearVelocity:=vA;
+   fVelocities[IndexA].AngularVelocity:=wA;
+   fVelocities[IndexB].LinearVelocity:=vB;
+   fVelocities[IndexB].AngularVelocity:=wB;
+
+  end;
+ end;
+
+end;
+
+procedure TKraftSolver.SolveVelocitySubStepWideRange(const aFromBatchIndex,aToBatchIndex,aThreadIndex:TKraftInt32);
+// Wide counterpart of SolveVelocitySubStepRange: the lanes run the identical scalar operations in the
+// identical order, only against the lane major batch storage.
+var BatchIndex,LaneIndex,ContactIndex,IndexA,IndexB,CountPoints,RowIndex,ColumnIndex:TKraftInt32;
+    Batch:PKraftSolverWideContactBatch;
+    WidePoint:PKraftSolverWideContactPoint;
+    iA,iB,RollingMass:TKraftMatrix3x3;
+    mA,mB,Friction,Lambda,MaxLambda,vn,Old,Separation,Bias,MassScale,ImpulseScale,MaxBiasVelocity,InverseH,TotalNormalImpulse,TotalTwistLimit,TwistSpeed,MagSqr,LenSqr,Scale,NewX,NewY,DX,DY,VTx,VTy,TMx,TMy,NewNormalImpulse:TKraftScalar;
+    Normal,vA,lA,wA,rA,vB,lB,wB,rB,dv,P,dcA,dcB,dw,DeltaRoll,OldRoll,NewRoll:TKraftVector3;
+    dqA,dqB:TKraftQuaternion;
+    TangentVectors:array[0..1] of TKraftVector3;
+    TimeStep:TKraftTimeStep;
+    aUseBias:boolean;
+begin
+
+ TimeStep:=fStageTimeStep;
+ aUseBias:=fStageUseBias;
+
+ InverseH:=TimeStep.InverseSubStepDeltaTime;
+ MaxBiasVelocity:=fPhysics.fMaximalLinearCorrection*InverseH;
+
+ for BatchIndex:=aFromBatchIndex to aToBatchIndex do begin
+  Batch:=@fWideContactBatches[BatchIndex];
+  for LaneIndex:=0 to Batch^.CountLanes-1 do begin
+
+   // Load the contact pair state.
+   IndexA:=Batch^.IndicesA[LaneIndex];
+   IndexB:=Batch^.IndicesB[LaneIndex];
+   iA:=Matrix3x3Null;
+   iB:=Matrix3x3Null;
+   for RowIndex:=0 to 2 do begin
+    for ColumnIndex:=0 to 2 do begin
+     iA[RowIndex,ColumnIndex]:=Batch^.WorldInverseInertiaTensorsA[RowIndex,ColumnIndex][LaneIndex];
+     iB[RowIndex,ColumnIndex]:=Batch^.WorldInverseInertiaTensorsB[RowIndex,ColumnIndex][LaneIndex];
+    end;
+   end;
+   mA:=Batch^.InverseMassesA[LaneIndex];
+   mB:=Batch^.InverseMassesB[LaneIndex];
+   CountPoints:=Batch^.CountPoints[LaneIndex];
+   Normal:=Vector3(Batch^.Normals.x[LaneIndex],Batch^.Normals.y[LaneIndex],Batch^.Normals.z[LaneIndex]);
+   Friction:=Batch^.Frictions[LaneIndex];
+   TangentVectors[0]:=Vector3(Batch^.Tangents0.x[LaneIndex],Batch^.Tangents0.y[LaneIndex],Batch^.Tangents0.z[LaneIndex]);
+   TangentVectors[1]:=Vector3(Batch^.Tangents1.x[LaneIndex],Batch^.Tangents1.y[LaneIndex],Batch^.Tangents1.z[LaneIndex]);
+
+   vA:=fVelocities[IndexA].LinearVelocity;
+   wA:=fVelocities[IndexA].AngularVelocity;
+   vB:=fVelocities[IndexB].LinearVelocity;
+   wB:=fVelocities[IndexB].AngularVelocity;
+
+   lA:=fLinearFactors[IndexA];
+   lB:=fLinearFactors[IndexB];
+
+   // Accumulated centre-of-mass delta positions and delta rotations since prepare, like the scalar stage.
+   dcA:=Vector3Sub(fPositions[IndexA].Position,fPrepareCenters[IndexA]);
+   dcB:=Vector3Sub(fPositions[IndexB].Position,fPrepareCenters[IndexB]);
+   dqA:=QuaternionTermNormalize(QuaternionMul(fPositions[IndexA].Orientation,QuaternionConjugate(fPrepareOrientations[IndexA])));
+   dqB:=QuaternionTermNormalize(QuaternionMul(fPositions[IndexB].Orientation,QuaternionConjugate(fPrepareOrientations[IndexB])));
+
+   // Central-friction limits accumulated over the normal loop.
+   TotalNormalImpulse:=0.0;
+   TotalTwistLimit:=0.0;
+
+   // Normal constraint first (soft), so friction can clamp against the fresh normal impulse.
+   for ContactIndex:=0 to CountPoints-1 do begin
+
+    WidePoint:=@Batch^.Points[ContactIndex];
+
+    rA:=Vector3(WidePoint^.RelativePositionsA.x[LaneIndex],WidePoint^.RelativePositionsA.y[LaneIndex],WidePoint^.RelativePositionsA.z[LaneIndex]);
+    rB:=Vector3(WidePoint^.RelativePositionsB.x[LaneIndex],WidePoint^.RelativePositionsB.y[LaneIndex],WidePoint^.RelativePositionsB.z[LaneIndex]);
+
+    // Recompute the current separation from the accumulated delta positions and delta rotations.
+    Separation:=WidePoint^.AdjustedSeparations[LaneIndex]+Vector3Dot(Vector3Sub(Vector3Add(dcB,Vector3TermQuaternionRotate(rB,dqB)),Vector3Add(dcA,Vector3TermQuaternionRotate(rA,dqA))),Normal);
+
+    // Choose the bias regime for this point.
+    if Separation>0.0 then begin
+
+     // Speculative: point not yet touching, brake exactly at the contact plane, no softness.
+     Bias:=Separation*InverseH;
+     MassScale:=1.0;
+     ImpulseScale:=0.0;
+
+    end else if aUseBias then begin
+
+     // Solve pass: soft bias pushes the overlap out over the substep, capped so it cannot explode.
+     Bias:=Max(Batch^.SoftnessBiasRates[LaneIndex]*Separation,-MaxBiasVelocity);
+     MassScale:=Batch^.SoftnessMassScales[LaneIndex];
+     ImpulseScale:=Batch^.SoftnessImpulseScales[LaneIndex];
+
+    end else begin
+
+     // Relax pass: no bias, so the extra energy the bias added is taken back out.
+     Bias:=0.0;
+     MassScale:=1.0;
+     ImpulseScale:=0.0;
+
+    end;
+
+    // Relative normal velocity at the contact point.
+    dv:=Vector3Sub(Vector3Add(vB,Vector3Cross(wB,rB)),Vector3Add(vA,Vector3Cross(wA,rA)));
+    vn:=Vector3Dot(dv,Normal);
+
+    // Soft normal impulse, accumulated and clamped to stay non-negative.
+    Lambda:=((-WidePoint^.NormalMasses[LaneIndex])*MassScale*(vn+Bias))-(ImpulseScale*WidePoint^.NormalImpulses[LaneIndex]);
+
+    Old:=WidePoint^.NormalImpulses[LaneIndex];
+    NewNormalImpulse:=Max(0.0,Old+Lambda);
+    WidePoint^.NormalImpulses[LaneIndex]:=NewNormalImpulse;
+    Lambda:=NewNormalImpulse-Old;
+
+    // Apply the delta impulse to both bodies.
+    P:=Vector3ScalarMul(Normal,Lambda);
+
+    Vector3DirectSub(vA,Vector3Mul(P,Vector3ScalarMul(lA,mA)));
+    Vector3DirectSub(wA,Vector3TermMatrixMul(Vector3Cross(rA,P),iA));
+
+    Vector3DirectAdd(vB,Vector3Mul(P,Vector3ScalarMul(lB,mB)));
+    Vector3DirectAdd(wB,Vector3TermMatrixMul(Vector3Cross(rB,P),iB));
+
+    // Accumulate the totals the central friction limits need.
+    TotalNormalImpulse:=TotalNormalImpulse+NewNormalImpulse;
+    TotalTwistLimit:=TotalTwistLimit+(WidePoint^.LeverArms[LaneIndex]*NewNormalImpulse);
+
+   end;
+
+   // Central friction, twist and rolling resistance, anchored at the manifold centroid, only in the relax
+   // pass (no bias), exactly like the scalar stage.
+   if (CountPoints>0) and not aUseBias then begin
+
+    // Central twist friction about the normal, limited by friction * sum(leverArm*normalImpulse).
+    if Batch^.TwistMasses[LaneIndex]>0.0 then begin
+
+     // Relative twist velocity about the normal and its clamped impulse.
+     TwistSpeed:=Vector3Dot(Normal,Vector3Sub(wB,wA));
+     MaxLambda:=Friction*TotalTwistLimit;
+     Lambda:=(-Batch^.TwistMasses[LaneIndex])*TwistSpeed;
+     Old:=Batch^.TwistImpulses[LaneIndex];
+     Batch^.TwistImpulses[LaneIndex]:=Min(Max(Old+Lambda,-MaxLambda),MaxLambda);
+     Lambda:=Batch^.TwistImpulses[LaneIndex]-Old;
+
+     // Apply about the normal.
+     P:=Vector3ScalarMul(Normal,Lambda);
+     Vector3DirectSub(wA,Vector3TermMatrixMul(P,iA));
+     Vector3DirectAdd(wB,Vector3TermMatrixMul(P,iB));
+
+    end;
+
+    // Rolling resistance (angular only), magnitude-clamped to rollingResistance * sum(normalImpulse).
+    if Batch^.RollingResistances[LaneIndex]>0.0 then begin
+
+     RollingMass:=Matrix3x3Null;
+     for RowIndex:=0 to 2 do begin
+      for ColumnIndex:=0 to 2 do begin
+       RollingMass[RowIndex,ColumnIndex]:=Batch^.RollingMasses[RowIndex,ColumnIndex][LaneIndex];
+      end;
+     end;
+
+     // Unclamped rolling impulse from the relative angular velocity.
+     dw:=Vector3Sub(wB,wA);
+     DeltaRoll:=Vector3Neg(Vector3TermMatrixMul(dw,RollingMass));
+     OldRoll:=Vector3(Batch^.RollingImpulses.x[LaneIndex],Batch^.RollingImpulses.y[LaneIndex],Batch^.RollingImpulses.z[LaneIndex]);
+     NewRoll:=Vector3Add(OldRoll,DeltaRoll);
+
+     // Clamp the accumulated impulse magnitude to the rolling-resistance budget.
+     MaxLambda:=Batch^.RollingResistances[LaneIndex]*TotalNormalImpulse;
+     MagSqr:=Vector3LengthSquared(NewRoll);
+     if MagSqr>((MaxLambda*MaxLambda)+EPSILON) then begin
+      NewRoll:=Vector3ScalarMul(NewRoll,MaxLambda/sqrt(MagSqr));
+     end;
+     Batch^.RollingImpulses.x[LaneIndex]:=NewRoll.x;
+     Batch^.RollingImpulses.y[LaneIndex]:=NewRoll.y;
+     Batch^.RollingImpulses.z[LaneIndex]:=NewRoll.z;
+     DeltaRoll:=Vector3Sub(NewRoll,OldRoll);
+
+     // Apply the delta (angular only).
+     Vector3DirectSub(wA,Vector3TermMatrixMul(DeltaRoll,iA));
+     Vector3DirectAdd(wB,Vector3TermMatrixMul(DeltaRoll,iB));
+
+    end;
+
+    // Central tangential friction (2x2 at the centroid), clamped into the Coulomb cone of sum(normalImpulse).
+    if fEnableFriction then begin
+
+     // Tangential relative velocity at the centroid anchors (minus any surface velocity).
+     rA:=Vector3(Batch^.OriginsA.x[LaneIndex],Batch^.OriginsA.y[LaneIndex],Batch^.OriginsA.z[LaneIndex]);
+     rB:=Vector3(Batch^.OriginsB.x[LaneIndex],Batch^.OriginsB.y[LaneIndex],Batch^.OriginsB.z[LaneIndex]);
+     dv:=Vector3Sub(Vector3Add(vB,Vector3Cross(wB,rB)),Vector3Add(vA,Vector3Cross(wA,rA)));
+     VTx:=Vector3Dot(dv,TangentVectors[0])-Batch^.TangentVelocities[0][LaneIndex];
+     VTy:=Vector3Dot(dv,TangentVectors[1])-Batch^.TangentVelocities[1][LaneIndex];
+
+     // Unclamped 2x2 impulse (the tangent mass is symmetric, so this is TangentMass2x2 * (VTx,VTy)).
+     TMx:=(Batch^.TangentMasses2x2[0,0][LaneIndex]*VTx)+(Batch^.TangentMasses2x2[0,1][LaneIndex]*VTy);
+     TMy:=(Batch^.TangentMasses2x2[1,0][LaneIndex]*VTx)+(Batch^.TangentMasses2x2[1,1][LaneIndex]*VTy);
+     NewX:=Batch^.FrictionImpulses[0][LaneIndex]-TMx;
+     NewY:=Batch^.FrictionImpulses[1][LaneIndex]-TMy;
+
+     // Clamp the accumulated impulse into the friction circle.
+     MaxLambda:=Friction*TotalNormalImpulse;
+     LenSqr:=(NewX*NewX)+(NewY*NewY);
+     if LenSqr>(MaxLambda*MaxLambda) then begin
+      Scale:=MaxLambda/sqrt(LenSqr);
+      NewX:=NewX*Scale;
+      NewY:=NewY*Scale;
+     end;
+     DX:=NewX-Batch^.FrictionImpulses[0][LaneIndex];
+     DY:=NewY-Batch^.FrictionImpulses[1][LaneIndex];
+     Batch^.FrictionImpulses[0][LaneIndex]:=NewX;
+     Batch^.FrictionImpulses[1][LaneIndex]:=NewY;
+
+     // Apply at the centroid (linear + angular).
+     P:=Vector3Add(Vector3ScalarMul(TangentVectors[0],DX),Vector3ScalarMul(TangentVectors[1],DY));
+     Vector3DirectSub(vA,Vector3Mul(P,Vector3ScalarMul(lA,mA)));
+     Vector3DirectSub(wA,Vector3TermMatrixMul(Vector3Cross(rA,P),iA));
+     Vector3DirectAdd(vB,Vector3Mul(P,Vector3ScalarMul(lB,mB)));
+     Vector3DirectAdd(wB,Vector3TermMatrixMul(Vector3Cross(rB,P),iB));
+
+    end;
+
+   end;
+
+   // Write the updated velocities back into the solver arrays.
+   fVelocities[IndexA].LinearVelocity:=vA;
+   fVelocities[IndexA].AngularVelocity:=wA;
+   fVelocities[IndexB].LinearVelocity:=vB;
+   fVelocities[IndexB].AngularVelocity:=wB;
+
+  end;
+ end;
+
+end;
+
+procedure TKraftSolver.ApplyRestitutionWideRange(const aFromBatchIndex,aToBatchIndex,aThreadIndex:TKraftInt32);
+// Wide counterpart of ApplyRestitutionRange: the lanes run the identical scalar operations in the
+// identical order, only against the lane major batch storage.
+var BatchIndex,LaneIndex,ContactIndex,IndexA,IndexB,CountPoints,RowIndex,ColumnIndex:TKraftInt32;
+    Batch:PKraftSolverWideContactBatch;
+    WidePoint:PKraftSolverWideContactPoint;
+    iA,iB:TKraftMatrix3x3;
+    mA,mB,Restitution,RestitutionThreshold,vn,Lambda,Old,NewNormalImpulse:TKraftScalar;
+    Normal,vA,lA,wA,rA,vB,lB,wB,rB,dv,P:TKraftVector3;
+begin
+
+ for BatchIndex:=aFromBatchIndex to aToBatchIndex do begin
+  Batch:=@fWideContactBatches[BatchIndex];
+  for LaneIndex:=0 to Batch^.CountLanes-1 do begin
+
+   // Restitution-free pairs need no bounce pass.
+   Restitution:=Batch^.Restitutions[LaneIndex];
+   if Restitution=0.0 then begin
+    continue;
+   end;
+
+   // Load the contact pair state.
+   IndexA:=Batch^.IndicesA[LaneIndex];
+   IndexB:=Batch^.IndicesB[LaneIndex];
+   iA:=Matrix3x3Null;
+   iB:=Matrix3x3Null;
+   for RowIndex:=0 to 2 do begin
+    for ColumnIndex:=0 to 2 do begin
+     iA[RowIndex,ColumnIndex]:=Batch^.WorldInverseInertiaTensorsA[RowIndex,ColumnIndex][LaneIndex];
+     iB[RowIndex,ColumnIndex]:=Batch^.WorldInverseInertiaTensorsB[RowIndex,ColumnIndex][LaneIndex];
+    end;
+   end;
+   mA:=Batch^.InverseMassesA[LaneIndex];
+   mB:=Batch^.InverseMassesB[LaneIndex];
+   CountPoints:=Batch^.CountPoints[LaneIndex];
+   Normal:=Vector3(Batch^.Normals.x[LaneIndex],Batch^.Normals.y[LaneIndex],Batch^.Normals.z[LaneIndex]);
+   RestitutionThreshold:=Batch^.RestitutionThresholds[LaneIndex];
+
+   vA:=fVelocities[IndexA].LinearVelocity;
+   wA:=fVelocities[IndexA].AngularVelocity;
+   vB:=fVelocities[IndexB].LinearVelocity;
+   wB:=fVelocities[IndexB].AngularVelocity;
+
+   lA:=fLinearFactors[IndexA];
+   lB:=fLinearFactors[IndexB];
+
+   for ContactIndex:=0 to CountPoints-1 do begin
+
+    WidePoint:=@Batch^.Points[ContactIndex];
+
+    // Only bounce points that were approaching fast enough at prepare and actually took a normal impulse.
+    if (WidePoint^.RelativeVelocities[LaneIndex]>(-RestitutionThreshold)) or (WidePoint^.NormalImpulses[LaneIndex]=0.0) then begin
+     continue;
+    end;
+
+    rA:=Vector3(WidePoint^.RelativePositionsA.x[LaneIndex],WidePoint^.RelativePositionsA.y[LaneIndex],WidePoint^.RelativePositionsA.z[LaneIndex]);
+    rB:=Vector3(WidePoint^.RelativePositionsB.x[LaneIndex],WidePoint^.RelativePositionsB.y[LaneIndex],WidePoint^.RelativePositionsB.z[LaneIndex]);
+
+    // Current relative normal velocity, and the restitution impulse that restores the bounce.
+    dv:=Vector3Sub(Vector3Add(vB,Vector3Cross(wB,rB)),Vector3Add(vA,Vector3Cross(wA,rA)));
+    vn:=Vector3Dot(dv,Normal);
+
+    Lambda:=(-WidePoint^.NormalMasses[LaneIndex])*(vn+(Restitution*WidePoint^.RelativeVelocities[LaneIndex]));
+
+    Old:=WidePoint^.NormalImpulses[LaneIndex];
+    NewNormalImpulse:=Max(0.0,Old+Lambda);
+    WidePoint^.NormalImpulses[LaneIndex]:=NewNormalImpulse;
+    Lambda:=NewNormalImpulse-Old;
+
+    // Apply the delta impulse to both bodies.
+    P:=Vector3ScalarMul(Normal,Lambda);
+
+    Vector3DirectSub(vA,Vector3Mul(P,Vector3ScalarMul(lA,mA)));
+    Vector3DirectSub(wA,Vector3TermMatrixMul(Vector3Cross(rA,P),iA));
+
+    Vector3DirectAdd(vB,Vector3Mul(P,Vector3ScalarMul(lB,mB)));
+    Vector3DirectAdd(wB,Vector3TermMatrixMul(Vector3Cross(rB,P),iB));
+
+   end;
+
+   // Write the updated velocities back.
+   fVelocities[IndexA].LinearVelocity:=vA;
+   fVelocities[IndexA].AngularVelocity:=wA;
+   fVelocities[IndexB].LinearVelocity:=vB;
+   fVelocities[IndexB].AngularVelocity:=wB;
+
+  end;
  end;
 
 end;
@@ -58710,6 +59826,405 @@ begin
 
 end;
 
+{$ifdef KraftPasMP}
+procedure TKraftIsland.JointStageParallelForFunction(const Job:PPasMPJob;const ThreadIndex:TKraftInt32;const Data:pointer;const FromIndex,ToIndex:TPasMPNativeInt);
+begin
+ fJointStageRangeMethod(FromIndex,ToIndex,ThreadIndex);
+end;
+{$else}
+procedure TKraftIsland.JointStageJob(const JobIndex,ThreadIndex:TKraftInt32);
+begin
+ fJointStageRangeMethod(fJointStageJobOffset+JobIndex,fJointStageJobOffset+JobIndex,ThreadIndex);
+end;
+{$endif}
+
+procedure TKraftIsland.DispatchJointStage(const aRangeMethod:TKraftSolverStageRangeMethod);
+// The joint counterpart of TKraftSolver.DispatchContactStage, over the joint solve order permutation and
+// the joint color ranges. Identical results serial or parallel, since within one color no movable body is
+// shared between constraints (contacts and joints share the same color body occupancy).
+var ColorIndex,RangeFirst,RangeCount:TKraftInt32;
+begin
+ if (fPhysics.fSolverParallelMode=kspmIslands) or not fUseParallelStages then begin
+  if fCountConstraints>0 then begin
+   aRangeMethod(0,fCountConstraints-1,0);
+  end;
+ end else begin
+  for ColorIndex:=0 to KraftConstraintGraphColorCount-1 do begin
+   RangeCount:=fConstraintColorRangeCounts[ColorIndex];
+   if RangeCount>0 then begin
+    RangeFirst:=fConstraintColorRangeFirsts[ColorIndex];
+    if (ColorIndex=KraftConstraintGraphOverflowIndex) or (RangeCount<fPhysics.fSolverParallelThreshold) then begin
+     aRangeMethod(RangeFirst,(RangeFirst+RangeCount)-1,0);
+    end else if fPhysics.fPipelineRunning then begin
+     fPhysics.SolverPipelinePublishStage(aRangeMethod,RangeFirst,RangeCount,KraftSolverPipelineJointBlockSize);
+    end else begin
+     fJointStageRangeMethod:=aRangeMethod;
+{$ifdef KraftPasMP}
+     fPhysics.fPasMP.Invoke(fPhysics.fPasMP.ParallelFor(nil,RangeFirst,(RangeFirst+RangeCount)-1,JointStageParallelForFunction,Max(16,RangeCount div (fPhysics.fCountThreads*4)),4,nil,0,fPhysics.fPasMPAreaMask,fPhysics.fPasMPAvoidAreaMask,true,fPhysics.fPasMPAffinityAllowMask,fPhysics.fPasMPAffinityAvoidMask));
+{$else}
+     fJointStageJobOffset:=RangeFirst;
+     fPhysics.fJobManager.fOnProcessJob:=JointStageJob;
+     fPhysics.fJobManager.fCountRemainJobs:=RangeCount;
+     fPhysics.fJobManager.fGranularity:=Max(16,RangeCount div (fPhysics.fCountThreads*4));
+     fPhysics.fJobManager.ProcessJobs;
+{$endif}
+    end;
+   end;
+  end;
+ end;
+end;
+
+procedure TKraftIsland.DispatchIndependentJointStage(const aRangeMethod:TKraftSolverStageRangeMethod);
+// For the order independent joint sweeps (like the break threshold checks, which only read the joints and
+// write their own flags): a plain parallel for without coloring when worthwhile, serial otherwise.
+begin
+ if fCountConstraints>0 then begin
+  if fUseParallelStages and (fCountConstraints>=fPhysics.fSolverParallelThreshold) then begin
+   if fPhysics.fPipelineRunning then begin
+    fPhysics.SolverPipelinePublishStage(aRangeMethod,0,fCountConstraints,KraftSolverPipelineIndependentBlockSize);
+   end else begin
+    fJointStageRangeMethod:=aRangeMethod;
+{$ifdef KraftPasMP}
+    fPhysics.fPasMP.Invoke(fPhysics.fPasMP.ParallelFor(nil,0,fCountConstraints-1,JointStageParallelForFunction,Max(16,fCountConstraints div (fPhysics.fCountThreads*4)),4,nil,0,fPhysics.fPasMPAreaMask,fPhysics.fPasMPAvoidAreaMask,true,fPhysics.fPasMPAffinityAllowMask,fPhysics.fPasMPAffinityAvoidMask));
+{$else}
+    fJointStageJobOffset:=0;
+    fPhysics.fJobManager.fOnProcessJob:=JointStageJob;
+    fPhysics.fJobManager.fCountRemainJobs:=fCountConstraints;
+    fPhysics.fJobManager.fGranularity:=Max(16,fCountConstraints div (fPhysics.fCountThreads*4));
+    fPhysics.fJobManager.ProcessJobs;
+{$endif}
+   end;
+  end else begin
+   aRangeMethod(0,fCountConstraints-1,0);
+  end;
+ end;
+end;
+
+procedure TKraftIsland.JointInitializeAndWarmStartRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
+var Index:TKraftInt32;
+    Constraint:TKraftConstraint;
+begin
+ for Index:=aFromOrderIndex to aToOrderIndex do begin
+  Constraint:=fConstraints[fConstraintSolveOrder[Index]];
+  if assigned(Constraint) then begin
+   Constraint.InitializeConstraintsAndWarmStart(self,fSolveTimeStep);
+  end;
+ end;
+end;
+
+procedure TKraftIsland.JointSolveVelocityRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
+var Index:TKraftInt32;
+    Constraint:TKraftConstraint;
+begin
+ for Index:=aFromOrderIndex to aToOrderIndex do begin
+  Constraint:=fConstraints[fConstraintSolveOrder[Index]];
+  if assigned(Constraint) and not (kcfBreaked in Constraint.fFlags) then begin
+   if ((Constraint.fFlags*[kcfActive,kcfBreakable,kcfBreaked])=[kcfActive,kcfBreakable]) and
+      ((Vector3Length(Constraint.GetReactionForce(fSolveTimeStep.InverseDeltaTime))>Constraint.fBreakThresholdForce) or
+       (Vector3Length(Constraint.GetReactionTorque(fSolveTimeStep.InverseDeltaTime))>Constraint.fBreakThresholdTorque)) then begin
+    Constraint.fFlags:=Constraint.fFlags+[kcfBreaked,kcfFreshBreaked];
+    continue;
+   end;
+   Constraint.SolveVelocityConstraint(self,fSolveTimeStep);
+  end;
+ end;
+end;
+
+procedure TKraftIsland.JointBreakSweepRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
+var Index:TKraftInt32;
+    Constraint:TKraftConstraint;
+begin
+ for Index:=aFromOrderIndex to aToOrderIndex do begin
+  Constraint:=fConstraints[fConstraintSolveOrder[Index]];
+  if assigned(Constraint) and
+     (((Constraint.fFlags*[kcfActive,kcfBreakable,kcfBreaked])=[kcfActive,kcfBreakable]) and
+      ((Vector3Length(Constraint.GetReactionForce(fSolveTimeStep.InverseDeltaTime))>Constraint.fBreakThresholdForce) or
+       (Vector3Length(Constraint.GetReactionTorque(fSolveTimeStep.InverseDeltaTime))>Constraint.fBreakThresholdTorque))) then begin
+   Constraint.fFlags:=Constraint.fFlags+[kcfBreaked,kcfFreshBreaked];
+  end;
+ end;
+end;
+
+procedure TKraftIsland.JointSolvePositionRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
+var Index:TKraftInt32;
+    Constraint:TKraftConstraint;
+begin
+ for Index:=aFromOrderIndex to aToOrderIndex do begin
+  Constraint:=fConstraints[fConstraintSolveOrder[Index]];
+  if assigned(Constraint) and not (kcfBreaked in Constraint.fFlags) then begin
+   if not Constraint.SolvePositionConstraint(self,fSolveTimeStep) then begin
+    fJointStageOKs[aThreadIndex]:=false;
+   end;
+  end;
+ end;
+end;
+
+procedure TKraftIsland.JointPrepareSubStepRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
+var Index:TKraftInt32;
+    Constraint:TKraftConstraint;
+begin
+ for Index:=aFromOrderIndex to aToOrderIndex do begin
+  Constraint:=fConstraints[fConstraintSolveOrder[Index]];
+  if assigned(Constraint) and not (kcfBreaked in Constraint.fFlags) then begin
+   if Constraint.UsesNativeTGSSoftPath then begin
+    Constraint.PrepareSubStep(self,fSolveTimeStep);
+   end else if not Constraint.UsesAdapterSubstepPath then begin
+    // Plain adapter: classic prepare + warm start once per step, the mini-step variant instead prepares
+    // freshly inside the substep loop below.
+    Constraint.InitializeConstraintsAndWarmStart(self,fSolveTimeStep);
+   end;
+  end;
+ end;
+end;
+
+procedure TKraftIsland.JointWarmStartSubStepRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
+var Index:TKraftInt32;
+    Constraint:TKraftConstraint;
+begin
+ for Index:=aFromOrderIndex to aToOrderIndex do begin
+  Constraint:=fConstraints[fConstraintSolveOrder[Index]];
+  if assigned(Constraint) and not (kcfBreaked in Constraint.fFlags) and Constraint.UsesNativeTGSSoftPath then begin
+   Constraint.WarmStartSubStep(self,fSolveTimeStep);
+  end;
+ end;
+end;
+
+procedure TKraftIsland.JointSolveVelocitySubStepRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
+var Index:TKraftInt32;
+    Constraint:TKraftConstraint;
+begin
+ for Index:=aFromOrderIndex to aToOrderIndex do begin
+  Constraint:=fConstraints[fConstraintSolveOrder[Index]];
+  if assigned(Constraint) and not (kcfBreaked in Constraint.fFlags) then begin
+   if Constraint.UsesNativeTGSSoftPath then begin
+    Constraint.SolveVelocitySubStep(self,fSolveTimeStep,true);
+   end else begin
+    if Constraint.UsesAdapterSubstepPath then begin
+     Constraint.InitializeConstraintsAndWarmStart(self,fSolveSubStepTimeStep);
+     Constraint.SolveVelocityConstraint(self,fSolveSubStepTimeStep);
+    end else begin
+     Constraint.SolveVelocityConstraint(self,fSolveTimeStep);
+    end;
+   end;
+  end;
+ end;
+end;
+
+procedure TKraftIsland.JointRelaxSubStepRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
+var Index:TKraftInt32;
+    Constraint:TKraftConstraint;
+begin
+ for Index:=aFromOrderIndex to aToOrderIndex do begin
+  Constraint:=fConstraints[fConstraintSolveOrder[Index]];
+  if assigned(Constraint) and not (kcfBreaked in Constraint.fFlags) and Constraint.UsesNativeTGSSoftPath then begin
+   Constraint.SolveVelocitySubStep(self,fSolveTimeStep,false);
+  end;
+ end;
+end;
+
+procedure TKraftIsland.JointSolvePositionAdapterRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
+var Index:TKraftInt32;
+    Constraint:TKraftConstraint;
+begin
+ for Index:=aFromOrderIndex to aToOrderIndex do begin
+  Constraint:=fConstraints[fConstraintSolveOrder[Index]];
+  if assigned(Constraint) and not (kcfBreaked in Constraint.fFlags) and
+     not (Constraint.UsesNativeTGSSoftPath and Constraint.IsNativeTGSSoftJoint) then begin
+   if not Constraint.SolvePositionConstraint(self,fSolveTimeStep) then begin
+    fJointStageOKs[aThreadIndex]:=false;
+   end;
+  end;
+ end;
+end;
+
+procedure TKraftIsland.DispatchBodyStage(const aRangeMethod:TKraftSolverStageRangeMethod);
+// The body counterpart of the constraint stage dispatches: parallel body blocks over the pipeline when it
+// runs (every body integration only touches its own body and solver slots), the classic serial loop
+// otherwise, so the non pipeline paths stay untouched.
+begin
+ if fCountRigidBodies>0 then begin
+  if fPhysics.fPipelineRunning and fUseParallelStages then begin
+   fPhysics.SolverPipelinePublishStage(aRangeMethod,0,fCountRigidBodies,KraftSolverPipelineBodyBlockSize);
+  end else begin
+   aRangeMethod(0,fCountRigidBodies-1,0);
+  end;
+ end;
+end;
+
+procedure TKraftIsland.SubStepIntegrateVelocitiesRange(const aFromIndex,aToIndex,aThreadIndex:TKraftInt32);
+// One substep velocity integration over a body range, extracted unchanged from the substep loop of
+// SolveTGSSubStepped (see the comments there); runs as a parallel pipeline body stage or serially.
+var Index:TKraftInt32;
+    RigidBody:TKraftRigidBody;
+    h,s:TKraftScalar;
+    LinearVelocity,AngularVelocity,Gravity,Acceleration,GyroscopicForce,EffectiveTorque:TKraftVector3;
+begin
+
+ h:=fSolveSubStepTimeStep.DeltaTime;
+
+ for Index:=aFromIndex to aToIndex do begin
+
+  RigidBody:=fRigidBodies[Index];
+
+  if RigidBody.fRigidBodyType=krbtDynamic then begin
+
+   // Resolve the gravity acceleration for this body (own or world gravity, normal or midpoint mode).
+   if krbfHasOwnGravity in RigidBody.fFlags then begin
+    case RigidBody.fGravityMode of
+     kgmMIDPOINT:begin
+      Gravity:=Vector3ScalarMul(Vector3Norm(Vector3Sub(RigidBody.fGravity,fSolver.fPositions[Index].Position)),RigidBody.fGravitySpeed*RigidBody.fGravityScale);
+     end;
+     else begin
+      Gravity:=Vector3ScalarMul(RigidBody.fGravity,RigidBody.fGravityScale);
+     end;
+    end;
+   end else begin
+    case fPhysics.fGravityMode of
+     kgmMIDPOINT:begin
+      Gravity:=Vector3ScalarMul(Vector3Norm(Vector3Sub(fPhysics.fGravity,fSolver.fPositions[Index].Position)),fPhysics.fGravitySpeed*RigidBody.fGravityScale);
+     end;
+     else begin
+      Gravity:=Vector3ScalarMul(fPhysics.fGravity,RigidBody.fGravityScale);
+     end;
+    end;
+   end;
+
+   LinearVelocity:=fSolver.fVelocities[Index].LinearVelocity;
+   AngularVelocity:=fSolver.fVelocities[Index].AngularVelocity;
+
+   // Gyroscopic force from the full Newton-Euler equation with an implicit Euler step (stable). It is added to
+   // a local effective torque so the persistent fTorque is not disturbed across substeps.
+   EffectiveTorque:=RigidBody.fTorque;
+   if RigidBody.fEnableGyroscopicForce then begin
+    GyroscopicForce:=Vector3Sub(Vector3Sub(AngularVelocity,
+                                           Vector3TermMatrixMulInverse(EvaluateEulerEquation(AngularVelocity,
+                                                                                             AngularVelocity,
+                                                                                             Vector3Origin,
+                                                                                             h,
+                                                                                             RigidBody.fWorldInertiaTensor),
+                                                                       EvaluateEulerEquationDerivation(AngularVelocity,
+                                                                                                       AngularVelocity,
+                                                                                                       h,
+                                                                                                       RigidBody.fWorldInertiaTensor))),
+                                AngularVelocity);
+    if (RigidBody.fMaximalGyroscopicForce>EPSILON) and (Vector3LengthSquared(GyroscopicForce)>sqr(RigidBody.fMaximalGyroscopicForce)) then begin
+     Vector3Scale(GyroscopicForce,RigidBody.fMaximalGyroscopicForce/Vector3Length(GyroscopicForce));
+    end;
+    EffectiveTorque:=Vector3Add(EffectiveTorque,GyroscopicForce);
+   end;
+
+   // Linear velocity: v += (F/m + g) * h
+   Acceleration:=Vector3Add(Vector3Mul(RigidBody.fForce,Vector3ScalarMul(RigidBody.fLinearFactor,RigidBody.InverseMass)),Gravity);
+   LinearVelocity:=Vector3Add(LinearVelocity,Vector3ScalarMul(Acceleration,h));
+
+   // Angular velocity: w += (T * I^-1) * h  (T includes the gyroscopic contribution).
+   AngularVelocity:=Vector3Add(AngularVelocity,Vector3ScalarMul(Vector3TermMatrixMul(EffectiveTorque,RigidBody.fWorldInverseInertiaTensor),h));
+
+   // User damping callback. It reads and writes the body's velocities, so mirror the substep state into the
+   // body around the call and take the result back. Islands with any such callback run this stage serially.
+   if assigned(RigidBody.fOnDamping) then begin
+    RigidBody.fLinearVelocity:=LinearVelocity;
+    RigidBody.fAngularVelocity:=AngularVelocity;
+    RigidBody.fOnDamping(RigidBody,fSolveSubStepTimeStep);
+    LinearVelocity:=RigidBody.fLinearVelocity;
+    AngularVelocity:=RigidBody.fAngularVelocity;
+   end;
+
+   // Padé damping over the substep length.
+   Vector3Scale(LinearVelocity,1.0/(1.0+(RigidBody.fLinearVelocityDamp*h)));
+   Vector3Scale(AngularVelocity,1.0/(1.0+(RigidBody.fAngularVelocityDamp*h)));
+
+   // Additional damping model (from PAPPE 1.0): a stronger pull toward rest at low speeds.
+   if RigidBody.fAdditionalDamping then begin
+    if (Vector3LengthSquared(LinearVelocity)<RigidBody.fLinearVelocityAdditionalDampThresholdSqr) and
+       (Vector3LengthSquared(AngularVelocity)<RigidBody.fAngularVelocityAdditionalDampThresholdSqr) then begin
+     Vector3Scale(LinearVelocity,RigidBody.fAdditionalDamp);
+     Vector3Scale(AngularVelocity,RigidBody.fAdditionalDamp);
+    end;
+    s:=Vector3Length(LinearVelocity);
+    if s<RigidBody.fLinearVelocityDamp then begin
+     if s>RigidBody.fAdditionalDamp then begin
+      LinearVelocity:=Vector3Sub(LinearVelocity,Vector3ScalarMul(Vector3NormEx(LinearVelocity),RigidBody.fAdditionalDamp));
+     end else begin
+      LinearVelocity:=Vector3Origin;
+     end;
+    end;
+    s:=Vector3Length(AngularVelocity);
+    if s<RigidBody.fAngularVelocityDamp then begin
+     if s>RigidBody.fAdditionalDamp then begin
+      AngularVelocity:=Vector3Sub(AngularVelocity,Vector3ScalarMul(Vector3NormEx(AngularVelocity),RigidBody.fAdditionalDamp));
+     end else begin
+      AngularVelocity:=Vector3Origin;
+     end;
+    end;
+   end;
+
+   fSolver.fVelocities[Index].LinearVelocity:=LinearVelocity;
+   fSolver.fVelocities[Index].AngularVelocity:=AngularVelocity;
+
+  end;
+
+ end;
+
+end;
+
+procedure TKraftIsland.SubStepIntegratePositionsRange(const aFromIndex,aToIndex,aThreadIndex:TKraftInt32);
+// One substep position integration over a body range, extracted unchanged from the substep loop of
+// SolveTGSSubStepped (see the comments there); runs as a parallel pipeline body stage or serially.
+var Index:TKraftInt32;
+    RigidBody:TKraftRigidBody;
+    SolverPosition:PKraftSolverPosition;
+    SolverVelocity:PKraftSolverVelocity;
+    h:TKraftScalar;
+    Position,LinearVelocity,AngularVelocity,Translation,Rotation:TKraftVector3;
+    Orientation:TKraftQuaternion;
+begin
+
+ h:=fSolveSubStepTimeStep.DeltaTime;
+
+ for Index:=aFromIndex to aToIndex do begin
+  RigidBody:=fRigidBodies[Index];
+  if RigidBody.fRigidBodyType in [krbtDynamic,krbtKinematic] then begin
+   SolverPosition:=@fSolver.fPositions[Index];
+   SolverVelocity:=@fSolver.fVelocities[Index];
+   Position:=SolverPosition^.Position;
+   Orientation:=SolverPosition^.Orientation;
+   LinearVelocity:=SolverVelocity^.LinearVelocity;
+   AngularVelocity:=SolverVelocity^.AngularVelocity;
+   if fPhysics.fMaximalLinearVelocity>EPSILON then begin
+    Translation:=Vector3ScalarMul(LinearVelocity,fSolveTimeStep.DeltaTime);
+    if Vector3LengthSquared(Translation)>sqr(fPhysics.fMaximalLinearVelocity) then begin
+     Vector3Scale(LinearVelocity,fPhysics.fMaximalLinearVelocity/Vector3Length(Translation));
+    end;
+   end;
+   if RigidBody.fMaximalLinearVelocity>EPSILON then begin
+    Translation:=Vector3ScalarMul(LinearVelocity,fSolveTimeStep.DeltaTime);
+    if Vector3LengthSquared(Translation)>sqr(RigidBody.fMaximalLinearVelocity) then begin
+     Vector3Scale(LinearVelocity,RigidBody.fMaximalLinearVelocity/Vector3Length(Translation));
+    end;
+   end;
+   if fPhysics.fMaximalAngularVelocity>EPSILON then begin
+    Rotation:=Vector3ScalarMul(AngularVelocity,fSolveTimeStep.DeltaTime);
+    if Vector3LengthSquared(Rotation)>sqr(fPhysics.fMaximalAngularVelocity) then begin
+     Vector3Scale(AngularVelocity,fPhysics.fMaximalAngularVelocity/Vector3Length(Rotation));
+    end;
+   end;
+   if RigidBody.fMaximalAngularVelocity>EPSILON then begin
+    Rotation:=Vector3ScalarMul(AngularVelocity,fSolveTimeStep.DeltaTime);
+    if Vector3LengthSquared(Rotation)>sqr(RigidBody.fMaximalAngularVelocity) then begin
+     Vector3Scale(AngularVelocity,RigidBody.fMaximalAngularVelocity/Vector3Length(Rotation));
+    end;
+   end;
+   SolverVelocity^.LinearVelocity:=LinearVelocity;
+   SolverVelocity^.AngularVelocity:=AngularVelocity;
+   fPhysics.Integrate(Position,Orientation,LinearVelocity,AngularVelocity,h);
+   SolverPosition^.Position:=Position;
+   SolverPosition^.Orientation:=Orientation;
+  end;
+ end;
+
+end;
+
 procedure TKraftIsland.PutToSleep;
 // Applies the sleep decision of the island solve. Called serially from TKraft.SolveIslands after all island
 // solves are done, since SetToSleep maintains shared bookkeeping (awake body list, constraint graph).
@@ -58870,26 +60385,11 @@ begin
   fSolver.WarmStart;
  end;
 
- for Index:=0 to fCountConstraints-1 do begin
-  Constraint:=fConstraints[fConstraintSolveOrder[Index]];
-  if assigned(Constraint) then begin
-   Constraint.InitializeConstraintsAndWarmStart(self,aTimeStep);
-  end;
- end;
+ fSolveTimeStep:=aTimeStep;
+ DispatchJointStage(JointInitializeAndWarmStartRange);
  for Iteration:=1 to Max(fPhysics.fVelocityIterations,fPhysics.fSpeculativeIterations) do begin
   if Iteration<=fPhysics.fVelocityIterations then begin
-   for Index:=0 to fCountConstraints-1 do begin
-    Constraint:=fConstraints[fConstraintSolveOrder[Index]];
-    if assigned(Constraint) and not (kcfBreaked in Constraint.fFlags) then begin
-     if ((Constraint.fFlags*[kcfActive,kcfBreakable,kcfBreaked])=[kcfActive,kcfBreakable]) and
-        ((Vector3Length(Constraint.GetReactionForce(aTimeStep.InverseDeltaTime))>Constraint.fBreakThresholdForce) or
-         (Vector3Length(Constraint.GetReactionTorque(aTimeStep.InverseDeltaTime))>Constraint.fBreakThresholdTorque)) then begin
-      Constraint.fFlags:=Constraint.fFlags+[kcfBreaked,kcfFreshBreaked];
-      continue;
-     end;
-     Constraint.SolveVelocityConstraint(self,aTimeStep);
-    end;
-   end;
+   DispatchJointStage(JointSolveVelocityRange);
    fSolver.SolveVelocityConstraints;
   end;
   if (fSolver.fCountSpeculativeContacts>0) and (Iteration<=fPhysics.fSpeculativeIterations) then begin
@@ -58958,15 +60458,7 @@ begin
 
  end;
 
- for Index:=0 to fCountConstraints-1 do begin
-  Constraint:=fConstraints[fConstraintSolveOrder[Index]];
-  if assigned(Constraint) and
-     (((Constraint.fFlags*[kcfActive,kcfBreakable,kcfBreaked])=[kcfActive,kcfBreakable]) and
-      ((Vector3Length(Constraint.GetReactionForce(aTimeStep.InverseDeltaTime))>Constraint.fBreakThresholdForce) or
-       (Vector3Length(Constraint.GetReactionTorque(aTimeStep.InverseDeltaTime))>Constraint.fBreakThresholdTorque))) then begin
-   Constraint.fFlags:=Constraint.fFlags+[kcfBreaked,kcfFreshBreaked];
-  end;
- end;
+ DispatchIndependentJointStage(JointBreakSweepRange);
 
  if (fPhysics.fContactPositionCorrectionMode=kpcmNonLinearGaussSeidel) or
     (fPhysics.fConstraintPositionCorrectionMode=kpcmNonLinearGaussSeidel) then begin
@@ -58976,12 +60468,13 @@ begin
     OK:=false;
    end;
    if fPhysics.fConstraintPositionCorrectionMode=kpcmNonLinearGaussSeidel then begin
-    for Index:=0 to fCountConstraints-1 do begin
-     Constraint:=fConstraints[fConstraintSolveOrder[Index]];
-     if assigned(Constraint) and not (kcfBreaked in Constraint.fFlags) then begin
-      if not Constraint.SolvePositionConstraint(self,aTimeStep) then begin
-       OK:=false;
-      end;
+    for Index:=0 to MAX_THREADS-1 do begin
+     fJointStageOKs[Index]:=true;
+    end;
+    DispatchJointStage(JointSolvePositionRange);
+    for Index:=0 to MAX_THREADS-1 do begin
+     if not fJointStageOKs[Index] then begin
+      OK:=false;
      end;
     end;
    end;
@@ -59077,17 +60570,26 @@ begin
  SubStepTimeStep.DeltaTime:=h;
  SubStepTimeStep.InverseDeltaTime:=aTimeStep.InverseSubStepDeltaTime;
 
+ // Time steps for the parallel joint stage range methods
+ fSolveTimeStep:=aTimeStep;
+ fSolveSubStepTimeStep:=SubStepTimeStep;
+
  fSolver.Store;
 
  fSolver.Initialize(aTimeStep);
 
  // Transfer body state into the solver. No velocity integration here, that happens per substep below.
+ // Islands with any user damping callback keep their velocity integration stage serial (user code).
+ fHasBodyDampingCallbacks:=false;
  for Index:=0 to fCountRigidBodies-1 do begin
   RigidBody:=fRigidBodies[Index];
   RigidBody.fSweep.c0:=RigidBody.fSweep.c;
   RigidBody.fSweep.q0:=RigidBody.fSweep.q;
   if RigidBody.fRigidBodyType=krbtDynamic then begin
    RigidBody.UpdateWorldInertiaTensor;
+  end;
+  if assigned(RigidBody.fOnDamping) then begin
+   fHasBodyDampingCallbacks:=true;
   end;
   fSolver.fVelocities[Index].LinearVelocity:=RigidBody.fLinearVelocity;
   fSolver.fVelocities[Index].AngularVelocity:=RigidBody.fAngularVelocity;
@@ -59113,139 +60615,26 @@ begin
  // mini step per substep inside the loop (with the substep time step), then get the classic position correction
  // (NGS) pass after the substeps. The path is resolved per joint (its override, else the world's TGSJointMode),
  // so a single hard joint can stay on the adapter while the rest of the world runs natively soft.
- for Index:=0 to fCountConstraints-1 do begin
-  Constraint:=fConstraints[fConstraintSolveOrder[Index]];
-  if assigned(Constraint) and not (kcfBreaked in Constraint.fFlags) then begin
-   if Constraint.UsesNativeTGSSoftPath then begin
-    Constraint.PrepareSubStep(self,aTimeStep);
-   end else if not Constraint.UsesAdapterSubstepPath then begin
-    // Plain adapter: classic prepare + warm start once per step, the mini-step variant instead prepares
-    // freshly inside the substep loop below.
-    Constraint.InitializeConstraintsAndWarmStart(self,aTimeStep);
-   end;
-  end;
- end;
+ DispatchJointStage(JointPrepareSubStepRange);
 
  for SubStep:=1 to aTimeStep.CountSubSteps do begin
 
-  // Integrate velocities with the substep length h. Gravity is applied as an acceleration per substep (not
-  // accumulated into fForce, which would multiply it by the substep count). Gyroscopic force, the user damping
-  // callback and the additional damping model are applied per substep exactly like the classic path does per
-  // step, only with h instead of the full delta time.
-  for Index:=0 to fCountRigidBodies-1 do begin
-
-   RigidBody:=fRigidBodies[Index];
-
-   if RigidBody.fRigidBodyType=krbtDynamic then begin
-
-    // Resolve the gravity acceleration for this body (own or world gravity, normal or midpoint mode).
-    if krbfHasOwnGravity in RigidBody.fFlags then begin
-     case RigidBody.fGravityMode of
-      kgmMIDPOINT:begin
-       Gravity:=Vector3ScalarMul(Vector3Norm(Vector3Sub(RigidBody.fGravity,fSolver.fPositions[Index].Position)),RigidBody.fGravitySpeed*RigidBody.fGravityScale);
-      end;
-      else begin
-       Gravity:=Vector3ScalarMul(RigidBody.fGravity,RigidBody.fGravityScale);
-      end;
-     end;
-    end else begin
-     case fPhysics.fGravityMode of
-      kgmMIDPOINT:begin
-       Gravity:=Vector3ScalarMul(Vector3Norm(Vector3Sub(fPhysics.fGravity,fSolver.fPositions[Index].Position)),fPhysics.fGravitySpeed*RigidBody.fGravityScale);
-      end;
-      else begin
-       Gravity:=Vector3ScalarMul(fPhysics.fGravity,RigidBody.fGravityScale);
-      end;
-     end;
-    end;
-
-    LinearVelocity:=fSolver.fVelocities[Index].LinearVelocity;
-    AngularVelocity:=fSolver.fVelocities[Index].AngularVelocity;
-
-    // Gyroscopic force from the full Newton-Euler equation with an implicit Euler step (stable). It is added to
-    // a local effective torque so the persistent fTorque is not disturbed across substeps.
-    EffectiveTorque:=RigidBody.fTorque;
-    if RigidBody.fEnableGyroscopicForce then begin
-     GyroscopicForce:=Vector3Sub(Vector3Sub(AngularVelocity,
-                                            Vector3TermMatrixMulInverse(EvaluateEulerEquation(AngularVelocity,
-                                                                                              AngularVelocity,
-                                                                                              Vector3Origin,
-                                                                                              h,
-                                                                                              RigidBody.fWorldInertiaTensor),
-                                                                        EvaluateEulerEquationDerivation(AngularVelocity,
-                                                                                                        AngularVelocity,
-                                                                                                        h,
-                                                                                                        RigidBody.fWorldInertiaTensor))),
-                                 AngularVelocity);
-     if (RigidBody.fMaximalGyroscopicForce>EPSILON) and (Vector3LengthSquared(GyroscopicForce)>sqr(RigidBody.fMaximalGyroscopicForce)) then begin
-      Vector3Scale(GyroscopicForce,RigidBody.fMaximalGyroscopicForce/Vector3Length(GyroscopicForce));
-     end;
-     EffectiveTorque:=Vector3Add(EffectiveTorque,GyroscopicForce);
-    end;
-
-    // Linear velocity: v += (F/m + g) * h
-    Acceleration:=Vector3Add(Vector3Mul(RigidBody.fForce,Vector3ScalarMul(RigidBody.fLinearFactor,RigidBody.InverseMass)),Gravity);
-    LinearVelocity:=Vector3Add(LinearVelocity,Vector3ScalarMul(Acceleration,h));
-
-    // Angular velocity: w += (T * I^-1) * h  (T includes the gyroscopic contribution).
-    AngularVelocity:=Vector3Add(AngularVelocity,Vector3ScalarMul(Vector3TermMatrixMul(EffectiveTorque,RigidBody.fWorldInverseInertiaTensor),h));
-
-    // User damping callback. It reads and writes the body's velocities, so mirror the substep state into the
-    // body around the call and take the result back.
-    if assigned(RigidBody.fOnDamping) then begin
-     RigidBody.fLinearVelocity:=LinearVelocity;
-     RigidBody.fAngularVelocity:=AngularVelocity;
-     RigidBody.fOnDamping(RigidBody,SubStepTimeStep);
-     LinearVelocity:=RigidBody.fLinearVelocity;
-     AngularVelocity:=RigidBody.fAngularVelocity;
-    end;
-
-    // Padé damping over the substep length.
-    Vector3Scale(LinearVelocity,1.0/(1.0+(RigidBody.fLinearVelocityDamp*h)));
-    Vector3Scale(AngularVelocity,1.0/(1.0+(RigidBody.fAngularVelocityDamp*h)));
-
-    // Additional damping model (from PAPPE 1.0): a stronger pull toward rest at low speeds.
-    if RigidBody.fAdditionalDamping then begin
-     if (Vector3LengthSquared(LinearVelocity)<RigidBody.fLinearVelocityAdditionalDampThresholdSqr) and
-        (Vector3LengthSquared(AngularVelocity)<RigidBody.fAngularVelocityAdditionalDampThresholdSqr) then begin
-      Vector3Scale(LinearVelocity,RigidBody.fAdditionalDamp);
-      Vector3Scale(AngularVelocity,RigidBody.fAdditionalDamp);
-     end;
-     s:=Vector3Length(LinearVelocity);
-     if s<RigidBody.fLinearVelocityDamp then begin
-      if s>RigidBody.fAdditionalDamp then begin
-       LinearVelocity:=Vector3Sub(LinearVelocity,Vector3ScalarMul(Vector3NormEx(LinearVelocity),RigidBody.fAdditionalDamp));
-      end else begin
-       LinearVelocity:=Vector3Origin;
-      end;
-     end;
-     s:=Vector3Length(AngularVelocity);
-     if s<RigidBody.fAngularVelocityDamp then begin
-      if s>RigidBody.fAdditionalDamp then begin
-       AngularVelocity:=Vector3Sub(AngularVelocity,Vector3ScalarMul(Vector3NormEx(AngularVelocity),RigidBody.fAdditionalDamp));
-      end else begin
-       AngularVelocity:=Vector3Origin;
-      end;
-     end;
-    end;
-
-    fSolver.fVelocities[Index].LinearVelocity:=LinearVelocity;
-    fSolver.fVelocities[Index].AngularVelocity:=AngularVelocity;
-
-   end;
-
+  // Integrate velocities with the substep length h (see SubStepIntegrateVelocitiesRange). Gravity is
+  // applied as an acceleration per substep (not accumulated into fForce, which would multiply it by the
+  // substep count). Gyroscopic force, the user damping callback and the additional damping model are
+  // applied per substep exactly like the classic path does per step, only with h instead of the full
+  // delta time. Runs as a parallel pipeline body stage, except when a user damping callback exists.
+  if fHasBodyDampingCallbacks then begin
+   SubStepIntegrateVelocitiesRange(0,fCountRigidBodies-1,0);
+  end else begin
+   DispatchBodyStage(SubStepIntegrateVelocitiesRange);
   end;
 
   fSolver.WarmStartSubStep;
 
   // Native-soft joints warm start once per substep too, alongside the contacts, before any velocity solve reads
   // the velocities. Adapter joints did their warm start in the prepare above, so they are skipped here.
-  for Index:=0 to fCountConstraints-1 do begin
-   Constraint:=fConstraints[fConstraintSolveOrder[Index]];
-   if assigned(Constraint) and not (kcfBreaked in Constraint.fFlags) and Constraint.UsesNativeTGSSoftPath then begin
-    Constraint.WarmStartSubStep(self,aTimeStep);
-   end;
-  end;
+  DispatchJointStage(JointWarmStartSubStepRange);
 
   fSolver.SolveVelocitySubStep(aTimeStep,true);
 
@@ -59253,84 +60642,27 @@ begin
   // mini step per substep: a fresh prepare and warm start with the substep time step, so their jacobians,
   // biases and accumulated impulses all live consistently on the substep cadence, instead of mixing a
   // once-per-step setup with per-substep solves on stale step-start data.
-  for Index:=0 to fCountConstraints-1 do begin
-   Constraint:=fConstraints[fConstraintSolveOrder[Index]];
-   if assigned(Constraint) and not (kcfBreaked in Constraint.fFlags) then begin
-    if Constraint.UsesNativeTGSSoftPath then begin
-     Constraint.SolveVelocitySubStep(self,aTimeStep,true);
-    end else begin
-     if Constraint.UsesAdapterSubstepPath then begin
-      Constraint.InitializeConstraintsAndWarmStart(self,SubStepTimeStep);
-      Constraint.SolveVelocityConstraint(self,SubStepTimeStep);
-     end else begin
-      Constraint.SolveVelocityConstraint(self,aTimeStep);
-     end;
-    end;
-   end;
-  end;
+  DispatchJointStage(JointSolveVelocitySubStepRange);
 
   // Speculative contacts: brake approaching bodies to their contact plane before integrating positions.
   if fSolver.fCountSpeculativeContacts>0 then begin
    fSolver.SolveSpeculativeContactConstraints;
   end;
 
-  // Integrate positions with the substep length h. The velocities are clamped to the world and per-body
-  // maxima (same full-step-length measure as the end-of-step clamp) BEFORE every substep integration and
-  // written back, because a runaway feedback loop (a light limb kicked by a contact, its joint bias chasing
-  // the growing anchor separation) can otherwise integrate meters of position error within the substeps of
-  // one step before the end-of-step clamp ever sees a velocity.
-  for Index:=0 to fCountRigidBodies-1 do begin
-   RigidBody:=fRigidBodies[Index];
-   if RigidBody.fRigidBodyType in [krbtDynamic,krbtKinematic] then begin
-    SolverPosition:=@fSolver.fPositions[Index];
-    SolverVelocity:=@fSolver.fVelocities[Index];
-    Position:=SolverPosition^.Position;
-    Orientation:=SolverPosition^.Orientation;
-    LinearVelocity:=SolverVelocity^.LinearVelocity;
-    AngularVelocity:=SolverVelocity^.AngularVelocity;
-    if fPhysics.fMaximalLinearVelocity>EPSILON then begin
-     Translation:=Vector3ScalarMul(LinearVelocity,aTimeStep.DeltaTime);
-     if Vector3LengthSquared(Translation)>sqr(fPhysics.fMaximalLinearVelocity) then begin
-      Vector3Scale(LinearVelocity,fPhysics.fMaximalLinearVelocity/Vector3Length(Translation));
-     end;
-    end;
-    if RigidBody.fMaximalLinearVelocity>EPSILON then begin
-     Translation:=Vector3ScalarMul(LinearVelocity,aTimeStep.DeltaTime);
-     if Vector3LengthSquared(Translation)>sqr(RigidBody.fMaximalLinearVelocity) then begin
-      Vector3Scale(LinearVelocity,RigidBody.fMaximalLinearVelocity/Vector3Length(Translation));
-     end;
-    end;
-    if fPhysics.fMaximalAngularVelocity>EPSILON then begin
-     Rotation:=Vector3ScalarMul(AngularVelocity,aTimeStep.DeltaTime);
-     if Vector3LengthSquared(Rotation)>sqr(fPhysics.fMaximalAngularVelocity) then begin
-      Vector3Scale(AngularVelocity,fPhysics.fMaximalAngularVelocity/Vector3Length(Rotation));
-     end;
-    end;
-    if RigidBody.fMaximalAngularVelocity>EPSILON then begin
-     Rotation:=Vector3ScalarMul(AngularVelocity,aTimeStep.DeltaTime);
-     if Vector3LengthSquared(Rotation)>sqr(RigidBody.fMaximalAngularVelocity) then begin
-      Vector3Scale(AngularVelocity,RigidBody.fMaximalAngularVelocity/Vector3Length(Rotation));
-     end;
-    end;
-    SolverVelocity^.LinearVelocity:=LinearVelocity;
-    SolverVelocity^.AngularVelocity:=AngularVelocity;
-    fPhysics.Integrate(Position,Orientation,LinearVelocity,AngularVelocity,h);
-    SolverPosition^.Position:=Position;
-    SolverPosition^.Orientation:=Orientation;
-   end;
-  end;
+  // Integrate positions with the substep length h (see SubStepIntegratePositionsRange). The velocities
+  // are clamped to the world and per-body maxima (same full-step-length measure as the end-of-step clamp)
+  // BEFORE every substep integration and written back, because a runaway feedback loop (a light limb
+  // kicked by a contact, its joint bias chasing the growing anchor separation) can otherwise integrate
+  // meters of position error within the substeps of one step before the end-of-step clamp ever sees a
+  // velocity. Runs as a parallel pipeline body stage.
+  DispatchBodyStage(SubStepIntegratePositionsRange);
 
   // Relax pass: solve again without bias to remove the energy the bias added.
   fSolver.SolveVelocitySubStep(aTimeStep,false);
 
   // Native-soft joints relax in the same pass (without bias). Adapter joints were solved once above and do not
   // take part in the relax pass, which keeps their once-per-substep cadence identical to the adapter path.
-  for Index:=0 to fCountConstraints-1 do begin
-   Constraint:=fConstraints[fConstraintSolveOrder[Index]];
-   if assigned(Constraint) and not (kcfBreaked in Constraint.fFlags) and Constraint.UsesNativeTGSSoftPath then begin
-    Constraint.SolveVelocitySubStep(self,aTimeStep,false);
-   end;
-  end;
+  DispatchJointStage(JointRelaxSubStepRange);
 
  end;
 
@@ -59343,15 +60675,7 @@ begin
 
  // Break breakable constraints whose final reaction exceeds their threshold (same test as the classic path),
  // so the position correction below and the next step skip them.
- for Index:=0 to fCountConstraints-1 do begin
-  Constraint:=fConstraints[fConstraintSolveOrder[Index]];
-  if assigned(Constraint) and
-     (((Constraint.fFlags*[kcfActive,kcfBreakable,kcfBreaked])=[kcfActive,kcfBreakable]) and
-      ((Vector3Length(Constraint.GetReactionForce(aTimeStep.InverseDeltaTime))>Constraint.fBreakThresholdForce) or
-       (Vector3Length(Constraint.GetReactionTorque(aTimeStep.InverseDeltaTime))>Constraint.fBreakThresholdTorque))) then begin
-   Constraint.fFlags:=Constraint.fFlags+[kcfBreaked,kcfFreshBreaked];
-  end;
- end;
+ DispatchIndependentJointStage(JointBreakSweepRange);
 
  // Joint position correction pass (NonLinearGaussSeidel), after the substeps, on the final solver positions. A
  // joint that ran natively soft has already resolved its position error through the soft bias, so it skips the NGS
@@ -59359,13 +60683,13 @@ begin
  if fPhysics.fConstraintPositionCorrectionMode=kpcmNonLinearGaussSeidel then begin
   for Iteration:=1 to fPhysics.fPositionIterations do begin
    OK:=true;
-   for Index:=0 to fCountConstraints-1 do begin
-    Constraint:=fConstraints[fConstraintSolveOrder[Index]];
-    if assigned(Constraint) and not (kcfBreaked in Constraint.fFlags) and
-       not (Constraint.UsesNativeTGSSoftPath and Constraint.IsNativeTGSSoftJoint) then begin
-     if not Constraint.SolvePositionConstraint(self,aTimeStep) then begin
-      OK:=false;
-     end;
+   for Index:=0 to MAX_THREADS-1 do begin
+    fJointStageOKs[Index]:=true;
+   end;
+   DispatchJointStage(JointSolvePositionAdapterRange);
+   for Index:=0 to MAX_THREADS-1 do begin
+    if not fJointStageOKs[Index] then begin
+     OK:=false;
     end;
    end;
    if OK then begin
@@ -59915,6 +61239,11 @@ begin
 
  fConstraintGraph:=TKraftConstraintGraph.Create(self);
 
+ fPersistentIslands:=nil;
+ fCountPersistentIslands:=0;
+ fPersistentIslandVisitGeneration:=0;
+ fPersistentIslandStack:=nil;
+
  fAwakeRigidBodies:=nil;
  fCountAwakeRigidBodies:=0;
 
@@ -60070,6 +61399,29 @@ begin
 
  fSolverParallelThreshold:=64;
 
+ fWideContactSolver:=false;
+
+ fSolverStagePipeline:=true;
+ fPipelineRunning:=false;
+ fPipelineSyncBits:=0;
+ fPipelineStages:=nil;
+ SetLength(fPipelineStages,KraftSolverPipelineInitialBlockPoolSize div 4);
+ for Index:=0 to length(fPipelineStages)-1 do begin
+  fPipelineStages[Index].CompletionCount:=0;
+ end;
+ fPipelineStagePoolOffset:=0;
+ fPipelineBlocks:=nil;
+ SetLength(fPipelineBlocks,KraftSolverPipelineInitialBlockPoolSize);
+ for Index:=0 to length(fPipelineBlocks)-1 do begin
+  fPipelineBlocks[Index].SyncIndex:=0;
+ end;
+ fPipelineBlockPoolOffset:=0;
+ fPipelinePoolWanted:=false;
+ fPipelineCountWorkers:=0;
+{$ifdef KraftPasMP}
+ fPipelineJob:=nil;
+{$endif}
+
  fInternalEdgeHandlingMode:=kiehmNone;
 
  fMeshManifoldMode:=kmmmPerTriangle;
@@ -60155,6 +61507,12 @@ begin
  while assigned(fRigidBodyLast) do begin
   fRigidBodyLast.Free;
  end;
+
+ while fCountPersistentIslands>0 do begin
+  fPersistentIslands[fCountPersistentIslands-1].Free;
+ end;
+ fPersistentIslands:=nil;
+ fPersistentIslandStack:=nil;
 
  FreeAndNil(fConstraintGraph);
 
@@ -60287,6 +61645,131 @@ begin
 
 end;
 
+procedure TKraft.BuildGlobalIsland;
+// One island over the whole awake set for the global graph solver parallel mode: the awake movable bodies
+// enter in the deterministic body list order, the constraints enter from the persistent constraint graph in
+// color order (the order within one color has no result influence, and the solve orders get rebuilt from
+// the colors anyway), and the static or sleeping partners of the graph constraints join like the static
+// bodies of the classic build. Sleeping movable partners of touching graph contacts are woken up first,
+// like the classic island build does over its wake up propagation.
+var ColorIndex,Index:TKraftInt32;
+    Island:TKraftIsland;
+    RigidBody:TKraftRigidBody;
+    ContactPair:PKraftContactPair;
+    Constraint:TKraftConstraint;
+    WokeSomeBodyUp:boolean;
+ function IsInIsland(const aIsland:TKraftIsland;const aRigidBody:TKraftRigidBody):boolean;
+ begin
+  result:=(length(aRigidBody.fIslandIndices)>0) and
+          (TKraftUInt32(aRigidBody.fIslandIndices[0])<TKraftUInt32(aIsland.fCountRigidBodies)) and
+          (aIsland.fRigidBodies[aRigidBody.fIslandIndices[0]]=aRigidBody);
+ end;
+ procedure AddToVisitedList(const aRigidBody:TKraftRigidBody);
+ // The visited list drives the state reset in TKraft.CleanIslands (fIsland pointer, visited index), so
+ // every body which enters the global island must register here, like in the classic island build.
+ begin
+  if aRigidBody.fVisitedIndex<0 then begin
+   aRigidBody.fVisitedIndex:=fCountVisitedRigidBodies;
+   fVisitedRigidBodies[fCountVisitedRigidBodies]:=aRigidBody;
+   inc(fCountVisitedRigidBodies);
+  end;
+ end;
+ procedure AddBodyOnce(const aIsland:TKraftIsland;const aRigidBody:TKraftRigidBody);
+ begin
+  if assigned(aRigidBody) and not IsInIsland(aIsland,aRigidBody) then begin
+   aIsland.AddRigidBody(aRigidBody);
+   AddToVisitedList(aRigidBody);
+  end;
+ end;
+ procedure WakeSleepingMovableBody(const aRigidBody:TKraftRigidBody);
+ // Wakes the whole persistent connectivity island of a sleeping movable graph constraint partner, so a
+ // resting group wakes up as one, like the transitive wake up propagation of the classic island build.
+ var BodyIndex:TKraftInt32;
+     PersistentIsland:TKraftPersistentIsland;
+     OtherRigidBody:TKraftRigidBody;
+ begin
+  if assigned(aRigidBody) and (aRigidBody.fRigidBodyType in [krbtDynamic,krbtKinematic]) and not (krbfAwake in aRigidBody.fFlags) then begin
+   PersistentIsland:=aRigidBody.fPersistentIsland;
+   if assigned(PersistentIsland) then begin
+    for BodyIndex:=0 to PersistentIsland.fCountRigidBodies-1 do begin
+     OtherRigidBody:=PersistentIsland.fRigidBodies[BodyIndex];
+     if not (krbfAwake in OtherRigidBody.fFlags) then begin
+      OtherRigidBody.SetToAwake;
+      WokeSomeBodyUp:=true;
+     end;
+    end;
+   end else begin
+    aRigidBody.SetToAwake;
+    WokeSomeBodyUp:=true;
+   end;
+  end;
+ end;
+begin
+
+ // Wake up the sleeping movable partners of the graph constraints (touching contacts and active joints),
+ // until no constraint wakes anybody anymore. The freshly woken bodies bring their own constraints into
+ // the graph at the next narrow phase; the while loops tolerate the color arrays growing under them.
+ repeat
+  WokeSomeBodyUp:=false;
+  for ColorIndex:=0 to KraftConstraintGraphColorCount-1 do begin
+   Index:=0;
+   while Index<fConstraintGraph.fColors[ColorIndex].CountContactPairs do begin
+    ContactPair:=fConstraintGraph.fColors[ColorIndex].ContactPairs[Index];
+    WakeSleepingMovableBody(ContactPair^.RigidBodies[0]);
+    WakeSleepingMovableBody(ContactPair^.RigidBodies[1]);
+    inc(Index);
+   end;
+   Index:=0;
+   while Index<fConstraintGraph.fColors[ColorIndex].CountConstraints do begin
+    Constraint:=fConstraintGraph.fColors[ColorIndex].Constraints[Index];
+    WakeSleepingMovableBody(Constraint.fRigidBodies[0]);
+    WakeSleepingMovableBody(Constraint.fRigidBodies[1]);
+    inc(Index);
+   end;
+  end;
+ until not WokeSomeBodyUp;
+
+ fCountIslands:=1;
+ Island:=fIslands[0];
+ Island.Clear;
+
+ // All awake active movable bodies, in the deterministic body list order. They also form the active
+ // rigid body list, which drives the broad phase proxy synchronization after the solve.
+ RigidBody:=fRigidBodyFirst;
+ while assigned(RigidBody) do begin
+  if (RigidBody.fRigidBodyType in [krbtDynamic,krbtKinematic]) and
+     ((RigidBody.fFlags*[krbfAwake,krbfActive])=[krbfAwake,krbfActive]) then begin
+   Island.AddRigidBody(RigidBody);
+   AddToVisitedList(RigidBody);
+   fActiveRigidBodies[fCountActiveRigidBodies]:=RigidBody;
+   inc(fCountActiveRigidBodies);
+  end;
+  RigidBody:=RigidBody.fRigidBodyNext;
+ end;
+
+ // All graph constraints in color order, together with their static or sleeping partner bodies
+ for ColorIndex:=0 to KraftConstraintGraphColorCount-1 do begin
+  for Index:=0 to fConstraintGraph.fColors[ColorIndex].CountContactPairs-1 do begin
+   ContactPair:=fConstraintGraph.fColors[ColorIndex].ContactPairs[Index];
+   AddBodyOnce(Island,ContactPair^.RigidBodies[0]);
+   AddBodyOnce(Island,ContactPair^.RigidBodies[1]);
+   ContactPair^.Flags:=ContactPair^.Flags+[kcfInIsland];
+   Island.AddContactPair(ContactPair);
+  end;
+  for Index:=0 to fConstraintGraph.fColors[ColorIndex].CountConstraints-1 do begin
+   Constraint:=fConstraintGraph.fColors[ColorIndex].Constraints[Index];
+   AddBodyOnce(Island,Constraint.fRigidBodies[0]);
+   AddBodyOnce(Island,Constraint.fRigidBodies[1]);
+   Island.AddConstraint(Constraint);
+  end;
+ end;
+
+ // Fold the dynamic versus static contact pairs behind the dynamic versus dynamic ones, like the classic
+ // island build does; the solver consumes the merged list.
+ Island.MergeContactPairs;
+
+end;
+
 procedure TKraft.BuildIslands;
 var IslandIndex,LastCount,SubIndex,Index:TKraftInt32;
     SeedRigidBody,SeedRigidBodyStack,CurrentRigidBody,OtherRigidBody,StaticRigidBodiesList:TKraftRigidBody;
@@ -60329,6 +61812,14 @@ begin
  end;
 
  fCountIslands:=0;
+
+ // The global graph solver parallel mode solves the whole awake set as one island over the persistent
+ // constraint graph instead of the per step connectivity build below; the sleep grouping then comes from
+ // the persistent connectivity islands (see TKraft.SolveIslands).
+ if fSolverParallelMode=kspmGlobalGraph then begin
+  BuildGlobalIsland;
+  exit;
+ end;
 
 {$ifdef KraftProcessForceAllBodies}
  SeedRigidBody:=fRigidBodyFirst;
@@ -60560,8 +62051,455 @@ begin
 end;
 {$endif}
 
-procedure TKraft.SolveIslands(const aTimeStep:TKraftTimeStep);
+procedure TKraft.EnsurePersistentIsland(const aRigidBody:TKraftRigidBody);
+begin
+ if (aRigidBody.fRigidBodyType in [krbtDynamic,krbtKinematic]) and not assigned(aRigidBody.fPersistentIsland) then begin
+  TKraftPersistentIsland.Create(self).AddRigidBody(aRigidBody);
+ end;
+end;
+
+procedure TKraft.ReleaseFromPersistentIsland(const aRigidBody:TKraftRigidBody);
+var Island:TKraftPersistentIsland;
+begin
+ Island:=aRigidBody.fPersistentIsland;
+ if assigned(Island) then begin
+  Island.RemoveRigidBody(aRigidBody);
+  if Island.fCountRigidBodies=0 then begin
+   Island.Free;
+  end else begin
+   Island.fNeedsSplitCheck:=true;
+  end;
+ end;
+end;
+
+procedure TKraft.LinkPersistentIslands(const aRigidBodyA,aRigidBodyB:TKraftRigidBody);
+var SmallerIsland,BiggerIsland:TKraftPersistentIsland;
+begin
+ if assigned(aRigidBodyA) and (aRigidBodyA.fRigidBodyType in [krbtDynamic,krbtKinematic]) and
+    assigned(aRigidBodyB) and (aRigidBodyB.fRigidBodyType in [krbtDynamic,krbtKinematic]) then begin
+  EnsurePersistentIsland(aRigidBodyA);
+  EnsurePersistentIsland(aRigidBodyB);
+  if aRigidBodyA.fPersistentIsland<>aRigidBodyB.fPersistentIsland then begin
+   // Eager merge, the smaller island into the bigger one
+   if aRigidBodyA.fPersistentIsland.fCountRigidBodies<aRigidBodyB.fPersistentIsland.fCountRigidBodies then begin
+    SmallerIsland:=aRigidBodyA.fPersistentIsland;
+    BiggerIsland:=aRigidBodyB.fPersistentIsland;
+   end else begin
+    SmallerIsland:=aRigidBodyB.fPersistentIsland;
+    BiggerIsland:=aRigidBodyA.fPersistentIsland;
+   end;
+   while SmallerIsland.fCountRigidBodies>0 do begin
+    BiggerIsland.AddRigidBody(SmallerIsland.fRigidBodies[SmallerIsland.fCountRigidBodies-1]);
+    dec(SmallerIsland.fCountRigidBodies);
+   end;
+   if SmallerIsland.fNeedsSplitCheck then begin
+    BiggerIsland.fNeedsSplitCheck:=true;
+   end;
+   SmallerIsland.Free;
+  end;
+ end;
+end;
+
+procedure TKraft.MarkPersistentIslandsDirty(const aRigidBodyA,aRigidBodyB:TKraftRigidBody);
+begin
+ if assigned(aRigidBodyA) and assigned(aRigidBodyA.fPersistentIsland) then begin
+  aRigidBodyA.fPersistentIsland.fNeedsSplitCheck:=true;
+ end;
+ if assigned(aRigidBodyB) and assigned(aRigidBodyB.fPersistentIsland) then begin
+  aRigidBodyB.fPersistentIsland.fNeedsSplitCheck:=true;
+ end;
+end;
+
+procedure TKraft.ProcessPersistentIslandSplits;
+// Lazy split in the Box3D-style: one dirty island per step gets repartitioned into its actual connected
+// components (along the touching contacts and the active joints), the first component stays in the old
+// island object. Between the vanishing of a link and the split an island can be coarser than the true
+// connectivity, never finer, which only delays sleeping, never wrongly groups a solve.
+var IslandIndex,Index,StackCount:TKraftInt32;
+    Island,TargetIsland:TKraftPersistentIsland;
+    RigidBody,OtherRigidBody:TKraftRigidBody;
+    SnapshotBodies:TKraftRigidBodies;
+    SnapshotCount:TKraftInt32;
+    ContactPairEdge:PKraftContactPairEdge;
+    ConstraintEdge:PKraftConstraintEdge;
+    FirstComponent:boolean;
+begin
+
+ Island:=nil;
+ for IslandIndex:=0 to fCountPersistentIslands-1 do begin
+  if fPersistentIslands[IslandIndex].fNeedsSplitCheck then begin
+   Island:=fPersistentIslands[IslandIndex];
+   break;
+  end;
+ end;
+ if not assigned(Island) then begin
+  exit;
+ end;
+
+ Island.fNeedsSplitCheck:=false;
+
+ // Snapshot the bodies and empty the island, the components below rebuild the membership
+ SnapshotCount:=Island.fCountRigidBodies;
+ SnapshotBodies:=nil;
+ SetLength(SnapshotBodies,SnapshotCount);
+ for Index:=0 to SnapshotCount-1 do begin
+  SnapshotBodies[Index]:=Island.fRigidBodies[Index];
+  SnapshotBodies[Index].fPersistentIsland:=nil;
+  SnapshotBodies[Index].fPersistentIslandLocalIndex:=-1;
+ end;
+ Island.fCountRigidBodies:=0;
+
+ inc(fPersistentIslandVisitGeneration);
+
+ FirstComponent:=true;
+ for Index:=0 to SnapshotCount-1 do begin
+
+  RigidBody:=SnapshotBodies[Index];
+  if RigidBody.fPersistentIslandVisitGeneration=fPersistentIslandVisitGeneration then begin
+   continue;
+  end;
+
+  if FirstComponent then begin
+   TargetIsland:=Island;
+   FirstComponent:=false;
+  end else begin
+   TargetIsland:=TKraftPersistentIsland.Create(self);
+  end;
+
+  // Flood fill this component over the current links
+  if length(fPersistentIslandStack)<SnapshotCount then begin
+   SetLength(fPersistentIslandStack,(SnapshotCount+1)*2);
+  end;
+  StackCount:=0;
+  fPersistentIslandStack[StackCount]:=RigidBody;
+  inc(StackCount);
+  RigidBody.fPersistentIslandVisitGeneration:=fPersistentIslandVisitGeneration;
+  while StackCount>0 do begin
+   dec(StackCount);
+   RigidBody:=fPersistentIslandStack[StackCount];
+   TargetIsland.AddRigidBody(RigidBody);
+   ContactPairEdge:=RigidBody.fContactPairEdgeFirst;
+   while assigned(ContactPairEdge) do begin
+    OtherRigidBody:=ContactPairEdge^.OtherRigidBody;
+    if (kcfColliding in ContactPairEdge^.ContactPair^.Flags) and
+       assigned(OtherRigidBody) and
+       (OtherRigidBody.fRigidBodyType in [krbtDynamic,krbtKinematic]) and
+       (OtherRigidBody.fPersistentIslandVisitGeneration<>fPersistentIslandVisitGeneration) and
+       not assigned(OtherRigidBody.fPersistentIsland) then begin
+     OtherRigidBody.fPersistentIslandVisitGeneration:=fPersistentIslandVisitGeneration;
+     fPersistentIslandStack[StackCount]:=OtherRigidBody;
+     inc(StackCount);
+    end;
+    ContactPairEdge:=ContactPairEdge^.Next;
+   end;
+   ConstraintEdge:=RigidBody.fConstraintEdgeFirst;
+   while assigned(ConstraintEdge) do begin
+    OtherRigidBody:=ConstraintEdge^.OtherRigidBody;
+    if assigned(ConstraintEdge^.Constraint) and
+       ((ConstraintEdge^.Constraint.fFlags*[kcfActive,kcfBreaked])=[kcfActive]) and
+       assigned(OtherRigidBody) and
+       (OtherRigidBody<>RigidBody) and
+       (OtherRigidBody.fRigidBodyType in [krbtDynamic,krbtKinematic]) and
+       (OtherRigidBody.fPersistentIslandVisitGeneration<>fPersistentIslandVisitGeneration) and
+       not assigned(OtherRigidBody.fPersistentIsland) then begin
+     OtherRigidBody.fPersistentIslandVisitGeneration:=fPersistentIslandVisitGeneration;
+     fPersistentIslandStack[StackCount]:=OtherRigidBody;
+     inc(StackCount);
+    end;
+    ConstraintEdge:=ConstraintEdge^.Next;
+   end;
+  end;
+
+ end;
+
+ SnapshotBodies:=nil;
+
+end;
+
+function TKraft.ValidatePersistentIslands(out aError:string):boolean;
+// Proves the persistent island bookkeeping against the per step island build: every movable body carries a
+// persistent island with a consistent back reference, and all movable bodies of one built island share one
+// persistent island (the persistent partition may be coarser while splits are pending, never finer).
+var IslandIndex,Index:TKraftInt32;
+    RigidBody:TKraftRigidBody;
+    PersistentIsland:TKraftPersistentIsland;
+begin
+ result:=false;
+ aError:='';
+ RigidBody:=fRigidBodyFirst;
+ while assigned(RigidBody) do begin
+  if RigidBody.fRigidBodyType in [krbtDynamic,krbtKinematic] then begin
+   if not assigned(RigidBody.fPersistentIsland) then begin
+    aError:='movable body without a persistent island';
+    exit;
+   end;
+   if (RigidBody.fPersistentIslandLocalIndex<0) or
+      (RigidBody.fPersistentIslandLocalIndex>=RigidBody.fPersistentIsland.fCountRigidBodies) or
+      (RigidBody.fPersistentIsland.fRigidBodies[RigidBody.fPersistentIslandLocalIndex]<>RigidBody) then begin
+    aError:='persistent island back reference mismatch';
+    exit;
+   end;
+  end else begin
+   if assigned(RigidBody.fPersistentIsland) then begin
+    aError:='non-movable body inside a persistent island';
+    exit;
+   end;
+  end;
+  RigidBody:=RigidBody.fRigidBodyNext;
+ end;
+ if fSolverParallelMode<>kspmGlobalGraph then begin
+  // In the global graph mode the single built pseudo island intentionally spans all awake persistent
+  // islands, so the finer-than comparison only holds for the classic per step island build.
+  for IslandIndex:=0 to fCountIslands-1 do begin
+   PersistentIsland:=nil;
+   for Index:=0 to fIslands[IslandIndex].fCountRigidBodies-1 do begin
+    RigidBody:=fIslands[IslandIndex].fRigidBodies[Index];
+    if RigidBody.fRigidBodyType in [krbtDynamic,krbtKinematic] then begin
+     if not assigned(PersistentIsland) then begin
+      PersistentIsland:=RigidBody.fPersistentIsland;
+     end else if RigidBody.fPersistentIsland<>PersistentIsland then begin
+      aError:='built island split over two persistent islands';
+      exit;
+     end;
+    end;
+   end;
+  end;
+ end;
+ result:=true;
+end;
+
+procedure SolverPipelineSpinPause;
+// One spin wait hint: on x86 the pause instruction, which releases the execution resources of the core
+// to a hyperthread sibling (an orchestrating thread on the sibling would otherwise lose a large part of
+// its serial phases to a hot spinning worker); a plain no op elsewhere, the call itself already brakes.
+{$if defined(fpc) and (defined(cpu386) or defined(cpux86_64) or defined(cpuamd64))}assembler; nostackframe;
+asm
+ pause
+end;
+{$else}
+begin
+end;
+{$ifend}
+
+function TKraft.SolverPipelineLoadSyncBits:TKraftInt32;
+// Deliberately not inlined: a plain aligned 32 bit load of the publication counter for the spin loops
+// (atomic on every supported target), where the call boundary keeps the compiler from hoisting the read
+// out of the loop. The spinners confirm an observed change with one real interlocked read before they
+// act on it, so the weakly ordered targets get their acquire fence exactly once per transition instead
+// of on every spin iteration (a locked read per spin iteration stampedes the cache line so badly that it
+// slows down the publishing thread itself).
+begin
+ result:=fPipelineSyncBits;
+end;
+
+procedure TKraft.SolverPipelineExecuteStage(const aStage:PKraftSolverPipelineStage;const aWorkerSlot,aThreadIndex:TKraftInt32);
+// Claims and runs blocks of one published stage: every worker starts at its own offset (L2 affinity over
+// the stage rounds of a step), scans forward with wrap around and wins a block over an atomic compare
+// exchange of its sync index from zero to one, so every block runs exactly once no matter how the workers
+// interleave. The completion count of the stage sums up once per worker at the end.
+var BlockIndex,StepIndex,CompletedCount,CountBlocks:TKraftInt32;
+    Block:PKraftSolverPipelineBlock;
+begin
+ CompletedCount:=0;
+ CountBlocks:=aStage^.CountBlocks;
+ BlockIndex:=TKraftInt32((TKraftInt64(aWorkerSlot)*CountBlocks) div (fPipelineCountWorkers+1));
+ if BlockIndex>=CountBlocks then begin
+  BlockIndex:=0;
+ end;
+ for StepIndex:=1 to CountBlocks do begin
+  Block:=@fPipelineBlocks[aStage^.BlockFirst+BlockIndex];
+  if InterlockedCompareExchange(Block^.SyncIndex,1,0)=0 then begin
+   aStage^.RangeMethod(Block^.StartIndex,(Block^.StartIndex+Block^.Count)-1,aThreadIndex);
+   inc(CompletedCount);
+  end;
+  inc(BlockIndex);
+  if BlockIndex>=CountBlocks then begin
+   BlockIndex:=0;
+  end;
+ end;
+ if CompletedCount>0 then begin
+  InterlockedExchangeAdd(aStage^.CompletionCount,CompletedCount);
+ end;
+end;
+
+procedure TKraft.SolverPipelinePublishStage(const aRangeMethod:TKraftSolverStageRangeMethod;const aRangeFirst,aRangeCount,aBlockSize:TKraftInt32);
+// Publishes one parallel stage to the resident pipeline workers, helps with the blocks itself and then
+// waits for the completion of all blocks (a claimed block always finishes, so this wait only covers the
+// still working thieves). The stage descriptor slot and the block slots are fresh pool slots which are
+// completely written before the publication counter advances and never change afterwards, so a delayed
+// worker can never observe a torn descriptor or steal blocks of a newer publication.
+var CountBlocks,BlockIndex,StartIndex,RemainCount,Count,SpinCount:TKraftInt32;
+    Block:PKraftSolverPipelineBlock;
+    Stage:PKraftSolverPipelineStage;
+begin
+
+ CountBlocks:=(aRangeCount+(aBlockSize-1)) div aBlockSize;
+
+ // A single block gains nothing over running the range directly, and a range whose blocks or stage slot
+ // do not fit into the remaining pool slots of this step runs directly too, which is correct in any
+ // case; the pools then grow for the next pipeline start.
+ if (CountBlocks<2) or
+    ((fPipelineBlockPoolOffset+CountBlocks)>length(fPipelineBlocks)) or
+    (fPipelineStagePoolOffset>=length(fPipelineStages)) then begin
+  if ((fPipelineBlockPoolOffset+CountBlocks)>length(fPipelineBlocks)) or
+     (fPipelineStagePoolOffset>=length(fPipelineStages)) then begin
+   fPipelinePoolWanted:=true;
+  end;
+  aRangeMethod(aRangeFirst,(aRangeFirst+aRangeCount)-1,0);
+  exit;
+ end;
+
+ // Cut the range into fresh block slots from the pool (their sync indices are still virgin zero)
+ StartIndex:=aRangeFirst;
+ RemainCount:=aRangeCount;
+ for BlockIndex:=0 to CountBlocks-1 do begin
+  Block:=@fPipelineBlocks[fPipelineBlockPoolOffset+BlockIndex];
+  Count:=Min(aBlockSize,RemainCount);
+  Block^.StartIndex:=StartIndex;
+  Block^.Count:=Count;
+  inc(StartIndex,Count);
+  dec(RemainCount,Count);
+ end;
+
+ // Fill the fresh stage descriptor slot (its completion count is still virgin zero) and publish it over
+ // the publication counter with a full barrier; the slot index plus one is the publication value.
+ Stage:=@fPipelineStages[fPipelineStagePoolOffset];
+ Stage^.RangeMethod:=aRangeMethod;
+ Stage^.BlockFirst:=fPipelineBlockPoolOffset;
+ Stage^.CountBlocks:=CountBlocks;
+ InterlockedExchange(fPipelineSyncBits,fPipelineStagePoolOffset+1);
+
+ // Work on the own share (worker slot zero, thread slot zero)
+ SolverPipelineExecuteStage(Stage,0,0);
+
+ // Wait until every block of this publication has finished: a bounded plain read spin first (the thieves
+ // only need microseconds to finish their claimed blocks), yielding only after that.
+ SpinCount:=0;
+ while InterlockedExchangeAdd(Stage^.CompletionCount,0)<>CountBlocks do begin
+  inc(SpinCount);
+  if SpinCount>256 then begin
+   Sleep(0);
+   SpinCount:=0;
+  end;
+ end;
+
+ inc(fPipelineBlockPoolOffset,CountBlocks);
+ inc(fPipelineStagePoolOffset);
+
+end;
+
+procedure TKraft.SolverPipelineWorkerRun(const aWorkerSlot,aThreadIndex:TKraftInt32);
+// The resident spin loop of one pipeline worker: wait for a new stage publication and help with its
+// blocks; the sentinel publication ends the run. The publication value resolves to an immutable stage
+// descriptor slot, so even a heavily delayed worker always works against a consistent descriptor. The
+// spin reads the publication counter with plain loads and confirms an observed change with one real
+// interlocked read (the acquire fence), so the idle spinners never stampede the counter cache line.
+var LastSyncBits,SyncBits,SpinCount:TKraftInt32;
+begin
+ LastSyncBits:=0;
+ SpinCount:=0;
+ repeat
+  SyncBits:=SolverPipelineLoadSyncBits;
+  if SyncBits=LastSyncBits then begin
+   SolverPipelineSpinPause;
+   inc(SpinCount);
+   if SpinCount>262144 then begin
+    Sleep(0);
+    SpinCount:=0;
+   end;
+  end else begin
+   // Confirm the observed transition with a full interlocked read before acting on it
+   SyncBits:=InterlockedExchangeAdd(fPipelineSyncBits,0);
+   if SyncBits=KraftSolverPipelineSentinel then begin
+    break;
+   end else if SyncBits<>LastSyncBits then begin
+    SolverPipelineExecuteStage(@fPipelineStages[SyncBits-1],aWorkerSlot,aThreadIndex);
+    LastSyncBits:=SyncBits;
+   end;
+   SpinCount:=0;
+  end;
+ until false;
+end;
+
+{$ifdef KraftPasMP}
+procedure TKraft.SolverPipelineWorkerParallelForFunction(const aJob:PPasMPJob;const aThreadIndex:TKraftInt32;const aData:pointer;const aFromIndex,aToIndex:TPasMPNativeInt);
 var Index:TKraftInt32;
+begin
+ for Index:=aFromIndex to aToIndex do begin
+  SolverPipelineWorkerRun(Index+1,aThreadIndex+1);
+ end;
+end;
+{$else}
+procedure TKraft.SolverPipelineWorkerJob(const aJobIndex,aThreadIndex:TKraftInt32);
+begin
+ SolverPipelineWorkerRun(aJobIndex+1,aThreadIndex+1);
+end;
+{$endif}
+
+procedure TKraft.StartSolverPipeline;
+// Starts the resident pipeline workers for the big island solves of this step. The worker slot zero and
+// the thread slot zero belong to the orchestrating thread (this one), the workers use their slot plus
+// one, so the per thread stage scratch slots never collide.
+var Index,OldLength:TKraftInt32;
+begin
+ if fPipelinePoolWanted then begin
+  fPipelinePoolWanted:=false;
+  OldLength:=length(fPipelineBlocks);
+  SetLength(fPipelineBlocks,OldLength*2);
+  for Index:=OldLength to length(fPipelineBlocks)-1 do begin
+   fPipelineBlocks[Index].SyncIndex:=0;
+  end;
+  OldLength:=length(fPipelineStages);
+  SetLength(fPipelineStages,OldLength*2);
+  for Index:=OldLength to length(fPipelineStages)-1 do begin
+   fPipelineStages[Index].CompletionCount:=0;
+  end;
+ end;
+ fPipelineBlockPoolOffset:=0;
+ fPipelineStagePoolOffset:=0;
+ fPipelineSyncBits:=0;
+ fPipelineCountWorkers:=fCountThreads;
+{$ifdef KraftPasMP}
+ fPipelineJob:=fPasMP.ParallelFor(nil,0,fPipelineCountWorkers-1,SolverPipelineWorkerParallelForFunction,1,4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true,fPasMPAffinityAllowMask,fPasMPAffinityAvoidMask);
+ fPasMP.Run(fPipelineJob);
+{$else}
+ fJobManager.fOnProcessJob:=SolverPipelineWorkerJob;
+ fJobManager.fCountRemainJobs:=fPipelineCountWorkers;
+ fJobManager.fGranularity:=1;
+ fJobManager.WakeUp;
+{$endif}
+end;
+
+procedure TKraft.StopSolverPipeline;
+// Publishes the sentinel, waits until all workers left their spin loops and virginizes the used pool
+// slots for the next pipeline start (no worker is alive here anymore, so plain writes are safe).
+var Index:TKraftInt32;
+begin
+ InterlockedExchange(fPipelineSyncBits,KraftSolverPipelineSentinel);
+{$ifdef KraftPasMP}
+ fPasMP.WaitRelease(fPipelineJob);
+ fPipelineJob:=nil;
+{$else}
+ fJobManager.WaitFor;
+{$endif}
+ for Index:=0 to fPipelineBlockPoolOffset-1 do begin
+  fPipelineBlocks[Index].SyncIndex:=0;
+ end;
+ fPipelineBlockPoolOffset:=0;
+ for Index:=0 to fPipelineStagePoolOffset-1 do begin
+  fPipelineStages[Index].CompletionCount:=0;
+ end;
+ fPipelineStagePoolOffset:=0;
+ fPipelineSyncBits:=0;
+end;
+
+procedure TKraft.SolveIslands(const aTimeStep:TKraftTimeStep);
+var Index,SubIndex:TKraftInt32;
+    PersistentIsland:TKraftPersistentIsland;
+    RigidBody,OtherRigidBody:TKraftRigidBody;
+    ContactPairEdge:PKraftContactPairEdge;
+    MinSleepTime:TKraftScalar;
+    HasAwakeBodies,UsePipeline:boolean;
 begin
  fJobTimeStep:=aTimeStep;
  fIsSolving:=true;
@@ -60600,11 +62538,37 @@ begin
   end;
  end;
 
- // The big islands of the colored modes, one after another with parallel color stages inside.
+ // The big islands of the colored modes, one after another with parallel color stages inside. With the
+ // solver stage pipeline the workers start once here and stay resident over all these island solves; the
+ // stage dispatches then publish their work over the atomic pipeline counter instead of one job manager
+ // barrier per color and stage (a pure synchronization mechanism switch without any result influence).
+ UsePipeline:=false;
+ if fSolverStagePipeline and (fSolverParallelMode<>kspmIslands) and not fSingleThreaded and
+{$ifdef KraftPasMP}
+    assigned(fPasMP) and
+{$else}
+    assigned(fJobManager) and
+{$endif}
+    ((fCountThreads+1)<MAX_THREADS) then begin
+  for Index:=0 to fCountIslands-1 do begin
+   if fIslands[Index].fUseParallelStages then begin
+    UsePipeline:=true;
+    break;
+   end;
+  end;
+ end;
+ if UsePipeline then begin
+  StartSolverPipeline;
+  fPipelineRunning:=true;
+ end;
  for Index:=0 to fCountIslands-1 do begin
   if fIslands[Index].fUseParallelStages then begin
    fIslands[Index].Solve(fJobTimeStep);
   end;
+ end;
+ if UsePipeline then begin
+  fPipelineRunning:=false;
+  StopSolverPipeline;
  end;
 
  fIsSolving:=false;
@@ -60612,9 +62576,55 @@ begin
  // Apply the sleep decisions of the island solves serially, after all (possibly parallel) island solves are
  // done: the sleep transition maintains shared bookkeeping (awake body list, constraint graph), which must
  // not be mutated from parallel island solves.
- for Index:=0 to fCountIslands-1 do begin
-  if fIslands[Index].fWantsSleep then begin
-   fIslands[Index].PutToSleep;
+ if fSolverParallelMode=kspmGlobalGraph then begin
+  // The global island never sleeps as a whole; the sleep grouping comes from the persistent connectivity
+  // islands instead, with the same rule as the classic build: a group falls asleep when the smallest sleep
+  // timer of its awake bodies passed the threshold (the per body timers are maintained by the solve above,
+  // bodies which do not allow sleeping keep their timer at zero over the velocity threshold logic).
+  for Index:=0 to fCountPersistentIslands-1 do begin
+   PersistentIsland:=fPersistentIslands[Index];
+   MinSleepTime:=MAX_SCALAR;
+   HasAwakeBodies:=false;
+   for SubIndex:=0 to PersistentIsland.fCountRigidBodies-1 do begin
+    RigidBody:=PersistentIsland.fRigidBodies[SubIndex];
+    if krbfAwake in RigidBody.fFlags then begin
+     HasAwakeBodies:=true;
+     if krbfAllowSleep in RigidBody.fFlags then begin
+      MinSleepTime:=Min(MinSleepTime,RigidBody.fSleepTime);
+     end else begin
+      MinSleepTime:=0.0;
+     end;
+    end;
+   end;
+   if HasAwakeBodies and (MinSleepTime>fSleepTimeThreshold) then begin
+    for SubIndex:=0 to PersistentIsland.fCountRigidBodies-1 do begin
+     RigidBody:=PersistentIsland.fRigidBodies[SubIndex];
+     if (krbfAwake in RigidBody.fFlags) and (krbfAllowSleep in RigidBody.fFlags) then begin
+      RigidBody.SetToSleep;
+     end;
+    end;
+    // The non-movable contact partners fall asleep with the group, like they do as members of a classic
+    // built island: a still awake static partner would keep the contact pair in the active narrow phase
+    // set forever (the active pair filter only needs one awake and active body).
+    for SubIndex:=0 to PersistentIsland.fCountRigidBodies-1 do begin
+     ContactPairEdge:=PersistentIsland.fRigidBodies[SubIndex].fContactPairEdgeFirst;
+     while assigned(ContactPairEdge) do begin
+      OtherRigidBody:=ContactPairEdge^.OtherRigidBody;
+      if assigned(OtherRigidBody) and
+         not (OtherRigidBody.fRigidBodyType in [krbtDynamic,krbtKinematic]) and
+         ((OtherRigidBody.fFlags*[krbfAwake,krbfAllowSleep])=[krbfAwake,krbfAllowSleep]) then begin
+       OtherRigidBody.SetToSleep;
+      end;
+      ContactPairEdge:=ContactPairEdge^.Next;
+     end;
+    end;
+   end;
+  end;
+ end else begin
+  for Index:=0 to fCountIslands-1 do begin
+   if fIslands[Index].fWantsSleep then begin
+    fIslands[Index].PutToSleep;
+   end;
   end;
  end;
 
@@ -61800,6 +63810,11 @@ begin
 
   MinimumContactPair^.DetectCollisions(fContactManager,fTriangleShapes[0],0,false,0.0);
   fConstraintGraph.SynchronizeContactPair(MinimumContactPair);
+  if kcfColliding in MinimumContactPair^.Flags then begin
+   LinkPersistentIslands(MinimumContactPair^.RigidBodies[0],MinimumContactPair^.RigidBodies[1]);
+  end else begin
+   MarkPersistentIslandsDirty(MinimumContactPair^.RigidBodies[0],MinimumContactPair^.RigidBodies[1]);
+  end;
 
   MinimumContactPair^.Flags:=MinimumContactPair^.Flags-[kcfTimeOfImpact];
   inc(MinimumContactPair^.TimeOfImpactCount);
@@ -61868,6 +63883,11 @@ begin
 
       ContactPair^.DetectCollisions(fContactManager,fTriangleShapes[0],0,false,0.0);
       fConstraintGraph.SynchronizeContactPair(ContactPair);
+      if kcfColliding in ContactPair^.Flags then begin
+       LinkPersistentIslands(ContactPair^.RigidBodies[0],ContactPair^.RigidBodies[1]);
+      end else begin
+       MarkPersistentIslandsDirty(ContactPair^.RigidBodies[0],ContactPair^.RigidBodies[1]);
+      end;
 
       if (not (kcfEnabled in ContactPair^.Flags)) or not (kcfColliding in ContactPair^.Flags) then begin
        OtherRigidBody.fSweep:=BackupSweeps[0];
@@ -62209,6 +64229,9 @@ begin
  end;
 
  fContactManager.DoNarrowPhase;
+
+ // Lazy repartition of at most one dirty persistent connectivity island per step
+ ProcessPersistentIslandSplits;
 
  StartTime:=fHighResolutionTimer.GetTime;
  Solve(TimeStep);
