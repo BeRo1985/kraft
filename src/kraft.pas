@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-07-05-08-16-0000                       *
+ *                        Version 2026-07-05-09-13-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -4812,7 +4812,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
       StartIndex:TKraftInt32;
       Count:TKraftInt32;
       SyncIndex:TKraftInt32;
-      Reserved:TKraftInt32;
+      MethodIndex:TKraftInt32;
      end;
 
      TKraftSolverPipelineBlocks=array of TKraftSolverPipelineBlock;
@@ -4822,10 +4822,13 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      // before it publishes and never changes afterwards, so a worker can never observe a torn descriptor,
      // no matter how it interleaves with newer publications; a delayed worker holding an old descriptor
      // only ever revisits the old blocks, whose claims all fail. The completion count lives per stage for
-     // the same reason.
+     // the same reason. A stage carries up to two range methods and every block selects one over its
+     // method index, so one fused stage can mix the joint and the contact work of one graph color, whose
+     // bodies are disjoint within the color (the mixed joint and contact block layout of a Box3D graph
+     // color stage).
      PKraftSolverPipelineStage=^TKraftSolverPipelineStage;
      TKraftSolverPipelineStage=record
-      RangeMethod:TKraftSolverStageRangeMethod;
+      RangeMethods:array[0..1] of TKraftSolverStageRangeMethod;
       BlockFirst:TKraftInt32;
       CountBlocks:TKraftInt32;
       CompletionCount:TKraftInt32;
@@ -5443,6 +5446,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 {$endif}
        procedure DispatchJointStage(const aRangeMethod:TKraftSolverStageRangeMethod);
        procedure DispatchIndependentJointStage(const aRangeMethod:TKraftSolverStageRangeMethod);
+       procedure DispatchFusedColorStage(const aJointRangeMethod,aContactRangeMethod,aWideContactRangeMethod:TKraftSolverStageRangeMethod);
        procedure JointInitializeAndWarmStartRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
        procedure JointSolveVelocityRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
        procedure JointBreakSweepRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
@@ -5790,6 +5794,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        // slot and fresh block slots from per step pools; the publication counter carries the descriptor
        // slot index plus one.
        fSolverStagePipeline:boolean;
+       fSolverFusedColorStages:boolean;
        fPipelineRunning:boolean;
        fPipelineSyncBits:TKraftInt32;
        fPipelineStages:TKraftSolverPipelineStages;
@@ -5866,6 +5871,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        function SolverPipelineLoadSyncBits:TKraftInt32;
        procedure SolverPipelineExecuteStage(const aStage:PKraftSolverPipelineStage;const aWorkerSlot,aThreadIndex:TKraftInt32);
        procedure SolverPipelinePublishStage(const aRangeMethod:TKraftSolverStageRangeMethod;const aRangeFirst,aRangeCount,aBlockSize:TKraftInt32);
+       procedure SolverPipelinePublishStagePair(const aRangeMethodA:TKraftSolverStageRangeMethod;const aRangeFirstA,aRangeCountA,aBlockSizeA:TKraftInt32;const aRangeMethodB:TKraftSolverStageRangeMethod;const aRangeFirstB,aRangeCountB,aBlockSizeB:TKraftInt32);
        procedure SolverPipelineWorkerRun(const aWorkerSlot,aThreadIndex:TKraftInt32);
 {$ifdef KraftPasMP}
        procedure SolverPipelineWorkerParallelForFunction(const aJob:PPasMPJob;const aThreadIndex:TKraftInt32;const aData:pointer;const aFromIndex,aToIndex:TPasMPNativeInt);
@@ -6155,6 +6161,14 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        // instead of one job manager barrier per color and stage. A pure synchronization mechanism switch
        // without any result influence, the stage work and its order stay identical.
        property SolverStagePipeline:boolean read fSolverStagePipeline write fSolverStagePipeline;
+
+       // Fused color stages of the colored solver parallel modes (Box3D-style graph color stage layout): per
+       // color the joints solve before and concurrently with the contacts of the same color, since a graph
+       // color never shares a movable body between any two of its constraints. This halves the stage
+       // publications per solver round and lets joint and contact work overlap. It reorders the solve between
+       // colors, so the colored mode trajectories differ deterministically from the unfused ones, while the
+       // classic island mode stays untouched.
+       property SolverFusedColorStages:boolean read fSolverFusedColorStages write fSolverFusedColorStages;
 
        // Four wide contact solver for the TGS-soft contact stages (Box3D-style wide contact solver model): the
        // constraint graph colors make the four lanes of a batch body disjoint, so the pure Pascal kernels run
@@ -59838,6 +59852,104 @@ begin
 end;
 {$endif}
 
+procedure TKraftIsland.DispatchFusedColorStage(const aJointRangeMethod,aContactRangeMethod,aWideContactRangeMethod:TKraftSolverStageRangeMethod);
+// The fused color stage dispatch (Box3D-style graph color stage layout): one stage per color with the joint
+// work first and the contact work second, mixed into one publication when the solver stage pipeline runs (a
+// graph color never shares a movable body between any two of its constraints, contacts and joints alike, so
+// the mixed blocks solve concurrently and the order within one color has no result influence); the overflow
+// color runs serially, joints before contacts.
+var ColorIndex,JointRangeFirst,JointRangeCount,ContactRangeFirst,ContactRangeCount,ContactBlockSize:TKraftInt32;
+    UseWide,UseWideColor:boolean;
+    ContactRangeMethod:TKraftSolverStageRangeMethod;
+begin
+ UseWide:=assigned(aWideContactRangeMethod) and fSolver.fWideActive;
+ for ColorIndex:=0 to KraftConstraintGraphColorCount-1 do begin
+
+  JointRangeFirst:=fConstraintColorRangeFirsts[ColorIndex];
+  JointRangeCount:=fConstraintColorRangeCounts[ColorIndex];
+
+  // Wide contacts only apply to the disjoint colors, never to the overflow color.
+  UseWideColor:=UseWide and (ColorIndex<>KraftConstraintGraphOverflowIndex);
+  if UseWideColor then begin
+   ContactRangeFirst:=fSolver.fWideBatchColorRangeFirsts[ColorIndex];
+   ContactRangeCount:=fSolver.fWideBatchColorRangeCounts[ColorIndex];
+   ContactRangeMethod:=aWideContactRangeMethod;
+   ContactBlockSize:=KraftSolverPipelineWideBatchBlockSize;
+  end else begin
+   ContactRangeFirst:=fSolver.fContactColorRangeFirsts[ColorIndex];
+   ContactRangeCount:=fSolver.fContactColorRangeCounts[ColorIndex];
+   ContactRangeMethod:=aContactRangeMethod;
+   ContactBlockSize:=KraftSolverPipelineContactBlockSize;
+  end;
+
+  if (JointRangeCount=0) and (ContactRangeCount=0) then begin
+   continue;
+  end;
+
+  if ColorIndex=KraftConstraintGraphOverflowIndex then begin
+
+   // The overflow color has no body disjointness guarantee, so it always runs serially, joints before
+   // contacts like the fused colors. It is never wide, so its contacts use the scalar contact method.
+   if JointRangeCount>0 then begin
+    aJointRangeMethod(JointRangeFirst,(JointRangeFirst+JointRangeCount)-1,0);
+   end;
+   if ContactRangeCount>0 then begin
+    aContactRangeMethod(ContactRangeFirst,(ContactRangeFirst+ContactRangeCount)-1,0);
+   end;
+
+  end else if fPhysics.fPipelineRunning then begin
+
+   // One fused publication for this color: the joint blocks run as the first index range and the contact
+   // blocks as the second, mixed over the resident workers.
+   fPhysics.SolverPipelinePublishStagePair(aJointRangeMethod,JointRangeFirst,JointRangeCount,KraftSolverPipelineJointBlockSize,ContactRangeMethod,ContactRangeFirst,ContactRangeCount,ContactBlockSize);
+
+  end else begin
+
+   // No pipeline run (small serial islands or the barrier fallback of the colored modes): solve the joints
+   // of this color first, then its contacts, each with the same parallel-or-serial mechanic that the
+   // separate joint and contact dispatches use.
+   if JointRangeCount>0 then begin
+    if fUseParallelStages and (JointRangeCount>=fPhysics.fSolverParallelThreshold) then begin
+     fJointStageRangeMethod:=aJointRangeMethod;
+{$ifdef KraftPasMP}
+     fPhysics.fPasMP.Invoke(fPhysics.fPasMP.ParallelFor(nil,JointRangeFirst,(JointRangeFirst+JointRangeCount)-1,JointStageParallelForFunction,Max(16,JointRangeCount div (fPhysics.fCountThreads*4)),4,nil,0,fPhysics.fPasMPAreaMask,fPhysics.fPasMPAvoidAreaMask,true,fPhysics.fPasMPAffinityAllowMask,fPhysics.fPasMPAffinityAvoidMask));
+{$else}
+     fJointStageJobOffset:=JointRangeFirst;
+     fPhysics.fJobManager.fOnProcessJob:=JointStageJob;
+     fPhysics.fJobManager.fCountRemainJobs:=JointRangeCount;
+     fPhysics.fJobManager.fGranularity:=Max(16,JointRangeCount div (fPhysics.fCountThreads*4));
+     fPhysics.fJobManager.ProcessJobs;
+{$endif}
+    end else begin
+     aJointRangeMethod(JointRangeFirst,(JointRangeFirst+JointRangeCount)-1,0);
+    end;
+   end;
+
+   if ContactRangeCount>0 then begin
+    if UseWideColor then begin
+     // Wide contacts have no parallel-for fallback (see DispatchWideContactStage), so they run serially.
+     aWideContactRangeMethod(ContactRangeFirst,(ContactRangeFirst+ContactRangeCount)-1,0);
+    end else if fUseParallelStages and (ContactRangeCount>=fPhysics.fSolverParallelThreshold) then begin
+     fSolver.fStageRangeMethod:=aContactRangeMethod;
+{$ifdef KraftPasMP}
+     fPhysics.fPasMP.Invoke(fPhysics.fPasMP.ParallelFor(nil,ContactRangeFirst,(ContactRangeFirst+ContactRangeCount)-1,fSolver.ContactStageParallelForFunction,Max(16,ContactRangeCount div (fPhysics.fCountThreads*4)),4,nil,0,fPhysics.fPasMPAreaMask,fPhysics.fPasMPAvoidAreaMask,true,fPhysics.fPasMPAffinityAllowMask,fPhysics.fPasMPAffinityAvoidMask));
+{$else}
+     fSolver.fStageJobOffset:=ContactRangeFirst;
+     fPhysics.fJobManager.fOnProcessJob:=fSolver.ContactStageJob;
+     fPhysics.fJobManager.fCountRemainJobs:=ContactRangeCount;
+     fPhysics.fJobManager.fGranularity:=Max(16,ContactRangeCount div (fPhysics.fCountThreads*4));
+     fPhysics.fJobManager.ProcessJobs;
+{$endif}
+    end else begin
+     aContactRangeMethod(ContactRangeFirst,(ContactRangeFirst+ContactRangeCount)-1,0);
+    end;
+   end;
+
+  end;
+
+ end;
+end;
+
 procedure TKraftIsland.DispatchJointStage(const aRangeMethod:TKraftSolverStageRangeMethod);
 // The joint counterpart of TKraftSolver.DispatchContactStage, over the joint solve order permutation and
 // the joint color ranges. Identical results serial or parallel, since within one color no movable body is
@@ -60381,16 +60493,35 @@ begin
 
  fSolver.InitializeConstraints;
 
- if fPhysics.fWarmStarting then begin
-  fSolver.WarmStart;
- end;
+ // Fused color stages solve the joints of one color before and concurrently with its contacts, see
+ // DispatchFusedColorStage; the unfused path keeps the classic order, all contact colors before all joint colors.
+ // The contact warm start only runs when warm starting is enabled, but the joint initialize and warm start
+ // always runs, so with warm starting off the fused path drops to the plain joint dispatch.
+ if fPhysics.fSolverFusedColorStages and (fPhysics.fSolverParallelMode<>kspmIslands) then begin
+  fSolveTimeStep:=aTimeStep;
+  if fPhysics.fWarmStarting then begin
+   DispatchFusedColorStage(JointInitializeAndWarmStartRange,fSolver.WarmStartRange,nil);
+  end else begin
+   DispatchJointStage(JointInitializeAndWarmStartRange);
+  end;
+ end else begin
+  if fPhysics.fWarmStarting then begin
+   fSolver.WarmStart;
+  end;
 
- fSolveTimeStep:=aTimeStep;
- DispatchJointStage(JointInitializeAndWarmStartRange);
+  fSolveTimeStep:=aTimeStep;
+  DispatchJointStage(JointInitializeAndWarmStartRange);
+ end;
  for Iteration:=1 to Max(fPhysics.fVelocityIterations,fPhysics.fSpeculativeIterations) do begin
   if Iteration<=fPhysics.fVelocityIterations then begin
-   DispatchJointStage(JointSolveVelocityRange);
-   fSolver.SolveVelocityConstraints;
+   // Fused color stages solve the joints of one color before and concurrently with its contacts, see
+   // DispatchFusedColorStage; the unfused path keeps the classic order, all contact colors before all joint colors.
+   if fPhysics.fSolverFusedColorStages and (fPhysics.fSolverParallelMode<>kspmIslands) then begin
+    DispatchFusedColorStage(JointSolveVelocityRange,fSolver.SolveVelocityConstraintsRange,nil);
+   end else begin
+    DispatchJointStage(JointSolveVelocityRange);
+    fSolver.SolveVelocityConstraints;
+   end;
   end;
   if (fSolver.fCountSpeculativeContacts>0) and (Iteration<=fPhysics.fSpeculativeIterations) then begin
    fSolver.SolveSpeculativeContactConstraints;
@@ -60630,19 +60761,33 @@ begin
    DispatchBodyStage(SubStepIntegrateVelocitiesRange);
   end;
 
-  fSolver.WarmStartSubStep;
+  // Fused color stages solve the joints of one color before and concurrently with its contacts, see
+  // DispatchFusedColorStage; the unfused path keeps the classic order, all contact colors before all joint colors.
+  if fPhysics.fSolverFusedColorStages and (fPhysics.fSolverParallelMode<>kspmIslands) then begin
+   DispatchFusedColorStage(JointWarmStartSubStepRange,fSolver.WarmStartSubStepRange,fSolver.WarmStartSubStepWideRange);
+  end else begin
+   fSolver.WarmStartSubStep;
 
-  // Native-soft joints warm start once per substep too, alongside the contacts, before any velocity solve reads
-  // the velocities. Adapter joints did their warm start in the prepare above, so they are skipped here.
-  DispatchJointStage(JointWarmStartSubStepRange);
+   // Native-soft joints warm start once per substep too, alongside the contacts, before any velocity solve reads
+   // the velocities. Adapter joints did their warm start in the prepare above, so they are skipped here.
+   DispatchJointStage(JointWarmStartSubStepRange);
+  end;
 
-  fSolver.SolveVelocitySubStep(aTimeStep,true);
+  // Fused color stages solve the joints of one color before and concurrently with its contacts, see
+  // DispatchFusedColorStage; the unfused path keeps the classic order, all contact colors before all joint colors.
+  if fPhysics.fSolverFusedColorStages and (fPhysics.fSolverParallelMode<>kspmIslands) then begin
+   fSolver.fStageTimeStep:=aTimeStep;
+   fSolver.fStageUseBias:=true;
+   DispatchFusedColorStage(JointSolveVelocitySubStepRange,fSolver.SolveVelocitySubStepRange,fSolver.SolveVelocitySubStepWideRange);
+  end else begin
+   fSolver.SolveVelocitySubStep(aTimeStep,true);
 
-  // Joint velocity solve (solve pass). Native-soft joints solve with bias; adapter joints run a full classic
-  // mini step per substep: a fresh prepare and warm start with the substep time step, so their jacobians,
-  // biases and accumulated impulses all live consistently on the substep cadence, instead of mixing a
-  // once-per-step setup with per-substep solves on stale step-start data.
-  DispatchJointStage(JointSolveVelocitySubStepRange);
+   // Joint velocity solve (solve pass). Native-soft joints solve with bias; adapter joints run a full classic
+   // mini step per substep: a fresh prepare and warm start with the substep time step, so their jacobians,
+   // biases and accumulated impulses all live consistently on the substep cadence, instead of mixing a
+   // once-per-step setup with per-substep solves on stale step-start data.
+   DispatchJointStage(JointSolveVelocitySubStepRange);
+  end;
 
   // Speculative contacts: brake approaching bodies to their contact plane before integrating positions.
   if fSolver.fCountSpeculativeContacts>0 then begin
@@ -60658,11 +60803,19 @@ begin
   DispatchBodyStage(SubStepIntegratePositionsRange);
 
   // Relax pass: solve again without bias to remove the energy the bias added.
-  fSolver.SolveVelocitySubStep(aTimeStep,false);
+  // Fused color stages solve the joints of one color before and concurrently with its contacts, see
+  // DispatchFusedColorStage; the unfused path keeps the classic order, all contact colors before all joint colors.
+  if fPhysics.fSolverFusedColorStages and (fPhysics.fSolverParallelMode<>kspmIslands) then begin
+   fSolver.fStageTimeStep:=aTimeStep;
+   fSolver.fStageUseBias:=false;
+   DispatchFusedColorStage(JointRelaxSubStepRange,fSolver.SolveVelocitySubStepRange,fSolver.SolveVelocitySubStepWideRange);
+  end else begin
+   fSolver.SolveVelocitySubStep(aTimeStep,false);
 
-  // Native-soft joints relax in the same pass (without bias). Adapter joints were solved once above and do not
-  // take part in the relax pass, which keeps their once-per-substep cadence identical to the adapter path.
-  DispatchJointStage(JointRelaxSubStepRange);
+   // Native-soft joints relax in the same pass (without bias). Adapter joints were solved once above and do not
+   // take part in the relax pass, which keeps their once-per-substep cadence identical to the adapter path.
+   DispatchJointStage(JointRelaxSubStepRange);
+  end;
 
  end;
 
@@ -61402,6 +61555,7 @@ begin
  fWideContactSolver:=false;
 
  fSolverStagePipeline:=true;
+ fSolverFusedColorStages:=true;
  fPipelineRunning:=false;
  fPipelineSyncBits:=0;
  fPipelineStages:=nil;
@@ -62309,7 +62463,7 @@ begin
  for StepIndex:=1 to CountBlocks do begin
   Block:=@fPipelineBlocks[aStage^.BlockFirst+BlockIndex];
   if InterlockedCompareExchange(Block^.SyncIndex,1,0)=0 then begin
-   aStage^.RangeMethod(Block^.StartIndex,(Block^.StartIndex+Block^.Count)-1,aThreadIndex);
+   aStage^.RangeMethods[Block^.MethodIndex](Block^.StartIndex,(Block^.StartIndex+Block^.Count)-1,aThreadIndex);
    inc(CompletedCount);
   end;
   inc(BlockIndex);
@@ -62357,6 +62511,7 @@ begin
   Count:=Min(aBlockSize,RemainCount);
   Block^.StartIndex:=StartIndex;
   Block^.Count:=Count;
+  Block^.MethodIndex:=0;
   inc(StartIndex,Count);
   dec(RemainCount,Count);
  end;
@@ -62364,7 +62519,103 @@ begin
  // Fill the fresh stage descriptor slot (its completion count is still virgin zero) and publish it over
  // the publication counter with a full barrier; the slot index plus one is the publication value.
  Stage:=@fPipelineStages[fPipelineStagePoolOffset];
- Stage^.RangeMethod:=aRangeMethod;
+ Stage^.RangeMethods[0]:=aRangeMethod;
+ Stage^.RangeMethods[1]:=nil;
+ Stage^.BlockFirst:=fPipelineBlockPoolOffset;
+ Stage^.CountBlocks:=CountBlocks;
+ InterlockedExchange(fPipelineSyncBits,fPipelineStagePoolOffset+1);
+
+ // Work on the own share (worker slot zero, thread slot zero)
+ SolverPipelineExecuteStage(Stage,0,0);
+
+ // Wait until every block of this publication has finished: a bounded plain read spin first (the thieves
+ // only need microseconds to finish their claimed blocks), yielding only after that.
+ SpinCount:=0;
+ while InterlockedExchangeAdd(Stage^.CompletionCount,0)<>CountBlocks do begin
+  inc(SpinCount);
+  if SpinCount>256 then begin
+   Sleep(0);
+   SpinCount:=0;
+  end;
+ end;
+
+ inc(fPipelineBlockPoolOffset,CountBlocks);
+ inc(fPipelineStagePoolOffset);
+
+end;
+
+procedure TKraft.SolverPipelinePublishStagePair(const aRangeMethodA:TKraftSolverStageRangeMethod;const aRangeFirstA,aRangeCountA,aBlockSizeA:TKraftInt32;const aRangeMethodB:TKraftSolverStageRangeMethod;const aRangeFirstB,aRangeCountB,aBlockSizeB:TKraftInt32);
+// Publishes one fused stage with two independent index ranges (the joint range and the contact range of
+// one graph color): the blocks of both segments live in one publication and solve concurrently, since a
+// graph color never shares a movable body between any two of its constraints, contacts and joints alike.
+// The fallbacks run segment A before segment B, which is result identical to any interleaving for the
+// same disjointness reason.
+var CountBlocksA,CountBlocksB,CountBlocks,BlockIndex,StartIndex,RemainCount,Count,SpinCount:TKraftInt32;
+    Block:PKraftSolverPipelineBlock;
+    Stage:PKraftSolverPipelineStage;
+begin
+
+ if aRangeCountA>0 then begin
+  CountBlocksA:=(aRangeCountA+(aBlockSizeA-1)) div aBlockSizeA;
+ end else begin
+  CountBlocksA:=0;
+ end;
+ if aRangeCountB>0 then begin
+  CountBlocksB:=(aRangeCountB+(aBlockSizeB-1)) div aBlockSizeB;
+ end else begin
+  CountBlocksB:=0;
+ end;
+ CountBlocks:=CountBlocksA+CountBlocksB;
+
+ // A single block gains nothing over running the ranges directly, and a publication whose blocks or
+ // stage slot do not fit into the remaining pool slots of this step runs directly too, which is correct
+ // in any case; the pools then grow for the next pipeline start.
+ if (CountBlocks<2) or
+    ((fPipelineBlockPoolOffset+CountBlocks)>length(fPipelineBlocks)) or
+    (fPipelineStagePoolOffset>=length(fPipelineStages)) then begin
+  if ((fPipelineBlockPoolOffset+CountBlocks)>length(fPipelineBlocks)) or
+     (fPipelineStagePoolOffset>=length(fPipelineStages)) then begin
+   fPipelinePoolWanted:=true;
+  end;
+  if aRangeCountA>0 then begin
+   aRangeMethodA(aRangeFirstA,(aRangeFirstA+aRangeCountA)-1,0);
+  end;
+  if aRangeCountB>0 then begin
+   aRangeMethodB(aRangeFirstB,(aRangeFirstB+aRangeCountB)-1,0);
+  end;
+  exit;
+ end;
+
+ // Cut both ranges into fresh block slots from the pool (their sync indices are still virgin zero), the
+ // segment A blocks first, then the segment B blocks, each tagged with its range method index.
+ StartIndex:=aRangeFirstA;
+ RemainCount:=aRangeCountA;
+ for BlockIndex:=0 to CountBlocksA-1 do begin
+  Block:=@fPipelineBlocks[fPipelineBlockPoolOffset+BlockIndex];
+  Count:=Min(aBlockSizeA,RemainCount);
+  Block^.StartIndex:=StartIndex;
+  Block^.Count:=Count;
+  Block^.MethodIndex:=0;
+  inc(StartIndex,Count);
+  dec(RemainCount,Count);
+ end;
+ StartIndex:=aRangeFirstB;
+ RemainCount:=aRangeCountB;
+ for BlockIndex:=0 to CountBlocksB-1 do begin
+  Block:=@fPipelineBlocks[(fPipelineBlockPoolOffset+CountBlocksA)+BlockIndex];
+  Count:=Min(aBlockSizeB,RemainCount);
+  Block^.StartIndex:=StartIndex;
+  Block^.Count:=Count;
+  Block^.MethodIndex:=1;
+  inc(StartIndex,Count);
+  dec(RemainCount,Count);
+ end;
+
+ // Fill the fresh stage descriptor slot (its completion count is still virgin zero) and publish it over
+ // the publication counter with a full barrier; the slot index plus one is the publication value.
+ Stage:=@fPipelineStages[fPipelineStagePoolOffset];
+ Stage^.RangeMethods[0]:=aRangeMethodA;
+ Stage^.RangeMethods[1]:=aRangeMethodB;
  Stage^.BlockFirst:=fPipelineBlockPoolOffset;
  Stage^.CountBlocks:=CountBlocks;
  InterlockedExchange(fPipelineSyncBits,fPipelineStagePoolOffset+1);
