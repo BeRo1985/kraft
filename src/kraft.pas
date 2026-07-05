@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-07-05-00-39-0000                       *
+ *                        Version 2026-07-05-02-33-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -294,6 +294,14 @@ const EPSILON={$ifdef KraftUseDouble}1e-14{$else}1e-5{$endif}; // actually {$ifd
       // taken) for the optional absolute rotation cap of the contact recycling, same value as Box3D uses.
       ContactRecycleAbsoluteRotationCosineSquared=0.99240388;
 
+      // Constraint graph coloring, the same layout as Box3D: the front colors for constraints between two
+      // movable bodies, the colors before the overflow color (searched backwards, so they do not collide
+      // with the front region under low load) prioritized for constraints with a static or missing partner,
+      // and the last color as overflow without body bookkeeping, which a solver processes serially.
+      KraftConstraintGraphColorCount=24;
+      KraftConstraintGraphOverflowIndex=KraftConstraintGraphColorCount-1;
+      KraftConstraintGraphDynamicColorCount=KraftConstraintGraphColorCount-4;
+
       MaxSATSupportVertices=64;
       MaxSATContacts=64;
 
@@ -424,7 +432,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
                         kcfFiltered,      // For internal filering
                         kcfTimeOfImpact,  // For internal marking during time of impact stuff
                         kcfRecycleCacheValid, // Set when the contact recycling cache of the contact pair holds valid data
-                        kcfMeshClusterRepresentative); // Set when the pair carries the cluster manifold of its mesh surface patch in the clustered mesh manifold mode
+                        kcfMeshClusterRepresentative, // Set when the pair carries the cluster manifold of its mesh surface patch in the clustered mesh manifold mode
+                        kcfGraphDirty); // Set when the colliding state changed in the narrow phase run (the Box3D contactStateBitSet equivalent), so only these pairs need the constraint graph synchronization
      PKraftContactFlag=^TKraftContactFlag;
 
      TKraftContactFlags=set of TKraftContactFlag;
@@ -804,6 +813,23 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property FourMillisecondsInterval:TKraftInt64 read fFourMillisecondsInterval;
        property QuarterSecondInterval:TKraftInt64 read fQuarterSecondInterval;
        property HourInterval:TKraftInt64 read fHourInterval;
+     end;
+
+     { TKraftIndexPool }
+     // Allocator for stable dense indices (for example the per-physics-instance rigid body indices, which
+     // the constraint graph color bitsets are keyed on): released indices are reused before the range grows,
+     // so it stays as dense as possible, while an index stays stable over the whole lifetime of its owner.
+     TKraftIndexPool=class
+      private
+       fFreeIndices:array of TKraftInt32;
+       fCountFreeIndices:TKraftInt32;
+       fCountIndices:TKraftInt32;
+      public
+       constructor Create;
+       destructor Destroy; override;
+       function AllocateIndex:TKraftInt32;
+       procedure ReleaseIndex(const aIndex:TKraftInt32);
+       property CountIndices:TKraftInt32 read fCountIndices;
      end;
 
      TKraftScalar={$ifdef KraftUseDouble}TKraftDouble{$else}TKraftFloat{$endif};
@@ -2864,6 +2890,14 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        RecycleRelativeOrientation:TKraftQuaternion;
        RecycleWorldOrientations:array[0..1] of TKraftQuaternion;
        RecycleSeparation:TKraftScalar;
+       // Persistent constraint graph membership (negative when not in the graph), maintained by
+       // TKraftConstraintGraph over the touching state and sleep transitions. The owned bits mask remembers
+       // for which of the two bodies this pair has set the color occupancy bit: in the static color region a
+       // pair can reference a body without owning its bit (it entered while that body was static), and a
+       // removal must never clear a bit which meanwhile belongs to another constraint.
+       GraphColorIndex:TKraftInt32;
+       GraphLocalIndex:TKraftInt32;
+       GraphOwnedBodyBits:TKraftUInt32;
        procedure GetSolverContactManifold(out SolverContactManifold:TKraftSolverContactManifold;const WorldTransformA,WorldTransformB:TKraftMatrix4x4;const ContactManifoldMode:TKraftContactPairContactManifoldMode);
        procedure DetectCollisions(const ContactManager:TKraftContactManager;const TriangleShape:TKraftShape=nil;const ThreadIndex:TKraftInt32=0;const SpeculativeContacts:boolean=true;const DeltaTime:double=0.0);
      end;
@@ -3248,6 +3282,15 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fUpdatedStaticRigidBodyIndex:TKraftInt32;
 
+       // Stable dense per-physics-instance index (from TKraft.fRigidBodyIndexPool), constant over the whole
+       // body lifetime; the constraint graph color bitsets are keyed on it.
+       fBodyIndex:TKraftInt32;
+
+       // Position in the awake rigid body list of TKraft (dynamic and kinematic bodies with krbfAwake),
+       // maintained incrementally over SetToAwake, SetToSleep, SetRigidBodyType and the body lifetime;
+       // negative when the body is not in the list.
+       fAwakeIndex:TKraftInt32;
+
        fVisitedIndex:TKraftInt32;
 
        fPreStepHookIndex:TKraftInt32;
@@ -3385,6 +3428,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        procedure UpdateWorldTransformation;
 
+       procedure UpdateAwakeListMembership;
+
       public
 
        constructor Create(const aPhysics:TKraft);
@@ -3475,6 +3520,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property Island:TKraftIsland read fIsland;
 
        property IslandIndices:TKraftRigidBodyIslandIndices read fIslandIndices;
+
+       property BodyIndex:TKraftInt32 read fBodyIndex;
+
+       property AwakeIndex:TKraftInt32 read fAwakeIndex;
 
        property ID:TKraftUInt64 read fID;
 
@@ -3647,6 +3696,13 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fChildren:array of TKraftConstraint;
        fCountChildren:TKraftInt32;
+
+       // Persistent constraint graph membership (negative when not in the graph), maintained by
+       // TKraftConstraintGraph over the joint lifetime and the sleep transitions; the owned bits mask has
+       // the same semantics as at the contact pairs.
+       fGraphColorIndex:TKraftInt32;
+       fGraphLocalIndex:TKraftInt32;
+       fGraphOwnedBodyBits:TKraftUInt32;
 
       public
 
@@ -5064,6 +5120,53 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property LifetimeGranularity:TKraftScalar read fLifetimeGranularity write fLifetimeGranularity;
      end;
 
+     PKraftConstraintGraphColor=^TKraftConstraintGraphColor;
+     TKraftConstraintGraphColor=record
+      BodySet:array of TKraftUInt32;
+      ContactPairs:TPKraftContactPairs;
+      CountContactPairs:TKraftInt32;
+      Constraints:TKraftConstraints;
+      CountConstraints:TKraftInt32;
+     end;
+
+     { TKraftConstraintGraph }
+     // Persistent constraint graph with color partitioning, the Box3D model: every touching non-sensor
+     // contact pair and every active unbroken joint with at least one movable awake body occupies one color,
+     // and within one color no movable (dynamic or kinematic) body is referenced by more than one constraint,
+     // so all constraints of one color can be solved in parallel without any lock. Constraints between two
+     // movable bodies pick from the front color region, constraints with a static or missing partner search
+     // backwards from the color before the overflow color, and the overflow color takes everything which does
+     // not fit anywhere, for serial processing. The body occupancy per color is tracked in bitsets over the
+     // stable body indices. Maintained incrementally over the narrow phase touching state, the joint lifetime
+     // and the sleep transitions; Validate proves the bookkeeping against the ground truth.
+     TKraftConstraintGraph=class
+      private
+       fPhysics:TKraft;
+       fColors:array[0..KraftConstraintGraphColorCount-1] of TKraftConstraintGraphColor;
+       function GetBodyBit(const aColorIndex,aBodyIndex:TKraftInt32):boolean;
+       procedure SetBodyBit(const aColorIndex,aBodyIndex:TKraftInt32);
+       procedure ClearBodyBit(const aColorIndex,aBodyIndex:TKraftInt32);
+       function PickColorIndex(const aRigidBodyA,aRigidBodyB:TKraftRigidBody):TKraftInt32;
+       procedure InternalAddContactPair(const aContactPair:PKraftContactPair);
+       procedure InternalRemoveContactPair(const aContactPair:PKraftContactPair);
+       procedure InternalAddConstraint(const aConstraint:TKraftConstraint);
+       procedure InternalRemoveConstraint(const aConstraint:TKraftConstraint);
+      public
+       constructor Create(const aPhysics:TKraft);
+       destructor Destroy; override;
+       function ContactPairShouldBeInGraph(const aContactPair:PKraftContactPair):boolean;
+       function ConstraintShouldBeInGraph(const aConstraint:TKraftConstraint):boolean;
+       procedure SynchronizeContactPair(const aContactPair:PKraftContactPair);
+       procedure SynchronizeConstraint(const aConstraint:TKraftConstraint);
+       procedure SynchronizeRigidBody(const aRigidBody:TKraftRigidBody);
+       procedure RefreshRigidBody(const aRigidBody:TKraftRigidBody);
+       // Proves the graph bookkeeping against the ground truth. The graph is consistent at the step
+       // boundaries (where a solver reads it): destructions, sleep and wake transitions and body type
+       // changes synchronize immediately, while freshly created joints enter the graph at the narrow
+       // phase of the next step, after their concrete constructors have set their rigid bodies.
+       function Validate(out aError:string):boolean;
+     end;
+
      TKraftIsland=class
       private
 
@@ -5088,6 +5191,11 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fSolver:TKraftSolver;
 
+       // Set by the (possibly parallel running) island solve when the whole island wants to fall asleep;
+       // the actual SetToSleep calls happen serially afterwards in TKraft.SolveIslands, so the shared awake
+       // body list and constraint graph bookkeeping never runs from parallel island solves.
+       fWantsSleep:boolean;
+
       public
 
        constructor Create(const aPhysics:TKraft;const aIndex:TKraftInt32);
@@ -5097,6 +5205,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure AddConstraint(aConstraint:TKraftConstraint);
        procedure AddContactPair(aContactPair:PKraftContactPair);
        procedure MergeContactPairs;
+       procedure PutToSleep;
        procedure Solve(const aTimeStep:TKraftTimeStep);
        procedure SolveSequentialImpulse(const aTimeStep:TKraftTimeStep);
        procedure SolveTGSSubStepped(const aTimeStep:TKraftTimeStep);
@@ -5262,6 +5371,13 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fRigidBodyIDCounter:TKraftUInt64;
 
        fShapeIDCounter:TKraftUInt64;
+
+       fRigidBodyIndexPool:TKraftIndexPool;
+
+       fConstraintGraph:TKraftConstraintGraph;
+
+       fAwakeRigidBodies:TKraftRigidBodies;
+       fCountAwakeRigidBodies:TKraftInt32;
 
        fRigidBodyFirst:TKraftRigidBody;
        fRigidBodyLast:TKraftRigidBody;
@@ -5578,6 +5694,16 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        property CountRigidBodies:TKraftInt32 read fCountRigidBodies;
        property RigidBodyIDCounter:TKraftUInt64 read fRigidBodyIDCounter;
+
+       // Dense list of the awake dynamic and kinematic rigid bodies, incrementally maintained (see
+       // TKraftRigidBody.UpdateAwakeListMembership); the list order is maintenance history dependent,
+       // consumers which need a reproducible order have to sort by BodyIndex.
+       property AwakeRigidBodies:TKraftRigidBodies read fAwakeRigidBodies;
+       property CountAwakeRigidBodies:TKraftInt32 read fCountAwakeRigidBodies;
+
+       property RigidBodyIndexPool:TKraftIndexPool read fRigidBodyIndexPool;
+
+       property ConstraintGraph:TKraftConstraintGraph read fConstraintGraph;
 
        property ShapeIDCounter:TKraftUInt64 read fShapeIDCounter;
 
@@ -15871,6 +15997,482 @@ begin
  if fFrequency<>1000000000 then begin
   result:=((aTime*fFrequency)+500000000) div 1000000000;
  end;
+end;
+
+{ TKraftIndexPool }
+
+constructor TKraftIndexPool.Create;
+begin
+ inherited Create;
+ fFreeIndices:=nil;
+ fCountFreeIndices:=0;
+ fCountIndices:=0;
+end;
+
+destructor TKraftIndexPool.Destroy;
+begin
+ fFreeIndices:=nil;
+ inherited Destroy;
+end;
+
+function TKraftIndexPool.AllocateIndex:TKraftInt32;
+begin
+ if fCountFreeIndices>0 then begin
+  dec(fCountFreeIndices);
+  result:=fFreeIndices[fCountFreeIndices];
+ end else begin
+  result:=fCountIndices;
+  inc(fCountIndices);
+ end;
+end;
+
+procedure TKraftIndexPool.ReleaseIndex(const aIndex:TKraftInt32);
+begin
+ if fCountFreeIndices>=length(fFreeIndices) then begin
+  SetLength(fFreeIndices,(fCountFreeIndices+1)*2);
+ end;
+ fFreeIndices[fCountFreeIndices]:=aIndex;
+ inc(fCountFreeIndices);
+end;
+
+{ TKraftConstraintGraph }
+
+function ConstraintGraphRigidBodyIsMovable(const aRigidBody:TKraftRigidBody):boolean;
+begin
+ result:=assigned(aRigidBody) and (aRigidBody.fRigidBodyType in [krbtDynamic,krbtKinematic]);
+end;
+
+function ConstraintGraphRigidBodyIsMovableAwake(const aRigidBody:TKraftRigidBody):boolean;
+begin
+ result:=assigned(aRigidBody) and
+         (aRigidBody.fRigidBodyType in [krbtDynamic,krbtKinematic]) and
+         ((aRigidBody.fFlags*[krbfAwake,krbfActive])=[krbfAwake,krbfActive]);
+end;
+
+constructor TKraftConstraintGraph.Create(const aPhysics:TKraft);
+var ColorIndex:TKraftInt32;
+begin
+ inherited Create;
+ fPhysics:=aPhysics;
+ for ColorIndex:=0 to KraftConstraintGraphColorCount-1 do begin
+  fColors[ColorIndex].BodySet:=nil;
+  fColors[ColorIndex].ContactPairs:=nil;
+  fColors[ColorIndex].CountContactPairs:=0;
+  fColors[ColorIndex].Constraints:=nil;
+  fColors[ColorIndex].CountConstraints:=0;
+ end;
+end;
+
+destructor TKraftConstraintGraph.Destroy;
+var ColorIndex:TKraftInt32;
+begin
+ for ColorIndex:=0 to KraftConstraintGraphColorCount-1 do begin
+  fColors[ColorIndex].BodySet:=nil;
+  fColors[ColorIndex].ContactPairs:=nil;
+  fColors[ColorIndex].Constraints:=nil;
+ end;
+ inherited Destroy;
+end;
+
+function TKraftConstraintGraph.GetBodyBit(const aColorIndex,aBodyIndex:TKraftInt32):boolean;
+var WordIndex:TKraftInt32;
+begin
+ WordIndex:=aBodyIndex shr 5;
+ result:=(WordIndex<length(fColors[aColorIndex].BodySet)) and
+         ((fColors[aColorIndex].BodySet[WordIndex] and (TKraftUInt32(1) shl (aBodyIndex and 31)))<>0);
+end;
+
+procedure TKraftConstraintGraph.SetBodyBit(const aColorIndex,aBodyIndex:TKraftInt32);
+var WordIndex:TKraftInt32;
+begin
+ WordIndex:=aBodyIndex shr 5;
+ if WordIndex>=length(fColors[aColorIndex].BodySet) then begin
+  SetLength(fColors[aColorIndex].BodySet,(WordIndex+1)*2);
+ end;
+ fColors[aColorIndex].BodySet[WordIndex]:=fColors[aColorIndex].BodySet[WordIndex] or (TKraftUInt32(1) shl (aBodyIndex and 31));
+end;
+
+procedure TKraftConstraintGraph.ClearBodyBit(const aColorIndex,aBodyIndex:TKraftInt32);
+var WordIndex:TKraftInt32;
+begin
+ WordIndex:=aBodyIndex shr 5;
+ if WordIndex<length(fColors[aColorIndex].BodySet) then begin
+  fColors[aColorIndex].BodySet[WordIndex]:=fColors[aColorIndex].BodySet[WordIndex] and not (TKraftUInt32(1) shl (aBodyIndex and 31));
+ end;
+end;
+
+function TKraftConstraintGraph.PickColorIndex(const aRigidBodyA,aRigidBodyB:TKraftRigidBody):TKraftInt32;
+var ColorIndex:TKraftInt32;
+    MovableA,MovableB:boolean;
+begin
+ MovableA:=ConstraintGraphRigidBodyIsMovable(aRigidBodyA);
+ MovableB:=ConstraintGraphRigidBodyIsMovable(aRigidBodyB);
+ if MovableA and MovableB then begin
+  for ColorIndex:=0 to KraftConstraintGraphDynamicColorCount-1 do begin
+   if not (GetBodyBit(ColorIndex,aRigidBodyA.fBodyIndex) or GetBodyBit(ColorIndex,aRigidBodyB.fBodyIndex)) then begin
+    result:=ColorIndex;
+    exit;
+   end;
+  end;
+ end else if MovableA then begin
+  for ColorIndex:=KraftConstraintGraphOverflowIndex-1 downto 1 do begin
+   if not GetBodyBit(ColorIndex,aRigidBodyA.fBodyIndex) then begin
+    result:=ColorIndex;
+    exit;
+   end;
+  end;
+ end else if MovableB then begin
+  for ColorIndex:=KraftConstraintGraphOverflowIndex-1 downto 1 do begin
+   if not GetBodyBit(ColorIndex,aRigidBodyB.fBodyIndex) then begin
+    result:=ColorIndex;
+    exit;
+   end;
+  end;
+ end;
+ result:=KraftConstraintGraphOverflowIndex;
+end;
+
+procedure TKraftConstraintGraph.InternalAddContactPair(const aContactPair:PKraftContactPair);
+var ColorIndex:TKraftInt32;
+    Color:PKraftConstraintGraphColor;
+begin
+ ColorIndex:=PickColorIndex(aContactPair^.RigidBodies[0],aContactPair^.RigidBodies[1]);
+ aContactPair^.GraphOwnedBodyBits:=0;
+ if ColorIndex<>KraftConstraintGraphOverflowIndex then begin
+  if ConstraintGraphRigidBodyIsMovable(aContactPair^.RigidBodies[0]) then begin
+   SetBodyBit(ColorIndex,aContactPair^.RigidBodies[0].fBodyIndex);
+   aContactPair^.GraphOwnedBodyBits:=aContactPair^.GraphOwnedBodyBits or 1;
+  end;
+  if ConstraintGraphRigidBodyIsMovable(aContactPair^.RigidBodies[1]) then begin
+   SetBodyBit(ColorIndex,aContactPair^.RigidBodies[1].fBodyIndex);
+   aContactPair^.GraphOwnedBodyBits:=aContactPair^.GraphOwnedBodyBits or 2;
+  end;
+ end;
+ Color:=@fColors[ColorIndex];
+ if Color^.CountContactPairs>=length(Color^.ContactPairs) then begin
+  SetLength(Color^.ContactPairs,(Color^.CountContactPairs+1)*2);
+ end;
+ Color^.ContactPairs[Color^.CountContactPairs]:=aContactPair;
+ aContactPair^.GraphColorIndex:=ColorIndex;
+ aContactPair^.GraphLocalIndex:=Color^.CountContactPairs;
+ inc(Color^.CountContactPairs);
+end;
+
+procedure TKraftConstraintGraph.InternalRemoveContactPair(const aContactPair:PKraftContactPair);
+var ColorIndex,LocalIndex:TKraftInt32;
+    Color:PKraftConstraintGraphColor;
+    MovedContactPair:PKraftContactPair;
+begin
+ ColorIndex:=aContactPair^.GraphColorIndex;
+ LocalIndex:=aContactPair^.GraphLocalIndex;
+ Color:=@fColors[ColorIndex];
+ if ColorIndex<>KraftConstraintGraphOverflowIndex then begin
+  // Only the bits this pair owns get cleared: in the static color region a pair can reference a body
+  // without owning its bit, and that bit may meanwhile belong to another constraint of the same color.
+  if ((aContactPair^.GraphOwnedBodyBits and 1)<>0) and assigned(aContactPair^.RigidBodies[0]) and (aContactPair^.RigidBodies[0].fBodyIndex>=0) then begin
+   ClearBodyBit(ColorIndex,aContactPair^.RigidBodies[0].fBodyIndex);
+  end;
+  if ((aContactPair^.GraphOwnedBodyBits and 2)<>0) and assigned(aContactPair^.RigidBodies[1]) and (aContactPair^.RigidBodies[1].fBodyIndex>=0) then begin
+   ClearBodyBit(ColorIndex,aContactPair^.RigidBodies[1].fBodyIndex);
+  end;
+ end;
+ dec(Color^.CountContactPairs);
+ if LocalIndex<Color^.CountContactPairs then begin
+  MovedContactPair:=Color^.ContactPairs[Color^.CountContactPairs];
+  Color^.ContactPairs[LocalIndex]:=MovedContactPair;
+  MovedContactPair^.GraphLocalIndex:=LocalIndex;
+ end;
+ aContactPair^.GraphColorIndex:=-1;
+ aContactPair^.GraphLocalIndex:=-1;
+ aContactPair^.GraphOwnedBodyBits:=0;
+end;
+
+procedure TKraftConstraintGraph.InternalAddConstraint(const aConstraint:TKraftConstraint);
+var ColorIndex:TKraftInt32;
+    Color:PKraftConstraintGraphColor;
+begin
+ ColorIndex:=PickColorIndex(aConstraint.fRigidBodies[0],aConstraint.fRigidBodies[1]);
+ aConstraint.fGraphOwnedBodyBits:=0;
+ if ColorIndex<>KraftConstraintGraphOverflowIndex then begin
+  if ConstraintGraphRigidBodyIsMovable(aConstraint.fRigidBodies[0]) then begin
+   SetBodyBit(ColorIndex,aConstraint.fRigidBodies[0].fBodyIndex);
+   aConstraint.fGraphOwnedBodyBits:=aConstraint.fGraphOwnedBodyBits or 1;
+  end;
+  if ConstraintGraphRigidBodyIsMovable(aConstraint.fRigidBodies[1]) then begin
+   SetBodyBit(ColorIndex,aConstraint.fRigidBodies[1].fBodyIndex);
+   aConstraint.fGraphOwnedBodyBits:=aConstraint.fGraphOwnedBodyBits or 2;
+  end;
+ end;
+ Color:=@fColors[ColorIndex];
+ if Color^.CountConstraints>=length(Color^.Constraints) then begin
+  SetLength(Color^.Constraints,(Color^.CountConstraints+1)*2);
+ end;
+ Color^.Constraints[Color^.CountConstraints]:=aConstraint;
+ aConstraint.fGraphColorIndex:=ColorIndex;
+ aConstraint.fGraphLocalIndex:=Color^.CountConstraints;
+ inc(Color^.CountConstraints);
+end;
+
+procedure TKraftConstraintGraph.InternalRemoveConstraint(const aConstraint:TKraftConstraint);
+var ColorIndex,LocalIndex:TKraftInt32;
+    Color:PKraftConstraintGraphColor;
+    MovedConstraint:TKraftConstraint;
+begin
+ ColorIndex:=aConstraint.fGraphColorIndex;
+ LocalIndex:=aConstraint.fGraphLocalIndex;
+ Color:=@fColors[ColorIndex];
+ if ColorIndex<>KraftConstraintGraphOverflowIndex then begin
+  if ((aConstraint.fGraphOwnedBodyBits and 1)<>0) and assigned(aConstraint.fRigidBodies[0]) and (aConstraint.fRigidBodies[0].fBodyIndex>=0) then begin
+   ClearBodyBit(ColorIndex,aConstraint.fRigidBodies[0].fBodyIndex);
+  end;
+  if ((aConstraint.fGraphOwnedBodyBits and 2)<>0) and assigned(aConstraint.fRigidBodies[1]) and (aConstraint.fRigidBodies[1].fBodyIndex>=0) then begin
+   ClearBodyBit(ColorIndex,aConstraint.fRigidBodies[1].fBodyIndex);
+  end;
+ end;
+ dec(Color^.CountConstraints);
+ if LocalIndex<Color^.CountConstraints then begin
+  MovedConstraint:=Color^.Constraints[Color^.CountConstraints];
+  Color^.Constraints[LocalIndex]:=MovedConstraint;
+  MovedConstraint.fGraphLocalIndex:=LocalIndex;
+ end;
+ aConstraint.fGraphColorIndex:=-1;
+ aConstraint.fGraphLocalIndex:=-1;
+ aConstraint.fGraphOwnedBodyBits:=0;
+end;
+
+function TKraftConstraintGraph.ContactPairShouldBeInGraph(const aContactPair:PKraftContactPair):boolean;
+begin
+ result:=(kcfColliding in aContactPair^.Flags) and
+         not ((krbfSensor in aContactPair^.RigidBodies[0].fFlags) or
+              (krbfSensor in aContactPair^.RigidBodies[1].fFlags) or
+              (ksfSensor in aContactPair^.Shapes[0].fFlags) or
+              (ksfSensor in aContactPair^.Shapes[1].fFlags)) and
+         (ConstraintGraphRigidBodyIsMovableAwake(aContactPair^.RigidBodies[0]) or
+          ConstraintGraphRigidBodyIsMovableAwake(aContactPair^.RigidBodies[1]));
+end;
+
+function TKraftConstraintGraph.ConstraintShouldBeInGraph(const aConstraint:TKraftConstraint):boolean;
+begin
+ result:=((aConstraint.fFlags*[kcfActive,kcfBreaked])=[kcfActive]) and
+         (ConstraintGraphRigidBodyIsMovableAwake(aConstraint.fRigidBodies[0]) or
+          ConstraintGraphRigidBodyIsMovableAwake(aConstraint.fRigidBodies[1]));
+end;
+
+procedure TKraftConstraintGraph.SynchronizeContactPair(const aContactPair:PKraftContactPair);
+begin
+ if ContactPairShouldBeInGraph(aContactPair) then begin
+  if aContactPair^.GraphColorIndex<0 then begin
+   InternalAddContactPair(aContactPair);
+  end;
+ end else begin
+  if aContactPair^.GraphColorIndex>=0 then begin
+   InternalRemoveContactPair(aContactPair);
+  end;
+ end;
+end;
+
+procedure TKraftConstraintGraph.SynchronizeConstraint(const aConstraint:TKraftConstraint);
+begin
+ if ConstraintShouldBeInGraph(aConstraint) then begin
+  if aConstraint.fGraphColorIndex<0 then begin
+   InternalAddConstraint(aConstraint);
+  end;
+ end else begin
+  if aConstraint.fGraphColorIndex>=0 then begin
+   InternalRemoveConstraint(aConstraint);
+  end;
+ end;
+end;
+
+procedure TKraftConstraintGraph.SynchronizeRigidBody(const aRigidBody:TKraftRigidBody);
+var ContactPairEdge:PKraftContactPairEdge;
+    ConstraintEdge:PKraftConstraintEdge;
+begin
+ ContactPairEdge:=aRigidBody.fContactPairEdgeFirst;
+ while assigned(ContactPairEdge) do begin
+  SynchronizeContactPair(ContactPairEdge^.ContactPair);
+  ContactPairEdge:=ContactPairEdge^.Next;
+ end;
+ ConstraintEdge:=aRigidBody.fConstraintEdgeFirst;
+ while assigned(ConstraintEdge) do begin
+  if assigned(ConstraintEdge^.Constraint) then begin
+   SynchronizeConstraint(ConstraintEdge^.Constraint);
+  end;
+  ConstraintEdge:=ConstraintEdge^.Next;
+ end;
+end;
+
+procedure TKraftConstraintGraph.RefreshRigidBody(const aRigidBody:TKraftRigidBody);
+// Force variant of SynchronizeRigidBody for body type changes: the color class of a constraint (movable
+// versus static partner) and the body occupancy bits depend on the body type, so every graph resident
+// constraint of the body gets removed and readded with a freshly picked color.
+var ContactPairEdge:PKraftContactPairEdge;
+    ConstraintEdge:PKraftConstraintEdge;
+begin
+ ContactPairEdge:=aRigidBody.fContactPairEdgeFirst;
+ while assigned(ContactPairEdge) do begin
+  if ContactPairEdge^.ContactPair^.GraphColorIndex>=0 then begin
+   InternalRemoveContactPair(ContactPairEdge^.ContactPair);
+  end;
+  SynchronizeContactPair(ContactPairEdge^.ContactPair);
+  ContactPairEdge:=ContactPairEdge^.Next;
+ end;
+ ConstraintEdge:=aRigidBody.fConstraintEdgeFirst;
+ while assigned(ConstraintEdge) do begin
+  if assigned(ConstraintEdge^.Constraint) then begin
+   if ConstraintEdge^.Constraint.fGraphColorIndex>=0 then begin
+    InternalRemoveConstraint(ConstraintEdge^.Constraint);
+   end;
+   SynchronizeConstraint(ConstraintEdge^.Constraint);
+  end;
+  ConstraintEdge:=ConstraintEdge^.Next;
+ end;
+end;
+
+function TKraftConstraintGraph.Validate(out aError:string):boolean;
+var ColorIndex,Index,CountInGraphContactPairs,CountInGraphConstraints,WordIndex,BodyIndex:TKraftInt32;
+    ContactPair:PKraftContactPair;
+    Constraint:TKraftConstraint;
+    Color:PKraftConstraintGraphColor;
+    Seen:array of TKraftUInt32;
+    RigidBody:TKraftRigidBody;
+ function CheckColorBody(const aColorIndex:TKraftInt32;const aRigidBody:TKraftRigidBody):boolean;
+ var SeenWordIndex:TKraftInt32;
+     Mask:TKraftUInt32;
+ begin
+  result:=true;
+  if ConstraintGraphRigidBodyIsMovable(aRigidBody) then begin
+   SeenWordIndex:=aRigidBody.fBodyIndex shr 5;
+   Mask:=TKraftUInt32(1) shl (aRigidBody.fBodyIndex and 31);
+   if SeenWordIndex>=length(Seen) then begin
+    SetLength(Seen,(SeenWordIndex+1)*2);
+   end;
+   if (Seen[SeenWordIndex] and Mask)<>0 then begin
+    aError:='movable body '+IntToStr(aRigidBody.fBodyIndex)+' referenced twice in color '+IntToStr(aColorIndex);
+    result:=false;
+    exit;
+   end;
+   Seen[SeenWordIndex]:=Seen[SeenWordIndex] or Mask;
+   if not GetBodyBit(aColorIndex,aRigidBody.fBodyIndex) then begin
+    aError:='missing body bit for body '+IntToStr(aRigidBody.fBodyIndex)+' in color '+IntToStr(aColorIndex);
+    result:=false;
+   end;
+  end;
+ end;
+begin
+
+ result:=false;
+ aError:='';
+ Seen:=nil;
+
+ // Membership ground truth and back references
+ CountInGraphContactPairs:=0;
+ ContactPair:=fPhysics.fContactManager.fContactPairFirst;
+ while assigned(ContactPair) do begin
+  if ContactPairShouldBeInGraph(ContactPair) then begin
+   if ContactPair^.GraphColorIndex<0 then begin
+    aError:='touching awake contact pair not in the graph';
+    exit;
+   end;
+   if (ContactPair^.GraphColorIndex>=KraftConstraintGraphColorCount) or
+      (ContactPair^.GraphLocalIndex<0) or
+      (ContactPair^.GraphLocalIndex>=fColors[ContactPair^.GraphColorIndex].CountContactPairs) or
+      (fColors[ContactPair^.GraphColorIndex].ContactPairs[ContactPair^.GraphLocalIndex]<>ContactPair) then begin
+    aError:='contact pair graph back reference mismatch';
+    exit;
+   end;
+   if ContactPair^.GraphColorIndex<>KraftConstraintGraphOverflowIndex then begin
+    if (((ContactPair^.GraphOwnedBodyBits and 1)<>0)<>ConstraintGraphRigidBodyIsMovable(ContactPair^.RigidBodies[0])) or
+       (((ContactPair^.GraphOwnedBodyBits and 2)<>0)<>ConstraintGraphRigidBodyIsMovable(ContactPair^.RigidBodies[1])) then begin
+     aError:='contact pair body bit ownership mask inconsistent with the body types';
+     exit;
+    end;
+   end;
+   inc(CountInGraphContactPairs);
+  end else begin
+   if ContactPair^.GraphColorIndex>=0 then begin
+    aError:='non-eligible contact pair still in the graph';
+    exit;
+   end;
+  end;
+  ContactPair:=ContactPair^.Next;
+ end;
+
+ CountInGraphConstraints:=0;
+ Constraint:=fPhysics.fConstraintFirst;
+ while assigned(Constraint) do begin
+  if ConstraintShouldBeInGraph(Constraint) then begin
+   if Constraint.fGraphColorIndex<0 then begin
+    aError:='active awake joint not in the graph';
+    exit;
+   end;
+   if (Constraint.fGraphColorIndex>=KraftConstraintGraphColorCount) or
+      (Constraint.fGraphLocalIndex<0) or
+      (Constraint.fGraphLocalIndex>=fColors[Constraint.fGraphColorIndex].CountConstraints) or
+      (fColors[Constraint.fGraphColorIndex].Constraints[Constraint.fGraphLocalIndex]<>Constraint) then begin
+    aError:='joint graph back reference mismatch';
+    exit;
+   end;
+   inc(CountInGraphConstraints);
+  end else begin
+   if Constraint.fGraphColorIndex>=0 then begin
+    aError:='non-eligible joint still in the graph';
+    exit;
+   end;
+  end;
+  Constraint:=Constraint.fNext;
+ end;
+
+ // Entry counts (catches duplicate entries, which the back reference check alone would not)
+ Index:=0;
+ for ColorIndex:=0 to KraftConstraintGraphColorCount-1 do begin
+  inc(Index,fColors[ColorIndex].CountContactPairs);
+ end;
+ if Index<>CountInGraphContactPairs then begin
+  aError:='contact pair entry count mismatch: colors hold '+IntToStr(Index)+', membership says '+IntToStr(CountInGraphContactPairs);
+  exit;
+ end;
+ Index:=0;
+ for ColorIndex:=0 to KraftConstraintGraphColorCount-1 do begin
+  inc(Index,fColors[ColorIndex].CountConstraints);
+ end;
+ if Index<>CountInGraphConstraints then begin
+  aError:='joint entry count mismatch: colors hold '+IntToStr(Index)+', membership says '+IntToStr(CountInGraphConstraints);
+  exit;
+ end;
+
+ // Per color: no movable body twice, occupancy bits match exactly
+ for ColorIndex:=0 to KraftConstraintGraphOverflowIndex-1 do begin
+  Color:=@fColors[ColorIndex];
+  if length(Seen)<length(Color^.BodySet) then begin
+   SetLength(Seen,length(Color^.BodySet));
+  end;
+  for WordIndex:=0 to length(Seen)-1 do begin
+   Seen[WordIndex]:=0;
+  end;
+  for Index:=0 to Color^.CountContactPairs-1 do begin
+   ContactPair:=Color^.ContactPairs[Index];
+   if not (CheckColorBody(ColorIndex,ContactPair^.RigidBodies[0]) and CheckColorBody(ColorIndex,ContactPair^.RigidBodies[1])) then begin
+    exit;
+   end;
+  end;
+  for Index:=0 to Color^.CountConstraints-1 do begin
+   Constraint:=Color^.Constraints[Index];
+   if not (CheckColorBody(ColorIndex,Constraint.fRigidBodies[0]) and CheckColorBody(ColorIndex,Constraint.fRigidBodies[1])) then begin
+    exit;
+   end;
+  end;
+  for WordIndex:=0 to length(Color^.BodySet)-1 do begin
+   if ((WordIndex<length(Seen)) and (Color^.BodySet[WordIndex]<>Seen[WordIndex])) or
+      ((WordIndex>=length(Seen)) and (Color^.BodySet[WordIndex]<>0)) then begin
+    aError:='stale body occupancy bits in color '+IntToStr(ColorIndex);
+    exit;
+   end;
+  end;
+ end;
+
+ result:=true;
+
 end;
 
 function CalculateArea(const v0,v1,v2:TKraftVector3):TKraftScalar; overload;
@@ -38663,6 +39265,7 @@ procedure TKraftContactPair.DetectCollisions(const ContactManager:TKraftContactM
 var OldManifoldCountContacts:TKraftInt32;
     OldContactManifoldType:TKraftContactManifoldType;
     ShapeTriangle:TKraftShapeTriangle;
+    GraphWasColliding:boolean;
  function CreateFeatureID(const ElementA,ElementB:TKraftUInt32):TKraftContactFeatureID; overload; {$if defined(caninline) and defined(fpc)}inline;{$ifend}
  begin
   result.ElementA:=ElementA;
@@ -38671,6 +39274,12 @@ var OldManifoldCountContacts:TKraftInt32;
  function CreateFeatureID(const Key:TKraftInt64):TKraftContactFeatureID; overload; {$if defined(caninline) and defined(fpc)}inline;{$ifend}
  begin
   result.Key:=Key;
+ end;
+ procedure MarkGraphDirtyOnCollidingChange;
+ begin
+  if ((kcfColliding in Flags)<>GraphWasColliding) and not (kcfGraphDirty in Flags) then begin
+   Include(Flags,kcfGraphDirty);
+  end;
  end;
  procedure AddImplicitContact(const p0,p1:TKraftVector3;const r0,r1:TKraftScalar;const FeatureID:TKraftContactFeatureID;const IsLocal:boolean);
  var Contact:PKraftContact;
@@ -40648,6 +41257,8 @@ begin
 
  Flags:=Flags+[kcfEnabled];
 
+ GraphWasColliding:=kcfColliding in Flags;
+
  Physics:=ContactManager.fPhysics;
 
  // Whole-mesh-pair contact recycling in the clustered mesh manifold mode: the decision was already made once
@@ -40672,6 +41283,7 @@ begin
    end else begin
     Include(Flags,kcfColliding);
    end;
+   MarkGraphDirtyOnCollidingChange;
    inc(ContactManager.fRecycledContactPairCounts[ThreadIndex]);
    exit;
   end else if MeshContactPair.fClustersRecycleDrift<RecycleSeparation then begin
@@ -40680,6 +41292,7 @@ begin
    end else begin
     Exclude(Flags,kcfWasColliding);
    end;
+   MarkGraphDirtyOnCollidingChange;
    inc(ContactManager.fRecycledContactPairCounts[ThreadIndex]);
    exit;
   end;
@@ -40771,6 +41384,8 @@ begin
      end;
 
     end;
+
+    MarkGraphDirtyOnCollidingChange;
 
     inc(ContactManager.fRecycledContactPairCounts[ThreadIndex]);
 
@@ -40987,6 +41602,8 @@ begin
   end;
 
  end;
+
+ MarkGraphDirtyOnCollidingChange;
 
  // A real narrow phase run of a triangle pair which found contacts while its mesh contact pair recycles its
  // clusters (touch onset of a fresh or separated triangle) makes the cluster state incomplete: the new raw
@@ -41591,6 +42208,9 @@ begin
 
  ContactPair^.Flags:=[kcfEnabled];
 
+ ContactPair^.GraphColorIndex:=-1;
+ ContactPair^.GraphLocalIndex:=-1;
+
  ContactPair^.Friction:=sqrt(aShapeA.fFriction*aShapeB.fFriction);
  // Rolling resistance mix: max of the two coefficients scaled by the smaller contact
  // radius (using the shapes' angular-motion disc as the radius analogue). The rolling lever belongs to the
@@ -41812,6 +42432,10 @@ begin
   aContactPair^.Next^.Previous:=aContactPair^.Previous;
  end else if fContactPairLast=aContactPair then begin
   fContactPairLast:=aContactPair^.Previous;
+ end;
+
+ if aContactPair^.GraphColorIndex>=0 then begin
+  fPhysics.fConstraintGraph.InternalRemoveContactPair(aContactPair);
  end;
 
  if assigned(aContactPair^.MeshContactPair) then begin
@@ -42606,6 +43230,7 @@ const ActionAccept=0;
 var ActiveContactPairIndex,Action:TKraftInt32;
     ContactPair,NextContactPair:PKraftContactPair;
     MeshContactPair,NextMeshContactPair:TKraftMeshContactPair;
+    Constraint:TKraftConstraint;
     ShapeA,ShapeB,ShapeConvex:TKraftShape;
     ShapeMesh:TKraftShapeMesh;
     RigidBodyA,RigidBodyB:TKraftRigidBody;
@@ -42819,6 +43444,24 @@ begin
  fCountRecycledContactPairs:=0;
  for ActiveContactPairIndex:=0 to MAX_THREADS-1 do begin
   inc(fCountRecycledContactPairs,fRecycledContactPairCounts[ActiveContactPairIndex]);
+ end;
+
+ // Keep the persistent constraint graph in sync with the touching state of this narrow phase run and with
+ // the joint lifecycle (new joints enter here, broken or deactivated ones leave). Serial by design and in
+ // the deterministic active pair order; only pairs whose colliding state actually changed carry the dirty
+ // flag, so a resting scene pays just one flag test per pair. The sleep and wake transitions maintain
+ // their part over TKraftRigidBody.SetToSleep/SetToAwake.
+ for ActiveContactPairIndex:=0 to fCountActiveContactPairs-1 do begin
+  ContactPair:=fActiveContactPairs[ActiveContactPairIndex];
+  if kcfGraphDirty in ContactPair^.Flags then begin
+   ContactPair^.Flags:=ContactPair^.Flags-[kcfGraphDirty];
+   fPhysics.fConstraintGraph.SynchronizeContactPair(ContactPair);
+  end;
+ end;
+ Constraint:=fPhysics.fConstraintFirst;
+ while assigned(Constraint) do begin
+  fPhysics.fConstraintGraph.SynchronizeConstraint(Constraint);
+  Constraint:=Constraint.fNext;
  end;
 
  // Post-process the per-triangle contacts of each mesh contact pair, after all narrow phase results exist,
@@ -43844,6 +44487,10 @@ begin
 
  fFlags:=[krbfContinuous,krbfAllowSleep,krbfAwake,krbfActive,krbfContactRecycling];
 
+ fBodyIndex:=fPhysics.fRigidBodyIndexPool.AllocateIndex;
+
+ fAwakeIndex:=-1;
+
  fWorldDisplacement:=Vector3Origin;
 
  fWorldBoundExpansion:=Vector3Origin;
@@ -44149,6 +44796,11 @@ begin
  SetLength(fIslandIndices,0);
 
  fRigidBodyType:=krbtUnknown;
+
+ UpdateAwakeListMembership;
+
+ fPhysics.fRigidBodyIndexPool.ReleaseIndex(fBodyIndex);
+ fBodyIndex:=-1;
 
  fGravityProperty.Free;
 
@@ -44540,6 +45192,12 @@ begin
   end;
 {$endif}
 
+  UpdateAwakeListMembership;
+
+  // The color class of a constraint (movable versus static partner) and the body occupancy bits of the
+  // constraint graph depend on the body type, so the graph residency of this body gets rebuilt.
+  fPhysics.fConstraintGraph.RefreshRigidBody(self);
+
  end;
 
 end;
@@ -44846,6 +45504,8 @@ var ConstraintEdge:PKraftConstraintEdge;
 begin
  if not (krbfAwake in fFlags) then begin
   Include(fFlags,krbfAwake);
+  UpdateAwakeListMembership;
+  fPhysics.fConstraintGraph.SynchronizeRigidBody(self);
   fSleepTime:=0.0;
   fWorldDisplacement:=Vector3Origin;
   ConstraintEdge:=fConstraintEdgeFirst;
@@ -44859,14 +45519,50 @@ begin
 end;
 
 procedure TKraftRigidBody.SetToSleep;
+var WasAwake:boolean;
 begin
+ WasAwake:=krbfAwake in fFlags;
  Exclude(fFlags,krbfAwake);
+ UpdateAwakeListMembership;
+ if WasAwake then begin
+  fPhysics.fConstraintGraph.SynchronizeRigidBody(self);
+ end;
  fSleepTime:=0.0;
  fLinearVelocity:=Vector3Origin;
  fAngularVelocity:=Vector3Origin;
  fForce:=Vector3Origin;
  fTorque:=Vector3Origin;
  fWorldDisplacement:=Vector3Origin;
+end;
+
+procedure TKraftRigidBody.UpdateAwakeListMembership;
+// Keeps the dense awake rigid body list of TKraft in sync: a dynamic or kinematic body with krbfAwake is in
+// the list exactly once (at fAwakeIndex), everything else is not. Idempotent, removal per swap with the last
+// list entry. Called at the central state transitions (SetToAwake, SetToSleep, SetRigidBodyType and the body
+// lifetime); direct krbfAwake manipulation over the raw Flags property bypasses this bookkeeping, like it
+// already bypasses the wake up propagation of SetToAwake.
+var MovedRigidBody:TKraftRigidBody;
+begin
+ if (fRigidBodyType in [krbtDynamic,krbtKinematic]) and (krbfAwake in fFlags) then begin
+  if fAwakeIndex<0 then begin
+   if fPhysics.fCountAwakeRigidBodies>=length(fPhysics.fAwakeRigidBodies) then begin
+    SetLength(fPhysics.fAwakeRigidBodies,(fPhysics.fCountAwakeRigidBodies+1)*2);
+   end;
+   fAwakeIndex:=fPhysics.fCountAwakeRigidBodies;
+   fPhysics.fAwakeRigidBodies[fAwakeIndex]:=self;
+   inc(fPhysics.fCountAwakeRigidBodies);
+  end;
+ end else begin
+  if fAwakeIndex>=0 then begin
+   dec(fPhysics.fCountAwakeRigidBodies);
+   if fAwakeIndex<fPhysics.fCountAwakeRigidBodies then begin
+    MovedRigidBody:=fPhysics.fAwakeRigidBodies[fPhysics.fCountAwakeRigidBodies];
+    fPhysics.fAwakeRigidBodies[fAwakeIndex]:=MovedRigidBody;
+    MovedRigidBody.fAwakeIndex:=fAwakeIndex;
+   end;
+   fAwakeIndex:=-1;
+  end;
+ end;
 end;
 
 procedure TKraftRigidBody.UpdateWorldTransformation;
@@ -45364,6 +46060,11 @@ begin
 
  fFlags:=(fFlags-[kcfVisited])+[kcfActive];
 
+ // Not in the constraint graph yet; the graph synchronization walk of the next narrow phase (and the sleep
+ // and wake transitions) picks the joint up, after the concrete joint constructor has set its rigid bodies.
+ fGraphColorIndex:=-1;
+ fGraphLocalIndex:=-1;
+
  // By default a joint follows the world's TGS joint mode; it can be forced onto one path per joint.
  fTGSJointModeOverride:=kctjmInherit;
 
@@ -45448,6 +46149,13 @@ var RigidBodyIndex,ConstraintIndex:TKraftInt32;
     ContactPairEdge:PKraftContactPairEdge;
     ContactPair:PKraftContactPair;
 begin
+
+ // Deactivate first, then leave the constraint graph: the wake up calls below run the graph
+ // synchronization over the still linked constraint edges, which must not readd this dying joint.
+ Exclude(fFlags,kcfActive);
+ if fGraphColorIndex>=0 then begin
+  fPhysics.fConstraintGraph.InternalRemoveConstraint(self);
+ end;
 
  if assigned(fParent) then begin
   for ConstraintIndex:=0 to fParent.fCountChildren-1 do begin
@@ -57678,6 +58386,7 @@ begin
  fCountContactPairs:=0;
  fCountStaticContactPairs:=0;
  fCountSpeculativeContactPairs:=0;
+ fWantsSleep:=false;
 end;
 
 function TKraftIsland.AddRigidBody(aRigidBody:TKraftRigidBody):TKraftInt32;
@@ -57743,6 +58452,24 @@ begin
  if fCountStaticContactPairs>0 then begin
   Move(fStaticContactPairs[0],fContactPairs[fCountContactPairs],fCountStaticContactPairs*SizeOf(PKraftContactPair));
   inc(fCountContactPairs,fCountStaticContactPairs);
+ end;
+end;
+
+procedure TKraftIsland.PutToSleep;
+// Applies the sleep decision of the island solve. Called serially from TKraft.SolveIslands after all island
+// solves are done, since SetToSleep maintains shared bookkeeping (awake body list, constraint graph).
+var Index:TKraftInt32;
+begin
+ for Index:=0 to fCountRigidBodies-1 do begin
+  if krbfAllowSleep in fRigidBodies[Index].fFlags then begin
+   fRigidBodies[Index].SetToSleep;
+  end;
+ end;
+ // Second constraint graph pass over the whole island: the per-body synchronization inside SetToSleep still
+ // saw awake partners for the bodies which fell asleep later in the loop above, so constraints between two
+ // now sleeping bodies would otherwise stay in the graph.
+ for Index:=0 to fCountRigidBodies-1 do begin
+  fPhysics.fConstraintGraph.SynchronizeRigidBody(fRigidBodies[Index]);
  end;
 end;
 
@@ -58061,13 +58788,11 @@ begin
 
   // Put entire island to sleep so long as the minimum found sleep time is below the threshold.
   // If the minimum sleep time reaches below the sleeping threshold, the entire island will be
-  // reformed next step and sleep test will be tried again.
+  // reformed next step and sleep test will be tried again. Only marked here, the SetToSleep calls
+  // happen serially in TKraft.SolveIslands, since islands solve in parallel and the sleep transition
+  // maintains shared bookkeeping (awake body list, constraint graph).
   if MinSleepTime>fPhysics.fSleepTimeThreshold then begin
-   for Index:=0 to fCountRigidBodies-1 do begin
-    if krbfAllowSleep in fRigidBodies[Index].fFlags then begin
-     fRigidBodies[Index].SetToSleep;
-    end;
-   end;
+   fWantsSleep:=true;
   end;
 
  end;
@@ -58470,12 +59195,10 @@ begin
     end;
    end;
   end;
+  // Only marked here, the SetToSleep calls happen serially in TKraft.SolveIslands, since islands solve
+  // in parallel and the sleep transition maintains shared bookkeeping (awake body list, constraint graph).
   if MinSleepTime>fPhysics.fSleepTimeThreshold then begin
-   for Index:=0 to fCountRigidBodies-1 do begin
-    if krbfAllowSleep in fRigidBodies[Index].fFlags then begin
-     fRigidBodies[Index].SetToSleep;
-    end;
-   end;
+   fWantsSleep:=true;
   end;
  end;
 
@@ -58721,6 +59444,16 @@ begin
 end;
 {$endif}
 
+{$if defined(fpc) and (defined(Linux) or defined(Android)) and not defined(KraftPasMP)}
+// CPU count detection for the worker thread default on Linux and Android, the same mechanism as PasMP
+// uses: sysconf(_SC_NPROCESSORS_CONF) capped by the process affinity mask from sched_getaffinity.
+const KraftUnixSysConfNumberOfProcessorsConfigured=83; // _SC_NPROCESSORS_CONF = _SC_UIO_MAXIOV (60) + 23
+
+function KraftUnixSysConf(aName:TKraftInt32):TKraftInt32; cdecl; external 'c' name 'sysconf';
+
+function KraftUnixSchedGetAffinity(aProcessID:ptruint;aCPUSetSize:TKraftInt32;aCPUSet:pointer):TKraftInt32; cdecl; external 'c' name 'sched_getaffinity';
+{$ifend}
+
 {$ifdef KraftPasMP}
 constructor TKraft.Create(const aPasMP:TPasMP);
 {$else}
@@ -58731,8 +59464,13 @@ const TriangleVertex0:TKraftVector3=(x:0.0;y:0.0;z:0.0{$ifdef SIMD};w:0.0{$endif
       TriangleVertex2:TKraftVector3=(x:0.0;y:1.0;z:0.02{$ifdef SIMD};w:0.0{$endif});
 var Index:TKraftInt32;
 {$ifndef KraftPasMP}
-{$ifdef win32}
+{$if defined(windows) or (defined(fpc) and (defined(Linux) or defined(Android)))}
     i,j:TKraftInt32;
+{$ifend}
+{$if defined(fpc) and (defined(Linux) or defined(Android))}
+    KraftUnixCPUSet:TKraftInt64;
+{$ifend}
+{$ifdef windows}
     sinfo:SYSTEM_INFO;
     dwProcessAffinityMask,dwSystemAffinityMask:ptruint;
  function GetRealCountOfCPUCores:TKraftInt32;
@@ -58846,7 +59584,7 @@ begin
 
  fCountThreads:=aCountThreads;
 
-{$ifdef win32}
+{$ifdef windows}
  if fCountThreads<0 then begin
   fCountThreads:=GetRealCountOfCPUCores;
   GetSystemInfo(sinfo);
@@ -58866,6 +59604,30 @@ begin
  end;
 //SetThreadIdealProcessor(GetCurrentThread,0);
 {$endif}
+
+{$if defined(fpc) and (defined(Linux) or defined(Android))}
+ if fCountThreads<0 then begin
+  // CPU detection like PasMP does it on Linux: the configured processor count, capped by the
+  // process affinity mask. Note that the hosting program still has to use the cthreads unit,
+  // otherwise the job worker thread creation fails at run time.
+  fCountThreads:=KraftUnixSysConf(KraftUnixSysConfNumberOfProcessorsConfigured);
+  KraftUnixCPUSet:=0;
+  if KraftUnixSchedGetAffinity(GetProcessID,SizeOf(KraftUnixCPUSet),@KraftUnixCPUSet)=0 then begin
+   j:=0;
+   for i:=0 to 63 do begin
+    if (KraftUnixCPUSet and (TKraftInt64(1) shl i))<>0 then begin
+     inc(j);
+    end;
+   end;
+   if (j>0) and (fCountThreads>j) then begin
+    fCountThreads:=j;
+   end;
+  end;
+  if fCountThreads<1 then begin
+   fCountThreads:=1;
+  end;
+ end;
+{$ifend}
 
  fCountThreads:=Min(Max(fCountThreads,0),MAX_THREADS);
 
@@ -58891,6 +59653,13 @@ begin
  fRigidBodyIDCounter:=0;
 
  fShapeIDCounter:=0;
+
+ fRigidBodyIndexPool:=TKraftIndexPool.Create;
+
+ fConstraintGraph:=TKraftConstraintGraph.Create(self);
+
+ fAwakeRigidBodies:=nil;
+ fCountAwakeRigidBodies:=0;
 
  fRigidBodyFirst:=nil;
  fRigidBodyLast:=nil;
@@ -59125,6 +59894,12 @@ begin
  while assigned(fRigidBodyLast) do begin
   fRigidBodyLast.Free;
  end;
+
+ FreeAndNil(fConstraintGraph);
+
+ FreeAndNil(fRigidBodyIndexPool);
+
+ fAwakeRigidBodies:=nil;
 
  while assigned(fMeshLast) do begin
   fMeshLast.Free;
@@ -59539,6 +60314,16 @@ begin
   end;
  end;
  fIsSolving:=false;
+
+ // Apply the sleep decisions of the island solves serially, after all (possibly parallel) island solves are
+ // done: the sleep transition maintains shared bookkeeping (awake body list, constraint graph), which must
+ // not be mutated from parallel island solves.
+ for Index:=0 to fCountIslands-1 do begin
+  if fIslands[Index].fWantsSleep then begin
+   fIslands[Index].PutToSleep;
+  end;
+ end;
+
 end;
 
 // Conservative advancement
@@ -60720,6 +61505,7 @@ begin
   RigidBodies[1].Advance(MinimumAlpha);
 
   MinimumContactPair^.DetectCollisions(fContactManager,fTriangleShapes[0],0,false,0.0);
+  fConstraintGraph.SynchronizeContactPair(MinimumContactPair);
 
   MinimumContactPair^.Flags:=MinimumContactPair^.Flags-[kcfTimeOfImpact];
   inc(MinimumContactPair^.TimeOfImpactCount);
@@ -60787,6 +61573,7 @@ begin
       end;
 
       ContactPair^.DetectCollisions(fContactManager,fTriangleShapes[0],0,false,0.0);
+      fConstraintGraph.SynchronizeContactPair(ContactPair);
 
       if (not (kcfEnabled in ContactPair^.Flags)) or not (kcfColliding in ContactPair^.Flags) then begin
        OtherRigidBody.fSweep:=BackupSweeps[0];
