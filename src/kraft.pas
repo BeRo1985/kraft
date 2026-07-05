@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-07-05-09-13-0000                       *
+ *                        Version 2026-07-05-17-27-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -290,6 +290,7 @@ const EPSILON={$ifdef KraftUseDouble}1e-14{$else}1e-5{$endif}; // actually {$ifd
 
       MAX_THREADS=256;            // Should be more than enough :-)
 
+{$ifdef KraftConstraintGraphColoring}
       // Solver stage pipeline (Box3D-style block claiming model): sentinel publication value which ends
       // the resident worker spin loops, the block sizes of the stage kinds (in constraints per claimable
       // block) and the initial size of the per step block slot pool.
@@ -300,6 +301,7 @@ const EPSILON={$ifdef KraftUseDouble}1e-14{$else}1e-5{$endif}; // actually {$ifd
       KraftSolverPipelineBodyBlockSize=16;
       KraftSolverPipelineWideBatchBlockSize=1;
       KraftSolverPipelineInitialBlockPoolSize=65536;
+{$endif}
 
       // Squared quaternion dot product bound (about 10 degrees of absolute body rotation since the cache was
       // taken) for the optional absolute rotation cap of the contact recycling, same value as Box3D uses.
@@ -649,7 +651,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftIsland=class;
 
+{$ifdef KraftConstraintGraphColoring}
      TKraftPersistentIsland=class;
+{$endif}
 
      TKraftShape=class;
 
@@ -841,6 +845,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property HourInterval:TKraftInt64 read fHourInterval;
      end;
 
+{$ifdef KraftConstraintGraphColoring}
      { TKraftIndexPool }
      // Allocator for stable dense indices (for example the per-physics-instance rigid body indices, which
      // the constraint graph color bitsets are keyed on): released indices are reused before the range grows,
@@ -857,6 +862,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure ReleaseIndex(const aIndex:TKraftInt32);
        property CountIndices:TKraftInt32 read fCountIndices;
      end;
+{$endif}
 
      TKraftScalar={$ifdef KraftUseDouble}TKraftDouble{$else}TKraftFloat{$endif};
      PKraftScalar=^TKraftScalar;
@@ -2916,6 +2922,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        RecycleRelativeOrientation:TKraftQuaternion;
        RecycleWorldOrientations:array[0..1] of TKraftQuaternion;
        RecycleSeparation:TKraftScalar;
+{$ifdef KraftConstraintGraphColoring}
        // Persistent constraint graph membership (negative when not in the graph), maintained by
        // TKraftConstraintGraph over the touching state and sleep transitions. The owned bits mask remembers
        // for which of the two bodies this pair has set the color occupancy bit: in the static color region a
@@ -2924,6 +2931,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        GraphColorIndex:TKraftInt32;
        GraphLocalIndex:TKraftInt32;
        GraphOwnedBodyBits:TKraftUInt32;
+{$endif}
        procedure GetSolverContactManifold(out SolverContactManifold:TKraftSolverContactManifold;const WorldTransformA,WorldTransformB:TKraftMatrix4x4;const ContactManifoldMode:TKraftContactPairContactManifoldMode);
        procedure DetectCollisions(const ContactManager:TKraftContactManager;const TriangleShape:TKraftShape=nil;const ThreadIndex:TKraftInt32=0;const SpeculativeContacts:boolean=true;const DeltaTime:double=0.0);
      end;
@@ -3308,6 +3316,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fUpdatedStaticRigidBodyIndex:TKraftInt32;
 
+{$ifdef KraftConstraintGraphColoring}
        // Stable dense per-physics-instance index (from TKraft.fRigidBodyIndexPool), constant over the whole
        // body lifetime; the constraint graph color bitsets are keyed on it.
        fBodyIndex:TKraftInt32;
@@ -3322,6 +3331,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        // maintained incrementally over SetToAwake, SetToSleep, SetRigidBodyType and the body lifetime;
        // negative when the body is not in the list.
        fAwakeIndex:TKraftInt32;
+{$endif}
 
        fVisitedIndex:TKraftInt32;
 
@@ -3460,7 +3470,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        procedure UpdateWorldTransformation;
 
+{$ifdef KraftConstraintGraphColoring}
        procedure UpdateAwakeListMembership;
+{$endif}
 
       public
 
@@ -3553,9 +3565,11 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        property IslandIndices:TKraftRigidBodyIslandIndices read fIslandIndices;
 
+{$ifdef KraftConstraintGraphColoring}
        property BodyIndex:TKraftInt32 read fBodyIndex;
 
        property AwakeIndex:TKraftInt32 read fAwakeIndex;
+{$endif}
 
        property ID:TKraftUInt64 read fID;
 
@@ -3729,12 +3743,14 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fChildren:array of TKraftConstraint;
        fCountChildren:TKraftInt32;
 
+{$ifdef KraftConstraintGraphColoring}
        // Persistent constraint graph membership (negative when not in the graph), maintained by
        // TKraftConstraintGraph over the joint lifetime and the sleep transitions; the owned bits mask has
        // the same semantics as at the contact pairs.
        fGraphColorIndex:TKraftInt32;
        fGraphLocalIndex:TKraftInt32;
        fGraphOwnedBodyBits:TKraftUInt32;
+{$endif}
 
       public
 
@@ -4803,6 +4819,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      // stages of the colored solver parallel modes (see TKraftSolver.DispatchContactStage).
      TKraftSolverStageRangeMethod=procedure(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32) of object;
 
+{$ifdef KraftConstraintGraphColoring}
      // One claimable unit of a published solver pipeline stage: a slice of the index range a stage range
      // method runs over. A worker wins a block over an atomic compare exchange of its sync index from zero
      // to one; every publication cuts its blocks from fresh pool slots, so a delayed worker can never win
@@ -4836,11 +4853,13 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      end;
 
      TKraftSolverPipelineStages=array of TKraftSolverPipelineStage;
+{$endif}
 
      TKraftSolverPrepareCenters=array of TKraftVector3;
 
      TKraftSolverPrepareOrientations=array of TKraftQuaternion;
 
+{$ifdef KraftConstraintGraphColoring}
      // Four wide contact solver data for the TGS-soft path (Box3D-style wide model as the template):
      // one lane is one contact pair of one constraint graph color, so the four lanes of a batch
      // never share a movable body and can solve together. The memory layout is lane major structure of
@@ -4904,6 +4923,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      end;
 
      TKraftSolverWideContactBatches=array of TKraftSolverWideContactBatch;
+{$endif}
 
      TKraftSolver=class
       private
@@ -4974,6 +4994,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fStageJobOffset:TKraftInt32;
        fStageMinSeparations:array[0..MAX_THREADS-1] of TKraftScalar;
 
+{$ifdef KraftConstraintGraphColoring}
        // Four wide contact batches per constraint graph color for the TGS-soft stages, packed per color by
        // PackWideContacts after the soft prepare (only pairs with points; the overflow color and pairs
        // without points stay on the scalar range methods). Only active when the wide contact solver toggle
@@ -4983,6 +5004,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fWideBatchColorRangeFirsts:array[0..KraftConstraintGraphColorCount-1] of TKraftInt32;
        fWideBatchColorRangeCounts:array[0..KraftConstraintGraphColorCount-1] of TKraftInt32;
        fWideActive:boolean;
+{$endif}
 
        function MakeSoft(const aHertz,aDampingRatio,aH:TKraftScalar):TKraftSolverSoftness;
 
@@ -4994,6 +5016,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure DispatchContactStage(const aRangeMethod:TKraftSolverStageRangeMethod);
        procedure DispatchIndependentStage(const aRangeMethod:TKraftSolverStageRangeMethod;const aCount:TKraftInt32);
 
+{$ifdef KraftConstraintGraphColoring}
        // Wide contact solver machinery (TGS-soft path): PackWideContacts and UnpackWideContacts frame the
        // substep loop, DispatchWideContactStage runs one wide stage color by color, and the per batch range
        // kernels run as solver stage pipeline stages over batch index ranges or serially.
@@ -5003,6 +5026,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure WarmStartSubStepWideRange(const aFromBatchIndex,aToBatchIndex,aThreadIndex:TKraftInt32);
        procedure SolveVelocitySubStepWideRange(const aFromBatchIndex,aToBatchIndex,aThreadIndex:TKraftInt32);
        procedure ApplyRestitutionWideRange(const aFromBatchIndex,aToBatchIndex,aThreadIndex:TKraftInt32);
+{$endif}
 
       public
 
@@ -5310,6 +5334,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property LifetimeGranularity:TKraftScalar read fLifetimeGranularity write fLifetimeGranularity;
      end;
 
+{$ifdef KraftConstraintGraphColoring}
      { TKraftPersistentIsland }
      // Persistent connectivity island over the movable (dynamic and kinematic) bodies, the Box3D island
      // model: maintained incrementally instead of rebuilt per step, with links independent of the sleep
@@ -5378,6 +5403,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        // phase of the next step, after their concrete constructors have set their rigid bodies.
        function Validate(out aError:string):boolean;
      end;
+{$endif}
 
      TKraftIsland=class
       private
@@ -5403,10 +5429,12 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fSolver:TKraftSolver;
 
+{$ifdef KraftConstraintGraphColoring}
        // Set by the (possibly parallel running) island solve when the whole island wants to fall asleep;
        // the actual SetToSleep calls happen serially afterwards in TKraft.SolveIslands, so the shared awake
        // body list and constraint graph bookkeeping never runs from parallel island solves.
        fWantsSleep:boolean;
+{$endif}
 
        // Set by TKraft.SolveIslands in the colored solver parallel modes for the islands which leave the
        // parallel island loop and solve serially with parallel color stages instead (see there).
@@ -5425,9 +5453,11 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fJointStageOKs:array[0..MAX_THREADS-1] of boolean;
        fSolveTimeStep:TKraftTimeStep;
        fSolveSubStepTimeStep:TKraftTimeStep;
+{$ifdef KraftConstraintGraphColoring}
        // At least one island body carries a user damping callback, so the velocity integration stage has
        // to run serially (the callback is user code without any thread safety contract)
        fHasBodyDampingCallbacks:boolean;
+{$endif}
 
       public
 
@@ -5438,7 +5468,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure AddConstraint(aConstraint:TKraftConstraint);
        procedure AddContactPair(aContactPair:PKraftContactPair);
        procedure MergeContactPairs;
+{$ifdef KraftConstraintGraphColoring}
        procedure BuildSolveOrders;
+{$endif}
 {$ifdef KraftPasMP}
        procedure JointStageParallelForFunction(const Job:PPasMPJob;const ThreadIndex:TKraftInt32;const Data:pointer;const FromIndex,ToIndex:TPasMPNativeInt);
 {$else}
@@ -5446,7 +5478,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 {$endif}
        procedure DispatchJointStage(const aRangeMethod:TKraftSolverStageRangeMethod);
        procedure DispatchIndependentJointStage(const aRangeMethod:TKraftSolverStageRangeMethod);
+{$ifdef KraftConstraintGraphColoring}
        procedure DispatchFusedColorStage(const aJointRangeMethod,aContactRangeMethod,aWideContactRangeMethod:TKraftSolverStageRangeMethod);
+{$endif}
        procedure JointInitializeAndWarmStartRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
        procedure JointSolveVelocityRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
        procedure JointBreakSweepRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
@@ -5456,13 +5490,17 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure JointSolveVelocitySubStepRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
        procedure JointRelaxSubStepRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
        procedure JointSolvePositionAdapterRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
+{$ifdef KraftConstraintGraphColoring}
        // Per substep body integration as pipeline body block stages (the Box3D integrate velocities and
        // integrate positions stages): parallel over the island bodies when the solver stage pipeline runs
        // (every body only touches its own state), serial exactly like the classic inline loops otherwise.
        procedure DispatchBodyStage(const aRangeMethod:TKraftSolverStageRangeMethod);
+{$endif}
        procedure SubStepIntegrateVelocitiesRange(const aFromIndex,aToIndex,aThreadIndex:TKraftInt32);
        procedure SubStepIntegratePositionsRange(const aFromIndex,aToIndex,aThreadIndex:TKraftInt32);
+{$ifdef KraftConstraintGraphColoring}
        procedure PutToSleep;
+{$endif}
        procedure Solve(const aTimeStep:TKraftTimeStep);
        procedure SolveSequentialImpulse(const aTimeStep:TKraftTimeStep);
        procedure SolveTGSSubStepped(const aTimeStep:TKraftTimeStep);
@@ -5629,6 +5667,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fShapeIDCounter:TKraftUInt64;
 
+{$ifdef KraftConstraintGraphColoring}
        fRigidBodyIndexPool:TKraftIndexPool;
 
        fConstraintGraph:TKraftConstraintGraph;
@@ -5640,6 +5679,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fAwakeRigidBodies:TKraftRigidBodies;
        fCountAwakeRigidBodies:TKraftInt32;
+{$endif}
 
        fRigidBodyFirst:TKraftRigidBody;
        fRigidBodyLast:TKraftRigidBody;
@@ -5785,6 +5825,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fSolverParallelThreshold:TKraftInt32;
 
+{$ifdef KraftConstraintGraphColoring}
        fWideContactSolver:boolean;
 
        // Solver stage pipeline (Box3D-style block claiming model): during the solves of the big islands
@@ -5805,6 +5846,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fPipelineCountWorkers:TKraftInt32;
 {$ifdef KraftPasMP}
        fPipelineJob:PPasMPJob;
+{$endif}
 {$endif}
 
        fCountSubSteps:TKraftInt32;
@@ -5857,9 +5899,13 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        procedure Integrate(var aPosition:TKraftVector3;var aOrientation:TKraftQuaternion;const aLinearVelocity,aAngularVelocity:TKraftVector3;const aDeltaTime:TKraftScalar);
 
+       procedure SetSolverParallelMode(const aValue:TKraftSolverParallelMode);
+
        procedure BuildIslands;
 
+{$ifdef KraftConstraintGraphColoring}
        procedure BuildGlobalIsland;
+{$endif}
        procedure CleanIslands;
 {$ifdef KraftPasMP}
        procedure ProcessSolveIslandParallelForFunction(const aJob:PPasMPJob;const aThreadIndex:TKraftInt32;const aData:pointer;const aFromIndex,aToIndex:TPasMPNativeInt);
@@ -5867,6 +5913,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure ProcessSolveIslandJob(const aJobIndex,aThreadIndex:TKraftInt32);
 {$endif}
 
+{$ifdef KraftConstraintGraphColoring}
        // Solver stage pipeline (see the fSolverStagePipeline field group)
        function SolverPipelineLoadSyncBits:TKraftInt32;
        procedure SolverPipelineExecuteStage(const aStage:PKraftSolverPipelineStage;const aWorkerSlot,aThreadIndex:TKraftInt32);
@@ -5880,15 +5927,18 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 {$endif}
        procedure StartSolverPipeline;
        procedure StopSolverPipeline;
+{$endif}
 
        procedure SolveIslands(const aTimeStep:TKraftTimeStep);
 
+{$ifdef KraftConstraintGraphColoring}
        // Persistent connectivity islands (see TKraftPersistentIsland)
        procedure EnsurePersistentIsland(const aRigidBody:TKraftRigidBody);
        procedure ReleaseFromPersistentIsland(const aRigidBody:TKraftRigidBody);
        procedure LinkPersistentIslands(const aRigidBodyA,aRigidBodyB:TKraftRigidBody);
        procedure MarkPersistentIslandsDirty(const aRigidBodyA,aRigidBodyB:TKraftRigidBody);
        procedure ProcessPersistentIslandSplits;
+{$endif}
 
        function GetConservativeAdvancementTimeOfImpact(const aShapeA:TKraftShape;const aSweepA:TKraftSweep;const aShapeB:TKraftShape;const aShapeBMeshIndex,aShapeBTriangleIndex:TKraftInt32;const aSweepB:TKraftSweep;const aTimeStep:TKraftTimeStep;const aThreadIndex:TKraftInt32;var aBeta:TKraftScalar):boolean;
 
@@ -6007,6 +6057,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property CountRigidBodies:TKraftInt32 read fCountRigidBodies;
        property RigidBodyIDCounter:TKraftUInt64 read fRigidBodyIDCounter;
 
+{$ifdef KraftConstraintGraphColoring}
        // Dense list of the awake dynamic and kinematic rigid bodies, incrementally maintained (see
        // TKraftRigidBody.UpdateAwakeListMembership); the list order is maintenance history dependent,
        // consumers which need a reproducible order have to sort by BodyIndex.
@@ -6018,6 +6069,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property ConstraintGraph:TKraftConstraintGraph read fConstraintGraph;
 
        function ValidatePersistentIslands(out aError:string):boolean;
+{$endif}
 
        property ShapeIDCounter:TKraftUInt64 read fShapeIDCounter;
 
@@ -6149,13 +6201,14 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        // Runtime switch between the classic sequential-impulse solver (default) and the TGS-soft substepping solver.
        property SolverMode:TKraftSolverMode read fSolverMode write fSolverMode;
 
-       property SolverParallelMode:TKraftSolverParallelMode read fSolverParallelMode write fSolverParallelMode;
+       property SolverParallelMode:TKraftSolverParallelMode read fSolverParallelMode write SetSolverParallelMode;
 
        // Pure performance knob of the colored solver parallel modes, without any result influence: islands
        // with at least this many constraints leave the parallel island loop and solve with parallel color
        // stages instead, and a single color range dispatches in parallel only from this many constraints on.
        property SolverParallelThreshold:TKraftInt32 read fSolverParallelThreshold write fSolverParallelThreshold;
 
+{$ifdef KraftConstraintGraphColoring}
        // Solver stage pipeline of the colored solver parallel modes (Box3D-style block claiming model):
        // the parallel stages of a big island run over resident spinning workers with atomic block claiming
        // instead of one job manager barrier per color and stage. A pure synchronization mechanism switch
@@ -6175,6 +6228,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        // exactly the scalar operations in the same order and the results stay bit identical to the scalar path
        // of the same mode. The lane major layout is the base for an optional SIMD assembler stage.
        property WideContactSolver:boolean read fWideContactSolver write fWideContactSolver;
+{$endif}
 
        // TGS begin
 
@@ -16340,6 +16394,7 @@ begin
  end;
 end;
 
+{$ifdef KraftConstraintGraphColoring}
 { TKraftIndexPool }
 
 constructor TKraftIndexPool.Create;
@@ -16869,6 +16924,7 @@ begin
  aRigidBody.fPersistentIsland:=nil;
  aRigidBody.fPersistentIslandLocalIndex:=-1;
 end;
+{$endif}
 
 function CalculateArea(const v0,v1,v2:TKraftVector3):TKraftScalar; overload;
 begin
@@ -39660,7 +39716,9 @@ procedure TKraftContactPair.DetectCollisions(const ContactManager:TKraftContactM
 var OldManifoldCountContacts:TKraftInt32;
     OldContactManifoldType:TKraftContactManifoldType;
     ShapeTriangle:TKraftShapeTriangle;
+{$ifdef KraftConstraintGraphColoring}
     GraphWasColliding:boolean;
+{$endif}
  function CreateFeatureID(const ElementA,ElementB:TKraftUInt32):TKraftContactFeatureID; overload; {$if defined(caninline) and defined(fpc)}inline;{$ifend}
  begin
   result.ElementA:=ElementA;
@@ -39670,12 +39728,14 @@ var OldManifoldCountContacts:TKraftInt32;
  begin
   result.Key:=Key;
  end;
+{$ifdef KraftConstraintGraphColoring}
  procedure MarkGraphDirtyOnCollidingChange;
  begin
   if ((kcfColliding in Flags)<>GraphWasColliding) and not (kcfGraphDirty in Flags) then begin
    Include(Flags,kcfGraphDirty);
   end;
  end;
+{$endif}
  procedure AddImplicitContact(const p0,p1:TKraftVector3;const r0,r1:TKraftScalar;const FeatureID:TKraftContactFeatureID;const IsLocal:boolean);
  var Contact:PKraftContact;
  begin
@@ -41652,7 +41712,9 @@ begin
 
  Flags:=Flags+[kcfEnabled];
 
+{$ifdef KraftConstraintGraphColoring}
  GraphWasColliding:=kcfColliding in Flags;
+{$endif}
 
  Physics:=ContactManager.fPhysics;
 
@@ -41678,7 +41740,9 @@ begin
    end else begin
     Include(Flags,kcfColliding);
    end;
+{$ifdef KraftConstraintGraphColoring}
    MarkGraphDirtyOnCollidingChange;
+{$endif}
    inc(ContactManager.fRecycledContactPairCounts[ThreadIndex]);
    exit;
   end else if MeshContactPair.fClustersRecycleDrift<RecycleSeparation then begin
@@ -41687,7 +41751,9 @@ begin
    end else begin
     Exclude(Flags,kcfWasColliding);
    end;
+{$ifdef KraftConstraintGraphColoring}
    MarkGraphDirtyOnCollidingChange;
+{$endif}
    inc(ContactManager.fRecycledContactPairCounts[ThreadIndex]);
    exit;
   end;
@@ -41780,7 +41846,9 @@ begin
 
     end;
 
+{$ifdef KraftConstraintGraphColoring}
     MarkGraphDirtyOnCollidingChange;
+{$endif}
 
     inc(ContactManager.fRecycledContactPairCounts[ThreadIndex]);
 
@@ -41998,7 +42066,9 @@ begin
 
  end;
 
+{$ifdef KraftConstraintGraphColoring}
  MarkGraphDirtyOnCollidingChange;
+{$endif}
 
  // A real narrow phase run of a triangle pair which found contacts while its mesh contact pair recycles its
  // clusters (touch onset of a fresh or separated triangle) makes the cluster state incomplete: the new raw
@@ -42603,8 +42673,10 @@ begin
 
  ContactPair^.Flags:=[kcfEnabled];
 
+{$ifdef KraftConstraintGraphColoring}
  ContactPair^.GraphColorIndex:=-1;
  ContactPair^.GraphLocalIndex:=-1;
+{$endif}
 
  ContactPair^.Friction:=sqrt(aShapeA.fFriction*aShapeB.fFriction);
  // Rolling resistance mix: max of the two coefficients scaled by the smaller contact
@@ -42829,6 +42901,7 @@ begin
   fContactPairLast:=aContactPair^.Previous;
  end;
 
+{$ifdef KraftConstraintGraphColoring}
  if aContactPair^.GraphColorIndex>=0 then begin
   fPhysics.fConstraintGraph.InternalRemoveContactPair(aContactPair);
  end;
@@ -42836,6 +42909,7 @@ begin
  if kcfColliding in aContactPair^.Flags then begin
   fPhysics.MarkPersistentIslandsDirty(aContactPair^.RigidBodies[0],aContactPair^.RigidBodies[1]);
  end;
+{$endif}
 
  if assigned(aContactPair^.MeshContactPair) then begin
   // A removed triangle pair invalidates the whole-mesh-pair contact recycling, since its contacts may live
@@ -43629,7 +43703,9 @@ const ActionAccept=0;
 var ActiveContactPairIndex,Action:TKraftInt32;
     ContactPair,NextContactPair:PKraftContactPair;
     MeshContactPair,NextMeshContactPair:TKraftMeshContactPair;
+{$ifdef KraftConstraintGraphColoring}
     Constraint:TKraftConstraint;
+{$endif}
     ShapeA,ShapeB,ShapeConvex:TKraftShape;
     ShapeMesh:TKraftShapeMesh;
     RigidBodyA,RigidBodyB:TKraftRigidBody;
@@ -43845,6 +43921,7 @@ begin
   inc(fCountRecycledContactPairs,fRecycledContactPairCounts[ActiveContactPairIndex]);
  end;
 
+{$ifdef KraftConstraintGraphColoring}
  // Keep the persistent constraint graph in sync with the touching state of this narrow phase run and with
  // the joint lifecycle (new joints enter here, broken or deactivated ones leave). Serial by design and in
  // the deterministic active pair order; only pairs whose colliding state actually changed carry the dirty
@@ -43871,6 +43948,7 @@ begin
   end;
   Constraint:=Constraint.fNext;
  end;
+{$endif}
 
  // Post-process the per-triangle contacts of each mesh contact pair, after all narrow phase results exist,
  // since the triangle contact pairs of one mesh contact pair may have been processed on different threads.
@@ -44895,6 +44973,7 @@ begin
 
  fFlags:=[krbfContinuous,krbfAllowSleep,krbfAwake,krbfActive,krbfContactRecycling];
 
+{$ifdef KraftConstraintGraphColoring}
  fBodyIndex:=fPhysics.fRigidBodyIndexPool.AllocateIndex;
 
  fAwakeIndex:=-1;
@@ -44902,6 +44981,7 @@ begin
  fPersistentIsland:=nil;
  fPersistentIslandLocalIndex:=-1;
  fPersistentIslandVisitGeneration:=0;
+{$endif}
 
  fWorldDisplacement:=Vector3Origin;
 
@@ -45209,12 +45289,14 @@ begin
 
  fRigidBodyType:=krbtUnknown;
 
+{$ifdef KraftConstraintGraphColoring}
  UpdateAwakeListMembership;
 
  fPhysics.ReleaseFromPersistentIsland(self);
 
  fPhysics.fRigidBodyIndexPool.ReleaseIndex(fBodyIndex);
  fBodyIndex:=-1;
+{$endif}
 
  fGravityProperty.Free;
 
@@ -45300,8 +45382,10 @@ end;
 procedure TKraftRigidBody.SetRigidBodyType(const aRigidBodyType:TKraftRigidBodyType);
 var Shape:TKraftShape;
     OtherRigidBody:TKraftRigidBody;
+{$ifdef KraftConstraintGraphColoring}
     ContactPairEdge:PKraftContactPairEdge;
     ConstraintEdge:PKraftConstraintEdge;
+{$endif}
 begin
 
  if fRigidBodyType<>aRigidBodyType then begin
@@ -45608,6 +45692,7 @@ begin
   end;
 {$endif}
 
+{$ifdef KraftConstraintGraphColoring}
   UpdateAwakeListMembership;
 
   // The color class of a constraint (movable versus static partner) and the body occupancy bits of the
@@ -45637,6 +45722,7 @@ begin
   end else begin
    fPhysics.ReleaseFromPersistentIsland(self);
   end;
+{$endif}
 
  end;
 
@@ -45944,8 +46030,10 @@ var ConstraintEdge:PKraftConstraintEdge;
 begin
  if not (krbfAwake in fFlags) then begin
   Include(fFlags,krbfAwake);
+{$ifdef KraftConstraintGraphColoring}
   UpdateAwakeListMembership;
   fPhysics.fConstraintGraph.SynchronizeRigidBody(self);
+{$endif}
   fSleepTime:=0.0;
   fWorldDisplacement:=Vector3Origin;
   ConstraintEdge:=fConstraintEdgeFirst;
@@ -45959,14 +46047,20 @@ begin
 end;
 
 procedure TKraftRigidBody.SetToSleep;
+{$ifdef KraftConstraintGraphColoring}
 var WasAwake:boolean;
+{$endif}
 begin
+{$ifdef KraftConstraintGraphColoring}
  WasAwake:=krbfAwake in fFlags;
+{$endif}
  Exclude(fFlags,krbfAwake);
+{$ifdef KraftConstraintGraphColoring}
  UpdateAwakeListMembership;
  if WasAwake then begin
   fPhysics.fConstraintGraph.SynchronizeRigidBody(self);
  end;
+{$endif}
  fSleepTime:=0.0;
  fLinearVelocity:=Vector3Origin;
  fAngularVelocity:=Vector3Origin;
@@ -45975,6 +46069,7 @@ begin
  fWorldDisplacement:=Vector3Origin;
 end;
 
+{$ifdef KraftConstraintGraphColoring}
 procedure TKraftRigidBody.UpdateAwakeListMembership;
 // Keeps the dense awake rigid body list of TKraft in sync: a dynamic or kinematic body with krbfAwake is in
 // the list exactly once (at fAwakeIndex), everything else is not. Idempotent, removal per swap with the last
@@ -46004,6 +46099,7 @@ begin
   end;
  end;
 end;
+{$endif}
 
 procedure TKraftRigidBody.UpdateWorldTransformation;
 {$ifdef KraftProcessForceAllBodies}
@@ -46500,10 +46596,12 @@ begin
 
  fFlags:=(fFlags-[kcfVisited])+[kcfActive];
 
+{$ifdef KraftConstraintGraphColoring}
  // Not in the constraint graph yet; the graph synchronization walk of the next narrow phase (and the sleep
  // and wake transitions) picks the joint up, after the concrete joint constructor has set its rigid bodies.
  fGraphColorIndex:=-1;
  fGraphLocalIndex:=-1;
+{$endif}
 
  // By default a joint follows the world's TGS joint mode; it can be forced onto one path per joint.
  fTGSJointModeOverride:=kctjmInherit;
@@ -46590,6 +46688,7 @@ var RigidBodyIndex,ConstraintIndex:TKraftInt32;
     ContactPair:PKraftContactPair;
 begin
 
+{$ifdef KraftConstraintGraphColoring}
  // Deactivate first, then leave the constraint graph: the wake up calls below run the graph
  // synchronization over the still linked constraint edges, which must not readd this dying joint.
  Exclude(fFlags,kcfActive);
@@ -46597,6 +46696,7 @@ begin
   fPhysics.fConstraintGraph.InternalRemoveConstraint(self);
  end;
  fPhysics.MarkPersistentIslandsDirty(fRigidBodies[0],fRigidBodies[1]);
+{$endif}
 
  if assigned(fParent) then begin
   for ConstraintIndex:=0 to fParent.fCountChildren-1 do begin
@@ -56731,9 +56831,11 @@ begin
  fPrepareOrientations:=nil;
  SetLength(fPrepareOrientations,64);
 
+{$ifdef KraftConstraintGraphColoring}
  fWideContactBatches:=nil;
  fCountWideContactBatches:=0;
  fWideActive:=false;
+{$endif}
 
 end;
 
@@ -56749,7 +56851,9 @@ begin
  fSIRollingStates:=nil;
  fPrepareCenters:=nil;
  fPrepareOrientations:=nil;
+{$ifdef KraftConstraintGraphColoring}
  fWideContactBatches:=nil;
+{$endif}
  inherited Destroy;
 end;
 
@@ -57319,9 +57423,9 @@ begin
     RangeFirst:=fContactColorRangeFirsts[ColorIndex];
     if (ColorIndex=KraftConstraintGraphOverflowIndex) or (RangeCount<fPhysics.fSolverParallelThreshold) then begin
      aRangeMethod(RangeFirst,(RangeFirst+RangeCount)-1,0);
-    end else if fPhysics.fPipelineRunning then begin
+    end else{$ifdef KraftConstraintGraphColoring}if fPhysics.fPipelineRunning then begin
      fPhysics.SolverPipelinePublishStage(aRangeMethod,RangeFirst,RangeCount,KraftSolverPipelineContactBlockSize);
-    end else begin
+    end else{$endif}begin
      fStageRangeMethod:=aRangeMethod;
 {$ifdef KraftPasMP}
      fPhysics.fPasMP.Invoke(fPhysics.fPasMP.ParallelFor(nil,RangeFirst,(RangeFirst+RangeCount)-1,ContactStageParallelForFunction,Max(16,RangeCount div (fPhysics.fCountThreads*4)),4,nil,0,fPhysics.fPasMPAreaMask,fPhysics.fPasMPAvoidAreaMask,true,fPhysics.fPasMPAffinityAllowMask,fPhysics.fPasMPAffinityAvoidMask));
@@ -57345,9 +57449,10 @@ procedure TKraftSolver.DispatchIndependentStage(const aRangeMethod:TKraftSolverS
 begin
  if aCount>0 then begin
   if fIsland.fUseParallelStages and (aCount>=fPhysics.fSolverParallelThreshold) then begin
+{$ifdef KraftConstraintGraphColoring}
    if fPhysics.fPipelineRunning then begin
     fPhysics.SolverPipelinePublishStage(aRangeMethod,0,aCount,KraftSolverPipelineIndependentBlockSize);
-   end else begin
+   end else{$endif}begin
     fStageRangeMethod:=aRangeMethod;
 {$ifdef KraftPasMP}
     fPhysics.fPasMP.Invoke(fPhysics.fPasMP.ParallelFor(nil,0,aCount-1,ContactStageParallelForFunction,Max(16,aCount div (fPhysics.fCountThreads*4)),4,nil,0,fPhysics.fPasMPAreaMask,fPhysics.fPasMPAvoidAreaMask,true,fPhysics.fPasMPAffinityAllowMask,fPhysics.fPasMPAffinityAvoidMask));
@@ -57381,7 +57486,11 @@ var OrderIndex,ContactPairIndex,ContactIndex,IndexA,IndexB,CountPoints:TKraftInt
 begin
 
  for OrderIndex:=aFromOrderIndex to aToOrderIndex do begin
+{$ifdef KraftConstraintGraphColoring}
   ContactPairIndex:=fContactSolveOrder[OrderIndex];
+{$else}
+  ContactPairIndex:=OrderIndex;
+{$endif}
 
   VelocityState:=@fVelocityStates[ContactPairIndex];
 
@@ -57537,7 +57646,11 @@ var OrderIndex,ContactPairIndex,ContactIndex,TangentIndex,IndexA,IndexB,CountPoi
 begin
 
  for OrderIndex:=aFromOrderIndex to aToOrderIndex do begin
+{$ifdef KraftConstraintGraphColoring}
   ContactPairIndex:=fContactSolveOrder[OrderIndex];
+{$else}
+  ContactPairIndex:=OrderIndex;
+{$endif}
 
   VelocityState:=@fVelocityStates[ContactPairIndex];
 
@@ -57693,7 +57806,11 @@ begin
 
   MinSeparation:=fStageMinSeparations[aThreadIndex];
   for OrderIndex:=aFromOrderIndex to aToOrderIndex do begin
+{$ifdef KraftConstraintGraphColoring}
    ContactPairIndex:=fContactSolveOrder[OrderIndex];
+{$else}
+   ContactPairIndex:=OrderIndex;
+{$endif}
 
    PositionState:=@fPositionStates[ContactPairIndex];
 
@@ -58106,6 +58223,7 @@ begin
 
  DispatchIndependentStage(PrepareContactsSoftRange,fCountContacts);
 
+{$ifdef KraftConstraintGraphColoring}
  // The wide contact solver packs the prepared soft contact states into the four wide batches per color; the
  // wide path needs the constraint graph colors for body disjoint lanes, so it stays off in the classic
  // island mode.
@@ -58113,6 +58231,7 @@ begin
  if fWideActive then begin
   PackWideContacts;
  end;
+{$endif}
 
 end;
 
@@ -58307,11 +58426,15 @@ end;
 
 procedure TKraftSolver.WarmStartSubStep;
 begin
+{$ifdef KraftConstraintGraphColoring}
  if fWideActive then begin
   DispatchWideContactStage(WarmStartSubStepWideRange,WarmStartSubStepRange);
  end else begin
   DispatchContactStage(WarmStartSubStepRange);
  end;
+{$else}
+ DispatchContactStage(WarmStartSubStepRange);
+{$endif}
 end;
 
 procedure TKraftSolver.WarmStartSubStepRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
@@ -58327,7 +58450,11 @@ begin
 
  // Reapply the accumulated normal and friction impulses of every contact point (once per substep).
  for OrderIndex:=aFromOrderIndex to aToOrderIndex do begin
+{$ifdef KraftConstraintGraphColoring}
   ContactPairIndex:=fContactSolveOrder[OrderIndex];
+{$else}
+  ContactPairIndex:=OrderIndex;
+{$endif}
 
   VelocityState:=@fVelocityStates[ContactPairIndex];
   TGSState:=@fTGSContactStates[ContactPairIndex];
@@ -58402,11 +58529,15 @@ procedure TKraftSolver.SolveVelocitySubStep(const TimeStep:TKraftTimeStep;const 
 begin
  fStageTimeStep:=TimeStep;
  fStageUseBias:=aUseBias;
+{$ifdef KraftConstraintGraphColoring}
  if fWideActive then begin
   DispatchWideContactStage(SolveVelocitySubStepWideRange,SolveVelocitySubStepRange);
  end else begin
   DispatchContactStage(SolveVelocitySubStepRange);
  end;
+{$else}
+ DispatchContactStage(SolveVelocitySubStepRange);
+{$endif}
 end;
 
 procedure TKraftSolver.SolveVelocitySubStepRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
@@ -58430,7 +58561,11 @@ begin
  MaxBiasVelocity:=fPhysics.fMaximalLinearCorrection*InverseH;
 
  for OrderIndex:=aFromOrderIndex to aToOrderIndex do begin
+{$ifdef KraftConstraintGraphColoring}
   ContactPairIndex:=fContactSolveOrder[OrderIndex];
+{$else}
+  ContactPairIndex:=OrderIndex;
+{$endif}
 
   VelocityState:=@fVelocityStates[ContactPairIndex];
   TGSState:=@fTGSContactStates[ContactPairIndex];
@@ -58630,6 +58765,7 @@ end;
 
 procedure TKraftSolver.ApplyRestitution;
 begin
+{$ifdef KraftConstraintGraphColoring}
  if fWideActive then begin
   DispatchWideContactStage(ApplyRestitutionWideRange,ApplyRestitutionRange);
   // Restitution is the last wide contact stage, so the accumulated impulses now go back to the scalar per
@@ -58638,6 +58774,9 @@ begin
  end else begin
   DispatchContactStage(ApplyRestitutionRange);
  end;
+{$else}
+ DispatchContactStage(ApplyRestitutionRange);
+{$endif}
 end;
 
 procedure TKraftSolver.ApplyRestitutionRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
@@ -58651,7 +58790,11 @@ var OrderIndex,ContactPairIndex,ContactIndex,IndexA,IndexB,CountPoints:TKraftInt
 begin
 
  for OrderIndex:=aFromOrderIndex to aToOrderIndex do begin
+{$ifdef KraftConstraintGraphColoring}
   ContactPairIndex:=fContactSolveOrder[OrderIndex];
+{$else}
+  ContactPairIndex:=OrderIndex;
+{$endif}
 
   VelocityState:=@fVelocityStates[ContactPairIndex];
   TGSState:=@fTGSContactStates[ContactPairIndex];
@@ -58772,6 +58915,7 @@ begin
 
 end;
 
+{$ifdef KraftConstraintGraphColoring}
 procedure TKraftSolver.DispatchWideContactStage(const aWideRangeMethod,aScalarRangeMethod:TKraftSolverStageRangeMethod);
 // Runs one wide contact stage color by color over the wide batch ranges: published to the solver stage
 // pipeline when it runs (a batch of one color never shares a movable body, so its four lanes and all
@@ -59383,6 +59527,7 @@ begin
  end;
 
 end;
+{$endif}
 
 constructor TKraftParticleColor.Create(const aR,aG,aB,aA:TKraftUInt8);
 begin
@@ -59686,7 +59831,9 @@ begin
  fCountContactPairs:=0;
  fCountStaticContactPairs:=0;
  fCountSpeculativeContactPairs:=0;
+{$ifdef KraftConstraintGraphColoring}
  fWantsSleep:=false;
+{$endif}
  fUseParallelStages:=false;
 end;
 
@@ -59756,6 +59903,7 @@ begin
  end;
 end;
 
+{$ifdef KraftConstraintGraphColoring}
 procedure TKraftIsland.BuildSolveOrders;
 // Builds the constraint solve order permutations of this island: identity in the classic island mode (bit
 // identical behavior), constraint graph color major order in the colored modes, where the per color index
@@ -59839,6 +59987,7 @@ begin
  end;
 
 end;
+{$endif}
 
 {$ifdef KraftPasMP}
 procedure TKraftIsland.JointStageParallelForFunction(const Job:PPasMPJob;const ThreadIndex:TKraftInt32;const Data:pointer;const FromIndex,ToIndex:TPasMPNativeInt);
@@ -59852,6 +60001,7 @@ begin
 end;
 {$endif}
 
+{$ifdef KraftConstraintGraphColoring}
 procedure TKraftIsland.DispatchFusedColorStage(const aJointRangeMethod,aContactRangeMethod,aWideContactRangeMethod:TKraftSolverStageRangeMethod);
 // The fused color stage dispatch (Box3D-style graph color stage layout): one stage per color with the joint
 // work first and the contact work second, mixed into one publication when the solver stage pipeline runs (a
@@ -59949,6 +60099,7 @@ begin
 
  end;
 end;
+{$endif}
 
 procedure TKraftIsland.DispatchJointStage(const aRangeMethod:TKraftSolverStageRangeMethod);
 // The joint counterpart of TKraftSolver.DispatchContactStage, over the joint solve order permutation and
@@ -59967,9 +60118,9 @@ begin
     RangeFirst:=fConstraintColorRangeFirsts[ColorIndex];
     if (ColorIndex=KraftConstraintGraphOverflowIndex) or (RangeCount<fPhysics.fSolverParallelThreshold) then begin
      aRangeMethod(RangeFirst,(RangeFirst+RangeCount)-1,0);
-    end else if fPhysics.fPipelineRunning then begin
+    end else{$ifdef KraftConstraintGraphColoring}if fPhysics.fPipelineRunning then begin
      fPhysics.SolverPipelinePublishStage(aRangeMethod,RangeFirst,RangeCount,KraftSolverPipelineJointBlockSize);
-    end else begin
+    end else{$endif}begin
      fJointStageRangeMethod:=aRangeMethod;
 {$ifdef KraftPasMP}
      fPhysics.fPasMP.Invoke(fPhysics.fPasMP.ParallelFor(nil,RangeFirst,(RangeFirst+RangeCount)-1,JointStageParallelForFunction,Max(16,RangeCount div (fPhysics.fCountThreads*4)),4,nil,0,fPhysics.fPasMPAreaMask,fPhysics.fPasMPAvoidAreaMask,true,fPhysics.fPasMPAffinityAllowMask,fPhysics.fPasMPAffinityAvoidMask));
@@ -59992,9 +60143,10 @@ procedure TKraftIsland.DispatchIndependentJointStage(const aRangeMethod:TKraftSo
 begin
  if fCountConstraints>0 then begin
   if fUseParallelStages and (fCountConstraints>=fPhysics.fSolverParallelThreshold) then begin
+{$ifdef KraftConstraintGraphColoring}
    if fPhysics.fPipelineRunning then begin
     fPhysics.SolverPipelinePublishStage(aRangeMethod,0,fCountConstraints,KraftSolverPipelineIndependentBlockSize);
-   end else begin
+   end else{$endif}begin
     fJointStageRangeMethod:=aRangeMethod;
 {$ifdef KraftPasMP}
     fPhysics.fPasMP.Invoke(fPhysics.fPasMP.ParallelFor(nil,0,fCountConstraints-1,JointStageParallelForFunction,Max(16,fCountConstraints div (fPhysics.fCountThreads*4)),4,nil,0,fPhysics.fPasMPAreaMask,fPhysics.fPasMPAvoidAreaMask,true,fPhysics.fPasMPAffinityAllowMask,fPhysics.fPasMPAffinityAvoidMask));
@@ -60017,7 +60169,11 @@ var Index:TKraftInt32;
     Constraint:TKraftConstraint;
 begin
  for Index:=aFromOrderIndex to aToOrderIndex do begin
+{$ifdef KraftConstraintGraphColoring}
   Constraint:=fConstraints[fConstraintSolveOrder[Index]];
+{$else}
+  Constraint:=fConstraints[Index];
+{$endif}
   if assigned(Constraint) then begin
    Constraint.InitializeConstraintsAndWarmStart(self,fSolveTimeStep);
   end;
@@ -60029,7 +60185,11 @@ var Index:TKraftInt32;
     Constraint:TKraftConstraint;
 begin
  for Index:=aFromOrderIndex to aToOrderIndex do begin
+{$ifdef KraftConstraintGraphColoring}
   Constraint:=fConstraints[fConstraintSolveOrder[Index]];
+{$else}
+  Constraint:=fConstraints[Index];
+{$endif}
   if assigned(Constraint) and not (kcfBreaked in Constraint.fFlags) then begin
    if ((Constraint.fFlags*[kcfActive,kcfBreakable,kcfBreaked])=[kcfActive,kcfBreakable]) and
       ((Vector3Length(Constraint.GetReactionForce(fSolveTimeStep.InverseDeltaTime))>Constraint.fBreakThresholdForce) or
@@ -60047,7 +60207,11 @@ var Index:TKraftInt32;
     Constraint:TKraftConstraint;
 begin
  for Index:=aFromOrderIndex to aToOrderIndex do begin
+{$ifdef KraftConstraintGraphColoring}
   Constraint:=fConstraints[fConstraintSolveOrder[Index]];
+{$else}
+  Constraint:=fConstraints[Index];
+{$endif}
   if assigned(Constraint) and
      (((Constraint.fFlags*[kcfActive,kcfBreakable,kcfBreaked])=[kcfActive,kcfBreakable]) and
       ((Vector3Length(Constraint.GetReactionForce(fSolveTimeStep.InverseDeltaTime))>Constraint.fBreakThresholdForce) or
@@ -60062,7 +60226,11 @@ var Index:TKraftInt32;
     Constraint:TKraftConstraint;
 begin
  for Index:=aFromOrderIndex to aToOrderIndex do begin
+{$ifdef KraftConstraintGraphColoring}
   Constraint:=fConstraints[fConstraintSolveOrder[Index]];
+{$else}
+  Constraint:=fConstraints[Index];
+{$endif}
   if assigned(Constraint) and not (kcfBreaked in Constraint.fFlags) then begin
    if not Constraint.SolvePositionConstraint(self,fSolveTimeStep) then begin
     fJointStageOKs[aThreadIndex]:=false;
@@ -60076,7 +60244,11 @@ var Index:TKraftInt32;
     Constraint:TKraftConstraint;
 begin
  for Index:=aFromOrderIndex to aToOrderIndex do begin
+{$ifdef KraftConstraintGraphColoring}
   Constraint:=fConstraints[fConstraintSolveOrder[Index]];
+{$else}
+  Constraint:=fConstraints[Index];
+{$endif}
   if assigned(Constraint) and not (kcfBreaked in Constraint.fFlags) then begin
    if Constraint.UsesNativeTGSSoftPath then begin
     Constraint.PrepareSubStep(self,fSolveTimeStep);
@@ -60094,7 +60266,11 @@ var Index:TKraftInt32;
     Constraint:TKraftConstraint;
 begin
  for Index:=aFromOrderIndex to aToOrderIndex do begin
+{$ifdef KraftConstraintGraphColoring}
   Constraint:=fConstraints[fConstraintSolveOrder[Index]];
+{$else}
+  Constraint:=fConstraints[Index];
+{$endif}
   if assigned(Constraint) and not (kcfBreaked in Constraint.fFlags) and Constraint.UsesNativeTGSSoftPath then begin
    Constraint.WarmStartSubStep(self,fSolveTimeStep);
   end;
@@ -60106,7 +60282,11 @@ var Index:TKraftInt32;
     Constraint:TKraftConstraint;
 begin
  for Index:=aFromOrderIndex to aToOrderIndex do begin
+{$ifdef KraftConstraintGraphColoring}
   Constraint:=fConstraints[fConstraintSolveOrder[Index]];
+{$else}
+  Constraint:=fConstraints[Index];
+{$endif}
   if assigned(Constraint) and not (kcfBreaked in Constraint.fFlags) then begin
    if Constraint.UsesNativeTGSSoftPath then begin
     Constraint.SolveVelocitySubStep(self,fSolveTimeStep,true);
@@ -60127,7 +60307,11 @@ var Index:TKraftInt32;
     Constraint:TKraftConstraint;
 begin
  for Index:=aFromOrderIndex to aToOrderIndex do begin
+{$ifdef KraftConstraintGraphColoring}
   Constraint:=fConstraints[fConstraintSolveOrder[Index]];
+{$else}
+  Constraint:=fConstraints[Index];
+{$endif}
   if assigned(Constraint) and not (kcfBreaked in Constraint.fFlags) and Constraint.UsesNativeTGSSoftPath then begin
    Constraint.SolveVelocitySubStep(self,fSolveTimeStep,false);
   end;
@@ -60139,7 +60323,11 @@ var Index:TKraftInt32;
     Constraint:TKraftConstraint;
 begin
  for Index:=aFromOrderIndex to aToOrderIndex do begin
+{$ifdef KraftConstraintGraphColoring}
   Constraint:=fConstraints[fConstraintSolveOrder[Index]];
+{$else}
+  Constraint:=fConstraints[Index];
+{$endif}
   if assigned(Constraint) and not (kcfBreaked in Constraint.fFlags) and
      not (Constraint.UsesNativeTGSSoftPath and Constraint.IsNativeTGSSoftJoint) then begin
    if not Constraint.SolvePositionConstraint(self,fSolveTimeStep) then begin
@@ -60149,6 +60337,7 @@ begin
  end;
 end;
 
+{$ifdef KraftConstraintGraphColoring}
 procedure TKraftIsland.DispatchBodyStage(const aRangeMethod:TKraftSolverStageRangeMethod);
 // The body counterpart of the constraint stage dispatches: parallel body blocks over the pipeline when it
 // runs (every body integration only touches its own body and solver slots), the classic serial loop
@@ -60162,6 +60351,7 @@ begin
   end;
  end;
 end;
+{$endif}
 
 procedure TKraftIsland.SubStepIntegrateVelocitiesRange(const aFromIndex,aToIndex,aThreadIndex:TKraftInt32);
 // One substep velocity integration over a body range, extracted unchanged from the substep loop of
@@ -60337,6 +60527,7 @@ begin
 
 end;
 
+{$ifdef KraftConstraintGraphColoring}
 procedure TKraftIsland.PutToSleep;
 // Applies the sleep decision of the island solve. Called serially from TKraft.SolveIslands after all island
 // solves are done, since SetToSleep maintains shared bookkeeping (awake body list, constraint graph).
@@ -60354,6 +60545,7 @@ begin
   fPhysics.fConstraintGraph.SynchronizeRigidBody(fRigidBodies[Index]);
  end;
 end;
+{$endif}
 
 procedure TKraftIsland.SolveSequentialImpulse(const aTimeStep:TKraftTimeStep);
 var Iteration,Index:TKraftInt32;
@@ -60493,6 +60685,7 @@ begin
 
  fSolver.InitializeConstraints;
 
+{$ifdef KraftConstraintGraphColoring}
  // Fused color stages solve the joints of one color before and concurrently with its contacts, see
  // DispatchFusedColorStage; the unfused path keeps the classic order, all contact colors before all joint colors.
  // The contact warm start only runs when warm starting is enabled, but the joint initialize and warm start
@@ -60504,7 +60697,7 @@ begin
   end else begin
    DispatchJointStage(JointInitializeAndWarmStartRange);
   end;
- end else begin
+ end else{$endif}begin
   if fPhysics.fWarmStarting then begin
    fSolver.WarmStart;
   end;
@@ -60514,11 +60707,12 @@ begin
  end;
  for Iteration:=1 to Max(fPhysics.fVelocityIterations,fPhysics.fSpeculativeIterations) do begin
   if Iteration<=fPhysics.fVelocityIterations then begin
+{$ifdef KraftConstraintGraphColoring}
    // Fused color stages solve the joints of one color before and concurrently with its contacts, see
    // DispatchFusedColorStage; the unfused path keeps the classic order, all contact colors before all joint colors.
    if fPhysics.fSolverFusedColorStages and (fPhysics.fSolverParallelMode<>kspmIslands) then begin
     DispatchFusedColorStage(JointSolveVelocityRange,fSolver.SolveVelocityConstraintsRange,nil);
-   end else begin
+   end else{$endif}begin
     DispatchJointStage(JointSolveVelocityRange);
     fSolver.SolveVelocityConstraints;
    end;
@@ -60671,7 +60865,15 @@ begin
   // happen serially in TKraft.SolveIslands, since islands solve in parallel and the sleep transition
   // maintains shared bookkeeping (awake body list, constraint graph).
   if MinSleepTime>fPhysics.fSleepTimeThreshold then begin
+{$ifdef KraftConstraintGraphColoring}
    fWantsSleep:=true;
+{$else}
+   for Index:=0 to fCountRigidBodies-1 do begin
+    if krbfAllowSleep in fRigidBodies[Index].fFlags then begin
+     fRigidBodies[Index].SetToSleep;
+    end;
+   end;
+{$endif}
   end;
 
  end;
@@ -60710,8 +60912,10 @@ begin
  fSolver.Initialize(aTimeStep);
 
  // Transfer body state into the solver. No velocity integration here, that happens per substep below.
+{$ifdef KraftConstraintGraphColoring}
  // Islands with any user damping callback keep their velocity integration stage serial (user code).
  fHasBodyDampingCallbacks:=false;
+{$endif}
  for Index:=0 to fCountRigidBodies-1 do begin
   RigidBody:=fRigidBodies[Index];
   RigidBody.fSweep.c0:=RigidBody.fSweep.c;
@@ -60719,9 +60923,11 @@ begin
   if RigidBody.fRigidBodyType=krbtDynamic then begin
    RigidBody.UpdateWorldInertiaTensor;
   end;
+{$ifdef KraftConstraintGraphColoring}
   if assigned(RigidBody.fOnDamping) then begin
    fHasBodyDampingCallbacks:=true;
   end;
+{$endif}
   fSolver.fVelocities[Index].LinearVelocity:=RigidBody.fLinearVelocity;
   fSolver.fVelocities[Index].AngularVelocity:=RigidBody.fAngularVelocity;
   fSolver.fPositions[Index].Position:=RigidBody.fSweep.c;
@@ -60755,17 +60961,22 @@ begin
   // substep count). Gyroscopic force, the user damping callback and the additional damping model are
   // applied per substep exactly like the classic path does per step, only with h instead of the full
   // delta time. Runs as a parallel pipeline body stage, except when a user damping callback exists.
+{$ifdef KraftConstraintGraphColoring}
   if fHasBodyDampingCallbacks then begin
    SubStepIntegrateVelocitiesRange(0,fCountRigidBodies-1,0);
   end else begin
    DispatchBodyStage(SubStepIntegrateVelocitiesRange);
   end;
+{$else}
+  SubStepIntegrateVelocitiesRange(0,fCountRigidBodies-1,0);
+{$endif}
 
+{$ifdef KraftConstraintGraphColoring}
   // Fused color stages solve the joints of one color before and concurrently with its contacts, see
   // DispatchFusedColorStage; the unfused path keeps the classic order, all contact colors before all joint colors.
   if fPhysics.fSolverFusedColorStages and (fPhysics.fSolverParallelMode<>kspmIslands) then begin
    DispatchFusedColorStage(JointWarmStartSubStepRange,fSolver.WarmStartSubStepRange,fSolver.WarmStartSubStepWideRange);
-  end else begin
+  end else{$endif}begin
    fSolver.WarmStartSubStep;
 
    // Native-soft joints warm start once per substep too, alongside the contacts, before any velocity solve reads
@@ -60773,13 +60984,14 @@ begin
    DispatchJointStage(JointWarmStartSubStepRange);
   end;
 
+{$ifdef KraftConstraintGraphColoring}
   // Fused color stages solve the joints of one color before and concurrently with its contacts, see
   // DispatchFusedColorStage; the unfused path keeps the classic order, all contact colors before all joint colors.
   if fPhysics.fSolverFusedColorStages and (fPhysics.fSolverParallelMode<>kspmIslands) then begin
    fSolver.fStageTimeStep:=aTimeStep;
    fSolver.fStageUseBias:=true;
    DispatchFusedColorStage(JointSolveVelocitySubStepRange,fSolver.SolveVelocitySubStepRange,fSolver.SolveVelocitySubStepWideRange);
-  end else begin
+  end else{$endif}begin
    fSolver.SolveVelocitySubStep(aTimeStep,true);
 
    // Joint velocity solve (solve pass). Native-soft joints solve with bias; adapter joints run a full classic
@@ -60800,16 +61012,21 @@ begin
   // kicked by a contact, its joint bias chasing the growing anchor separation) can otherwise integrate
   // meters of position error within the substeps of one step before the end-of-step clamp ever sees a
   // velocity. Runs as a parallel pipeline body stage.
+{$ifdef KraftConstraintGraphColoring}
   DispatchBodyStage(SubStepIntegratePositionsRange);
+{$else}
+  SubStepIntegratePositionsRange(0,fCountRigidBodies-1,0);
+{$endif}
 
   // Relax pass: solve again without bias to remove the energy the bias added.
+{$ifdef KraftConstraintGraphColoring}
   // Fused color stages solve the joints of one color before and concurrently with its contacts, see
   // DispatchFusedColorStage; the unfused path keeps the classic order, all contact colors before all joint colors.
   if fPhysics.fSolverFusedColorStages and (fPhysics.fSolverParallelMode<>kspmIslands) then begin
    fSolver.fStageTimeStep:=aTimeStep;
    fSolver.fStageUseBias:=false;
    DispatchFusedColorStage(JointRelaxSubStepRange,fSolver.SolveVelocitySubStepRange,fSolver.SolveVelocitySubStepWideRange);
-  end else begin
+  end else{$endif}begin
    fSolver.SolveVelocitySubStep(aTimeStep,false);
 
    // Native-soft joints relax in the same pass (without bias). Adapter joints were solved once above and do not
@@ -60930,7 +61147,15 @@ begin
   // Only marked here, the SetToSleep calls happen serially in TKraft.SolveIslands, since islands solve
   // in parallel and the sleep transition maintains shared bookkeeping (awake body list, constraint graph).
   if MinSleepTime>fPhysics.fSleepTimeThreshold then begin
+{$ifdef KraftConstraintGraphColoring}
    fWantsSleep:=true;
+{$else}
+   for Index:=0 to fCountRigidBodies-1 do begin
+    if krbfAllowSleep in fRigidBodies[Index].fFlags then begin
+     fRigidBodies[Index].SetToSleep;
+    end;
+   end;
+{$endif}
   end;
  end;
 
@@ -60939,7 +61164,9 @@ end;
 procedure TKraftIsland.Solve(const aTimeStep:TKraftTimeStep);
 begin
 
+{$ifdef KraftConstraintGraphColoring}
  BuildSolveOrders;
+{$endif}
 
  case fPhysics.fSolverMode of
 
@@ -61388,6 +61615,7 @@ begin
 
  fShapeIDCounter:=0;
 
+{$ifdef KraftConstraintGraphColoring}
  fRigidBodyIndexPool:=TKraftIndexPool.Create;
 
  fConstraintGraph:=TKraftConstraintGraph.Create(self);
@@ -61399,6 +61627,7 @@ begin
 
  fAwakeRigidBodies:=nil;
  fCountAwakeRigidBodies:=0;
+{$endif}
 
  fRigidBodyFirst:=nil;
  fRigidBodyLast:=nil;
@@ -61552,6 +61781,7 @@ begin
 
  fSolverParallelThreshold:=64;
 
+{$ifdef KraftConstraintGraphColoring}
  fWideContactSolver:=false;
 
  fSolverStagePipeline:=true;
@@ -61574,6 +61804,7 @@ begin
  fPipelineCountWorkers:=0;
 {$ifdef KraftPasMP}
  fPipelineJob:=nil;
+{$endif}
 {$endif}
 
  fInternalEdgeHandlingMode:=kiehmNone;
@@ -61662,6 +61893,7 @@ begin
   fRigidBodyLast.Free;
  end;
 
+{$ifdef KraftConstraintGraphColoring}
  while fCountPersistentIslands>0 do begin
   fPersistentIslands[fCountPersistentIslands-1].Free;
  end;
@@ -61673,6 +61905,7 @@ begin
  FreeAndNil(fRigidBodyIndexPool);
 
  fAwakeRigidBodies:=nil;
+{$endif}
 
  while assigned(fMeshLast) do begin
   fMeshLast.Free;
@@ -61799,6 +62032,18 @@ begin
 
 end;
 
+procedure TKraft.SetSolverParallelMode(const aValue:TKraftSolverParallelMode);
+begin
+{$ifdef KraftConstraintGraphColoring}
+ fSolverParallelMode:=aValue;
+{$else}
+ // Without the constraint graph coloring the colored solver parallel modes do not exist, so the mode stays
+ // pinned to the classic island solver.
+ fSolverParallelMode:=kspmIslands;
+{$endif}
+end;
+
+{$ifdef KraftConstraintGraphColoring}
 procedure TKraft.BuildGlobalIsland;
 // One island over the whole awake set for the global graph solver parallel mode: the awake movable bodies
 // enter in the deterministic body list order, the constraints enter from the persistent constraint graph in
@@ -61923,6 +62168,7 @@ begin
  Island.MergeContactPairs;
 
 end;
+{$endif}
 
 procedure TKraft.BuildIslands;
 var IslandIndex,LastCount,SubIndex,Index:TKraftInt32;
@@ -61967,6 +62213,7 @@ begin
 
  fCountIslands:=0;
 
+{$ifdef KraftConstraintGraphColoring}
  // The global graph solver parallel mode solves the whole awake set as one island over the persistent
  // constraint graph instead of the per step connectivity build below; the sleep grouping then comes from
  // the persistent connectivity islands (see TKraft.SolveIslands).
@@ -61974,6 +62221,7 @@ begin
   BuildGlobalIsland;
   exit;
  end;
+{$endif}
 
 {$ifdef KraftProcessForceAllBodies}
  SeedRigidBody:=fRigidBodyFirst;
@@ -62205,6 +62453,7 @@ begin
 end;
 {$endif}
 
+{$ifdef KraftConstraintGraphColoring}
 procedure TKraft.EnsurePersistentIsland(const aRigidBody:TKraftRigidBody);
 begin
  if (aRigidBody.fRigidBodyType in [krbtDynamic,krbtKinematic]) and not assigned(aRigidBody.fPersistentIsland) then begin
@@ -62743,14 +62992,18 @@ begin
  fPipelineStagePoolOffset:=0;
  fPipelineSyncBits:=0;
 end;
+{$endif}
 
 procedure TKraft.SolveIslands(const aTimeStep:TKraftTimeStep);
-var Index,SubIndex:TKraftInt32;
+var Index:TKraftInt32;
+{$ifdef KraftConstraintGraphColoring}
+    SubIndex:TKraftInt32;
     PersistentIsland:TKraftPersistentIsland;
     RigidBody,OtherRigidBody:TKraftRigidBody;
     ContactPairEdge:PKraftContactPairEdge;
     MinSleepTime:TKraftScalar;
     HasAwakeBodies,UsePipeline:boolean;
+{$endif}
 begin
  fJobTimeStep:=aTimeStep;
  fIsSolving:=true;
@@ -62789,6 +63042,7 @@ begin
   end;
  end;
 
+{$ifdef KraftConstraintGraphColoring}
  // The big islands of the colored modes, one after another with parallel color stages inside. With the
  // solver stage pipeline the workers start once here and stay resident over all these island solves; the
  // stage dispatches then publish their work over the atomic pipeline counter instead of one job manager
@@ -62821,9 +63075,11 @@ begin
   fPipelineRunning:=false;
   StopSolverPipeline;
  end;
+{$endif}
 
  fIsSolving:=false;
 
+{$ifdef KraftConstraintGraphColoring}
  // Apply the sleep decisions of the island solves serially, after all (possibly parallel) island solves are
  // done: the sleep transition maintains shared bookkeeping (awake body list, constraint graph), which must
  // not be mutated from parallel island solves.
@@ -62878,6 +63134,7 @@ begin
    end;
   end;
  end;
+{$endif}
 
 end;
 
@@ -64060,12 +64317,14 @@ begin
   RigidBodies[1].Advance(MinimumAlpha);
 
   MinimumContactPair^.DetectCollisions(fContactManager,fTriangleShapes[0],0,false,0.0);
+{$ifdef KraftConstraintGraphColoring}
   fConstraintGraph.SynchronizeContactPair(MinimumContactPair);
   if kcfColliding in MinimumContactPair^.Flags then begin
    LinkPersistentIslands(MinimumContactPair^.RigidBodies[0],MinimumContactPair^.RigidBodies[1]);
   end else begin
    MarkPersistentIslandsDirty(MinimumContactPair^.RigidBodies[0],MinimumContactPair^.RigidBodies[1]);
   end;
+{$endif}
 
   MinimumContactPair^.Flags:=MinimumContactPair^.Flags-[kcfTimeOfImpact];
   inc(MinimumContactPair^.TimeOfImpactCount);
@@ -64133,12 +64392,14 @@ begin
       end;
 
       ContactPair^.DetectCollisions(fContactManager,fTriangleShapes[0],0,false,0.0);
+{$ifdef KraftConstraintGraphColoring}
       fConstraintGraph.SynchronizeContactPair(ContactPair);
       if kcfColliding in ContactPair^.Flags then begin
        LinkPersistentIslands(ContactPair^.RigidBodies[0],ContactPair^.RigidBodies[1]);
       end else begin
        MarkPersistentIslandsDirty(ContactPair^.RigidBodies[0],ContactPair^.RigidBodies[1]);
       end;
+{$endif}
 
       if (not (kcfEnabled in ContactPair^.Flags)) or not (kcfColliding in ContactPair^.Flags) then begin
        OtherRigidBody.fSweep:=BackupSweeps[0];
@@ -64481,8 +64742,10 @@ begin
 
  fContactManager.DoNarrowPhase;
 
+{$ifdef KraftConstraintGraphColoring}
  // Lazy repartition of at most one dirty persistent connectivity island per step
  ProcessPersistentIslandSplits;
+{$endif}
 
  StartTime:=fHighResolutionTimer.GetTime;
  Solve(TimeStep);
