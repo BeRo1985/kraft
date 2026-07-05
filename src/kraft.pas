@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-07-05-03-11-0000                       *
+ *                        Version 2026-07-05-03-40-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -4780,6 +4780,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      end;
      TKraftSolverSIRollingStates=array of TKraftSolverSIRollingState;
 
+     // Contact stage worker over a range of the contact solve order permutation, for the parallel color
+     // stages of the colored solver parallel modes (see TKraftSolver.DispatchContactStage).
+     TKraftSolverStageRangeMethod=procedure(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32) of object;
+
      TKraftSolverPrepareCenters=array of TKraftVector3;
 
      TKraftSolverPrepareOrientations=array of TKraftQuaternion;
@@ -4843,7 +4847,24 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fContactSoftness:TKraftSolverSoftness;
        fStaticSoftness:TKraftSolverSoftness;
 
+       // Parallel color stage dispatch state, see DispatchContactStage. A stage runs the given range method
+       // over the whole solve order in one call (serial), or per color: small colors and the overflow color
+       // serially, big colors as parallel for over their order range, which is safe and result identical,
+       // since within one color no movable body is shared between constraints.
+       fStageRangeMethod:TKraftSolverStageRangeMethod;
+       fStageTimeStep:TKraftTimeStep;
+       fStageUseBias:boolean;
+       fStageJobOffset:TKraftInt32;
+       fStageMinSeparations:array[0..MAX_THREADS-1] of TKraftScalar;
+
        function MakeSoft(const aHertz,aDampingRatio,aH:TKraftScalar):TKraftSolverSoftness;
+
+{$ifdef KraftPasMP}
+       procedure ContactStageParallelForFunction(const Job:PPasMPJob;const ThreadIndex:TKraftInt32;const Data:pointer;const FromIndex,ToIndex:TPasMPNativeInt);
+{$else}
+       procedure ContactStageJob(const JobIndex,ThreadIndex:TKraftInt32);
+{$endif}
+       procedure DispatchContactStage(const aRangeMethod:TKraftSolverStageRangeMethod);
 
       public
 
@@ -4857,10 +4878,13 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure InitializeConstraints;
 
        procedure WarmStart;
+       procedure WarmStartRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
 
        procedure SolveVelocityConstraints;
+       procedure SolveVelocityConstraintsRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
 
        function SolvePositionConstraints:boolean;
+       procedure SolvePositionConstraintsRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
 
        function SolveTimeOfImpactConstraints(IndexA,IndexB:TKraftInt32):boolean;
 
@@ -4884,12 +4908,15 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        // Called once per substep: reapply the accumulated impulses.
        procedure WarmStartSubStep;
+       procedure WarmStartSubStepRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
 
        // Called once per substep: aUseBias=true for the solve pass, false for the relax pass.
        procedure SolveVelocitySubStep(const TimeStep:TKraftTimeStep;const aUseBias:boolean);
+       procedure SolveVelocitySubStepRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
 
        // Called once after all substeps: separate restitution pass.
        procedure ApplyRestitution;
+       procedure ApplyRestitutionRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
 
        // Called once after StoreImpulses (TGS path): write the central friction/twist/rolling impulses back into
        // the persistent manifolds, for next frame's cross-frame warm start.
@@ -5215,6 +5242,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        // the actual SetToSleep calls happen serially afterwards in TKraft.SolveIslands, so the shared awake
        // body list and constraint graph bookkeeping never runs from parallel island solves.
        fWantsSleep:boolean;
+
+       // Set by TKraft.SolveIslands in the colored solver parallel modes for the islands which leave the
+       // parallel island loop and solve serially with parallel color stages instead (see there).
+       fUseParallelStages:boolean;
 
        // Joint solve order permutation, the counterpart of TKraftSolver.fContactSolveOrder (see there).
        fConstraintSolveOrder:array of TKraftInt32;
@@ -5547,6 +5578,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fSolverParallelMode:TKraftSolverParallelMode;
 
+       fSolverParallelThreshold:TKraftInt32;
+
        fCountSubSteps:TKraftInt32;
 
        fContactHertz:TKraftScalar;
@@ -5864,6 +5897,11 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property SolverMode:TKraftSolverMode read fSolverMode write fSolverMode;
 
        property SolverParallelMode:TKraftSolverParallelMode read fSolverParallelMode write fSolverParallelMode;
+
+       // Pure performance knob of the colored solver parallel modes, without any result influence: islands
+       // with at least this many constraints leave the parallel island loop and solve with parallel color
+       // stages instead, and a single color range dispatches in parallel only from this many constraints on.
+       property SolverParallelThreshold:TKraftInt32 read fSolverParallelThreshold write fSolverParallelThreshold;
 
        // TGS begin
 
@@ -56823,7 +56861,61 @@ begin
 
 end;
 
+{$ifdef KraftPasMP}
+procedure TKraftSolver.ContactStageParallelForFunction(const Job:PPasMPJob;const ThreadIndex:TKraftInt32;const Data:pointer;const FromIndex,ToIndex:TPasMPNativeInt);
+begin
+ fStageRangeMethod(FromIndex,ToIndex,ThreadIndex);
+end;
+{$else}
+procedure TKraftSolver.ContactStageJob(const JobIndex,ThreadIndex:TKraftInt32);
+begin
+ fStageRangeMethod(fStageJobOffset+JobIndex,fStageJobOffset+JobIndex,ThreadIndex);
+end;
+{$endif}
+
+procedure TKraftSolver.DispatchContactStage(const aRangeMethod:TKraftSolverStageRangeMethod);
+// Runs one contact stage over the contact solve order. In the island mode (or when this island does not use
+// parallel stages) the whole order runs in one serial call, which is the identical code path as before. In
+// the colored modes with parallel stages the colors run one after another: the overflow color and small
+// colors serially, big colors as parallel for over their order range, with a barrier per color. The results
+// are identical to the serial run in any case, since within one color no movable body is shared between
+// constraints, so the constraint updates of one color are independent of each other.
+var ColorIndex,RangeFirst,RangeCount:TKraftInt32;
+begin
+ if (fPhysics.fSolverParallelMode=kspmIslands) or not fIsland.fUseParallelStages then begin
+  if fCountContacts>0 then begin
+   aRangeMethod(0,fCountContacts-1,0);
+  end;
+ end else begin
+  for ColorIndex:=0 to KraftConstraintGraphColorCount-1 do begin
+   RangeCount:=fContactColorRangeCounts[ColorIndex];
+   if RangeCount>0 then begin
+    RangeFirst:=fContactColorRangeFirsts[ColorIndex];
+    if (ColorIndex=KraftConstraintGraphOverflowIndex) or (RangeCount<fPhysics.fSolverParallelThreshold) then begin
+     aRangeMethod(RangeFirst,(RangeFirst+RangeCount)-1,0);
+    end else begin
+     fStageRangeMethod:=aRangeMethod;
+{$ifdef KraftPasMP}
+     fPhysics.fPasMP.Invoke(fPhysics.fPasMP.ParallelFor(nil,RangeFirst,(RangeFirst+RangeCount)-1,ContactStageParallelForFunction,Max(16,RangeCount div (fPhysics.fCountThreads*4)),4,nil,0,fPhysics.fPasMPAreaMask,fPhysics.fPasMPAvoidAreaMask,true,fPhysics.fPasMPAffinityAllowMask,fPhysics.fPasMPAffinityAvoidMask));
+{$else}
+     fStageJobOffset:=RangeFirst;
+     fPhysics.fJobManager.fOnProcessJob:=ContactStageJob;
+     fPhysics.fJobManager.fCountRemainJobs:=RangeCount;
+     fPhysics.fJobManager.fGranularity:=Max(16,RangeCount div (fPhysics.fCountThreads*4));
+     fPhysics.fJobManager.ProcessJobs;
+{$endif}
+    end;
+   end;
+  end;
+ end;
+end;
+
 procedure TKraftSolver.WarmStart;
+begin
+ DispatchContactStage(WarmStartRange);
+end;
+
+procedure TKraftSolver.WarmStartRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
 var OrderIndex,ContactPairIndex,ContactIndex,IndexA,IndexB,CountPoints:TKraftInt32;
     VelocityState:PKraftSolverVelocityState;
     ContactPoint:PKraftSolverVelocityStateContactPoint;
@@ -56833,7 +56925,7 @@ var OrderIndex,ContactPairIndex,ContactIndex,IndexA,IndexB,CountPoints:TKraftInt
     TangentVectors:array[0..1] of TKraftVector3;
 begin
 
- for OrderIndex:=0 to fCountContacts-1 do begin
+ for OrderIndex:=aFromOrderIndex to aToOrderIndex do begin
   ContactPairIndex:=fContactSolveOrder[OrderIndex];
 
   VelocityState:=@fVelocityStates[ContactPairIndex];
@@ -56975,6 +57067,11 @@ begin
 end;
 
 procedure TKraftSolver.SolveVelocityConstraints;
+begin
+ DispatchContactStage(SolveVelocityConstraintsRange);
+end;
+
+procedure TKraftSolver.SolveVelocityConstraintsRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
 var OrderIndex,ContactPairIndex,ContactIndex,TangentIndex,IndexA,IndexB,CountPoints:TKraftInt32;
     VelocityState:PKraftSolverVelocityState;
     ContactPoint:PKraftSolverVelocityStateContactPoint;
@@ -56984,7 +57081,7 @@ var OrderIndex,ContactPairIndex,ContactIndex,TangentIndex,IndexA,IndexB,CountPoi
     TangentVectors:array[0..1] of TKraftVector3;
 begin
 
- for OrderIndex:=0 to fCountContacts-1 do begin
+ for OrderIndex:=aFromOrderIndex to aToOrderIndex do begin
   ContactPairIndex:=fContactSolveOrder[OrderIndex];
 
   VelocityState:=@fVelocityStates[ContactPairIndex];
@@ -57107,6 +57204,25 @@ begin
 end;
 
 function TKraftSolver.SolvePositionConstraints:boolean;
+var ThreadIndex:TKraftInt32;
+    MinSeparation:TKraftScalar;
+begin
+ if fPositionCorrectionMode=kpcmNonLinearGaussSeidel then begin
+  for ThreadIndex:=0 to MAX_THREADS-1 do begin
+   fStageMinSeparations[ThreadIndex]:=0.0;
+  end;
+  DispatchContactStage(SolvePositionConstraintsRange);
+  MinSeparation:=0.0;
+  for ThreadIndex:=0 to MAX_THREADS-1 do begin
+   MinSeparation:=Min(MinSeparation,fStageMinSeparations[ThreadIndex]);
+  end;
+  result:=MinSeparation>=((-3.0)*fPhysics.fLinearSlop);
+ end else begin
+  result:=true;
+ end;
+end;
+
+procedure TKraftSolver.SolvePositionConstraintsRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
 var OrderIndex,ContactPairIndex,ContactIndex,IndexA,IndexB:TKraftInt32;
     PositionState:PKraftSolverPositionState;
     SolverContact:PKraftSolverContact;
@@ -57118,10 +57234,10 @@ var OrderIndex,ContactPairIndex,ContactIndex,IndexA,IndexB:TKraftInt32;
     SolverContactManifold:TKraftSolverContactManifold;
 begin
 
- if fPositionCorrectionMode=kpcmNonLinearGaussSeidel then begin
+ begin
 
-  MinSeparation:=0.0;
-  for OrderIndex:=0 to fCountContacts-1 do begin
+  MinSeparation:=fStageMinSeparations[aThreadIndex];
+  for OrderIndex:=aFromOrderIndex to aToOrderIndex do begin
    ContactPairIndex:=fContactSolveOrder[OrderIndex];
 
    PositionState:=@fPositionStates[ContactPairIndex];
@@ -57209,11 +57325,7 @@ begin
 
   end;
 
-  result:=MinSeparation>=((-3.0)*fPhysics.fLinearSlop);
-
- end else begin
-
-  result:=true;
+  fStageMinSeparations[aThreadIndex]:=MinSeparation;
 
  end;
 
@@ -57704,6 +57816,11 @@ begin
 end;
 
 procedure TKraftSolver.WarmStartSubStep;
+begin
+ DispatchContactStage(WarmStartSubStepRange);
+end;
+
+procedure TKraftSolver.WarmStartSubStepRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
 var OrderIndex,ContactPairIndex,ContactIndex,IndexA,IndexB,CountPoints:TKraftInt32;
     VelocityState:PKraftSolverVelocityState;
     ContactPoint:PKraftSolverVelocityStateContactPoint;
@@ -57715,7 +57832,7 @@ var OrderIndex,ContactPairIndex,ContactIndex,IndexA,IndexB,CountPoints:TKraftInt
 begin
 
  // Reapply the accumulated normal and friction impulses of every contact point (once per substep).
- for OrderIndex:=0 to fCountContacts-1 do begin
+ for OrderIndex:=aFromOrderIndex to aToOrderIndex do begin
   ContactPairIndex:=fContactSolveOrder[OrderIndex];
 
   VelocityState:=@fVelocityStates[ContactPairIndex];
@@ -57788,6 +57905,13 @@ begin
 end;
 
 procedure TKraftSolver.SolveVelocitySubStep(const TimeStep:TKraftTimeStep;const aUseBias:boolean);
+begin
+ fStageTimeStep:=TimeStep;
+ fStageUseBias:=aUseBias;
+ DispatchContactStage(SolveVelocitySubStepRange);
+end;
+
+procedure TKraftSolver.SolveVelocitySubStepRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
 var OrderIndex,ContactPairIndex,ContactIndex,IndexA,IndexB,CountPoints:TKraftInt32;
     VelocityState:PKraftSolverVelocityState;
     ContactPoint:PKraftSolverVelocityStateContactPoint;
@@ -57797,12 +57921,17 @@ var OrderIndex,ContactPairIndex,ContactIndex,IndexA,IndexB,CountPoints:TKraftInt
     Normal,vA,lA,wA,rA,vB,lB,wB,rB,dv,P,dcA,dcB,dw,DeltaRoll,OldRoll:TKraftVector3;
     dqA,dqB:TKraftQuaternion;
     TangentVectors:array[0..1] of TKraftVector3;
+    TimeStep:TKraftTimeStep;
+    aUseBias:boolean;
 begin
+
+ TimeStep:=fStageTimeStep;
+ aUseBias:=fStageUseBias;
 
  InverseH:=TimeStep.InverseSubStepDeltaTime;
  MaxBiasVelocity:=fPhysics.fMaximalLinearCorrection*InverseH;
 
- for OrderIndex:=0 to fCountContacts-1 do begin
+ for OrderIndex:=aFromOrderIndex to aToOrderIndex do begin
   ContactPairIndex:=fContactSolveOrder[OrderIndex];
 
   VelocityState:=@fVelocityStates[ContactPairIndex];
@@ -58002,6 +58131,11 @@ begin
 end;
 
 procedure TKraftSolver.ApplyRestitution;
+begin
+ DispatchContactStage(ApplyRestitutionRange);
+end;
+
+procedure TKraftSolver.ApplyRestitutionRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
 var OrderIndex,ContactPairIndex,ContactIndex,IndexA,IndexB,CountPoints:TKraftInt32;
     VelocityState:PKraftSolverVelocityState;
     ContactPoint:PKraftSolverVelocityStateContactPoint;
@@ -58011,7 +58145,7 @@ var OrderIndex,ContactPairIndex,ContactIndex,IndexA,IndexB,CountPoints:TKraftInt
     Normal,vA,lA,wA,rA,vB,lB,wB,rB,dv,P:TKraftVector3;
 begin
 
- for OrderIndex:=0 to fCountContacts-1 do begin
+ for OrderIndex:=aFromOrderIndex to aToOrderIndex do begin
   ContactPairIndex:=fContactSolveOrder[OrderIndex];
 
   VelocityState:=@fVelocityStates[ContactPairIndex];
@@ -58423,6 +58557,7 @@ begin
  fCountStaticContactPairs:=0;
  fCountSpeculativeContactPairs:=0;
  fWantsSleep:=false;
+ fUseParallelStages:=false;
 end;
 
 function TKraftIsland.AddRigidBody(aRigidBody:TKraftRigidBody):TKraftInt32;
@@ -59933,6 +60068,8 @@ begin
 
  fSolverParallelMode:=kspmIslands;
 
+ fSolverParallelThreshold:=64;
+
  fInternalEdgeHandlingMode:=kiehmNone;
 
  fMeshManifoldMode:=kmmmPerTriangle;
@@ -60407,13 +60544,19 @@ procedure TKraft.ProcessSolveIslandParallelForFunction(const aJob:PPasMPJob;cons
 var Index:TKraftInt32;
 begin
  for Index:=aFromIndex to aToIndex do begin
-  fIslands[Index].Solve(fJobTimeStep);
+  // Islands with parallel color stages solve serially after this parallel island pass (no nested
+  // parallel dispatch), see TKraft.SolveIslands.
+  if not fIslands[Index].fUseParallelStages then begin
+   fIslands[Index].Solve(fJobTimeStep);
+  end;
  end;
 end;
 {$else}
 procedure TKraft.ProcessSolveIslandJob(const aJobIndex,aThreadIndex:TKraftInt32);
 begin
- fIslands[aJobIndex].Solve(fJobTimeStep);
+ if not fIslands[aJobIndex].fUseParallelStages then begin
+  fIslands[aJobIndex].Solve(fJobTimeStep);
+ end;
 end;
 {$endif}
 
@@ -60422,6 +60565,23 @@ var Index:TKraftInt32;
 begin
  fJobTimeStep:=aTimeStep;
  fIsSolving:=true;
+
+ // In the colored solver parallel modes the big islands leave the parallel island loop and solve one after
+ // another with parallel color stages instead (no nested parallel dispatch, which the job manager could not
+ // take), while the small islands keep the island granular parallelism with serial color stages. This is a
+ // pure performance partition without any result influence: within one color no movable body is shared, so
+ // a color yields the identical result whether it solves serially or in parallel.
+ if (fSolverParallelMode<>kspmIslands) and
+{$ifdef KraftPasMP}
+    (assigned(fPasMP) and not fSingleThreaded) then begin
+{$else}
+    (assigned(fJobManager) and not fSingleThreaded) then begin
+{$endif}
+  for Index:=0 to fCountIslands-1 do begin
+   fIslands[Index].fUseParallelStages:=((fIslands[Index].fCountContactPairs+fIslands[Index].fCountStaticContactPairs)+fIslands[Index].fCountConstraints)>=fSolverParallelThreshold;
+  end;
+ end;
+
 {$ifdef KraftPasMP}
  if assigned(fPasMP) and (fCountIslands>1) and not fSingleThreaded then begin
   fPasMP.Invoke(fPasMP.ParallelFor(nil,0,fCountIslands-1,ProcessSolveIslandParallelForFunction,Max(1,fCountIslands div (fCountThreads*16)),4,nil,0,fPasMPAreaMask,fPasMPAvoidAreaMask,true,fPasMPAffinityAllowMask,fPasMPAffinityAvoidMask));
@@ -60434,9 +60594,19 @@ begin
 {$endif}
  end else begin
   for Index:=0 to fCountIslands-1 do begin
+   if not fIslands[Index].fUseParallelStages then begin
+    fIslands[Index].Solve(fJobTimeStep);
+   end;
+  end;
+ end;
+
+ // The big islands of the colored modes, one after another with parallel color stages inside.
+ for Index:=0 to fCountIslands-1 do begin
+  if fIslands[Index].fUseParallelStages then begin
    fIslands[Index].Solve(fJobTimeStep);
   end;
  end;
+
  fIsSolving:=false;
 
  // Apply the sleep decisions of the island solves serially, after all (possibly parallel) island solves are
