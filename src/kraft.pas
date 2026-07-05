@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-07-05-02-33-0000                       *
+ *                        Version 2026-07-05-03-11-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -379,6 +379,19 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      TKraftSolverMode=(ksmSequentialImpulse,                          // Classic sequential-impulse solver, one velocity+position solve per step (default)
                        ksmTGSSoft);                                   // Box3D-style substepping soft-step (TGS-soft) solver, opt-in
      PKraftSolverMode=^TKraftSolverMode;
+
+     // Which parallelization architecture the solver uses, switchable at runtime. In the island mode the
+     // parallelism is island granular like always before, one big island solves single threaded. In the
+     // colored modes the constraints solve in the color order of the persistent constraint graph, where
+     // within one color no movable body is shared, so one color can solve in parallel; the reordering is
+     // deterministic but yields (deterministically) different trajectories than the island mode, comparable
+     // to switching between the sequential-impulse and TGS-soft solvers. kspmIslandColored keeps the islands
+     // as solve unit; kspmGlobalGraph will solve the whole awake set in one color ordered pass with islands
+     // only used for sleeping, and behaves like kspmIslandColored until that stage lands.
+     TKraftSolverParallelMode=(kspmIslands,
+                               kspmIslandColored,
+                               kspmGlobalGraph);
+     PKraftSolverParallelMode=^TKraftSolverParallelMode;
 
      // How joints are solved when the TGS-soft solver runs. In the adapter mode the classic sequential-impulse
      // joint methods are reused inside the substep loop (prepare once, velocity-solve per substep, position
@@ -4790,6 +4803,13 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fVelocityStates:TKraftSolverVelocityStates;
        fCountVelocityStates:TKraftInt32;
 
+       // Solve order permutation over the contact constraints: identity in the classic island mode (bit
+       // identical behavior), constraint graph color major order in the colored modes, together with the
+       // per color index ranges for the parallel color stages. Filled by TKraftIsland.BuildSolveOrders.
+       fContactSolveOrder:array of TKraftInt32;
+       fContactColorRangeFirsts:array[0..KraftConstraintGraphColorCount-1] of TKraftInt32;
+       fContactColorRangeCounts:array[0..KraftConstraintGraphColorCount-1] of TKraftInt32;
+
        fPositionStates:TKraftSolverPositionStates;
        fCountPositionStates:TKraftInt32;
 
@@ -5196,6 +5216,11 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        // body list and constraint graph bookkeeping never runs from parallel island solves.
        fWantsSleep:boolean;
 
+       // Joint solve order permutation, the counterpart of TKraftSolver.fContactSolveOrder (see there).
+       fConstraintSolveOrder:array of TKraftInt32;
+       fConstraintColorRangeFirsts:array[0..KraftConstraintGraphColorCount-1] of TKraftInt32;
+       fConstraintColorRangeCounts:array[0..KraftConstraintGraphColorCount-1] of TKraftInt32;
+
       public
 
        constructor Create(const aPhysics:TKraft;const aIndex:TKraftInt32);
@@ -5205,6 +5230,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure AddConstraint(aConstraint:TKraftConstraint);
        procedure AddContactPair(aContactPair:PKraftContactPair);
        procedure MergeContactPairs;
+       procedure BuildSolveOrders;
        procedure PutToSleep;
        procedure Solve(const aTimeStep:TKraftTimeStep);
        procedure SolveSequentialImpulse(const aTimeStep:TKraftTimeStep);
@@ -5518,6 +5544,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        // TGS begin
 
        fSolverMode:TKraftSolverMode;
+
+       fSolverParallelMode:TKraftSolverParallelMode;
 
        fCountSubSteps:TKraftInt32;
 
@@ -5834,6 +5862,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        // Runtime switch between the classic sequential-impulse solver (default) and the TGS-soft substepping solver.
        property SolverMode:TKraftSolverMode read fSolverMode write fSolverMode;
+
+       property SolverParallelMode:TKraftSolverParallelMode read fSolverParallelMode write fSolverParallelMode;
 
        // TGS begin
 
@@ -56794,7 +56824,7 @@ begin
 end;
 
 procedure TKraftSolver.WarmStart;
-var ContactPairIndex,ContactIndex,IndexA,IndexB,CountPoints:TKraftInt32;
+var OrderIndex,ContactPairIndex,ContactIndex,IndexA,IndexB,CountPoints:TKraftInt32;
     VelocityState:PKraftSolverVelocityState;
     ContactPoint:PKraftSolverVelocityStateContactPoint;
     iA,iB:PKraftMatrix3x3;
@@ -56803,7 +56833,8 @@ var ContactPairIndex,ContactIndex,IndexA,IndexB,CountPoints:TKraftInt32;
     TangentVectors:array[0..1] of TKraftVector3;
 begin
 
- for ContactPairIndex:=0 to fCountContacts-1 do begin
+ for OrderIndex:=0 to fCountContacts-1 do begin
+  ContactPairIndex:=fContactSolveOrder[OrderIndex];
 
   VelocityState:=@fVelocityStates[ContactPairIndex];
 
@@ -56944,7 +56975,7 @@ begin
 end;
 
 procedure TKraftSolver.SolveVelocityConstraints;
-var ContactPairIndex,ContactIndex,TangentIndex,IndexA,IndexB,CountPoints:TKraftInt32;
+var OrderIndex,ContactPairIndex,ContactIndex,TangentIndex,IndexA,IndexB,CountPoints:TKraftInt32;
     VelocityState:PKraftSolverVelocityState;
     ContactPoint:PKraftSolverVelocityStateContactPoint;
     iA,iB:PKraftMatrix3x3;
@@ -56953,7 +56984,8 @@ var ContactPairIndex,ContactIndex,TangentIndex,IndexA,IndexB,CountPoints:TKraftI
     TangentVectors:array[0..1] of TKraftVector3;
 begin
 
- for ContactPairIndex:=0 to fCountContacts-1 do begin
+ for OrderIndex:=0 to fCountContacts-1 do begin
+  ContactPairIndex:=fContactSolveOrder[OrderIndex];
 
   VelocityState:=@fVelocityStates[ContactPairIndex];
 
@@ -57075,7 +57107,7 @@ begin
 end;
 
 function TKraftSolver.SolvePositionConstraints:boolean;
-var ContactPairIndex,ContactIndex,IndexA,IndexB:TKraftInt32;
+var OrderIndex,ContactPairIndex,ContactIndex,IndexA,IndexB:TKraftInt32;
     PositionState:PKraftSolverPositionState;
     SolverContact:PKraftSolverContact;
     iA,iB:PKraftMatrix3x3;
@@ -57089,7 +57121,8 @@ begin
  if fPositionCorrectionMode=kpcmNonLinearGaussSeidel then begin
 
   MinSeparation:=0.0;
-  for ContactPairIndex:=0 to fCountContacts-1 do begin
+  for OrderIndex:=0 to fCountContacts-1 do begin
+   ContactPairIndex:=fContactSolveOrder[OrderIndex];
 
    PositionState:=@fPositionStates[ContactPairIndex];
 
@@ -57671,7 +57704,7 @@ begin
 end;
 
 procedure TKraftSolver.WarmStartSubStep;
-var ContactPairIndex,ContactIndex,IndexA,IndexB,CountPoints:TKraftInt32;
+var OrderIndex,ContactPairIndex,ContactIndex,IndexA,IndexB,CountPoints:TKraftInt32;
     VelocityState:PKraftSolverVelocityState;
     ContactPoint:PKraftSolverVelocityStateContactPoint;
     TGSState:PKraftSolverTGSContactState;
@@ -57682,7 +57715,8 @@ var ContactPairIndex,ContactIndex,IndexA,IndexB,CountPoints:TKraftInt32;
 begin
 
  // Reapply the accumulated normal and friction impulses of every contact point (once per substep).
- for ContactPairIndex:=0 to fCountContacts-1 do begin
+ for OrderIndex:=0 to fCountContacts-1 do begin
+  ContactPairIndex:=fContactSolveOrder[OrderIndex];
 
   VelocityState:=@fVelocityStates[ContactPairIndex];
   TGSState:=@fTGSContactStates[ContactPairIndex];
@@ -57754,7 +57788,7 @@ begin
 end;
 
 procedure TKraftSolver.SolveVelocitySubStep(const TimeStep:TKraftTimeStep;const aUseBias:boolean);
-var ContactPairIndex,ContactIndex,IndexA,IndexB,CountPoints:TKraftInt32;
+var OrderIndex,ContactPairIndex,ContactIndex,IndexA,IndexB,CountPoints:TKraftInt32;
     VelocityState:PKraftSolverVelocityState;
     ContactPoint:PKraftSolverVelocityStateContactPoint;
     TGSState:PKraftSolverTGSContactState;
@@ -57768,7 +57802,8 @@ begin
  InverseH:=TimeStep.InverseSubStepDeltaTime;
  MaxBiasVelocity:=fPhysics.fMaximalLinearCorrection*InverseH;
 
- for ContactPairIndex:=0 to fCountContacts-1 do begin
+ for OrderIndex:=0 to fCountContacts-1 do begin
+  ContactPairIndex:=fContactSolveOrder[OrderIndex];
 
   VelocityState:=@fVelocityStates[ContactPairIndex];
   TGSState:=@fTGSContactStates[ContactPairIndex];
@@ -57967,7 +58002,7 @@ begin
 end;
 
 procedure TKraftSolver.ApplyRestitution;
-var ContactPairIndex,ContactIndex,IndexA,IndexB,CountPoints:TKraftInt32;
+var OrderIndex,ContactPairIndex,ContactIndex,IndexA,IndexB,CountPoints:TKraftInt32;
     VelocityState:PKraftSolverVelocityState;
     ContactPoint:PKraftSolverVelocityStateContactPoint;
     TGSState:PKraftSolverTGSContactState;
@@ -57976,7 +58011,8 @@ var ContactPairIndex,ContactIndex,IndexA,IndexB,CountPoints:TKraftInt32;
     Normal,vA,lA,wA,rA,vB,lB,wB,rB,dv,P:TKraftVector3;
 begin
 
- for ContactPairIndex:=0 to fCountContacts-1 do begin
+ for OrderIndex:=0 to fCountContacts-1 do begin
+  ContactPairIndex:=fContactSolveOrder[OrderIndex];
 
   VelocityState:=@fVelocityStates[ContactPairIndex];
   TGSState:=@fTGSContactStates[ContactPairIndex];
@@ -58455,6 +58491,90 @@ begin
  end;
 end;
 
+procedure TKraftIsland.BuildSolveOrders;
+// Builds the constraint solve order permutations of this island: identity in the classic island mode (bit
+// identical behavior), constraint graph color major order in the colored modes, where the per color index
+// ranges then allow solving one color in parallel, since within one color no movable body is shared. The
+// colors come from the persistent constraint graph and the order within one color follows the island
+// constraint order, so the result is deterministic.
+var Index,ColorIndex,Position:TKraftInt32;
+    ColorCounts:array[0..KraftConstraintGraphColorCount-1] of TKraftInt32;
+ function ClampedColorIndex(const aColorIndex:TKraftInt32):TKraftInt32;
+ begin
+  if (aColorIndex>=0) and (aColorIndex<KraftConstraintGraphColorCount) then begin
+   result:=aColorIndex;
+  end else begin
+   result:=KraftConstraintGraphOverflowIndex;
+  end;
+ end;
+begin
+
+ if length(fSolver.fContactSolveOrder)<fCountContactPairs then begin
+  SetLength(fSolver.fContactSolveOrder,(fCountContactPairs+1)*2);
+ end;
+ if length(fConstraintSolveOrder)<fCountConstraints then begin
+  SetLength(fConstraintSolveOrder,(fCountConstraints+1)*2);
+ end;
+
+ if fPhysics.fSolverParallelMode=kspmIslands then begin
+
+  for Index:=0 to fCountContactPairs-1 do begin
+   fSolver.fContactSolveOrder[Index]:=Index;
+  end;
+  for Index:=0 to fCountConstraints-1 do begin
+   fConstraintSolveOrder[Index]:=Index;
+  end;
+  for ColorIndex:=0 to KraftConstraintGraphColorCount-1 do begin
+   fSolver.fContactColorRangeCounts[ColorIndex]:=0;
+   fConstraintColorRangeCounts[ColorIndex]:=0;
+  end;
+
+ end else begin
+
+  // Contacts: stable counting sort by graph color
+  for ColorIndex:=0 to KraftConstraintGraphColorCount-1 do begin
+   ColorCounts[ColorIndex]:=0;
+  end;
+  for Index:=0 to fCountContactPairs-1 do begin
+   inc(ColorCounts[ClampedColorIndex(fContactPairs[Index]^.GraphColorIndex)]);
+  end;
+  Position:=0;
+  for ColorIndex:=0 to KraftConstraintGraphColorCount-1 do begin
+   fSolver.fContactColorRangeFirsts[ColorIndex]:=Position;
+   fSolver.fContactColorRangeCounts[ColorIndex]:=ColorCounts[ColorIndex];
+   inc(Position,ColorCounts[ColorIndex]);
+   ColorCounts[ColorIndex]:=fSolver.fContactColorRangeFirsts[ColorIndex];
+  end;
+  for Index:=0 to fCountContactPairs-1 do begin
+   ColorIndex:=ClampedColorIndex(fContactPairs[Index]^.GraphColorIndex);
+   fSolver.fContactSolveOrder[ColorCounts[ColorIndex]]:=Index;
+   inc(ColorCounts[ColorIndex]);
+  end;
+
+  // Joints: the same, keyed on the joint graph colors
+  for ColorIndex:=0 to KraftConstraintGraphColorCount-1 do begin
+   ColorCounts[ColorIndex]:=0;
+  end;
+  for Index:=0 to fCountConstraints-1 do begin
+   inc(ColorCounts[ClampedColorIndex(fConstraints[Index].fGraphColorIndex)]);
+  end;
+  Position:=0;
+  for ColorIndex:=0 to KraftConstraintGraphColorCount-1 do begin
+   fConstraintColorRangeFirsts[ColorIndex]:=Position;
+   fConstraintColorRangeCounts[ColorIndex]:=ColorCounts[ColorIndex];
+   inc(Position,ColorCounts[ColorIndex]);
+   ColorCounts[ColorIndex]:=fConstraintColorRangeFirsts[ColorIndex];
+  end;
+  for Index:=0 to fCountConstraints-1 do begin
+   ColorIndex:=ClampedColorIndex(fConstraints[Index].fGraphColorIndex);
+   fConstraintSolveOrder[ColorCounts[ColorIndex]]:=Index;
+   inc(ColorCounts[ColorIndex]);
+  end;
+
+ end;
+
+end;
+
 procedure TKraftIsland.PutToSleep;
 // Applies the sleep decision of the island solve. Called serially from TKraft.SolveIslands after all island
 // solves are done, since SetToSleep maintains shared bookkeeping (awake body list, constraint graph).
@@ -58616,7 +58736,7 @@ begin
  end;
 
  for Index:=0 to fCountConstraints-1 do begin
-  Constraint:=fConstraints[Index];
+  Constraint:=fConstraints[fConstraintSolveOrder[Index]];
   if assigned(Constraint) then begin
    Constraint.InitializeConstraintsAndWarmStart(self,aTimeStep);
   end;
@@ -58624,7 +58744,7 @@ begin
  for Iteration:=1 to Max(fPhysics.fVelocityIterations,fPhysics.fSpeculativeIterations) do begin
   if Iteration<=fPhysics.fVelocityIterations then begin
    for Index:=0 to fCountConstraints-1 do begin
-    Constraint:=fConstraints[Index];
+    Constraint:=fConstraints[fConstraintSolveOrder[Index]];
     if assigned(Constraint) and not (kcfBreaked in Constraint.fFlags) then begin
      if ((Constraint.fFlags*[kcfActive,kcfBreakable,kcfBreaked])=[kcfActive,kcfBreakable]) and
         ((Vector3Length(Constraint.GetReactionForce(aTimeStep.InverseDeltaTime))>Constraint.fBreakThresholdForce) or
@@ -58704,7 +58824,7 @@ begin
  end;
 
  for Index:=0 to fCountConstraints-1 do begin
-  Constraint:=fConstraints[Index];
+  Constraint:=fConstraints[fConstraintSolveOrder[Index]];
   if assigned(Constraint) and
      (((Constraint.fFlags*[kcfActive,kcfBreakable,kcfBreaked])=[kcfActive,kcfBreakable]) and
       ((Vector3Length(Constraint.GetReactionForce(aTimeStep.InverseDeltaTime))>Constraint.fBreakThresholdForce) or
@@ -58722,7 +58842,7 @@ begin
    end;
    if fPhysics.fConstraintPositionCorrectionMode=kpcmNonLinearGaussSeidel then begin
     for Index:=0 to fCountConstraints-1 do begin
-     Constraint:=fConstraints[Index];
+     Constraint:=fConstraints[fConstraintSolveOrder[Index]];
      if assigned(Constraint) and not (kcfBreaked in Constraint.fFlags) then begin
       if not Constraint.SolvePositionConstraint(self,aTimeStep) then begin
        OK:=false;
@@ -58859,7 +58979,7 @@ begin
  // (NGS) pass after the substeps. The path is resolved per joint (its override, else the world's TGSJointMode),
  // so a single hard joint can stay on the adapter while the rest of the world runs natively soft.
  for Index:=0 to fCountConstraints-1 do begin
-  Constraint:=fConstraints[Index];
+  Constraint:=fConstraints[fConstraintSolveOrder[Index]];
   if assigned(Constraint) and not (kcfBreaked in Constraint.fFlags) then begin
    if Constraint.UsesNativeTGSSoftPath then begin
     Constraint.PrepareSubStep(self,aTimeStep);
@@ -58986,7 +59106,7 @@ begin
   // Native-soft joints warm start once per substep too, alongside the contacts, before any velocity solve reads
   // the velocities. Adapter joints did their warm start in the prepare above, so they are skipped here.
   for Index:=0 to fCountConstraints-1 do begin
-   Constraint:=fConstraints[Index];
+   Constraint:=fConstraints[fConstraintSolveOrder[Index]];
    if assigned(Constraint) and not (kcfBreaked in Constraint.fFlags) and Constraint.UsesNativeTGSSoftPath then begin
     Constraint.WarmStartSubStep(self,aTimeStep);
    end;
@@ -58999,7 +59119,7 @@ begin
   // biases and accumulated impulses all live consistently on the substep cadence, instead of mixing a
   // once-per-step setup with per-substep solves on stale step-start data.
   for Index:=0 to fCountConstraints-1 do begin
-   Constraint:=fConstraints[Index];
+   Constraint:=fConstraints[fConstraintSolveOrder[Index]];
    if assigned(Constraint) and not (kcfBreaked in Constraint.fFlags) then begin
     if Constraint.UsesNativeTGSSoftPath then begin
      Constraint.SolveVelocitySubStep(self,aTimeStep,true);
@@ -59071,7 +59191,7 @@ begin
   // Native-soft joints relax in the same pass (without bias). Adapter joints were solved once above and do not
   // take part in the relax pass, which keeps their once-per-substep cadence identical to the adapter path.
   for Index:=0 to fCountConstraints-1 do begin
-   Constraint:=fConstraints[Index];
+   Constraint:=fConstraints[fConstraintSolveOrder[Index]];
    if assigned(Constraint) and not (kcfBreaked in Constraint.fFlags) and Constraint.UsesNativeTGSSoftPath then begin
     Constraint.SolveVelocitySubStep(self,aTimeStep,false);
    end;
@@ -59089,7 +59209,7 @@ begin
  // Break breakable constraints whose final reaction exceeds their threshold (same test as the classic path),
  // so the position correction below and the next step skip them.
  for Index:=0 to fCountConstraints-1 do begin
-  Constraint:=fConstraints[Index];
+  Constraint:=fConstraints[fConstraintSolveOrder[Index]];
   if assigned(Constraint) and
      (((Constraint.fFlags*[kcfActive,kcfBreakable,kcfBreaked])=[kcfActive,kcfBreakable]) and
       ((Vector3Length(Constraint.GetReactionForce(aTimeStep.InverseDeltaTime))>Constraint.fBreakThresholdForce) or
@@ -59105,7 +59225,7 @@ begin
   for Iteration:=1 to fPhysics.fPositionIterations do begin
    OK:=true;
    for Index:=0 to fCountConstraints-1 do begin
-    Constraint:=fConstraints[Index];
+    Constraint:=fConstraints[fConstraintSolveOrder[Index]];
     if assigned(Constraint) and not (kcfBreaked in Constraint.fFlags) and
        not (Constraint.UsesNativeTGSSoftPath and Constraint.IsNativeTGSSoftJoint) then begin
      if not Constraint.SolvePositionConstraint(self,aTimeStep) then begin
@@ -59206,6 +59326,8 @@ end;
 
 procedure TKraftIsland.Solve(const aTimeStep:TKraftTimeStep);
 begin
+
+ BuildSolveOrders;
 
  case fPhysics.fSolverMode of
 
@@ -59808,6 +59930,8 @@ begin
  fSpeculativeIterations:=8;
 
  fSolverMode:=ksmSequentialImpulse;
+
+ fSolverParallelMode:=kspmIslands;
 
  fInternalEdgeHandlingMode:=kiehmNone;
 
