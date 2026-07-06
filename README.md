@@ -27,18 +27,24 @@ Kraft Physics Engine has the following features:
 - Multiple collision shapes per rigid body without the need for a compound shape
 - Broadphase collision detection with a dynamic AABB tree
 - Fast mid phase for static triangle mesh geometries
+- Runtime-selectable internal/ghost edge handling for triangle meshes (none, contact-normal clamping into the neighbour-face fan, or feature-ownership arbitration over the shared mesh contact pair), so convex bodies do not snag on the shared inner edges of tessellated surfaces
+- Runtime-selectable mesh contact manifold mode (per-triangle, or clustered per coplanar-ish surface patch into one representative manifold with central friction per patch instead of per triangle)
+- Optional contact recycling: contact pairs whose relative body pose stayed within a configurable distance since their last real narrow phase run skip the narrow phase and keep their result (with a conservative-advancement bound over the relative translation plus rotation, and a GJK-proven separation bound for the not-touching case, so a beginning touch can never be missed)
 - The choice of either Box2D-style post position correction/projection or alternately baumgarte stabilization
   - Post position correction/projection is slower but it's more precise, so it's also the default enabled setting
   - Baumgarte stabilization (which is also the old-school way) is faster but it can be inaccurate in some situations
 - Narrowphase collision detection
-- Collision response and friction (Sequential impulses with post projection)
+- Collision response and friction (sequential impulses with post projection), with optional per-shape rolling resistance
 - The choice of two velocity solvers, selectable at runtime: the classic sequential impulse solver or a substepped TGS soft-constraint solver with soft contacts and joints, where joints can run either through the classic solve path per step or substep or through native per-substep soft implementations, selectable per world and overridable per joint
+- Central friction model in the TGS soft solver (two-axis tangential friction, twist friction and rolling resistance anchored at the contact centroid, one shared set per manifold instead of per contact point), with cross-frame warm starting
 - Joint constraints (Grab, Distance, Rope, World Plane Distance, Ball Socket with optional swing/twist limits, Fixed, Hinge with limits and motor, Slider with limits and motor, Pulley, Parallel, Motor, Wheel with suspension spring, spin motor and steering, and a freely configurable 6-DOF joint with per-degree-of-freedom locked/free/limited modes, an elliptical swing cone, optional soft limits per limit group and a full set of position and velocity drives)
 - Ready-to-use vehicle add-on units (KraftArcadeCarPhysics and KraftRayCastVehicle)
 - Collision filtering with groups
 - Ray casting and sphere casting (ray "with" spherical thickness)
 - Sleeping of inactive rigid bodies
-- Island-based multithreading
+- Island-based multithreading, and optionally (compile-time define KraftConstraintGraphColoring) a persistent constraint-graph-coloring parallel solver architecture with a lock-free block-claiming solver stage pipeline, runtime-switchable between island-granular and colored parallelization
+- Optional wide (four-lane SoA) TGS soft contact solver with hand-written x86-64 SSE assembler kernels (warm start, velocity solve and restitution), bit-identical to the scalar path, with a pure Pascal fallback for other CPUs and for double precision
+- Cross-run-deterministic broadphase pair ordering keyed on stable shape ids (compile-time define KraftDeterministicPairSort)
 - It can be used also for 1D and 2D physics, and not only for 3D physics
 - SIMD optimizations for x86-32 and x86-64
 
@@ -54,6 +60,15 @@ The Kraft Physics Engine is released under the open-source [ZLib license](http:/
 ## PasMP
 
 For to use Kraft with PasMP, you must set a project global define called KraftPasMP (or use -dKraftPasMP as compiler command line parameter)
+
+## Compile-time defines
+
+Most features are switchable at runtime through properties, but a few are gated behind project-global compile-time defines (set them in the project options or pass them as -d\<Define\> on the compiler command line):
+
+- **KraftPasMP** - use the PasMP job system instead of the built-in job manager (see above)
+- **KraftConstraintGraphColoring** - compile in the persistent constraint-graph-coloring parallel solver and its block-claiming solver stage pipeline; the parallelization architecture is then selected at runtime via TKraft.SolverParallelMode (defaults to the island-granular mode)
+- **KraftDeterministicPairSort** - order the broadphase contact pairs by the stable shape ids instead of by the shape pointers, for a cross-run-deterministic pair order (the pointer order converges box stacks in slightly fewer sequential-impulse velocity iterations, hence the switch)
+- **KraftUseDouble** - build the whole engine in double precision (TKraftScalar becomes Double; implies NonSIMD)
 
 ## Sandbox
 
