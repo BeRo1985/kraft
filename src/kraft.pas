@@ -167,6 +167,8 @@ unit kraft;
 // the fallback for other CPUs and for double precision), see TKraftSolver.WarmStartSubStepWideRange and friends.
 {$if defined(cpuamd64) and not defined(KraftUseDouble)}
  {$define KraftWideContactSolverAssembler}
+{$else}
+ {$undef KraftWideContactSolverAssembler}
 {$ifend}
 
 // Internal/ghost edge handling for triangle meshes (keeps convex bodies from snagging on the shared inner edges
