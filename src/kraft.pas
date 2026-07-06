@@ -5481,6 +5481,12 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        // At least one island body carries a user damping callback, so the velocity integration stage has
        // to run serially (the callback is user code without any thread safety contract)
        fHasBodyDampingCallbacks:boolean;
+
+       // At least one active joint solves its substep velocity on an adapter path (not the native soft-step
+       // path). Those joints keep their classic solve position after all contacts of the substep even when the
+       // fused color stages are on, so their per-substep mini step never reacts to the intermediate per-color
+       // velocities before a color's contacts are solved (which drives a light limb into a runaway feedback loop).
+       fHasAdapterSubStepSolveJoints:boolean;
 {$endif}
 
       public
@@ -5512,6 +5518,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure JointPrepareSubStepRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
        procedure JointWarmStartSubStepRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
        procedure JointSolveVelocitySubStepRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
+{$ifdef KraftConstraintGraphColoring}
+       procedure JointSolveVelocityNativeSubStepRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
+       procedure JointSolveVelocityAdapterSubStepRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
+{$endif}
        procedure JointRelaxSubStepRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
        procedure JointSolvePositionAdapterRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
 {$ifdef KraftConstraintGraphColoring}
@@ -24080,7 +24090,7 @@ begin
    Parent^.Children[0]:=Index1;
    Parent^.Children[1]:=Index2;
    Parent^.Height:=Max(Children[0]^.Height,Children[1]^.Height)+1;
-   Parent^.AABB:=AABBCombine(Children[0]^.AABB,Children[1]^.AABB);   
+   Parent^.AABB:=AABBCombine(Children[0]^.AABB,Children[1]^.AABB);
    Parent^.Parent:=daabbtNULLNODE;
    Parent^.CategoryBits:=Children[0]^.CategoryBits or Children[1]^.CategoryBits;
    Parent^.Flags:=Children[0]^.Flags or Children[1]^.Flags;
@@ -24327,7 +24337,7 @@ begin
            AxisIndex:=2;
           end else begin
            AxisIndex:=1;
-          end; 
+          end;
          end else begin
           if AxisLengths.x<AxisLengths.z then begin
            AxisIndex:=2;
@@ -24459,7 +24469,7 @@ begin
           RightCount:=FillStackItem.CountLeafNodes-LeftCount;
          end;
 
-        end; 
+        end;
 
        end;
 {$else}
@@ -25349,8 +25359,8 @@ begin
  if aMaxDistance<=0.0 then begin
   aMaxDistance:=Infinity;
  end;
- 
- // If the GetDistance function is not assigned, then assign the default one 
+
+ // If the GetDistance function is not assigned, then assign the default one
  if not assigned(aGetDistance) then begin
   aGetDistance:=GetDistance;
  end;
@@ -25379,7 +25389,7 @@ begin
      ResultItem.Node:=Node;
      ResultItem.Distance:=aGetDistance(Node,aPoint);
      if ResultItem.Distance<=aMaxDistance then begin
-      
+
       if ResultItemArraySize>0 then begin
 
        // Binary insertion into the sorted list
@@ -25467,25 +25477,25 @@ begin
         NewStackItem:=Pointer(Stack.PushIndirect);
         NewStackItem^.NodeID:=Node^.Children[0];
         NewStackItem^.Distance:=DistanceA;
-       end; 
+       end;
       end else begin
        if DistanceA<=aMaxDistance then begin
         NewStackItem:=Pointer(Stack.PushIndirect);
         NewStackItem^.NodeID:=Node^.Children[0];
         NewStackItem^.Distance:=DistanceA;
-       end; 
+       end;
        if DistanceB<=aMaxDistance then begin
         NewStackItem:=Pointer(Stack.PushIndirect);
         NewStackItem^.NodeID:=Node^.Children[1];
         NewStackItem^.Distance:=DistanceB;
        end;
-      end; 
+      end;
      end else begin
       if DistanceA<=aMaxDistance then begin
        NewStackItem:=Pointer(Stack.PushIndirect);
        NewStackItem^.NodeID:=Node^.Children[0];
        NewStackItem^.Distance:=DistanceA;
-      end; 
+      end;
      end;
     end else if Node^.Children[1]>=0 then begin
      DistanceB:=ClosestPointToAABB(fNodes[Node^.Children[1]].AABB,aPoint);
@@ -25510,7 +25520,7 @@ begin
     aArray[Index]:=ResultItemArray[Index].Node.UserData;
    end;
   end;
-  
+
  finally
   ResultItemArray:=nil;
  end;
@@ -46222,7 +46232,7 @@ begin
    end;
 
   end;
- 
+
  end;
 
 end;
@@ -46347,7 +46357,7 @@ begin
  SetToAwake;
  if fRigidBodyType in [krbtUnknown,krbtStatic] then begin
   UpdateWorldTransformation;
- end; 
+ end;
 end;
 
 procedure TKraftRigidBody.LimitVelocities;
@@ -60378,6 +60388,46 @@ begin
  end;
 end;
 
+{$ifdef KraftConstraintGraphColoring}
+procedure TKraftIsland.JointSolveVelocityNativeSubStepRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
+// The native soft-step share of the substep velocity solve, for the fused color stages: only the joints on the
+// native soft-step path solve here (with bias), interleaved per color with the contacts. The adapter path joints
+// are handled after all contacts by JointSolveVelocityAdapterSubStepRange, so this and that method together cover
+// exactly the same joints as the combined JointSolveVelocitySubStepRange of the unfused path.
+var Index:TKraftInt32;
+    Constraint:TKraftConstraint;
+begin
+ for Index:=aFromOrderIndex to aToOrderIndex do begin
+  Constraint:=fConstraints[fConstraintSolveOrder[Index]];
+  if assigned(Constraint) and not (kcfBreaked in Constraint.fFlags) and Constraint.UsesNativeTGSSoftPath then begin
+   Constraint.SolveVelocitySubStep(self,fSolveTimeStep,true);
+  end;
+ end;
+end;
+
+procedure TKraftIsland.JointSolveVelocityAdapterSubStepRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
+// The adapter share of the substep velocity solve, run after all contacts of the substep (the classic joint
+// position) even when the fused color stages are on: an adapter substep joint runs its full classic prepare +
+// warm start + solve as a mini step with the substep time step, a plain adapter joint its classic velocity solve.
+// Keeping this after the contacts avoids the runaway feedback a light limb hit by a contact can otherwise build up
+// when the joint mini step reacts to the intermediate per-color velocities before that color's contacts are solved.
+var Index:TKraftInt32;
+    Constraint:TKraftConstraint;
+begin
+ for Index:=aFromOrderIndex to aToOrderIndex do begin
+  Constraint:=fConstraints[fConstraintSolveOrder[Index]];
+  if assigned(Constraint) and not (kcfBreaked in Constraint.fFlags) and not Constraint.UsesNativeTGSSoftPath then begin
+   if Constraint.UsesAdapterSubstepPath then begin
+    Constraint.InitializeConstraintsAndWarmStart(self,fSolveSubStepTimeStep);
+    Constraint.SolveVelocityConstraint(self,fSolveSubStepTimeStep);
+   end else begin
+    Constraint.SolveVelocityConstraint(self,fSolveTimeStep);
+   end;
+  end;
+ end;
+end;
+{$endif}
+
 procedure TKraftIsland.JointRelaxSubStepRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
 var Index:TKraftInt32;
     Constraint:TKraftConstraint;
@@ -61030,6 +61080,22 @@ begin
  // so a single hard joint can stay on the adapter while the rest of the world runs natively soft.
  DispatchJointStage(JointPrepareSubStepRange);
 
+{$ifdef KraftConstraintGraphColoring}
+ // Determine whether any joint solves its substep velocity on an adapter path (a joint's path does not change
+ // within a step). With the fused color stages on, those joints are pulled out of the per-color interleave and
+ // solved after all contacts instead, see fHasAdapterSubStepSolveJoints and the solve pass below.
+ fHasAdapterSubStepSolveJoints:=false;
+ if fPhysics.fSolverFusedColorStages and (fPhysics.fSolverParallelMode<>kspmIslands) then begin
+  for Index:=0 to fCountConstraints-1 do begin
+   Constraint:=fConstraints[Index];
+   if assigned(Constraint) and not Constraint.UsesNativeTGSSoftPath then begin
+    fHasAdapterSubStepSolveJoints:=true;
+    break;
+   end;
+  end;
+ end;
+{$endif}
+
  for SubStep:=1 to aTimeStep.CountSubSteps do begin
 
   // Integrate velocities with the substep length h (see SubStepIntegrateVelocitiesRange). Gravity is
@@ -61066,7 +61132,14 @@ begin
   if fPhysics.fSolverFusedColorStages and (fPhysics.fSolverParallelMode<>kspmIslands) then begin
    fSolver.fStageTimeStep:=aTimeStep;
    fSolver.fStageUseBias:=true;
-   DispatchFusedColorStage(JointSolveVelocitySubStepRange,fSolver.SolveVelocitySubStepRange,fSolver.SolveVelocitySubStepWideRange);
+   // Only the native soft-step joints join the fused per-color interleave with the contacts.
+   DispatchFusedColorStage(JointSolveVelocityNativeSubStepRange,fSolver.SolveVelocitySubStepRange,fSolver.SolveVelocitySubStepWideRange);
+   // Adapter path joints (their per-substep mini step or classic per-substep solve) run after all contacts of the
+   // substep, the classic joint position, which keeps a light limb from running away when its joint reacts to the
+   // intermediate per-color velocities before that color's contacts, see fHasAdapterSubStepSolveJoints.
+   if fHasAdapterSubStepSolveJoints then begin
+    DispatchJointStage(JointSolveVelocityAdapterSubStepRange);
+   end;
   end else{$endif}begin
    fSolver.SolveVelocitySubStep(aTimeStep,true);
 
@@ -67744,16 +67817,16 @@ begin
    case Index of
     0:begin
      DynamicAABBTree:=fStaticAABBTree;
-    end; 
+    end;
     1:begin
      DynamicAABBTree:=fSleepingAABBTree;
-    end; 
-    2:begin 
+    end;
+    2:begin
      DynamicAABBTree:=fDynamicAABBTree;
     end;
     else begin
      DynamicAABBTree:=fKinematicAABBTree;
-    end; 
+    end;
    end;
    if assigned(DynamicAABBTree) and (DynamicAABBTree.fRoot>=0) then begin
     TemporaryCount:=0;
@@ -67782,11 +67855,11 @@ begin
    end;
   end;
  finally
-  TemporaryArray:=nil; 
+  TemporaryArray:=nil;
   CombinedArray:=nil;
  end;
 end;
- 
+
 function TKraft.ContainQuery(const aPoint:TKraftVector3;var aArray:TKraftShapeDynamicArray;var aCount:TKraftSizeInt):Boolean;
 var TemporaryCount,CombinedCount,Index:TKraftSizeInt;
     TemporaryArray,CombinedArray:TKraftPointerDynamicArray;
@@ -67802,16 +67875,16 @@ begin
    case Index of
     0:begin
      DynamicAABBTree:=fStaticAABBTree;
-    end; 
+    end;
     1:begin
      DynamicAABBTree:=fSleepingAABBTree;
-    end; 
-    2:begin 
+    end;
+    2:begin
      DynamicAABBTree:=fDynamicAABBTree;
     end;
     else begin
      DynamicAABBTree:=fKinematicAABBTree;
-    end; 
+    end;
    end;
    if assigned(DynamicAABBTree) and (DynamicAABBTree.fRoot>=0) then begin
     TemporaryCount:=0;
@@ -67840,7 +67913,7 @@ begin
    end;
   end;
  finally
-  TemporaryArray:=nil; 
+  TemporaryArray:=nil;
   CombinedArray:=nil;
  end;
 end;
@@ -67887,7 +67960,7 @@ var TemporaryCount,CombinedCount,Index:TKraftSizeInt;
     DynamicAABBTree:TKraftDynamicAABBTree;
     Temporary:Pointer;
 begin
- 
+
  result:=false;
 
  TemporaryCount:=0;
@@ -67902,16 +67975,16 @@ begin
    case Index of
     0:begin
      DynamicAABBTree:=fStaticAABBTree;
-    end; 
+    end;
     1:begin
      DynamicAABBTree:=fSleepingAABBTree;
-    end; 
-    2:begin 
+    end;
+    2:begin
      DynamicAABBTree:=fDynamicAABBTree;
     end;
     else begin
      DynamicAABBTree:=fKinematicAABBTree;
-    end; 
+    end;
    end;
    if assigned(DynamicAABBTree) and (DynamicAABBTree.fRoot>=0) then begin
     TemporaryCount:=0;
@@ -67943,7 +68016,7 @@ begin
      if Index>0 then begin
       dec(Index);
      end else begin
-      inc(Index); 
+      inc(Index);
      end;
     end else begin
      inc(Index);
@@ -67970,12 +68043,12 @@ begin
  finally
 
   // Free the temporary arrays
-  TemporaryArray:=nil; 
+  TemporaryArray:=nil;
   CombinedArray:=nil;
 
- end; 
+ end;
 
-end;    
+end;
 
 function TKraft.GetDistance(const aShapeA,aShapeB:TKraftShape):TKraftScalar;
 var GJK:TKraftGJK;
@@ -68050,4 +68123,3 @@ end;
 initialization
  CheckCPU;
 end.
-
