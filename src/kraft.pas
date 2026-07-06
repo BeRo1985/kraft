@@ -167,9 +167,9 @@ unit kraft;
 // clamping and the feature-ownership arbitration are always compiled; the edge-convexity precomputation
 // (TKraftMesh.IdentifyEdges) is always built.
 
-// Broad-phase contact-pair sort order. Off (default) = the old pointer-based order (kraft0.pas), which converges
-// box stacks in fewer SI velocity iterations. Define it for a cross-run-deterministic order keyed on the stable
-// shape ids (the same stack then needs more velocity iterations).
+// Broad-phase contact-pair sort order. Off (default) = the old pointer-based order, which converges box stacks in
+// fewer SI velocity iterations. Define it for a cross-run-deterministic order keyed on the stable shape ids
+// (the same stack then needs more velocity iterations).
 {$define KraftDeterministicPairSort}
 
 // TGS-soft substepping solver path, selectable at runtime via TKraftSolverMode.
