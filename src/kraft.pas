@@ -176,11 +176,6 @@ unit kraft;
 // clamping and the feature-ownership arbitration are always compiled; the edge-convexity precomputation
 // (TKraftMesh.IdentifyEdges) is always built.
 
-// Broad-phase contact-pair sort order. Off (default) = the old pointer-based order, which converges box stacks in
-// fewer SI velocity iterations. Define it for a cross-run-deterministic order keyed on the stable shape ids
-// (the same stack then needs more velocity iterations).
-{$define KraftDeterministicPairSort}
-
 // TGS-soft substepping solver path, selectable at runtime via TKraftSolverMode.
 // The classic sequential-impulse solver stays the default and is left byte-for-byte untouched.
 // The whole TGS path (the substep joint methods + the TKraftIsland.Solve substep loop) is in place.
@@ -16545,7 +16540,7 @@ begin
  // Diagnostic breakpoint site: this runs exactly when a second thread reaches the island bookkeeping lock while
  // another still holds it. Set a breakpoint here; the call stack (plus aWhere) names the conflicting operation
  // and the two thread ids show who collides. The log line records the same for a headless run.
- writeln('TKraftContentionCheckLock contention #',fContentionCount,' at ',aWhere,': waiting thread ',{$ifdef fpc}PtrUInt{$else}NativeUInt{$endif}(aWaitingThreadID),' blocked by thread ',{$ifdef fpc}PtrUInt{$else}NativeUInt{$endif}(aBlockingThreadID));
+ writeln('TKraftContentionCheckLock contention #',fContentionCount,' at ',aWhere,': waiting thread ',{$ifdef fpc}TKraftPtrUInt{$else}NativeUInt{$endif}(aWaitingThreadID),' blocked by thread ',{$ifdef fpc}TKraftPtrUInt{$else}NativeUInt{$endif}(aBlockingThreadID));
 end;
 
 {$ifdef KraftConstraintGraphColoring}
@@ -17293,20 +17288,32 @@ begin
 end;
 {$endif}
 
+function HashShape(p:TKraftShape):TKraftUInt32; {$ifdef caninline}inline;{$endif}
+var r:TKraftUInt64;
+begin
+ r:=p.fID;
+ r:=(not r)+(r shl 18); // r:=((r shl 18)-r-)1;
+ r:=r xor (r shr 31);
+ r:=r*21; // r:=(r+(r shl 2))+(r shl 4);
+ r:=r xor (r shr 11);
+ r:=r+(r shl 6);
+ result:=TKraftUInt32(TKraftPtrUInt(r xor (r shr 22)));
+end;
+
 function HashPointer(p:pointer):TKraftUInt32; {$ifdef caninline}inline;{$endif}
 (*{$ifdef cpu64}
 var r:TKraftUInt64;
 begin
- r:=ptruint(p);
+ r:=TKraftPtrUInt(p);
  r:=r xor (r shr 33);
  r:=r*TKraftUInt64($ff51afd7ed558ccd);
  r:=r xor (r shr 33);
  r:=r*TKraftUInt64($c4ceb9fe1a85ec53);
- result:=TKraftUInt32(ptruint(r xor (r shr 33)));
+ result:=TKraftUInt32(TKraftPtrUInt(r xor (r shr 33)));
 end;
 {$else}
 begin
- result:=ptruint(p);
+ result:=TKraftPtrUInt(p);
  result:=result xor (result shr 16);
  result:=result*$85ebca6b;
  result:=result xor (result shr 13);
@@ -17315,19 +17322,19 @@ begin
 end;
 {$endif}(**)
 {$ifdef cpu64}
-var r:ptruint;
+var r:TKraftPtrUInt;
 begin
- r:=ptruint(p);
+ r:=TKraftPtrUInt(p);
  r:=(not r)+(r shl 18); // r:=((r shl 18)-r-)1;
  r:=r xor (r shr 31);
  r:=r*21; // r:=(r+(r shl 2))+(r shl 4);
  r:=r xor (r shr 11);
  r:=r+(r shl 6);
- result:=TKraftUInt32(ptruint(r xor (r shr 22)));
+ result:=TKraftUInt32(TKraftPtrUInt(r xor (r shr 22)));
 end;
 {$else}
 begin
- result:=ptruint(p);
+ result:=TKraftPtrUInt(p);
  result:=(not result)+(result shl 15);
  result:=result xor (result shr 15);
  inc(result,result shl 2);
@@ -17349,22 +17356,61 @@ begin
 {$endif}
  r:=r xor (r shr 11);
  r:=r+(r shl 6);
- result:=TKraftUInt32(ptruint(r xor (r shr 22)));
+ result:=TKraftUInt32(TKraftPtrUInt(r xor (r shr 22)));
 end;
 
 function HashTwoPointers(a,b:pointer):TKraftUInt32; {$ifdef caninline}inline;{$endif}
 begin
- result:=HashTwoLongWords(HashPointer(a),HashPointer(b));
+ if TKraftPtrUInt(a)<TKraftPtrUInt(b) then begin
+  result:=HashTwoLongWords(HashPointer(a),HashPointer(b));
+ end else begin
+  result:=HashTwoLongWords(HashPointer(b),HashPointer(a));
+ end;
+end;
+
+function HashTwoShapes(a,b:TKraftShape):TKraftUInt32; {$ifdef caninline}inline;{$endif}
+begin
+ if a.fID<b.fID then begin
+  result:=HashTwoLongWords(HashShape(a),HashShape(b));
+ end else begin
+  result:=HashTwoLongWords(HashShape(b),HashShape(a));
+ end;
 end;
 
 function HashTwoPointersAndOneLongWord(a,b:pointer;c:TKraftUInt32):TKraftUInt32; {$ifdef caninline}inline;{$endif}
 begin
- result:=HashTwoLongWords(HashTwoLongWords(HashPointer(a),HashPointer(b)),c);
+ if TKraftPtrUInt(a)<TKraftPtrUInt(b) then begin
+  result:=HashTwoLongWords(HashTwoLongWords(HashPointer(a),HashPointer(b)),c);
+ end else begin
+  result:=HashTwoLongWords(HashTwoLongWords(HashPointer(b),HashPointer(a)),c);
+ end;
+end;
+
+function HashTwoShapesAndOneLongWord(a,b:TKraftShape;c:TKraftUInt32):TKraftUInt32; {$ifdef caninline}inline;{$endif}
+begin
+ if a.fID<b.fID then begin
+  result:=HashTwoLongWords(HashTwoLongWords(HashShape(a),HashShape(b)),c);
+ end else begin
+  result:=HashTwoLongWords(HashTwoLongWords(HashShape(b),HashShape(a)),c);
+ end;
 end;
 
 function HashTwoPointersAndTwoLongWords(a,b:pointer;c,d:TKraftUInt32):TKraftUInt32; {$ifdef caninline}inline;{$endif}
 begin
- result:=HashTwoLongWords(HashTwoLongWords(HashTwoLongWords(HashPointer(a),HashPointer(b)),c),d);
+ if TKraftPtrUInt(a)<TKraftPtrUInt(b) then begin
+  result:=HashTwoLongWords(HashTwoLongWords(HashTwoLongWords(HashPointer(a),HashPointer(b)),c),d);
+ end else begin
+  result:=HashTwoLongWords(HashTwoLongWords(HashTwoLongWords(HashPointer(b),HashPointer(a)),c),d);
+ end;
+end;
+
+function HashTwoShapesAndTwoLongWords(a,b:TKraftShape;c,d:TKraftUInt32):TKraftUInt32; {$ifdef caninline}inline;{$endif}
+begin
+ if a.fID<b.fID then begin
+  result:=HashTwoLongWords(HashTwoLongWords(HashTwoLongWords(HashShape(a),HashShape(b)),c),d);
+ end else begin
+  result:=HashTwoLongWords(HashTwoLongWords(HashTwoLongWords(HashShape(b),HashShape(a)),c),d);
+ end;
 end;
 
 function AABBStretch(const AABB:TKraftAABB;const Displacement,BoundsExpansion:TKraftVector3):TKraftAABB;
@@ -17807,16 +17853,16 @@ begin
   Temp:=TKraftUInt32(a^);
   TKraftUInt32(a^):=TKraftUInt32(b^);
   TKraftUInt32(b^):=Temp;
-  inc(PtrUInt(a),SizeOf(TKraftUInt32));
-  inc(PtrUInt(b),SizeOf(TKraftUInt32));
+  inc(TKraftPtrUInt(a),SizeOf(TKraftUInt32));
+  inc(TKraftPtrUInt(b),SizeOf(TKraftUInt32));
   dec(Size,SizeOf(TKraftUInt32));
  end;
  while Size>=SizeOf(TKraftUInt8) do begin
   Temp:=TKraftUInt8(a^);
   TKraftUInt8(a^):=TKraftUInt8(b^);
   TKraftUInt8(b^):=Temp;
-  inc(PtrUInt(a),SizeOf(TKraftUInt8));
-  inc(PtrUInt(b),SizeOf(TKraftUInt8));
+  inc(TKraftPtrUInt(a),SizeOf(TKraftUInt8));
+  inc(TKraftPtrUInt(b),SizeOf(TKraftUInt8));
   dec(Size,SizeOf(TKraftUInt8));
  end;
 end;
@@ -17838,7 +17884,7 @@ begin
   StackItem^.Right:=Right;
   StackItem^.Depth:=IntLog2((Right-Left)+1) shl 1;
   inc(StackItem);
-  while ptruint(pointer(StackItem))>ptruint(pointer(@Stack[0])) do begin
+  while TKraftPtrUInt(pointer(StackItem))>TKraftPtrUInt(pointer(@Stack[0])) do begin
    dec(StackItem);
    Left:=StackItem^.Left;
    Right:=StackItem^.Right;
@@ -17966,7 +18012,7 @@ begin
   StackItem^.Right:=Right;
   StackItem^.Depth:=IntLog2((Right-Left)+1) shl 1;
   inc(StackItem);
-  while ptruint(pointer(StackItem))>ptruint(pointer(@Stack[0])) do begin
+  while TKraftPtrUInt(pointer(StackItem))>TKraftPtrUInt(pointer(@Stack[0])) do begin
    dec(StackItem);
    Left:=StackItem^.Left;
    Right:=StackItem^.Right;
@@ -42489,7 +42535,7 @@ procedure TKraftMeshContactPair.AddToHashTable;
 var HashTableBucket:PKraftMeshContactPairHashTableBucket;
 begin
  if fHashBucket<0 then begin
-  fHashBucket:=HashTwoPointers(fShapeConvex,fShapeMesh) and high(TKraftMeshContactPairHashTable);
+  fHashBucket:=HashTwoShapes(fShapeConvex,fShapeMesh) and high(TKraftMeshContactPairHashTable);
   HashTableBucket:=@fContactManager.fMeshContactPairHashTable[fHashBucket];
   if assigned(HashTableBucket^.First) then begin
    HashTableBucket^.First.fHashPrevious:=self;
@@ -42716,11 +42762,7 @@ var HashTableBucket:PKraftContactPairHashTableBucket;
 begin
  result:=false;
  if (AContainerIndex<0) and (AElementIndex<0) then begin
-  if ptruint(AShapeA)<ptruint(AShapeB) then begin
-   HashTableBucket:=@fConvexConvexContactPairHashTable[HashTwoPointers(AShapeA,AShapeB) and high(TKraftContactPairHashTable)];
-  end else begin
-   HashTableBucket:=@fConvexConvexContactPairHashTable[HashTwoPointers(AShapeB,AShapeA) and high(TKraftContactPairHashTable)];
-  end;
+  HashTableBucket:=@fConvexConvexContactPairHashTable[HashTwoShapes(AShapeA,AShapeB) and high(TKraftContactPairHashTable)];
   ContactPair:=HashTableBucket^.First;
   while assigned(ContactPair) do begin
    if ((ContactPair^.Shapes[0]=AShapeA) and (ContactPair^.Shapes[1]=AShapeB)) or
@@ -42731,11 +42773,7 @@ begin
    ContactPair:=ContactPair^.Next;
   end;
  end else begin
-  if ptruint(AShapeA)<ptruint(AShapeB) then begin
-   HashTableBucket:=@fConvexMeshTriangleContactPairHashTable[HashTwoPointersAndTwoLongWords(AShapeA,AShapeB,AContainerIndex,AElementIndex) and high(TKraftContactPairHashTable)];
-  end else begin
-   HashTableBucket:=@fConvexMeshTriangleContactPairHashTable[HashTwoPointersAndTwoLongWords(AShapeB,AShapeA,AContainerIndex,AElementIndex) and high(TKraftContactPairHashTable)];
-  end;
+  HashTableBucket:=@fConvexMeshTriangleContactPairHashTable[HashTwoShapesAndTwoLongWords(AShapeA,AShapeB,AContainerIndex,AElementIndex) and high(TKraftContactPairHashTable)];
   ContactPair:=HashTableBucket^.First;
   while assigned(ContactPair) do begin
    if (ContactPair^.ContainerIndex=AContainerIndex) and
@@ -42784,18 +42822,10 @@ begin
  ContactPair^.ElementIndex:=aElementIndex;
 
  if (aContainerIndex<0) and (aElementIndex<0) then begin
-  if ptruint(aShapeA)<ptruint(aShapeB) then begin
-   ContactPair^.HashBucket:=HashTwoPointers(aShapeA,aShapeB) and high(TKraftContactPairHashTable);
-  end else begin
-   ContactPair^.HashBucket:=HashTwoPointers(aShapeB,aShapeA) and high(TKraftContactPairHashTable);
-  end;
+  ContactPair^.HashBucket:=HashTwoShapes(aShapeA,aShapeB) and high(TKraftContactPairHashTable);
   HashTableBucket:=@fConvexConvexContactPairHashTable[ContactPair^.HashBucket];
  end else begin
-  if ptruint(aShapeA)<ptruint(aShapeB) then begin
-   ContactPair^.HashBucket:=HashTwoPointersAndTwoLongWords(aShapeA,aShapeB,aContainerIndex,aElementIndex) and high(TKraftContactPairHashTable);
-  end else begin
-   ContactPair^.HashBucket:=HashTwoPointersAndTwoLongWords(aShapeB,aShapeA,aContainerIndex,aElementIndex) and high(TKraftContactPairHashTable);
-  end;
+  ContactPair^.HashBucket:=HashTwoShapesAndTwoLongWords(aShapeA,aShapeB,aContainerIndex,aElementIndex) and high(TKraftContactPairHashTable);
   HashTableBucket:=@fConvexMeshTriangleContactPairHashTable[ContactPair^.HashBucket];
  end;
  if assigned(HashTableBucket^.First) then begin
@@ -42912,7 +42942,7 @@ var HashTableBucket:PKraftMeshContactPairHashTableBucket;
     Displacement,BoundsExpansion:TKraftVector3;
 begin
 
- HashTableBucket:=@fMeshContactPairHashTable[HashTwoPointers(AShapeConvex,AShapeMesh) and high(TKraftMeshContactPairHashTable)];
+ HashTableBucket:=@fMeshContactPairHashTable[HashTwoShapes(AShapeConvex,AShapeMesh) and high(TKraftMeshContactPairHashTable)];
  MeshContactPair:=HashTableBucket.First;
  while assigned(MeshContactPair) do begin
   if (MeshContactPair.fShapeConvex=AShapeConvex) and (MeshContactPair.fShapeMesh=AShapeMesh) then begin
@@ -44818,17 +44848,10 @@ end;
 
 function CompareContactPairs(const a,b:pointer):TKraftInt32;
 begin
-{$ifdef KraftDeterministicPairSort}
  result:=Sign(TKraftInt64(PKraftBroadPhaseContactPair(a)^[0].fID)-TKraftInt64(PKraftBroadPhaseContactPair(b)^[0].fID));
  if result=0 then begin
   result:=Sign(TKraftInt64(PKraftBroadPhaseContactPair(a)^[1].fID)-TKraftInt64(PKraftBroadPhaseContactPair(b)^[1].fID));
  end;
-{$else}
- result:=Sign(TKraftPtrInt(PKraftBroadPhaseContactPair(a)^[0])-TKraftPtrInt(PKraftBroadPhaseContactPair(b)^[0]));
- if result=0 then begin
-  result:=Sign(TKraftPtrInt(PKraftBroadPhaseContactPair(a)^[1])-TKraftPtrInt(PKraftBroadPhaseContactPair(b)^[1]));
- end;
-{$endif}
 end;
 
 procedure TKraftBroadPhase.AddPair(const ThreadIndex:TKraftInt32;ShapeA,ShapeB:TKraftShape);
@@ -44840,11 +44863,7 @@ begin
   if (ShapeA.fShapeType>ShapeB.fShapeType) or
      (
       (ShapeA.fShapeType=ShapeB.fShapeType) and
-      {$ifdef KraftDeterministicPairSort}
-       (ShapeA.fID>ShapeB.fID)
-      {$else}
-       (ptruint(ShapeA)>ptruint(ShapeB))
-      {$endif}
+      (ShapeA.fID>ShapeB.fID)
      ) then begin
    TempShape:=ShapeA;
    ShapeA:=ShapeB;
@@ -63871,7 +63890,7 @@ const KraftUnixSysConfNumberOfProcessorsConfigured=83; // _SC_NPROCESSORS_CONF =
 
 function KraftUnixSysConf(aName:TKraftInt32):TKraftInt32; cdecl; external 'c' name 'sysconf';
 
-function KraftUnixSchedGetAffinity(aProcessID:ptruint;aCPUSetSize:TKraftInt32;aCPUSet:pointer):TKraftInt32; cdecl; external 'c' name 'sched_getaffinity';
+function KraftUnixSchedGetAffinity(aProcessID:TKraftPtrUInt;aCPUSetSize:TKraftInt32;aCPUSet:pointer):TKraftInt32; cdecl; external 'c' name 'sched_getaffinity';
 {$ifend}
 
 {$ifdef KraftPasMP}
@@ -63892,7 +63911,7 @@ var Index:TKraftInt32;
 {$ifend}
 {$ifdef windows}
     sinfo:SYSTEM_INFO;
-    dwProcessAffinityMask,dwSystemAffinityMask:ptruint;
+    dwProcessAffinityMask,dwSystemAffinityMask:TKraftPtrUInt;
  function GetRealCountOfCPUCores:TKraftInt32;
  const RelationProcessorCore=0;
        RelationNumaNode=1;
@@ -63915,7 +63934,7 @@ var Index:TKraftInt32;
       end;
       PSystemLogicalProcessorInformation=^TSystemLogicalProcessorInformation;
       TSystemLogicalProcessorInformation=packed record
-       ProcessorMask:ptruint;
+       ProcessorMask:TKraftPtrUInt;
        case Relationship:TLogicalProcessorRelationship of
         0:(
          Flags:TKraftUInt8;
