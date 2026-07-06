@@ -5482,10 +5482,12 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        // to run serially (the callback is user code without any thread safety contract)
        fHasBodyDampingCallbacks:boolean;
 
-       // At least one active joint solves its substep velocity on an adapter path (not the native soft-step
-       // path). Those joints keep their classic solve position after all contacts of the substep even when the
-       // fused color stages are on, so their per-substep mini step never reacts to the intermediate per-color
-       // velocities before a color's contacts are solved (which drives a light limb into a runaway feedback loop).
+       // At least one active joint solves its substep velocity on an adapter (hard) path, not the native soft-step
+       // path. The fused color stages interleave a color's joints and contacts, which is only valid when the color's
+       // constraints are order-independent: true for contacts and the soft native joints, but not for the hard
+       // adapter solve, which drives its rows rigidly to zero with no impulse damping to absorb the reorder and so
+       // overcorrects a light limb into a runaway when solved before its color's contacts. Such joints therefore
+       // keep their classic position after all contacts of the substep even with the fused color stages on.
        fHasAdapterSubStepSolveJoints:boolean;
 {$endif}
 
@@ -60409,8 +60411,9 @@ procedure TKraftIsland.JointSolveVelocityAdapterSubStepRange(const aFromOrderInd
 // The adapter share of the substep velocity solve, run after all contacts of the substep (the classic joint
 // position) even when the fused color stages are on: an adapter substep joint runs its full classic prepare +
 // warm start + solve as a mini step with the substep time step, a plain adapter joint its classic velocity solve.
-// Keeping this after the contacts avoids the runaway feedback a light limb hit by a contact can otherwise build up
-// when the joint mini step reacts to the intermediate per-color velocities before that color's contacts are solved.
+// The hard adapter solve is order-sensitive: unlike the soft native solve it has no impulse damping to absorb the
+// fused reorder, so running it before a color's contacts would overcorrect a light limb. After all contacts it
+// keeps the solve order it is stable in.
 var Index:TKraftInt32;
     Constraint:TKraftConstraint;
 begin
@@ -61135,8 +61138,8 @@ begin
    // Only the native soft-step joints join the fused per-color interleave with the contacts.
    DispatchFusedColorStage(JointSolveVelocityNativeSubStepRange,fSolver.SolveVelocitySubStepRange,fSolver.SolveVelocitySubStepWideRange);
    // Adapter path joints (their per-substep mini step or classic per-substep solve) run after all contacts of the
-   // substep, the classic joint position, which keeps a light limb from running away when its joint reacts to the
-   // intermediate per-color velocities before that color's contacts, see fHasAdapterSubStepSolveJoints.
+   // substep, the classic joint position: the hard adapter solve is order-sensitive and would overcorrect a light
+   // limb in the fused per-color interleave before that color's contacts, see fHasAdapterSubStepSolveJoints.
    if fHasAdapterSubStepSolveJoints then begin
     DispatchJointStage(JointSolveVelocityAdapterSubStepRange);
    end;
