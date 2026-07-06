@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-07-05-17-27-0000                       *
+ *                        Version 2026-07-06-20-04-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -161,6 +161,13 @@ unit kraft;
 {$define UseTriangleMeshFullPerturbation}
 
 {$define KraftConstraintGraphColoring}
+
+// x86-64 SSE assembler variants of the wide (four lane SoA) contact solver kernels, active only for single
+// precision. They produce bit-identical results to the pure Pascal wide kernels (which stay as the reference and
+// the fallback for other CPUs and for double precision), see TKraftSolver.WarmStartSubStepWideRange and friends.
+{$if defined(cpuamd64) and not defined(KraftUseDouble)}
+ {$define KraftWideContactSolverAssembler}
+{$ifend}
 
 // Internal/ghost edge handling for triangle meshes (keeps convex bodies from snagging on the shared inner edges
 // of tessellated surfaces) is selected at runtime via TKraft.InternalEdgeHandlingMode. Both the contact-normal
@@ -4947,6 +4954,54 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      end;
 
      TKraftSolverWideContactBatches=array of TKraftSolverWideContactBatch;
+
+     // Lane-major scratch for one wide batch: the per-lane body velocities and linear factors gathered from the
+     // AoS solver velocity slots (the other batch inputs are already lane-major SoA and are read from the batch
+     // directly). The wide kernels update the velocities in place; the wrapper scatters them back to the active
+     // lanes afterwards. Every field is a 16-byte lane block, so the layout maps one to one onto SSE registers.
+     PKraftSolverWideVelocityScratch=^TKraftSolverWideVelocityScratch;
+     TKraftSolverWideVelocityScratch=record
+      LinearVelocitiesA:TKraftSolverWideVector3;
+      AngularVelocitiesA:TKraftSolverWideVector3;
+      LinearVelocitiesB:TKraftSolverWideVector3;
+      AngularVelocitiesB:TKraftSolverWideVector3;
+      LinearFactorsA:TKraftSolverWideVector3;
+      LinearFactorsB:TKraftSolverWideVector3;
+     end;
+
+     // A lane-major quaternion block (x,y,z,w each a 16 byte lane), for the wide solve scratch below.
+     TKraftSolverWideQuaternion=record
+      x:TKraftSolverWideLane;
+      y:TKraftSolverWideLane;
+      z:TKraftSolverWideLane;
+      w:TKraftSolverWideLane;
+     end;
+
+     // Extra lane-major scratch the wide velocity solve needs beyond the velocities: the two bodies' current and
+     // prepare-time centres and orientations, gathered from the AoS solver position and prepare arrays. The
+     // assembler computes the centre-of-mass deltas and the delta quaternions from these (architecture B, all in
+     // the kernel), then the per-point separation.
+     PKraftSolverWideSolveScratch=^TKraftSolverWideSolveScratch;
+     TKraftSolverWideSolveScratch=record
+      PositionsA:TKraftSolverWideVector3;
+      PositionsB:TKraftSolverWideVector3;
+      PrepareCentersA:TKraftSolverWideVector3;
+      PrepareCentersB:TKraftSolverWideVector3;
+      OrientationsA:TKraftSolverWideQuaternion;
+      OrientationsB:TKraftSolverWideQuaternion;
+      PrepareOrientationsA:TKraftSolverWideQuaternion;
+      PrepareOrientationsB:TKraftSolverWideQuaternion;
+     end;
+
+     // Uniform per-call scalars the wide velocity solve kernel needs, pre-broadcast into lane blocks (and masks
+     // for the uniform booleans), so the assembler can read them with movups without per-call branching.
+     PKraftSolverWideSolveParams=^TKraftSolverWideSolveParams;
+     TKraftSolverWideSolveParams=record
+      InverseH:TKraftSolverWideLane;
+      NegativeMaxBiasVelocity:TKraftSolverWideLane;
+      UseBiasMask:TKraftSolverWideLane;
+      FrictionMask:TKraftSolverWideLane;
+     end;
 {$endif}
 
      TKraftSolver=class
@@ -5047,6 +5102,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure DispatchWideContactStage(const aWideRangeMethod,aScalarRangeMethod:TKraftSolverStageRangeMethod);
        procedure PackWideContacts;
        procedure UnpackWideContacts;
+       procedure GatherWideVelocities(const aBatch:PKraftSolverWideContactBatch;out aScratch:TKraftSolverWideVelocityScratch);
+       procedure ScatterWideVelocities(const aBatch:PKraftSolverWideContactBatch;const aScratch:TKraftSolverWideVelocityScratch);
+       procedure GatherWideSolveExtras(const aBatch:PKraftSolverWideContactBatch;out aScratch:TKraftSolverWideSolveScratch);
        procedure WarmStartSubStepWideRange(const aFromBatchIndex,aToBatchIndex,aThreadIndex:TKraftInt32);
        procedure SolveVelocitySubStepWideRange(const aFromBatchIndex,aToBatchIndex,aThreadIndex:TKraftInt32);
        procedure ApplyRestitutionWideRange(const aFromBatchIndex,aToBatchIndex,aThreadIndex:TKraftInt32);
@@ -5864,6 +5922,11 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 {$ifdef KraftConstraintGraphColoring}
        fWideContactSolver:boolean;
 
+       // Use the x86-64 SSE assembler wide kernels when available (single precision on amd64); when off, the pure
+       // Pascal wide kernels run instead. Both are bit-identical, this only selects the code path, so it is the
+       // hook for the assembler versus Pascal verification. Ignored unless fWideContactSolver is on.
+       fWideContactSolverAssembler:boolean;
+
        // Solver stage pipeline (Box3D-style block claiming model): during the solves of the big islands
        // of the colored modes the worker threads stay resident in one spin loop and every parallel stage
        // publishes itself over one atomic publication counter, instead of paying one job manager wake up
@@ -6266,6 +6329,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        // exactly the scalar operations in the same order and the results stay bit identical to the scalar path
        // of the same mode. The lane major layout is the base for an optional SIMD assembler stage.
        property WideContactSolver:boolean read fWideContactSolver write fWideContactSolver;
+       property WideContactSolverAssembler:boolean read fWideContactSolverAssembler write fWideContactSolverAssembler;
 {$endif}
 
        // TGS begin
@@ -59201,6 +59265,545 @@ begin
  end;
 end;
 
+procedure TKraftSolver.GatherWideVelocities(const aBatch:PKraftSolverWideContactBatch;out aScratch:TKraftSolverWideVelocityScratch);
+// Gather the four lanes' body velocities and linear factors from the AoS solver slots into the lane-major scratch
+// for the assembler kernels. All four lanes are gathered unconditionally: the pack zeroed the inactive lanes'
+// body indices to a valid slot, so this reads a valid velocity for them, and the scatter afterwards writes only
+// the active lanes back.
+var LaneIndex,IndexA,IndexB:TKraftInt32;
+begin
+ for LaneIndex:=0 to 3 do begin
+  IndexA:=aBatch^.IndicesA[LaneIndex];
+  IndexB:=aBatch^.IndicesB[LaneIndex];
+  aScratch.LinearVelocitiesA.x[LaneIndex]:=fVelocities[IndexA].LinearVelocity.x;
+  aScratch.LinearVelocitiesA.y[LaneIndex]:=fVelocities[IndexA].LinearVelocity.y;
+  aScratch.LinearVelocitiesA.z[LaneIndex]:=fVelocities[IndexA].LinearVelocity.z;
+  aScratch.AngularVelocitiesA.x[LaneIndex]:=fVelocities[IndexA].AngularVelocity.x;
+  aScratch.AngularVelocitiesA.y[LaneIndex]:=fVelocities[IndexA].AngularVelocity.y;
+  aScratch.AngularVelocitiesA.z[LaneIndex]:=fVelocities[IndexA].AngularVelocity.z;
+  aScratch.LinearVelocitiesB.x[LaneIndex]:=fVelocities[IndexB].LinearVelocity.x;
+  aScratch.LinearVelocitiesB.y[LaneIndex]:=fVelocities[IndexB].LinearVelocity.y;
+  aScratch.LinearVelocitiesB.z[LaneIndex]:=fVelocities[IndexB].LinearVelocity.z;
+  aScratch.AngularVelocitiesB.x[LaneIndex]:=fVelocities[IndexB].AngularVelocity.x;
+  aScratch.AngularVelocitiesB.y[LaneIndex]:=fVelocities[IndexB].AngularVelocity.y;
+  aScratch.AngularVelocitiesB.z[LaneIndex]:=fVelocities[IndexB].AngularVelocity.z;
+  aScratch.LinearFactorsA.x[LaneIndex]:=fLinearFactors[IndexA].x;
+  aScratch.LinearFactorsA.y[LaneIndex]:=fLinearFactors[IndexA].y;
+  aScratch.LinearFactorsA.z[LaneIndex]:=fLinearFactors[IndexA].z;
+  aScratch.LinearFactorsB.x[LaneIndex]:=fLinearFactors[IndexB].x;
+  aScratch.LinearFactorsB.y[LaneIndex]:=fLinearFactors[IndexB].y;
+  aScratch.LinearFactorsB.z[LaneIndex]:=fLinearFactors[IndexB].z;
+ end;
+end;
+
+procedure TKraftSolver.ScatterWideVelocities(const aBatch:PKraftSolverWideContactBatch;const aScratch:TKraftSolverWideVelocityScratch);
+// Scatter the updated velocities back to the AoS solver slots, only for the active lanes (an inactive lane shares
+// the valid slot 0 with the gather, and writing it back would clobber another body's result).
+var LaneIndex,IndexA,IndexB:TKraftInt32;
+begin
+ for LaneIndex:=0 to aBatch^.CountLanes-1 do begin
+  IndexA:=aBatch^.IndicesA[LaneIndex];
+  IndexB:=aBatch^.IndicesB[LaneIndex];
+  fVelocities[IndexA].LinearVelocity.x:=aScratch.LinearVelocitiesA.x[LaneIndex];
+  fVelocities[IndexA].LinearVelocity.y:=aScratch.LinearVelocitiesA.y[LaneIndex];
+  fVelocities[IndexA].LinearVelocity.z:=aScratch.LinearVelocitiesA.z[LaneIndex];
+  fVelocities[IndexA].AngularVelocity.x:=aScratch.AngularVelocitiesA.x[LaneIndex];
+  fVelocities[IndexA].AngularVelocity.y:=aScratch.AngularVelocitiesA.y[LaneIndex];
+  fVelocities[IndexA].AngularVelocity.z:=aScratch.AngularVelocitiesA.z[LaneIndex];
+  fVelocities[IndexB].LinearVelocity.x:=aScratch.LinearVelocitiesB.x[LaneIndex];
+  fVelocities[IndexB].LinearVelocity.y:=aScratch.LinearVelocitiesB.y[LaneIndex];
+  fVelocities[IndexB].LinearVelocity.z:=aScratch.LinearVelocitiesB.z[LaneIndex];
+  fVelocities[IndexB].AngularVelocity.x:=aScratch.AngularVelocitiesB.x[LaneIndex];
+  fVelocities[IndexB].AngularVelocity.y:=aScratch.AngularVelocitiesB.y[LaneIndex];
+  fVelocities[IndexB].AngularVelocity.z:=aScratch.AngularVelocitiesB.z[LaneIndex];
+ end;
+end;
+
+{$ifdef KraftWideContactSolverAssembler}
+procedure KraftWideWarmStartBatchSSE(const aBatch:Pointer;const aScratch:Pointer); assembler; {$ifdef fpc}nostackframe; ms_abi_default;{$endif}
+// SSE assembler wide warm start for one batch: the four contact pairs (lanes) run vertically, one XMM per lane
+// block, bit-identical to the per-lane scalar WarmStartSubStepWideRange (only vertical addps/subps/mulps, no FMA,
+// same left-to-right sum order). RCX = batch, RDX = velocity scratch. Inactive lanes and points carry zero
+// impulses (the pack zeroed them), so the four points and the central block run unconditionally and contribute
+// exactly zero for them. The batch lane fields are not 16 byte aligned, so movups throughout.
+type TWB=TKraftSolverWideContactBatch;      // shorthands so the assembler addresses the lane-major SoA fields
+     TWP=TKraftSolverWideContactPoint;      // by name; a wide 3x3 matrix element [row,column] is the field base
+     TWS=TKraftSolverWideVelocityScratch;   // plus a literal element offset ((row*3+column)*SizeOf(lane)=*16)
+asm
+{$ifndef fpc}
+ .noframe
+{$endif}
+ sub rsp,72
+ movaps dqword ptr [rsp],xmm6
+ movaps dqword ptr [rsp+16],xmm7
+ movaps dqword ptr [rsp+32],xmm8
+ movaps dqword ptr [rsp+48],xmm9
+
+ // Per contact point: P = Normal * NormalImpulse, then apply to A (subtract) and B (add). r8 walks the points.
+ mov r9,4
+ lea r8,[rcx+TWB.Points]
+@WarmStartPointLoop:
+ movups xmm9,dqword ptr [r8+TWP.NormalImpulses]
+ movups xmm0,dqword ptr [rcx+TWB.Normals.x]
+ mulps xmm0,xmm9
+ movups xmm1,dqword ptr [rcx+TWB.Normals.y]
+ mulps xmm1,xmm9
+ movups xmm2,dqword ptr [rcx+TWB.Normals.z]
+ mulps xmm2,xmm9
+
+ // Body A linear: vA -= P .* (lA * mA)
+ movups xmm3,dqword ptr [rcx+TWB.InverseMassesA]
+ movups xmm4,dqword ptr [rdx+TWS.LinearFactorsA.x]
+ mulps xmm4,xmm3
+ mulps xmm4,xmm0
+ movups xmm5,dqword ptr [rdx+TWS.LinearVelocitiesA.x]
+ subps xmm5,xmm4
+ movups dqword ptr [rdx+TWS.LinearVelocitiesA.x],xmm5
+ movups xmm4,dqword ptr [rdx+TWS.LinearFactorsA.y]
+ mulps xmm4,xmm3
+ mulps xmm4,xmm1
+ movups xmm5,dqword ptr [rdx+TWS.LinearVelocitiesA.y]
+ subps xmm5,xmm4
+ movups dqword ptr [rdx+TWS.LinearVelocitiesA.y],xmm5
+ movups xmm4,dqword ptr [rdx+TWS.LinearFactorsA.z]
+ mulps xmm4,xmm3
+ mulps xmm4,xmm2
+ movups xmm5,dqword ptr [rdx+TWS.LinearVelocitiesA.z]
+ subps xmm5,xmm4
+ movups dqword ptr [rdx+TWS.LinearVelocitiesA.z],xmm5
+ // Body A angular: wA -= matmul(cross(rA,P), iA), rA at [r8+TWP.RelativePositionsA]
+ movups xmm3,dqword ptr [r8+TWP.RelativePositionsA.y]
+ mulps xmm3,xmm2
+ movups xmm4,dqword ptr [r8+TWP.RelativePositionsA.z]
+ mulps xmm4,xmm1
+ subps xmm3,xmm4
+ movups xmm4,dqword ptr [r8+TWP.RelativePositionsA.z]
+ mulps xmm4,xmm0
+ movups xmm5,dqword ptr [r8+TWP.RelativePositionsA.x]
+ mulps xmm5,xmm2
+ subps xmm4,xmm5
+ movups xmm5,dqword ptr [r8+TWP.RelativePositionsA.x]
+ mulps xmm5,xmm1
+ movups xmm6,dqword ptr [r8+TWP.RelativePositionsA.y]
+ mulps xmm6,xmm0
+ subps xmm5,xmm6
+ movups xmm6,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA]
+ mulps xmm6,xmm3
+ movups xmm7,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+48]
+ mulps xmm7,xmm4
+ addps xmm6,xmm7
+ movups xmm7,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+96]
+ mulps xmm7,xmm5
+ addps xmm6,xmm7
+ movups xmm7,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+16]
+ mulps xmm7,xmm3
+ movups xmm8,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+64]
+ mulps xmm8,xmm4
+ addps xmm7,xmm8
+ movups xmm8,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+112]
+ mulps xmm8,xmm5
+ addps xmm7,xmm8
+ movups xmm8,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+32]
+ mulps xmm8,xmm3
+ movups xmm9,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+80]
+ mulps xmm9,xmm4
+ addps xmm8,xmm9
+ movups xmm9,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+128]
+ mulps xmm9,xmm5
+ addps xmm8,xmm9
+ movups xmm3,dqword ptr [rdx+TWS.AngularVelocitiesA.x]
+ subps xmm3,xmm6
+ movups dqword ptr [rdx+TWS.AngularVelocitiesA.x],xmm3
+ movups xmm3,dqword ptr [rdx+TWS.AngularVelocitiesA.y]
+ subps xmm3,xmm7
+ movups dqword ptr [rdx+TWS.AngularVelocitiesA.y],xmm3
+ movups xmm3,dqword ptr [rdx+TWS.AngularVelocitiesA.z]
+ subps xmm3,xmm8
+ movups dqword ptr [rdx+TWS.AngularVelocitiesA.z],xmm3
+
+ // Body B linear: vB += P .* (lB * mB)
+ movups xmm3,dqword ptr [rcx+TWB.InverseMassesB]
+ movups xmm4,dqword ptr [rdx+TWS.LinearFactorsB.x]
+ mulps xmm4,xmm3
+ mulps xmm4,xmm0
+ movups xmm5,dqword ptr [rdx+TWS.LinearVelocitiesB.x]
+ addps xmm5,xmm4
+ movups dqword ptr [rdx+TWS.LinearVelocitiesB.x],xmm5
+ movups xmm4,dqword ptr [rdx+TWS.LinearFactorsB.y]
+ mulps xmm4,xmm3
+ mulps xmm4,xmm1
+ movups xmm5,dqword ptr [rdx+TWS.LinearVelocitiesB.y]
+ addps xmm5,xmm4
+ movups dqword ptr [rdx+TWS.LinearVelocitiesB.y],xmm5
+ movups xmm4,dqword ptr [rdx+TWS.LinearFactorsB.z]
+ mulps xmm4,xmm3
+ mulps xmm4,xmm2
+ movups xmm5,dqword ptr [rdx+TWS.LinearVelocitiesB.z]
+ addps xmm5,xmm4
+ movups dqword ptr [rdx+TWS.LinearVelocitiesB.z],xmm5
+ // Body B angular: wB += matmul(cross(rB,P), iB), rB at [r8+TWP.RelativePositionsB]
+ movups xmm3,dqword ptr [r8+TWP.RelativePositionsB.y]
+ mulps xmm3,xmm2
+ movups xmm4,dqword ptr [r8+TWP.RelativePositionsB.z]
+ mulps xmm4,xmm1
+ subps xmm3,xmm4
+ movups xmm4,dqword ptr [r8+TWP.RelativePositionsB.z]
+ mulps xmm4,xmm0
+ movups xmm5,dqword ptr [r8+TWP.RelativePositionsB.x]
+ mulps xmm5,xmm2
+ subps xmm4,xmm5
+ movups xmm5,dqword ptr [r8+TWP.RelativePositionsB.x]
+ mulps xmm5,xmm1
+ movups xmm6,dqword ptr [r8+TWP.RelativePositionsB.y]
+ mulps xmm6,xmm0
+ subps xmm5,xmm6
+ movups xmm6,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB]
+ mulps xmm6,xmm3
+ movups xmm7,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+48]
+ mulps xmm7,xmm4
+ addps xmm6,xmm7
+ movups xmm7,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+96]
+ mulps xmm7,xmm5
+ addps xmm6,xmm7
+ movups xmm7,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+16]
+ mulps xmm7,xmm3
+ movups xmm8,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+64]
+ mulps xmm8,xmm4
+ addps xmm7,xmm8
+ movups xmm8,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+112]
+ mulps xmm8,xmm5
+ addps xmm7,xmm8
+ movups xmm8,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+32]
+ mulps xmm8,xmm3
+ movups xmm9,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+80]
+ mulps xmm9,xmm4
+ addps xmm8,xmm9
+ movups xmm9,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+128]
+ mulps xmm9,xmm5
+ addps xmm8,xmm9
+ movups xmm3,dqword ptr [rdx+TWS.AngularVelocitiesB.x]
+ addps xmm3,xmm6
+ movups dqword ptr [rdx+TWS.AngularVelocitiesB.x],xmm3
+ movups xmm3,dqword ptr [rdx+TWS.AngularVelocitiesB.y]
+ addps xmm3,xmm7
+ movups dqword ptr [rdx+TWS.AngularVelocitiesB.y],xmm3
+ movups xmm3,dqword ptr [rdx+TWS.AngularVelocitiesB.z]
+ addps xmm3,xmm8
+ movups dqword ptr [rdx+TWS.AngularVelocitiesB.z],xmm3
+
+ add r8,SizeOf(TWP)
+ dec r9
+ jnz @WarmStartPointLoop
+
+ // Central tangential friction at the manifold origin: P = Tangents0*FrictionImpulse0 + Tangents1*FrictionImpulse1
+ movups xmm9,dqword ptr [rcx+TWB.FrictionImpulses]
+ movups xmm0,dqword ptr [rcx+TWB.Tangents0.x]
+ mulps xmm0,xmm9
+ movups xmm1,dqword ptr [rcx+TWB.Tangents0.y]
+ mulps xmm1,xmm9
+ movups xmm2,dqword ptr [rcx+TWB.Tangents0.z]
+ mulps xmm2,xmm9
+ movups xmm9,dqword ptr [rcx+TWB.FrictionImpulses+16]
+ movups xmm3,dqword ptr [rcx+TWB.Tangents1.x]
+ mulps xmm3,xmm9
+ addps xmm0,xmm3
+ movups xmm3,dqword ptr [rcx+TWB.Tangents1.y]
+ mulps xmm3,xmm9
+ addps xmm1,xmm3
+ movups xmm3,dqword ptr [rcx+TWB.Tangents1.z]
+ mulps xmm3,xmm9
+ addps xmm2,xmm3
+ // Central friction body A: vA -= P .* (lA * mA); wA -= matmul(cross(OriginsA,P), iA)
+ movups xmm3,dqword ptr [rcx+TWB.InverseMassesA]
+ movups xmm4,dqword ptr [rdx+TWS.LinearFactorsA.x]
+ mulps xmm4,xmm3
+ mulps xmm4,xmm0
+ movups xmm5,dqword ptr [rdx+TWS.LinearVelocitiesA.x]
+ subps xmm5,xmm4
+ movups dqword ptr [rdx+TWS.LinearVelocitiesA.x],xmm5
+ movups xmm4,dqword ptr [rdx+TWS.LinearFactorsA.y]
+ mulps xmm4,xmm3
+ mulps xmm4,xmm1
+ movups xmm5,dqword ptr [rdx+TWS.LinearVelocitiesA.y]
+ subps xmm5,xmm4
+ movups dqword ptr [rdx+TWS.LinearVelocitiesA.y],xmm5
+ movups xmm4,dqword ptr [rdx+TWS.LinearFactorsA.z]
+ mulps xmm4,xmm3
+ mulps xmm4,xmm2
+ movups xmm5,dqword ptr [rdx+TWS.LinearVelocitiesA.z]
+ subps xmm5,xmm4
+ movups dqword ptr [rdx+TWS.LinearVelocitiesA.z],xmm5
+ movups xmm3,dqword ptr [rcx+TWB.OriginsA.y]
+ mulps xmm3,xmm2
+ movups xmm4,dqword ptr [rcx+TWB.OriginsA.z]
+ mulps xmm4,xmm1
+ subps xmm3,xmm4
+ movups xmm4,dqword ptr [rcx+TWB.OriginsA.z]
+ mulps xmm4,xmm0
+ movups xmm5,dqword ptr [rcx+TWB.OriginsA.x]
+ mulps xmm5,xmm2
+ subps xmm4,xmm5
+ movups xmm5,dqword ptr [rcx+TWB.OriginsA.x]
+ mulps xmm5,xmm1
+ movups xmm6,dqword ptr [rcx+TWB.OriginsA.y]
+ mulps xmm6,xmm0
+ subps xmm5,xmm6
+ movups xmm6,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA]
+ mulps xmm6,xmm3
+ movups xmm7,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+48]
+ mulps xmm7,xmm4
+ addps xmm6,xmm7
+ movups xmm7,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+96]
+ mulps xmm7,xmm5
+ addps xmm6,xmm7
+ movups xmm7,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+16]
+ mulps xmm7,xmm3
+ movups xmm8,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+64]
+ mulps xmm8,xmm4
+ addps xmm7,xmm8
+ movups xmm8,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+112]
+ mulps xmm8,xmm5
+ addps xmm7,xmm8
+ movups xmm8,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+32]
+ mulps xmm8,xmm3
+ movups xmm9,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+80]
+ mulps xmm9,xmm4
+ addps xmm8,xmm9
+ movups xmm9,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+128]
+ mulps xmm9,xmm5
+ addps xmm8,xmm9
+ movups xmm3,dqword ptr [rdx+TWS.AngularVelocitiesA.x]
+ subps xmm3,xmm6
+ movups dqword ptr [rdx+TWS.AngularVelocitiesA.x],xmm3
+ movups xmm3,dqword ptr [rdx+TWS.AngularVelocitiesA.y]
+ subps xmm3,xmm7
+ movups dqword ptr [rdx+TWS.AngularVelocitiesA.y],xmm3
+ movups xmm3,dqword ptr [rdx+TWS.AngularVelocitiesA.z]
+ subps xmm3,xmm8
+ movups dqword ptr [rdx+TWS.AngularVelocitiesA.z],xmm3
+ // Central friction body B: vB += P .* (lB * mB); wB += matmul(cross(OriginsB,P), iB)
+ movups xmm3,dqword ptr [rcx+TWB.InverseMassesB]
+ movups xmm4,dqword ptr [rdx+TWS.LinearFactorsB.x]
+ mulps xmm4,xmm3
+ mulps xmm4,xmm0
+ movups xmm5,dqword ptr [rdx+TWS.LinearVelocitiesB.x]
+ addps xmm5,xmm4
+ movups dqword ptr [rdx+TWS.LinearVelocitiesB.x],xmm5
+ movups xmm4,dqword ptr [rdx+TWS.LinearFactorsB.y]
+ mulps xmm4,xmm3
+ mulps xmm4,xmm1
+ movups xmm5,dqword ptr [rdx+TWS.LinearVelocitiesB.y]
+ addps xmm5,xmm4
+ movups dqword ptr [rdx+TWS.LinearVelocitiesB.y],xmm5
+ movups xmm4,dqword ptr [rdx+TWS.LinearFactorsB.z]
+ mulps xmm4,xmm3
+ mulps xmm4,xmm2
+ movups xmm5,dqword ptr [rdx+TWS.LinearVelocitiesB.z]
+ addps xmm5,xmm4
+ movups dqword ptr [rdx+TWS.LinearVelocitiesB.z],xmm5
+ movups xmm3,dqword ptr [rcx+TWB.OriginsB.y]
+ mulps xmm3,xmm2
+ movups xmm4,dqword ptr [rcx+TWB.OriginsB.z]
+ mulps xmm4,xmm1
+ subps xmm3,xmm4
+ movups xmm4,dqword ptr [rcx+TWB.OriginsB.z]
+ mulps xmm4,xmm0
+ movups xmm5,dqword ptr [rcx+TWB.OriginsB.x]
+ mulps xmm5,xmm2
+ subps xmm4,xmm5
+ movups xmm5,dqword ptr [rcx+TWB.OriginsB.x]
+ mulps xmm5,xmm1
+ movups xmm6,dqword ptr [rcx+TWB.OriginsB.y]
+ mulps xmm6,xmm0
+ subps xmm5,xmm6
+ movups xmm6,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB]
+ mulps xmm6,xmm3
+ movups xmm7,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+48]
+ mulps xmm7,xmm4
+ addps xmm6,xmm7
+ movups xmm7,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+96]
+ mulps xmm7,xmm5
+ addps xmm6,xmm7
+ movups xmm7,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+16]
+ mulps xmm7,xmm3
+ movups xmm8,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+64]
+ mulps xmm8,xmm4
+ addps xmm7,xmm8
+ movups xmm8,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+112]
+ mulps xmm8,xmm5
+ addps xmm7,xmm8
+ movups xmm8,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+32]
+ mulps xmm8,xmm3
+ movups xmm9,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+80]
+ mulps xmm9,xmm4
+ addps xmm8,xmm9
+ movups xmm9,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+128]
+ mulps xmm9,xmm5
+ addps xmm8,xmm9
+ movups xmm3,dqword ptr [rdx+TWS.AngularVelocitiesB.x]
+ addps xmm3,xmm6
+ movups dqword ptr [rdx+TWS.AngularVelocitiesB.x],xmm3
+ movups xmm3,dqword ptr [rdx+TWS.AngularVelocitiesB.y]
+ addps xmm3,xmm7
+ movups dqword ptr [rdx+TWS.AngularVelocitiesB.y],xmm3
+ movups xmm3,dqword ptr [rdx+TWS.AngularVelocitiesB.z]
+ addps xmm3,xmm8
+ movups dqword ptr [rdx+TWS.AngularVelocitiesB.z],xmm3
+
+ // Central twist about the normal: P = Normal * TwistImpulse; wA -= matmul(P, iA); wB += matmul(P, iB)
+ movups xmm9,dqword ptr [rcx+TWB.TwistImpulses]
+ movups xmm0,dqword ptr [rcx+TWB.Normals.x]
+ mulps xmm0,xmm9
+ movups xmm1,dqword ptr [rcx+TWB.Normals.y]
+ mulps xmm1,xmm9
+ movups xmm2,dqword ptr [rcx+TWB.Normals.z]
+ mulps xmm2,xmm9
+ movups xmm6,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA]
+ mulps xmm6,xmm0
+ movups xmm7,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+48]
+ mulps xmm7,xmm1
+ addps xmm6,xmm7
+ movups xmm7,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+96]
+ mulps xmm7,xmm2
+ addps xmm6,xmm7
+ movups xmm7,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+16]
+ mulps xmm7,xmm0
+ movups xmm8,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+64]
+ mulps xmm8,xmm1
+ addps xmm7,xmm8
+ movups xmm8,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+112]
+ mulps xmm8,xmm2
+ addps xmm7,xmm8
+ movups xmm8,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+32]
+ mulps xmm8,xmm0
+ movups xmm9,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+80]
+ mulps xmm9,xmm1
+ addps xmm8,xmm9
+ movups xmm9,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+128]
+ mulps xmm9,xmm2
+ addps xmm8,xmm9
+ movups xmm3,dqword ptr [rdx+TWS.AngularVelocitiesA.x]
+ subps xmm3,xmm6
+ movups dqword ptr [rdx+TWS.AngularVelocitiesA.x],xmm3
+ movups xmm3,dqword ptr [rdx+TWS.AngularVelocitiesA.y]
+ subps xmm3,xmm7
+ movups dqword ptr [rdx+TWS.AngularVelocitiesA.y],xmm3
+ movups xmm3,dqword ptr [rdx+TWS.AngularVelocitiesA.z]
+ subps xmm3,xmm8
+ movups dqword ptr [rdx+TWS.AngularVelocitiesA.z],xmm3
+ movups xmm6,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB]
+ mulps xmm6,xmm0
+ movups xmm7,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+48]
+ mulps xmm7,xmm1
+ addps xmm6,xmm7
+ movups xmm7,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+96]
+ mulps xmm7,xmm2
+ addps xmm6,xmm7
+ movups xmm7,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+16]
+ mulps xmm7,xmm0
+ movups xmm8,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+64]
+ mulps xmm8,xmm1
+ addps xmm7,xmm8
+ movups xmm8,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+112]
+ mulps xmm8,xmm2
+ addps xmm7,xmm8
+ movups xmm8,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+32]
+ mulps xmm8,xmm0
+ movups xmm9,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+80]
+ mulps xmm9,xmm1
+ addps xmm8,xmm9
+ movups xmm9,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+128]
+ mulps xmm9,xmm2
+ addps xmm8,xmm9
+ movups xmm3,dqword ptr [rdx+TWS.AngularVelocitiesB.x]
+ addps xmm3,xmm6
+ movups dqword ptr [rdx+TWS.AngularVelocitiesB.x],xmm3
+ movups xmm3,dqword ptr [rdx+TWS.AngularVelocitiesB.y]
+ addps xmm3,xmm7
+ movups dqword ptr [rdx+TWS.AngularVelocitiesB.y],xmm3
+ movups xmm3,dqword ptr [rdx+TWS.AngularVelocitiesB.z]
+ addps xmm3,xmm8
+ movups dqword ptr [rdx+TWS.AngularVelocitiesB.z],xmm3
+
+ // Rolling resistance (angular only): P = RollingImpulse; wA -= matmul(P, iA); wB += matmul(P, iB)
+ movups xmm0,dqword ptr [rcx+TWB.RollingImpulses.x]
+ movups xmm1,dqword ptr [rcx+TWB.RollingImpulses.y]
+ movups xmm2,dqword ptr [rcx+TWB.RollingImpulses.z]
+ movups xmm6,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA]
+ mulps xmm6,xmm0
+ movups xmm7,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+48]
+ mulps xmm7,xmm1
+ addps xmm6,xmm7
+ movups xmm7,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+96]
+ mulps xmm7,xmm2
+ addps xmm6,xmm7
+ movups xmm7,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+16]
+ mulps xmm7,xmm0
+ movups xmm8,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+64]
+ mulps xmm8,xmm1
+ addps xmm7,xmm8
+ movups xmm8,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+112]
+ mulps xmm8,xmm2
+ addps xmm7,xmm8
+ movups xmm8,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+32]
+ mulps xmm8,xmm0
+ movups xmm9,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+80]
+ mulps xmm9,xmm1
+ addps xmm8,xmm9
+ movups xmm9,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+128]
+ mulps xmm9,xmm2
+ addps xmm8,xmm9
+ movups xmm3,dqword ptr [rdx+TWS.AngularVelocitiesA.x]
+ subps xmm3,xmm6
+ movups dqword ptr [rdx+TWS.AngularVelocitiesA.x],xmm3
+ movups xmm3,dqword ptr [rdx+TWS.AngularVelocitiesA.y]
+ subps xmm3,xmm7
+ movups dqword ptr [rdx+TWS.AngularVelocitiesA.y],xmm3
+ movups xmm3,dqword ptr [rdx+TWS.AngularVelocitiesA.z]
+ subps xmm3,xmm8
+ movups dqword ptr [rdx+TWS.AngularVelocitiesA.z],xmm3
+ movups xmm6,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB]
+ mulps xmm6,xmm0
+ movups xmm7,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+48]
+ mulps xmm7,xmm1
+ addps xmm6,xmm7
+ movups xmm7,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+96]
+ mulps xmm7,xmm2
+ addps xmm6,xmm7
+ movups xmm7,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+16]
+ mulps xmm7,xmm0
+ movups xmm8,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+64]
+ mulps xmm8,xmm1
+ addps xmm7,xmm8
+ movups xmm8,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+112]
+ mulps xmm8,xmm2
+ addps xmm7,xmm8
+ movups xmm8,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+32]
+ mulps xmm8,xmm0
+ movups xmm9,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+80]
+ mulps xmm9,xmm1
+ addps xmm8,xmm9
+ movups xmm9,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+128]
+ mulps xmm9,xmm2
+ addps xmm8,xmm9
+ movups xmm3,dqword ptr [rdx+TWS.AngularVelocitiesB.x]
+ addps xmm3,xmm6
+ movups dqword ptr [rdx+TWS.AngularVelocitiesB.x],xmm3
+ movups xmm3,dqword ptr [rdx+TWS.AngularVelocitiesB.y]
+ addps xmm3,xmm7
+ movups dqword ptr [rdx+TWS.AngularVelocitiesB.y],xmm3
+ movups xmm3,dqword ptr [rdx+TWS.AngularVelocitiesB.z]
+ addps xmm3,xmm8
+ movups dqword ptr [rdx+TWS.AngularVelocitiesB.z],xmm3
+
+ movaps xmm6,dqword ptr [rsp]
+ movaps xmm7,dqword ptr [rsp+16]
+ movaps xmm8,dqword ptr [rsp+32]
+ movaps xmm9,dqword ptr [rsp+48]
+ add rsp,72
+end;
+{$endif}
+
 procedure TKraftSolver.WarmStartSubStepWideRange(const aFromBatchIndex,aToBatchIndex,aThreadIndex:TKraftInt32);
 // Wide counterpart of WarmStartSubStepRange: the lanes run the identical scalar operations in the
 // identical order, only against the lane major batch storage.
@@ -59211,7 +59814,23 @@ var BatchIndex,LaneIndex,ContactIndex,IndexA,IndexB,CountPoints,RowIndex,ColumnI
     mA,mB:TKraftScalar;
     Normal,vA,lA,wA,vB,lB,wB,P,rA,rB:TKraftVector3;
     TangentVectors:array[0..1] of TKraftVector3;
+{$ifdef KraftWideContactSolverAssembler}
+    Scratch:TKraftSolverWideVelocityScratch;
+{$endif}
 begin
+
+{$ifdef KraftWideContactSolverAssembler}
+ // Assembler path: gather the four lanes' velocities, run the SSE kernel, scatter the active lanes back.
+ if fPhysics.fWideContactSolverAssembler then begin
+  for BatchIndex:=aFromBatchIndex to aToBatchIndex do begin
+   Batch:=@fWideContactBatches[BatchIndex];
+   GatherWideVelocities(Batch,Scratch);
+   KraftWideWarmStartBatchSSE(Batch,@Scratch);
+   ScatterWideVelocities(Batch,Scratch);
+  end;
+  exit;
+ end;
+{$endif}
 
  for BatchIndex:=aFromBatchIndex to aToBatchIndex do begin
   Batch:=@fWideContactBatches[BatchIndex];
@@ -59295,6 +59914,1345 @@ begin
 
 end;
 
+procedure TKraftSolver.GatherWideSolveExtras(const aBatch:PKraftSolverWideContactBatch;out aScratch:TKraftSolverWideSolveScratch);
+// Gather the four lanes' current and prepare-time centres and orientations for the assembler velocity solve
+// (see TKraftSolverWideSolveScratch). All four lanes are gathered; inactive lanes read the valid slot 0 the pack
+// zeroed their indices to, so their quaternions are valid (length>0) and the assembler needs no length-zero guard.
+var LaneIndex,IndexA,IndexB:TKraftInt32;
+begin
+ for LaneIndex:=0 to 3 do begin
+  IndexA:=aBatch^.IndicesA[LaneIndex];
+  IndexB:=aBatch^.IndicesB[LaneIndex];
+  aScratch.PositionsA.x[LaneIndex]:=fPositions[IndexA].Position.x;
+  aScratch.PositionsA.y[LaneIndex]:=fPositions[IndexA].Position.y;
+  aScratch.PositionsA.z[LaneIndex]:=fPositions[IndexA].Position.z;
+  aScratch.PositionsB.x[LaneIndex]:=fPositions[IndexB].Position.x;
+  aScratch.PositionsB.y[LaneIndex]:=fPositions[IndexB].Position.y;
+  aScratch.PositionsB.z[LaneIndex]:=fPositions[IndexB].Position.z;
+  aScratch.PrepareCentersA.x[LaneIndex]:=fPrepareCenters[IndexA].x;
+  aScratch.PrepareCentersA.y[LaneIndex]:=fPrepareCenters[IndexA].y;
+  aScratch.PrepareCentersA.z[LaneIndex]:=fPrepareCenters[IndexA].z;
+  aScratch.PrepareCentersB.x[LaneIndex]:=fPrepareCenters[IndexB].x;
+  aScratch.PrepareCentersB.y[LaneIndex]:=fPrepareCenters[IndexB].y;
+  aScratch.PrepareCentersB.z[LaneIndex]:=fPrepareCenters[IndexB].z;
+  aScratch.OrientationsA.x[LaneIndex]:=fPositions[IndexA].Orientation.x;
+  aScratch.OrientationsA.y[LaneIndex]:=fPositions[IndexA].Orientation.y;
+  aScratch.OrientationsA.z[LaneIndex]:=fPositions[IndexA].Orientation.z;
+  aScratch.OrientationsA.w[LaneIndex]:=fPositions[IndexA].Orientation.w;
+  aScratch.OrientationsB.x[LaneIndex]:=fPositions[IndexB].Orientation.x;
+  aScratch.OrientationsB.y[LaneIndex]:=fPositions[IndexB].Orientation.y;
+  aScratch.OrientationsB.z[LaneIndex]:=fPositions[IndexB].Orientation.z;
+  aScratch.OrientationsB.w[LaneIndex]:=fPositions[IndexB].Orientation.w;
+  aScratch.PrepareOrientationsA.x[LaneIndex]:=fPrepareOrientations[IndexA].x;
+  aScratch.PrepareOrientationsA.y[LaneIndex]:=fPrepareOrientations[IndexA].y;
+  aScratch.PrepareOrientationsA.z[LaneIndex]:=fPrepareOrientations[IndexA].z;
+  aScratch.PrepareOrientationsA.w[LaneIndex]:=fPrepareOrientations[IndexA].w;
+  aScratch.PrepareOrientationsB.x[LaneIndex]:=fPrepareOrientations[IndexB].x;
+  aScratch.PrepareOrientationsB.y[LaneIndex]:=fPrepareOrientations[IndexB].y;
+  aScratch.PrepareOrientationsB.z[LaneIndex]:=fPrepareOrientations[IndexB].z;
+  aScratch.PrepareOrientationsB.w[LaneIndex]:=fPrepareOrientations[IndexB].w;
+ end;
+end;
+
+{$ifdef KraftWideContactSolverAssembler}
+procedure KraftWideSolveVelocityBatchSSE(const aBatch,aScratch,aSolveScratch,aParams:Pointer); assembler; {$ifdef fpc}nostackframe; ms_abi_default;{$endif}
+// SSE assembler wide velocity solve for one batch, bit-identical to the per-lane scalar SolveVelocitySubStepWideRange
+// (architecture B: the quaternion delta and per-point separation are computed in the kernel too, matching the
+// SIMDASM QuaternionMul/QuaternionTermNormalize/Vector3TermQuaternionRotate term orders). RCX = batch, RDX = velocity
+// scratch, R8 = solve scratch (centres/orientations, overwritten in place with the deltas), R9 = uniform params. The
+// batch and scratch lane fields are not 16 byte aligned, so every arithmetic operand is loaded with movups first.
+type TWB=TKraftSolverWideContactBatch;
+     TWP=TKraftSolverWideContactPoint;
+     TWV=TKraftSolverWideVelocityScratch;
+     TWS=TKraftSolverWideSolveScratch;
+     TWM=TKraftSolverWideSolveParams;
+{$ifdef fpc}{$push}{$codealign constmin=16}{$endif}
+const SignMaskW:array[0..3] of TKraftUInt32=($00000000,$00000000,$00000000,$80000000);
+      SignMaskAll:array[0..3] of TKraftUInt32=($80000000,$80000000,$80000000,$80000000);
+      OneV:array[0..3] of TKraftScalar=(1.0,1.0,1.0,1.0);
+      EpsilonV:array[0..3] of TKraftScalar=(EPSILON,EPSILON,EPSILON,EPSILON);
+{$ifdef fpc}{$pop}{$endif}
+asm
+{$ifndef fpc}
+ .noframe
+{$endif}
+ sub rsp,296
+ movaps dqword ptr [rsp],xmm6
+ movaps dqword ptr [rsp+16],xmm7
+ movaps dqword ptr [rsp+32],xmm8
+ movaps dqword ptr [rsp+48],xmm9
+ movaps dqword ptr [rsp+64],xmm10
+ movaps dqword ptr [rsp+80],xmm11
+ movaps dqword ptr [rsp+96],xmm12
+ movaps dqword ptr [rsp+112],xmm13
+ movaps dqword ptr [rsp+128],xmm14
+ movaps dqword ptr [rsp+144],xmm15
+ // rsp+160 = TotalNormalImpulse, rsp+176 = TotalTwistLimit (per lane accumulators over the normal loop).
+ // rsp+192..287 = six 16 byte scratch slots reused by the central rolling and friction blocks.
+
+ // dcA = PositionsA - PrepareCentersA, dcB likewise, stored back over PositionsA/B.
+ movups xmm0,dqword ptr [r8+TWS.PositionsA.x]
+ movups xmm1,dqword ptr [r8+TWS.PrepareCentersA.x]
+ subps xmm0,xmm1
+ movups dqword ptr [r8+TWS.PositionsA.x],xmm0
+ movups xmm0,dqword ptr [r8+TWS.PositionsA.y]
+ movups xmm1,dqword ptr [r8+TWS.PrepareCentersA.y]
+ subps xmm0,xmm1
+ movups dqword ptr [r8+TWS.PositionsA.y],xmm0
+ movups xmm0,dqword ptr [r8+TWS.PositionsA.z]
+ movups xmm1,dqword ptr [r8+TWS.PrepareCentersA.z]
+ subps xmm0,xmm1
+ movups dqword ptr [r8+TWS.PositionsA.z],xmm0
+ movups xmm0,dqword ptr [r8+TWS.PositionsB.x]
+ movups xmm1,dqword ptr [r8+TWS.PrepareCentersB.x]
+ subps xmm0,xmm1
+ movups dqword ptr [r8+TWS.PositionsB.x],xmm0
+ movups xmm0,dqword ptr [r8+TWS.PositionsB.y]
+ movups xmm1,dqword ptr [r8+TWS.PrepareCentersB.y]
+ subps xmm0,xmm1
+ movups dqword ptr [r8+TWS.PositionsB.y],xmm0
+ movups xmm0,dqword ptr [r8+TWS.PositionsB.z]
+ movups xmm1,dqword ptr [r8+TWS.PrepareCentersB.z]
+ subps xmm0,xmm1
+ movups dqword ptr [r8+TWS.PositionsB.z],xmm0
+
+ // dqA = QuaternionTermNormalize(QuaternionMul(OrientationsA, QuaternionConjugate(PrepareOrientationsA))), over
+ // OrientationsA. O in xmm0..3, conj(P)=C in xmm4..7 (xmm8=SignMaskAll for the conj and the mul w flip).
+ movups xmm8,dqword ptr [rip+SignMaskAll]
+ movups xmm0,dqword ptr [r8+TWS.OrientationsA.x]
+ movups xmm1,dqword ptr [r8+TWS.OrientationsA.y]
+ movups xmm2,dqword ptr [r8+TWS.OrientationsA.z]
+ movups xmm3,dqword ptr [r8+TWS.OrientationsA.w]
+ movups xmm4,dqword ptr [r8+TWS.PrepareOrientationsA.x]
+ xorps xmm4,xmm8
+ movups xmm5,dqword ptr [r8+TWS.PrepareOrientationsA.y]
+ xorps xmm5,xmm8
+ movups xmm6,dqword ptr [r8+TWS.PrepareOrientationsA.z]
+ xorps xmm6,xmm8
+ movups xmm7,dqword ptr [r8+TWS.PrepareOrientationsA.w]
+ // RX=(CZ*OY+CW*OX)+(OW*CX-CY*OZ)
+ movaps xmm9,xmm6
+ mulps xmm9,xmm1
+ movaps xmm10,xmm7
+ mulps xmm10,xmm0
+ addps xmm9,xmm10
+ movaps xmm10,xmm3
+ mulps xmm10,xmm4
+ movaps xmm14,xmm5
+ mulps xmm14,xmm2
+ subps xmm10,xmm14
+ addps xmm9,xmm10
+ // RY=(CX*OZ+CW*OY)+(OW*CY-CZ*OX)
+ movaps xmm11,xmm4
+ mulps xmm11,xmm2
+ movaps xmm10,xmm7
+ mulps xmm10,xmm1
+ addps xmm11,xmm10
+ movaps xmm10,xmm3
+ mulps xmm10,xmm5
+ movaps xmm14,xmm6
+ mulps xmm14,xmm0
+ subps xmm10,xmm14
+ addps xmm11,xmm10
+ // RZ=(CY*OX+CW*OZ)+(OW*CZ-CX*OY)
+ movaps xmm12,xmm5
+ mulps xmm12,xmm0
+ movaps xmm10,xmm7
+ mulps xmm10,xmm2
+ addps xmm12,xmm10
+ movaps xmm10,xmm3
+ mulps xmm10,xmm6
+ movaps xmm14,xmm4
+ mulps xmm14,xmm1
+ subps xmm10,xmm14
+ addps xmm12,xmm10
+ // RW=-(CY*OY+CX*OX)+(OW*CW-CZ*OZ)
+ movaps xmm13,xmm5
+ mulps xmm13,xmm1
+ movaps xmm10,xmm4
+ mulps xmm10,xmm0
+ addps xmm13,xmm10
+ xorps xmm13,xmm8
+ movaps xmm10,xmm3
+ mulps xmm10,xmm7
+ movaps xmm14,xmm6
+ mulps xmm14,xmm2
+ subps xmm10,xmm14
+ addps xmm13,xmm10
+ // normalize: len2=(RX^2+RZ^2)+(RY^2+RW^2), sqrt, divps
+ movaps xmm10,xmm9
+ mulps xmm10,xmm9
+ movaps xmm14,xmm12
+ mulps xmm14,xmm12
+ addps xmm10,xmm14
+ movaps xmm14,xmm11
+ mulps xmm14,xmm11
+ movaps xmm15,xmm13
+ mulps xmm15,xmm13
+ addps xmm14,xmm15
+ addps xmm10,xmm14
+ sqrtps xmm10,xmm10
+ divps xmm9,xmm10
+ divps xmm11,xmm10
+ divps xmm12,xmm10
+ divps xmm13,xmm10
+ movups dqword ptr [r8+TWS.OrientationsA.x],xmm9
+ movups dqword ptr [r8+TWS.OrientationsA.y],xmm11
+ movups dqword ptr [r8+TWS.OrientationsA.z],xmm12
+ movups dqword ptr [r8+TWS.OrientationsA.w],xmm13
+
+ // dqB, over OrientationsB (same as dqA with the B fields).
+ movups xmm0,dqword ptr [r8+TWS.OrientationsB.x]
+ movups xmm1,dqword ptr [r8+TWS.OrientationsB.y]
+ movups xmm2,dqword ptr [r8+TWS.OrientationsB.z]
+ movups xmm3,dqword ptr [r8+TWS.OrientationsB.w]
+ movups xmm4,dqword ptr [r8+TWS.PrepareOrientationsB.x]
+ xorps xmm4,xmm8
+ movups xmm5,dqword ptr [r8+TWS.PrepareOrientationsB.y]
+ xorps xmm5,xmm8
+ movups xmm6,dqword ptr [r8+TWS.PrepareOrientationsB.z]
+ xorps xmm6,xmm8
+ movups xmm7,dqword ptr [r8+TWS.PrepareOrientationsB.w]
+ movaps xmm9,xmm6
+ mulps xmm9,xmm1
+ movaps xmm10,xmm7
+ mulps xmm10,xmm0
+ addps xmm9,xmm10
+ movaps xmm10,xmm3
+ mulps xmm10,xmm4
+ movaps xmm14,xmm5
+ mulps xmm14,xmm2
+ subps xmm10,xmm14
+ addps xmm9,xmm10
+ movaps xmm11,xmm4
+ mulps xmm11,xmm2
+ movaps xmm10,xmm7
+ mulps xmm10,xmm1
+ addps xmm11,xmm10
+ movaps xmm10,xmm3
+ mulps xmm10,xmm5
+ movaps xmm14,xmm6
+ mulps xmm14,xmm0
+ subps xmm10,xmm14
+ addps xmm11,xmm10
+ movaps xmm12,xmm5
+ mulps xmm12,xmm0
+ movaps xmm10,xmm7
+ mulps xmm10,xmm2
+ addps xmm12,xmm10
+ movaps xmm10,xmm3
+ mulps xmm10,xmm6
+ movaps xmm14,xmm4
+ mulps xmm14,xmm1
+ subps xmm10,xmm14
+ addps xmm12,xmm10
+ movaps xmm13,xmm5
+ mulps xmm13,xmm1
+ movaps xmm10,xmm4
+ mulps xmm10,xmm0
+ addps xmm13,xmm10
+ xorps xmm13,xmm8
+ movaps xmm10,xmm3
+ mulps xmm10,xmm7
+ movaps xmm14,xmm6
+ mulps xmm14,xmm2
+ subps xmm10,xmm14
+ addps xmm13,xmm10
+ movaps xmm10,xmm9
+ mulps xmm10,xmm9
+ movaps xmm14,xmm12
+ mulps xmm14,xmm12
+ addps xmm10,xmm14
+ movaps xmm14,xmm11
+ mulps xmm14,xmm11
+ movaps xmm15,xmm13
+ mulps xmm15,xmm13
+ addps xmm14,xmm15
+ addps xmm10,xmm14
+ sqrtps xmm10,xmm10
+ divps xmm9,xmm10
+ divps xmm11,xmm10
+ divps xmm12,xmm10
+ divps xmm13,xmm10
+ movups dqword ptr [r8+TWS.OrientationsB.x],xmm9
+ movups dqword ptr [r8+TWS.OrientationsB.y],xmm11
+ movups dqword ptr [r8+TWS.OrientationsB.z],xmm12
+ movups dqword ptr [r8+TWS.OrientationsB.w],xmm13
+
+ // TotalNormalImpulse := 0, TotalTwistLimit := 0
+ xorps xmm0,xmm0
+ movaps dqword ptr [rsp+160],xmm0
+ movaps dqword ptr [rsp+176],xmm0
+
+ // Normal constraint loop over the four points. r10 walks the points.
+ mov r11,4
+ lea r10,[rcx+TWB.Points]
+@SolveNormalLoop:
+ // Rotate rA by dqA and rB by dqB, form the world contact points, and the separation along the normal.
+ // rotate(rA,dqA): store rotated rA into xmm5/6/7 (vpA-side world offset). dqA in scratch OrientationsA.
+ // First rotate rA by dqA -> xmm5/6/7.
+ movups xmm0,dqword ptr [r8+TWS.OrientationsA.x]
+ movups xmm1,dqword ptr [r8+TWS.OrientationsA.y]
+ movups xmm2,dqword ptr [r8+TWS.OrientationsA.z]
+ movups xmm3,dqword ptr [r8+TWS.OrientationsA.w]
+ movups xmm5,dqword ptr [r10+TWP.RelativePositionsA.x]
+ movups xmm6,dqword ptr [r10+TWP.RelativePositionsA.y]
+ movups xmm7,dqword ptr [r10+TWP.RelativePositionsA.z]
+ // t=2*cross(qv,v): tx=2*(qy*vz-qz*vy) etc -> xmm9/10/11
+ movaps xmm9,xmm1
+ mulps xmm9,xmm7
+ movaps xmm12,xmm2
+ mulps xmm12,xmm6
+ subps xmm9,xmm12
+ addps xmm9,xmm9
+ movaps xmm10,xmm2
+ mulps xmm10,xmm5
+ movaps xmm12,xmm0
+ mulps xmm12,xmm7
+ subps xmm10,xmm12
+ addps xmm10,xmm10
+ movaps xmm11,xmm0
+ mulps xmm11,xmm6
+ movaps xmm12,xmm1
+ mulps xmm12,xmm5
+ subps xmm11,xmm12
+ addps xmm11,xmm11
+ // vwt=v+qw*t -> xmm5/6/7
+ movaps xmm12,xmm3
+ mulps xmm12,xmm9
+ addps xmm5,xmm12
+ movaps xmm12,xmm3
+ mulps xmm12,xmm10
+ addps xmm6,xmm12
+ movaps xmm12,xmm3
+ mulps xmm12,xmm11
+ addps xmm7,xmm12
+ // rotated rA = cross(qv,t)+vwt -> xmm5/6/7
+ movaps xmm12,xmm1
+ mulps xmm12,xmm11
+ movaps xmm13,xmm2
+ mulps xmm13,xmm10
+ subps xmm12,xmm13
+ addps xmm5,xmm12
+ movaps xmm12,xmm2
+ mulps xmm12,xmm9
+ movaps xmm13,xmm0
+ mulps xmm13,xmm11
+ subps xmm12,xmm13
+ addps xmm6,xmm12
+ movaps xmm12,xmm0
+ mulps xmm12,xmm10
+ movaps xmm13,xmm1
+ mulps xmm13,xmm9
+ subps xmm12,xmm13
+ addps xmm7,xmm12
+ // worldA = dcA + rotated rA -> xmm5/6/7
+ movups xmm12,dqword ptr [r8+TWS.PositionsA.x]
+ addps xmm5,xmm12
+ movups xmm12,dqword ptr [r8+TWS.PositionsA.y]
+ addps xmm6,xmm12
+ movups xmm12,dqword ptr [r8+TWS.PositionsA.z]
+ addps xmm7,xmm12
+ // rotate rB by dqB -> xmm13/14/15, then worldB = dcB + rotated rB
+ movups xmm0,dqword ptr [r8+TWS.OrientationsB.x]
+ movups xmm1,dqword ptr [r8+TWS.OrientationsB.y]
+ movups xmm2,dqword ptr [r8+TWS.OrientationsB.z]
+ movups xmm3,dqword ptr [r8+TWS.OrientationsB.w]
+ movups xmm13,dqword ptr [r10+TWP.RelativePositionsB.x]
+ movups xmm14,dqword ptr [r10+TWP.RelativePositionsB.y]
+ movups xmm15,dqword ptr [r10+TWP.RelativePositionsB.z]
+ movaps xmm9,xmm1
+ mulps xmm9,xmm15
+ movaps xmm12,xmm2
+ mulps xmm12,xmm14
+ subps xmm9,xmm12
+ addps xmm9,xmm9
+ movaps xmm10,xmm2
+ mulps xmm10,xmm13
+ movaps xmm12,xmm0
+ mulps xmm12,xmm15
+ subps xmm10,xmm12
+ addps xmm10,xmm10
+ movaps xmm11,xmm0
+ mulps xmm11,xmm14
+ movaps xmm12,xmm1
+ mulps xmm12,xmm13
+ subps xmm11,xmm12
+ addps xmm11,xmm11
+ movaps xmm12,xmm3
+ mulps xmm12,xmm9
+ addps xmm13,xmm12
+ movaps xmm12,xmm3
+ mulps xmm12,xmm10
+ addps xmm14,xmm12
+ movaps xmm12,xmm3
+ mulps xmm12,xmm11
+ addps xmm15,xmm12
+ movaps xmm12,xmm1
+ mulps xmm12,xmm11
+ movaps xmm0,xmm2
+ mulps xmm0,xmm10
+ subps xmm12,xmm0
+ addps xmm13,xmm12
+ movaps xmm12,xmm2
+ mulps xmm12,xmm9
+ movups xmm0,dqword ptr [r8+TWS.OrientationsB.x]
+ mulps xmm0,xmm11
+ subps xmm12,xmm0
+ addps xmm14,xmm12
+ movups xmm0,dqword ptr [r8+TWS.OrientationsB.x]
+ mulps xmm0,xmm10
+ movaps xmm12,xmm1
+ mulps xmm12,xmm9
+ subps xmm0,xmm12
+ addps xmm15,xmm0
+ movups xmm12,dqword ptr [r8+TWS.PositionsB.x]
+ addps xmm13,xmm12
+ movups xmm12,dqword ptr [r8+TWS.PositionsB.y]
+ addps xmm14,xmm12
+ movups xmm12,dqword ptr [r8+TWS.PositionsB.z]
+ addps xmm15,xmm12
+ // Separation = AdjustedSeparations + dot(worldB - worldA, Normal). The Vector3Dot the scalar stage uses sums the
+ // products in the horizontal add order (z*z + x*x) + y*y, so this dot must fold z, then x, then y to stay bit-identical.
+ subps xmm13,xmm5
+ subps xmm14,xmm6
+ subps xmm15,xmm7
+ movups xmm0,dqword ptr [rcx+TWB.Normals.z]
+ mulps xmm0,xmm15
+ movups xmm1,dqword ptr [rcx+TWB.Normals.x]
+ mulps xmm1,xmm13
+ addps xmm0,xmm1
+ movups xmm1,dqword ptr [rcx+TWB.Normals.y]
+ mulps xmm1,xmm14
+ addps xmm0,xmm1
+ movups xmm1,dqword ptr [r10+TWP.AdjustedSeparations]
+ addps xmm0,xmm1
+ // xmm0 = Separation. Regime: specMask = (Separation>0).
+ xorps xmm1,xmm1
+ movaps xmm2,xmm0
+ cmpltps xmm1,xmm2
+ // xmm1 = specMask (Separation>0). specBias = Separation*InverseH.
+ movups xmm3,dqword ptr [r9+TWM.InverseH]
+ movaps xmm4,xmm0
+ mulps xmm4,xmm3
+ // nonspecBias = Max(biasRate*Separation, NegativeMaxBiasVelocity), biasRate = SoftnessBiasRates & UseBiasMask.
+ movups xmm5,dqword ptr [rcx+TWB.SoftnessBiasRates]
+ movups xmm6,dqword ptr [r9+TWM.UseBiasMask]
+ andps xmm5,xmm6
+ mulps xmm5,xmm0
+ movups xmm7,dqword ptr [r9+TWM.NegativeMaxBiasVelocity]
+ maxps xmm5,xmm7
+ // Bias = spec ? specBias : nonspecBias  -> xmm4
+ andps xmm4,xmm1
+ movaps xmm2,xmm1
+ andnps xmm2,xmm5
+ orps xmm4,xmm2
+ // MassScale = spec ? 1 : (UseBias ? SoftnessMassScales : 1)  ; nonspecMS = blend(UseBiasMask, SoftMS, 1)
+ movups xmm5,dqword ptr [rcx+TWB.SoftnessMassScales]
+ andps xmm5,xmm6
+ movaps xmm2,xmm6
+ mov eax,$3f800000
+ movd xmm7,eax
+ shufps xmm7,xmm7,0
+ movaps xmm3,xmm7
+ andnps xmm2,xmm3
+ orps xmm5,xmm2
+ // now nonspecMS in xmm5 ; MassScale = spec ? 1 : nonspecMS
+ movaps xmm2,xmm1
+ andps xmm7,xmm2
+ movaps xmm2,xmm1
+ andnps xmm2,xmm5
+ orps xmm7,xmm2
+ // xmm7 = MassScale
+ // ImpulseScale = spec ? 0 : (SoftnessImpulseScales & UseBiasMask)
+ movups xmm5,dqword ptr [rcx+TWB.SoftnessImpulseScales]
+ andps xmm5,xmm6
+ movaps xmm2,xmm1
+ andnps xmm2,xmm5
+ movaps xmm5,xmm2
+ // xmm5 = ImpulseScale (spec lanes zeroed by andnps of specMask)
+ // vn = dot((vB + wB x rB) - (vA + wA x rA), Normal). rA/rB at the point.
+ movups xmm8,dqword ptr [rdx+TWV.AngularVelocitiesB.y]
+ movups xmm9,dqword ptr [r10+TWP.RelativePositionsB.z]
+ mulps xmm8,xmm9
+ movups xmm9,dqword ptr [rdx+TWV.AngularVelocitiesB.z]
+ movups xmm10,dqword ptr [r10+TWP.RelativePositionsB.y]
+ mulps xmm9,xmm10
+ subps xmm8,xmm9
+ movups xmm9,dqword ptr [rdx+TWV.LinearVelocitiesB.x]
+ addps xmm8,xmm9
+ movups xmm9,dqword ptr [rdx+TWV.AngularVelocitiesA.y]
+ movups xmm10,dqword ptr [r10+TWP.RelativePositionsA.z]
+ mulps xmm9,xmm10
+ movups xmm10,dqword ptr [rdx+TWV.AngularVelocitiesA.z]
+ movups xmm11,dqword ptr [r10+TWP.RelativePositionsA.y]
+ mulps xmm10,xmm11
+ subps xmm9,xmm10
+ movups xmm10,dqword ptr [rdx+TWV.LinearVelocitiesA.x]
+ addps xmm9,xmm10
+ subps xmm8,xmm9
+ movups xmm2,dqword ptr [rcx+TWB.Normals.x]
+ mulps xmm2,xmm8
+ movups xmm8,dqword ptr [rdx+TWV.AngularVelocitiesB.z]
+ movups xmm9,dqword ptr [r10+TWP.RelativePositionsB.x]
+ mulps xmm8,xmm9
+ movups xmm9,dqword ptr [rdx+TWV.AngularVelocitiesB.x]
+ movups xmm10,dqword ptr [r10+TWP.RelativePositionsB.z]
+ mulps xmm9,xmm10
+ subps xmm8,xmm9
+ movups xmm9,dqword ptr [rdx+TWV.LinearVelocitiesB.y]
+ addps xmm8,xmm9
+ movups xmm9,dqword ptr [rdx+TWV.AngularVelocitiesA.z]
+ movups xmm10,dqword ptr [r10+TWP.RelativePositionsA.x]
+ mulps xmm9,xmm10
+ movups xmm10,dqword ptr [rdx+TWV.AngularVelocitiesA.x]
+ movups xmm11,dqword ptr [r10+TWP.RelativePositionsA.z]
+ mulps xmm10,xmm11
+ subps xmm9,xmm10
+ movups xmm10,dqword ptr [rdx+TWV.LinearVelocitiesA.y]
+ addps xmm9,xmm10
+ subps xmm8,xmm9
+ movups xmm3,dqword ptr [rcx+TWB.Normals.y]
+ mulps xmm3,xmm8
+ movaps xmm12,xmm3
+ movups xmm8,dqword ptr [rdx+TWV.AngularVelocitiesB.x]
+ movups xmm9,dqword ptr [r10+TWP.RelativePositionsB.y]
+ mulps xmm8,xmm9
+ movups xmm9,dqword ptr [rdx+TWV.AngularVelocitiesB.y]
+ movups xmm10,dqword ptr [r10+TWP.RelativePositionsB.x]
+ mulps xmm9,xmm10
+ subps xmm8,xmm9
+ movups xmm9,dqword ptr [rdx+TWV.LinearVelocitiesB.z]
+ addps xmm8,xmm9
+ movups xmm9,dqword ptr [rdx+TWV.AngularVelocitiesA.x]
+ movups xmm10,dqword ptr [r10+TWP.RelativePositionsA.y]
+ mulps xmm9,xmm10
+ movups xmm10,dqword ptr [rdx+TWV.AngularVelocitiesA.y]
+ movups xmm11,dqword ptr [r10+TWP.RelativePositionsA.x]
+ mulps xmm10,xmm11
+ subps xmm9,xmm10
+ movups xmm10,dqword ptr [rdx+TWV.LinearVelocitiesA.z]
+ addps xmm9,xmm10
+ subps xmm8,xmm9
+ movups xmm3,dqword ptr [rcx+TWB.Normals.z]
+ mulps xmm3,xmm8
+ addps xmm3,xmm2
+ addps xmm3,xmm12
+ movaps xmm2,xmm3
+ // xmm2 = vn. Lambda = (-NormalMass*MassScale*(vn+Bias)) - (ImpulseScale*NormalImpulse)
+ addps xmm2,xmm4
+ movups xmm3,dqword ptr [r10+TWP.NormalMasses]
+ mulps xmm3,xmm7
+ mulps xmm3,xmm2
+ xorps xmm8,xmm8
+ subps xmm8,xmm3
+ movups xmm3,dqword ptr [r10+TWP.NormalImpulses]
+ mulps xmm5,xmm3
+ subps xmm8,xmm5
+ // NewNormalImpulse = Max(0, Old+Lambda) ; delta = New-Old ; write New ; accumulate totals
+ movups xmm4,dqword ptr [r10+TWP.NormalImpulses]
+ movaps xmm5,xmm4
+ addps xmm5,xmm8
+ xorps xmm6,xmm6
+ maxps xmm5,xmm6
+ movups dqword ptr [r10+TWP.NormalImpulses],xmm5
+ movaps xmm8,xmm5
+ subps xmm8,xmm4
+ // TotalNormalImpulse += New ; TotalTwistLimit += LeverArm*New
+ movaps xmm3,dqword ptr [rsp+160]
+ addps xmm3,xmm5
+ movaps dqword ptr [rsp+160],xmm3
+ movups xmm3,dqword ptr [r10+TWP.LeverArms]
+ mulps xmm3,xmm5
+ movaps xmm4,dqword ptr [rsp+176]
+ addps xmm4,xmm3
+ movaps dqword ptr [rsp+176],xmm4
+ // Apply the delta impulse P = Normal*delta to both bodies. xmm8 = delta.
+ movups xmm0,dqword ptr [rcx+TWB.Normals.x]
+ mulps xmm0,xmm8
+ movups xmm1,dqword ptr [rcx+TWB.Normals.y]
+ mulps xmm1,xmm8
+ movups xmm2,dqword ptr [rcx+TWB.Normals.z]
+ mulps xmm2,xmm8
+ // vA -= P.*(lA*mA)
+ movups xmm3,dqword ptr [rcx+TWB.InverseMassesA]
+ movups xmm4,dqword ptr [rdx+TWV.LinearFactorsA.x]
+ mulps xmm4,xmm3
+ mulps xmm4,xmm0
+ movups xmm5,dqword ptr [rdx+TWV.LinearVelocitiesA.x]
+ subps xmm5,xmm4
+ movups dqword ptr [rdx+TWV.LinearVelocitiesA.x],xmm5
+ movups xmm4,dqword ptr [rdx+TWV.LinearFactorsA.y]
+ mulps xmm4,xmm3
+ mulps xmm4,xmm1
+ movups xmm5,dqword ptr [rdx+TWV.LinearVelocitiesA.y]
+ subps xmm5,xmm4
+ movups dqword ptr [rdx+TWV.LinearVelocitiesA.y],xmm5
+ movups xmm4,dqword ptr [rdx+TWV.LinearFactorsA.z]
+ mulps xmm4,xmm3
+ mulps xmm4,xmm2
+ movups xmm5,dqword ptr [rdx+TWV.LinearVelocitiesA.z]
+ subps xmm5,xmm4
+ movups dqword ptr [rdx+TWV.LinearVelocitiesA.z],xmm5
+ // wA -= matmul(cross(rA,P), iA)
+ movups xmm3,dqword ptr [r10+TWP.RelativePositionsA.y]
+ mulps xmm3,xmm2
+ movups xmm4,dqword ptr [r10+TWP.RelativePositionsA.z]
+ mulps xmm4,xmm1
+ subps xmm3,xmm4
+ movups xmm4,dqword ptr [r10+TWP.RelativePositionsA.z]
+ mulps xmm4,xmm0
+ movups xmm5,dqword ptr [r10+TWP.RelativePositionsA.x]
+ mulps xmm5,xmm2
+ subps xmm4,xmm5
+ movups xmm5,dqword ptr [r10+TWP.RelativePositionsA.x]
+ mulps xmm5,xmm1
+ movups xmm6,dqword ptr [r10+TWP.RelativePositionsA.y]
+ mulps xmm6,xmm0
+ subps xmm5,xmm6
+ movups xmm6,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA]
+ mulps xmm6,xmm3
+ movups xmm7,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+48]
+ mulps xmm7,xmm4
+ addps xmm6,xmm7
+ movups xmm7,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+96]
+ mulps xmm7,xmm5
+ addps xmm6,xmm7
+ movups xmm7,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+16]
+ mulps xmm7,xmm3
+ movups xmm8,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+64]
+ mulps xmm8,xmm4
+ addps xmm7,xmm8
+ movups xmm8,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+112]
+ mulps xmm8,xmm5
+ addps xmm7,xmm8
+ movups xmm8,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+32]
+ mulps xmm8,xmm3
+ movups xmm9,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+80]
+ mulps xmm9,xmm4
+ addps xmm8,xmm9
+ movups xmm9,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+128]
+ mulps xmm9,xmm5
+ addps xmm8,xmm9
+ movups xmm3,dqword ptr [rdx+TWV.AngularVelocitiesA.x]
+ subps xmm3,xmm6
+ movups dqword ptr [rdx+TWV.AngularVelocitiesA.x],xmm3
+ movups xmm3,dqword ptr [rdx+TWV.AngularVelocitiesA.y]
+ subps xmm3,xmm7
+ movups dqword ptr [rdx+TWV.AngularVelocitiesA.y],xmm3
+ movups xmm3,dqword ptr [rdx+TWV.AngularVelocitiesA.z]
+ subps xmm3,xmm8
+ movups dqword ptr [rdx+TWV.AngularVelocitiesA.z],xmm3
+ // vB += P.*(lB*mB)
+ movups xmm3,dqword ptr [rcx+TWB.InverseMassesB]
+ movups xmm4,dqword ptr [rdx+TWV.LinearFactorsB.x]
+ mulps xmm4,xmm3
+ mulps xmm4,xmm0
+ movups xmm5,dqword ptr [rdx+TWV.LinearVelocitiesB.x]
+ addps xmm5,xmm4
+ movups dqword ptr [rdx+TWV.LinearVelocitiesB.x],xmm5
+ movups xmm4,dqword ptr [rdx+TWV.LinearFactorsB.y]
+ mulps xmm4,xmm3
+ mulps xmm4,xmm1
+ movups xmm5,dqword ptr [rdx+TWV.LinearVelocitiesB.y]
+ addps xmm5,xmm4
+ movups dqword ptr [rdx+TWV.LinearVelocitiesB.y],xmm5
+ movups xmm4,dqword ptr [rdx+TWV.LinearFactorsB.z]
+ mulps xmm4,xmm3
+ mulps xmm4,xmm2
+ movups xmm5,dqword ptr [rdx+TWV.LinearVelocitiesB.z]
+ addps xmm5,xmm4
+ movups dqword ptr [rdx+TWV.LinearVelocitiesB.z],xmm5
+ // wB += matmul(cross(rB,P), iB)
+ movups xmm3,dqword ptr [r10+TWP.RelativePositionsB.y]
+ mulps xmm3,xmm2
+ movups xmm4,dqword ptr [r10+TWP.RelativePositionsB.z]
+ mulps xmm4,xmm1
+ subps xmm3,xmm4
+ movups xmm4,dqword ptr [r10+TWP.RelativePositionsB.z]
+ mulps xmm4,xmm0
+ movups xmm5,dqword ptr [r10+TWP.RelativePositionsB.x]
+ mulps xmm5,xmm2
+ subps xmm4,xmm5
+ movups xmm5,dqword ptr [r10+TWP.RelativePositionsB.x]
+ mulps xmm5,xmm1
+ movups xmm6,dqword ptr [r10+TWP.RelativePositionsB.y]
+ mulps xmm6,xmm0
+ subps xmm5,xmm6
+ movups xmm6,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB]
+ mulps xmm6,xmm3
+ movups xmm7,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+48]
+ mulps xmm7,xmm4
+ addps xmm6,xmm7
+ movups xmm7,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+96]
+ mulps xmm7,xmm5
+ addps xmm6,xmm7
+ movups xmm7,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+16]
+ mulps xmm7,xmm3
+ movups xmm8,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+64]
+ mulps xmm8,xmm4
+ addps xmm7,xmm8
+ movups xmm8,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+112]
+ mulps xmm8,xmm5
+ addps xmm7,xmm8
+ movups xmm8,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+32]
+ mulps xmm8,xmm3
+ movups xmm9,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+80]
+ mulps xmm9,xmm4
+ addps xmm8,xmm9
+ movups xmm9,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+128]
+ mulps xmm9,xmm5
+ addps xmm8,xmm9
+ movups xmm3,dqword ptr [rdx+TWV.AngularVelocitiesB.x]
+ addps xmm3,xmm6
+ movups dqword ptr [rdx+TWV.AngularVelocitiesB.x],xmm3
+ movups xmm3,dqword ptr [rdx+TWV.AngularVelocitiesB.y]
+ addps xmm3,xmm7
+ movups dqword ptr [rdx+TWV.AngularVelocitiesB.y],xmm3
+ movups xmm3,dqword ptr [rdx+TWV.AngularVelocitiesB.z]
+ addps xmm3,xmm8
+ movups dqword ptr [rdx+TWV.AngularVelocitiesB.z],xmm3
+
+ add r10,SizeOf(TWP)
+ dec r11
+ jnz @SolveNormalLoop
+
+ // Central twist / rolling resistance / tangential friction, anchored at the manifold centroid, only in the relax
+ // pass (UseBias false). UseBiasMask is uniform across the lanes, so a scalar branch matches the scalar stage; a
+ // lane with CountPoints=0 stays a no-op here through the same zero masses, zero budgets and zero impulses it
+ // carried into the normal loop.
+ movups xmm0,dqword ptr [r9+TWM.UseBiasMask]
+ movmskps eax,xmm0
+ test eax,eax
+ jnz @SolveVelocityDone
+
+ // Central twist about the normal. Where TwistMasses=0 this is a no-op on its own, because Lambda = -TwistMasses *
+ // TwistSpeed is then zero and the clamped write returns the unchanged (zero) impulse, so no per lane mask is needed.
+ // TwistSpeed = dot(Normal, wB - wA), summed z, then x, then y to match the scalar Vector3Dot horizontal add order.
+ movups xmm2,dqword ptr [rdx+TWV.AngularVelocitiesB.z]
+ movups xmm3,dqword ptr [rdx+TWV.AngularVelocitiesA.z]
+ subps xmm2,xmm3
+ movups xmm0,dqword ptr [rcx+TWB.Normals.z]
+ mulps xmm0,xmm2
+ movups xmm2,dqword ptr [rdx+TWV.AngularVelocitiesB.x]
+ movups xmm3,dqword ptr [rdx+TWV.AngularVelocitiesA.x]
+ subps xmm2,xmm3
+ movups xmm1,dqword ptr [rcx+TWB.Normals.x]
+ mulps xmm1,xmm2
+ addps xmm0,xmm1
+ movups xmm2,dqword ptr [rdx+TWV.AngularVelocitiesB.y]
+ movups xmm3,dqword ptr [rdx+TWV.AngularVelocitiesA.y]
+ subps xmm2,xmm3
+ movups xmm1,dqword ptr [rcx+TWB.Normals.y]
+ mulps xmm1,xmm2
+ addps xmm0,xmm1
+ // xmm0 = TwistSpeed. Lambda = -TwistMasses * TwistSpeed.
+ movups xmm1,dqword ptr [rcx+TWB.TwistMasses]
+ mulps xmm1,xmm0
+ xorps xmm2,xmm2
+ subps xmm2,xmm1
+ // MaxLambda = Frictions * TotalTwistLimit.
+ movups xmm3,dqword ptr [rcx+TWB.Frictions]
+ mulps xmm3,dqword ptr [rsp+176]
+ // Old = TwistImpulses ; New = Min(Max(Old+Lambda, -MaxLambda), MaxLambda).
+ movups xmm4,dqword ptr [rcx+TWB.TwistImpulses]
+ movaps xmm5,xmm4
+ addps xmm5,xmm2
+ xorps xmm6,xmm6
+ subps xmm6,xmm3
+ maxps xmm5,xmm6
+ minps xmm5,xmm3
+ movups dqword ptr [rcx+TWB.TwistImpulses],xmm5
+ subps xmm5,xmm4
+ // P = Normal * (New-Old) ; wA -= matmul(P, iA) ; wB += matmul(P, iB).
+ movups xmm0,dqword ptr [rcx+TWB.Normals.x]
+ mulps xmm0,xmm5
+ movups xmm1,dqword ptr [rcx+TWB.Normals.y]
+ mulps xmm1,xmm5
+ movups xmm2,dqword ptr [rcx+TWB.Normals.z]
+ mulps xmm2,xmm5
+ movups xmm3,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA]
+ mulps xmm3,xmm0
+ movups xmm4,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+48]
+ mulps xmm4,xmm1
+ addps xmm3,xmm4
+ movups xmm4,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+96]
+ mulps xmm4,xmm2
+ addps xmm3,xmm4
+ movups xmm4,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+16]
+ mulps xmm4,xmm0
+ movups xmm5,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+64]
+ mulps xmm5,xmm1
+ addps xmm4,xmm5
+ movups xmm5,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+112]
+ mulps xmm5,xmm2
+ addps xmm4,xmm5
+ movups xmm5,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+32]
+ mulps xmm5,xmm0
+ movups xmm6,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+80]
+ mulps xmm6,xmm1
+ addps xmm5,xmm6
+ movups xmm6,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+128]
+ mulps xmm6,xmm2
+ addps xmm5,xmm6
+ movups xmm6,dqword ptr [rdx+TWV.AngularVelocitiesA.x]
+ subps xmm6,xmm3
+ movups dqword ptr [rdx+TWV.AngularVelocitiesA.x],xmm6
+ movups xmm6,dqword ptr [rdx+TWV.AngularVelocitiesA.y]
+ subps xmm6,xmm4
+ movups dqword ptr [rdx+TWV.AngularVelocitiesA.y],xmm6
+ movups xmm6,dqword ptr [rdx+TWV.AngularVelocitiesA.z]
+ subps xmm6,xmm5
+ movups dqword ptr [rdx+TWV.AngularVelocitiesA.z],xmm6
+ movups xmm3,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB]
+ mulps xmm3,xmm0
+ movups xmm4,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+48]
+ mulps xmm4,xmm1
+ addps xmm3,xmm4
+ movups xmm4,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+96]
+ mulps xmm4,xmm2
+ addps xmm3,xmm4
+ movups xmm4,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+16]
+ mulps xmm4,xmm0
+ movups xmm5,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+64]
+ mulps xmm5,xmm1
+ addps xmm4,xmm5
+ movups xmm5,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+112]
+ mulps xmm5,xmm2
+ addps xmm4,xmm5
+ movups xmm5,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+32]
+ mulps xmm5,xmm0
+ movups xmm6,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+80]
+ mulps xmm6,xmm1
+ addps xmm5,xmm6
+ movups xmm6,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+128]
+ mulps xmm6,xmm2
+ addps xmm5,xmm6
+ movups xmm6,dqword ptr [rdx+TWV.AngularVelocitiesB.x]
+ addps xmm6,xmm3
+ movups dqword ptr [rdx+TWV.AngularVelocitiesB.x],xmm6
+ movups xmm6,dqword ptr [rdx+TWV.AngularVelocitiesB.y]
+ addps xmm6,xmm4
+ movups dqword ptr [rdx+TWV.AngularVelocitiesB.y],xmm6
+ movups xmm6,dqword ptr [rdx+TWV.AngularVelocitiesB.z]
+ addps xmm6,xmm5
+ movups dqword ptr [rdx+TWV.AngularVelocitiesB.z],xmm6
+
+ // Rolling resistance (angular only). Unlike twist, the magnitude clamp would force RollingImpulses to the zero
+ // budget on a RollingResistances=0 lane and apply that change, so this block is masked by RollingResistances>0:
+ // the applied delta and the written impulse are blended back to no-op there.
+ // dw = wB - wA.
+ movups xmm0,dqword ptr [rdx+TWV.AngularVelocitiesB.x]
+ movups xmm1,dqword ptr [rdx+TWV.AngularVelocitiesA.x]
+ subps xmm0,xmm1
+ movups xmm1,dqword ptr [rdx+TWV.AngularVelocitiesB.y]
+ movups xmm2,dqword ptr [rdx+TWV.AngularVelocitiesA.y]
+ subps xmm1,xmm2
+ movups xmm2,dqword ptr [rdx+TWV.AngularVelocitiesB.z]
+ movups xmm3,dqword ptr [rdx+TWV.AngularVelocitiesA.z]
+ subps xmm2,xmm3
+ // DeltaRoll = -matmul(dw, RollingMasses), stored per component into the scratch slots.
+ movups xmm3,dqword ptr [rcx+TWB.RollingMasses]
+ mulps xmm3,xmm0
+ movups xmm4,dqword ptr [rcx+TWB.RollingMasses+48]
+ mulps xmm4,xmm1
+ addps xmm3,xmm4
+ movups xmm4,dqword ptr [rcx+TWB.RollingMasses+96]
+ mulps xmm4,xmm2
+ addps xmm3,xmm4
+ xorps xmm5,xmm5
+ subps xmm5,xmm3
+ movaps dqword ptr [rsp+192],xmm5
+ movups xmm3,dqword ptr [rcx+TWB.RollingMasses+16]
+ mulps xmm3,xmm0
+ movups xmm4,dqword ptr [rcx+TWB.RollingMasses+64]
+ mulps xmm4,xmm1
+ addps xmm3,xmm4
+ movups xmm4,dqword ptr [rcx+TWB.RollingMasses+112]
+ mulps xmm4,xmm2
+ addps xmm3,xmm4
+ xorps xmm5,xmm5
+ subps xmm5,xmm3
+ movaps dqword ptr [rsp+208],xmm5
+ movups xmm3,dqword ptr [rcx+TWB.RollingMasses+32]
+ mulps xmm3,xmm0
+ movups xmm4,dqword ptr [rcx+TWB.RollingMasses+80]
+ mulps xmm4,xmm1
+ addps xmm3,xmm4
+ movups xmm4,dqword ptr [rcx+TWB.RollingMasses+128]
+ mulps xmm4,xmm2
+ addps xmm3,xmm4
+ xorps xmm5,xmm5
+ subps xmm5,xmm3
+ movaps dqword ptr [rsp+224],xmm5
+ // OldRoll into xmm3/4/5 ; NewRoll = OldRoll + DeltaRoll into xmm6/7/8.
+ movups xmm3,dqword ptr [rcx+TWB.RollingImpulses.x]
+ movups xmm4,dqword ptr [rcx+TWB.RollingImpulses.y]
+ movups xmm5,dqword ptr [rcx+TWB.RollingImpulses.z]
+ movaps xmm6,xmm3
+ addps xmm6,dqword ptr [rsp+192]
+ movaps xmm7,xmm4
+ addps xmm7,dqword ptr [rsp+208]
+ movaps xmm8,xmm5
+ addps xmm8,dqword ptr [rsp+224]
+ // MagSqr = |NewRoll|^2, summed as (z*z + x*x) + y*y to match the SIMDASM Vector3LengthSquared horizontal add order.
+ movaps xmm9,xmm8
+ mulps xmm9,xmm8
+ movaps xmm10,xmm6
+ mulps xmm10,xmm6
+ addps xmm9,xmm10
+ movaps xmm10,xmm7
+ mulps xmm10,xmm7
+ addps xmm9,xmm10
+ // MaxLambda = RollingResistances * TotalNormalImpulse ; keep RollingResistances for the lane mask.
+ movups xmm11,dqword ptr [rcx+TWB.RollingResistances]
+ movaps xmm10,xmm11
+ mulps xmm10,dqword ptr [rsp+160]
+ // cond = MagSqr > (MaxLambda^2 + EPSILON).
+ movaps xmm12,xmm10
+ mulps xmm12,xmm10
+ addps xmm12,dqword ptr [rip+EpsilonV]
+ cmpltps xmm12,xmm9
+ // scale = MaxLambda / sqrt(MagSqr) (Inf/NaN where MagSqr=0, discarded by the bitwise blend below).
+ sqrtps xmm13,xmm9
+ movaps xmm14,xmm10
+ divps xmm14,xmm13
+ // NewRoll_clamped = cond ? NewRoll*scale : NewRoll.
+ movaps xmm0,xmm6
+ mulps xmm0,xmm14
+ movaps xmm15,xmm12
+ andps xmm0,xmm15
+ movaps xmm13,xmm12
+ andnps xmm13,xmm6
+ orps xmm0,xmm13
+ movaps xmm1,xmm7
+ mulps xmm1,xmm14
+ movaps xmm15,xmm12
+ andps xmm1,xmm15
+ movaps xmm13,xmm12
+ andnps xmm13,xmm7
+ orps xmm1,xmm13
+ movaps xmm2,xmm8
+ mulps xmm2,xmm14
+ movaps xmm15,xmm12
+ andps xmm2,xmm15
+ movaps xmm13,xmm12
+ andnps xmm13,xmm8
+ orps xmm2,xmm13
+ // Lane mask = RollingResistances>0. Written impulse = mask ? NewRoll_clamped : OldRoll ; applied delta = written-Old.
+ xorps xmm13,xmm13
+ cmpltps xmm13,xmm11
+ movaps xmm14,xmm13
+ andps xmm0,xmm14
+ movaps xmm15,xmm13
+ andnps xmm15,xmm3
+ orps xmm0,xmm15
+ movups dqword ptr [rcx+TWB.RollingImpulses.x],xmm0
+ subps xmm0,xmm3
+ movaps dqword ptr [rsp+192],xmm0
+ movaps xmm14,xmm13
+ andps xmm1,xmm14
+ movaps xmm15,xmm13
+ andnps xmm15,xmm4
+ orps xmm1,xmm15
+ movups dqword ptr [rcx+TWB.RollingImpulses.y],xmm1
+ subps xmm1,xmm4
+ movaps dqword ptr [rsp+208],xmm1
+ movaps xmm14,xmm13
+ andps xmm2,xmm14
+ movaps xmm15,xmm13
+ andnps xmm15,xmm5
+ orps xmm2,xmm15
+ movups dqword ptr [rcx+TWB.RollingImpulses.z],xmm2
+ subps xmm2,xmm5
+ movaps dqword ptr [rsp+224],xmm2
+ // wA -= matmul(DeltaRoll, iA) ; wB += matmul(DeltaRoll, iB), DeltaRoll from the scratch slots into xmm0/1/2.
+ movaps xmm0,dqword ptr [rsp+192]
+ movaps xmm1,dqword ptr [rsp+208]
+ movaps xmm2,dqword ptr [rsp+224]
+ movups xmm3,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA]
+ mulps xmm3,xmm0
+ movups xmm4,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+48]
+ mulps xmm4,xmm1
+ addps xmm3,xmm4
+ movups xmm4,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+96]
+ mulps xmm4,xmm2
+ addps xmm3,xmm4
+ movups xmm4,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+16]
+ mulps xmm4,xmm0
+ movups xmm5,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+64]
+ mulps xmm5,xmm1
+ addps xmm4,xmm5
+ movups xmm5,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+112]
+ mulps xmm5,xmm2
+ addps xmm4,xmm5
+ movups xmm5,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+32]
+ mulps xmm5,xmm0
+ movups xmm6,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+80]
+ mulps xmm6,xmm1
+ addps xmm5,xmm6
+ movups xmm6,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+128]
+ mulps xmm6,xmm2
+ addps xmm5,xmm6
+ movups xmm6,dqword ptr [rdx+TWV.AngularVelocitiesA.x]
+ subps xmm6,xmm3
+ movups dqword ptr [rdx+TWV.AngularVelocitiesA.x],xmm6
+ movups xmm6,dqword ptr [rdx+TWV.AngularVelocitiesA.y]
+ subps xmm6,xmm4
+ movups dqword ptr [rdx+TWV.AngularVelocitiesA.y],xmm6
+ movups xmm6,dqword ptr [rdx+TWV.AngularVelocitiesA.z]
+ subps xmm6,xmm5
+ movups dqword ptr [rdx+TWV.AngularVelocitiesA.z],xmm6
+ movups xmm3,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB]
+ mulps xmm3,xmm0
+ movups xmm4,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+48]
+ mulps xmm4,xmm1
+ addps xmm3,xmm4
+ movups xmm4,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+96]
+ mulps xmm4,xmm2
+ addps xmm3,xmm4
+ movups xmm4,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+16]
+ mulps xmm4,xmm0
+ movups xmm5,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+64]
+ mulps xmm5,xmm1
+ addps xmm4,xmm5
+ movups xmm5,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+112]
+ mulps xmm5,xmm2
+ addps xmm4,xmm5
+ movups xmm5,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+32]
+ mulps xmm5,xmm0
+ movups xmm6,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+80]
+ mulps xmm6,xmm1
+ addps xmm5,xmm6
+ movups xmm6,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+128]
+ mulps xmm6,xmm2
+ addps xmm5,xmm6
+ movups xmm6,dqword ptr [rdx+TWV.AngularVelocitiesB.x]
+ addps xmm6,xmm3
+ movups dqword ptr [rdx+TWV.AngularVelocitiesB.x],xmm6
+ movups xmm6,dqword ptr [rdx+TWV.AngularVelocitiesB.y]
+ addps xmm6,xmm4
+ movups dqword ptr [rdx+TWV.AngularVelocitiesB.y],xmm6
+ movups xmm6,dqword ptr [rdx+TWV.AngularVelocitiesB.z]
+ addps xmm6,xmm5
+ movups dqword ptr [rdx+TWV.AngularVelocitiesB.z],xmm6
+
+ // Central tangential friction (2x2 at the centroid). fEnableFriction is uniform, passed as FrictionMask; skip the
+ // whole block when it is clear. Inactive lanes stay no-op through the zero normal impulse budget (the cone clamp
+ // pulls their new impulse to zero, matching the zero stored one).
+ movups xmm0,dqword ptr [r9+TWM.FrictionMask]
+ movmskps eax,xmm0
+ test eax,eax
+ jz @SolveVelocityDone
+
+ // dv = (vB + wB x OriginsB) - (vA + wA x OriginsA), stored into the scratch slots.
+ movups xmm3,dqword ptr [rcx+TWB.OriginsB.x]
+ movups xmm4,dqword ptr [rcx+TWB.OriginsB.y]
+ movups xmm5,dqword ptr [rcx+TWB.OriginsB.z]
+ movups xmm0,dqword ptr [rdx+TWV.AngularVelocitiesB.y]
+ mulps xmm0,xmm5
+ movups xmm6,dqword ptr [rdx+TWV.AngularVelocitiesB.z]
+ mulps xmm6,xmm4
+ subps xmm0,xmm6
+ movups xmm6,dqword ptr [rdx+TWV.LinearVelocitiesB.x]
+ addps xmm0,xmm6
+ movups xmm1,dqword ptr [rdx+TWV.AngularVelocitiesB.z]
+ mulps xmm1,xmm3
+ movups xmm6,dqword ptr [rdx+TWV.AngularVelocitiesB.x]
+ mulps xmm6,xmm5
+ subps xmm1,xmm6
+ movups xmm6,dqword ptr [rdx+TWV.LinearVelocitiesB.y]
+ addps xmm1,xmm6
+ movups xmm2,dqword ptr [rdx+TWV.AngularVelocitiesB.x]
+ mulps xmm2,xmm4
+ movups xmm6,dqword ptr [rdx+TWV.AngularVelocitiesB.y]
+ mulps xmm6,xmm3
+ subps xmm2,xmm6
+ movups xmm6,dqword ptr [rdx+TWV.LinearVelocitiesB.z]
+ addps xmm2,xmm6
+ movups xmm3,dqword ptr [rcx+TWB.OriginsA.x]
+ movups xmm4,dqword ptr [rcx+TWB.OriginsA.y]
+ movups xmm5,dqword ptr [rcx+TWB.OriginsA.z]
+ movups xmm6,dqword ptr [rdx+TWV.AngularVelocitiesA.y]
+ mulps xmm6,xmm5
+ movups xmm7,dqword ptr [rdx+TWV.AngularVelocitiesA.z]
+ mulps xmm7,xmm4
+ subps xmm6,xmm7
+ movups xmm7,dqword ptr [rdx+TWV.LinearVelocitiesA.x]
+ addps xmm6,xmm7
+ subps xmm0,xmm6
+ movaps dqword ptr [rsp+192],xmm0
+ movups xmm6,dqword ptr [rdx+TWV.AngularVelocitiesA.z]
+ mulps xmm6,xmm3
+ movups xmm7,dqword ptr [rdx+TWV.AngularVelocitiesA.x]
+ mulps xmm7,xmm5
+ subps xmm6,xmm7
+ movups xmm7,dqword ptr [rdx+TWV.LinearVelocitiesA.y]
+ addps xmm6,xmm7
+ subps xmm1,xmm6
+ movaps dqword ptr [rsp+208],xmm1
+ movups xmm6,dqword ptr [rdx+TWV.AngularVelocitiesA.x]
+ mulps xmm6,xmm4
+ movups xmm7,dqword ptr [rdx+TWV.AngularVelocitiesA.y]
+ mulps xmm7,xmm3
+ subps xmm6,xmm7
+ movups xmm7,dqword ptr [rdx+TWV.LinearVelocitiesA.z]
+ addps xmm6,xmm7
+ subps xmm2,xmm6
+ movaps dqword ptr [rsp+224],xmm2
+ // VTx = dot(dv, Tangents0) - TangentVelocities[0] ; VTy = dot(dv, Tangents1) - TangentVelocities[1]. Both dots sum
+ // z, then x, then y to match the scalar Vector3Dot horizontal add order.
+ movups xmm3,dqword ptr [rcx+TWB.Tangents0.z]
+ mulps xmm3,xmm2
+ movups xmm4,dqword ptr [rcx+TWB.Tangents0.x]
+ mulps xmm4,xmm0
+ addps xmm3,xmm4
+ movups xmm4,dqword ptr [rcx+TWB.Tangents0.y]
+ mulps xmm4,xmm1
+ addps xmm3,xmm4
+ movups xmm4,dqword ptr [rcx+TWB.TangentVelocities]
+ subps xmm3,xmm4
+ movups xmm5,dqword ptr [rcx+TWB.Tangents1.z]
+ mulps xmm5,xmm2
+ movups xmm6,dqword ptr [rcx+TWB.Tangents1.x]
+ mulps xmm6,xmm0
+ addps xmm5,xmm6
+ movups xmm6,dqword ptr [rcx+TWB.Tangents1.y]
+ mulps xmm6,xmm1
+ addps xmm5,xmm6
+ movups xmm6,dqword ptr [rcx+TWB.TangentVelocities+16]
+ subps xmm5,xmm6
+ // TMx = TangentMasses2x2[0,0]*VTx + [0,1]*VTy ; TMy = [1,0]*VTx + [1,1]*VTy.
+ movups xmm6,dqword ptr [rcx+TWB.TangentMasses2x2]
+ mulps xmm6,xmm3
+ movups xmm7,dqword ptr [rcx+TWB.TangentMasses2x2+16]
+ mulps xmm7,xmm5
+ addps xmm6,xmm7
+ movups xmm7,dqword ptr [rcx+TWB.TangentMasses2x2+32]
+ mulps xmm7,xmm3
+ movups xmm8,dqword ptr [rcx+TWB.TangentMasses2x2+48]
+ mulps xmm8,xmm5
+ addps xmm7,xmm8
+ // NewX = FrictionImpulses[0] - TMx ; NewY = FrictionImpulses[1] - TMy ; keep the old impulses for the deltas.
+ movups xmm8,dqword ptr [rcx+TWB.FrictionImpulses]
+ movaps xmm3,xmm8
+ subps xmm3,xmm6
+ movups xmm9,dqword ptr [rcx+TWB.FrictionImpulses+16]
+ movaps xmm5,xmm9
+ subps xmm5,xmm7
+ // MaxLambda = Frictions * TotalNormalImpulse ; LenSqr = NewX^2 + NewY^2.
+ movups xmm6,dqword ptr [rcx+TWB.Frictions]
+ mulps xmm6,dqword ptr [rsp+160]
+ movaps xmm7,xmm3
+ mulps xmm7,xmm3
+ movaps xmm10,xmm5
+ mulps xmm10,xmm5
+ addps xmm7,xmm10
+ // cond = LenSqr > MaxLambda^2 ; scale = MaxLambda / sqrt(LenSqr).
+ movaps xmm10,xmm6
+ mulps xmm10,xmm6
+ cmpltps xmm10,xmm7
+ sqrtps xmm11,xmm7
+ movaps xmm12,xmm6
+ divps xmm12,xmm11
+ // NewX_clamped = cond ? NewX*scale : NewX ; NewY likewise.
+ movaps xmm13,xmm3
+ mulps xmm13,xmm12
+ movaps xmm14,xmm10
+ andps xmm13,xmm14
+ movaps xmm15,xmm10
+ andnps xmm15,xmm3
+ orps xmm13,xmm15
+ movaps xmm3,xmm5
+ mulps xmm3,xmm12
+ movaps xmm14,xmm10
+ andps xmm3,xmm14
+ movaps xmm15,xmm10
+ andnps xmm15,xmm5
+ orps xmm3,xmm15
+ // Store the new friction impulses, compute the applied deltas DX,DY into the scratch slots.
+ movups dqword ptr [rcx+TWB.FrictionImpulses],xmm13
+ movups dqword ptr [rcx+TWB.FrictionImpulses+16],xmm3
+ subps xmm13,xmm8
+ movaps dqword ptr [rsp+240],xmm13
+ subps xmm3,xmm9
+ movaps dqword ptr [rsp+256],xmm3
+ // P = Tangents0*DX + Tangents1*DY, kept in the scratch slots for the two cross products.
+ movups xmm0,dqword ptr [rcx+TWB.Tangents0.x]
+ mulps xmm0,dqword ptr [rsp+240]
+ movups xmm4,dqword ptr [rcx+TWB.Tangents1.x]
+ mulps xmm4,dqword ptr [rsp+256]
+ addps xmm0,xmm4
+ movups xmm1,dqword ptr [rcx+TWB.Tangents0.y]
+ mulps xmm1,dqword ptr [rsp+240]
+ movups xmm4,dqword ptr [rcx+TWB.Tangents1.y]
+ mulps xmm4,dqword ptr [rsp+256]
+ addps xmm1,xmm4
+ movups xmm2,dqword ptr [rcx+TWB.Tangents0.z]
+ mulps xmm2,dqword ptr [rsp+240]
+ movups xmm4,dqword ptr [rcx+TWB.Tangents1.z]
+ mulps xmm4,dqword ptr [rsp+256]
+ addps xmm2,xmm4
+ movaps dqword ptr [rsp+240],xmm0
+ movaps dqword ptr [rsp+256],xmm1
+ movaps dqword ptr [rsp+272],xmm2
+ // vA -= P * (LinearFactorsA * InverseMassesA). P still in xmm0/1/2.
+ movups xmm3,dqword ptr [rcx+TWB.InverseMassesA]
+ movups xmm4,dqword ptr [rdx+TWV.LinearFactorsA.x]
+ mulps xmm4,xmm3
+ mulps xmm4,xmm0
+ movups xmm5,dqword ptr [rdx+TWV.LinearVelocitiesA.x]
+ subps xmm5,xmm4
+ movups dqword ptr [rdx+TWV.LinearVelocitiesA.x],xmm5
+ movups xmm4,dqword ptr [rdx+TWV.LinearFactorsA.y]
+ mulps xmm4,xmm3
+ mulps xmm4,xmm1
+ movups xmm5,dqword ptr [rdx+TWV.LinearVelocitiesA.y]
+ subps xmm5,xmm4
+ movups dqword ptr [rdx+TWV.LinearVelocitiesA.y],xmm5
+ movups xmm4,dqword ptr [rdx+TWV.LinearFactorsA.z]
+ mulps xmm4,xmm3
+ mulps xmm4,xmm2
+ movups xmm5,dqword ptr [rdx+TWV.LinearVelocitiesA.z]
+ subps xmm5,xmm4
+ movups dqword ptr [rdx+TWV.LinearVelocitiesA.z],xmm5
+ // wA -= matmul(cross(OriginsA, P), iA). cross into xmm0/1/2.
+ movups xmm0,dqword ptr [rcx+TWB.OriginsA.y]
+ mulps xmm0,dqword ptr [rsp+272]
+ movups xmm3,dqword ptr [rcx+TWB.OriginsA.z]
+ mulps xmm3,dqword ptr [rsp+256]
+ subps xmm0,xmm3
+ movups xmm1,dqword ptr [rcx+TWB.OriginsA.z]
+ mulps xmm1,dqword ptr [rsp+240]
+ movups xmm3,dqword ptr [rcx+TWB.OriginsA.x]
+ mulps xmm3,dqword ptr [rsp+272]
+ subps xmm1,xmm3
+ movups xmm2,dqword ptr [rcx+TWB.OriginsA.x]
+ mulps xmm2,dqword ptr [rsp+256]
+ movups xmm3,dqword ptr [rcx+TWB.OriginsA.y]
+ mulps xmm3,dqword ptr [rsp+240]
+ subps xmm2,xmm3
+ movups xmm3,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA]
+ mulps xmm3,xmm0
+ movups xmm4,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+48]
+ mulps xmm4,xmm1
+ addps xmm3,xmm4
+ movups xmm4,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+96]
+ mulps xmm4,xmm2
+ addps xmm3,xmm4
+ movups xmm4,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+16]
+ mulps xmm4,xmm0
+ movups xmm5,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+64]
+ mulps xmm5,xmm1
+ addps xmm4,xmm5
+ movups xmm5,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+112]
+ mulps xmm5,xmm2
+ addps xmm4,xmm5
+ movups xmm5,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+32]
+ mulps xmm5,xmm0
+ movups xmm6,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+80]
+ mulps xmm6,xmm1
+ addps xmm5,xmm6
+ movups xmm6,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+128]
+ mulps xmm6,xmm2
+ addps xmm5,xmm6
+ movups xmm6,dqword ptr [rdx+TWV.AngularVelocitiesA.x]
+ subps xmm6,xmm3
+ movups dqword ptr [rdx+TWV.AngularVelocitiesA.x],xmm6
+ movups xmm6,dqword ptr [rdx+TWV.AngularVelocitiesA.y]
+ subps xmm6,xmm4
+ movups dqword ptr [rdx+TWV.AngularVelocitiesA.y],xmm6
+ movups xmm6,dqword ptr [rdx+TWV.AngularVelocitiesA.z]
+ subps xmm6,xmm5
+ movups dqword ptr [rdx+TWV.AngularVelocitiesA.z],xmm6
+ // vB += P * (LinearFactorsB * InverseMassesB). Reload P into xmm0/1/2.
+ movaps xmm0,dqword ptr [rsp+240]
+ movaps xmm1,dqword ptr [rsp+256]
+ movaps xmm2,dqword ptr [rsp+272]
+ movups xmm3,dqword ptr [rcx+TWB.InverseMassesB]
+ movups xmm4,dqword ptr [rdx+TWV.LinearFactorsB.x]
+ mulps xmm4,xmm3
+ mulps xmm4,xmm0
+ movups xmm5,dqword ptr [rdx+TWV.LinearVelocitiesB.x]
+ addps xmm5,xmm4
+ movups dqword ptr [rdx+TWV.LinearVelocitiesB.x],xmm5
+ movups xmm4,dqword ptr [rdx+TWV.LinearFactorsB.y]
+ mulps xmm4,xmm3
+ mulps xmm4,xmm1
+ movups xmm5,dqword ptr [rdx+TWV.LinearVelocitiesB.y]
+ addps xmm5,xmm4
+ movups dqword ptr [rdx+TWV.LinearVelocitiesB.y],xmm5
+ movups xmm4,dqword ptr [rdx+TWV.LinearFactorsB.z]
+ mulps xmm4,xmm3
+ mulps xmm4,xmm2
+ movups xmm5,dqword ptr [rdx+TWV.LinearVelocitiesB.z]
+ addps xmm5,xmm4
+ movups dqword ptr [rdx+TWV.LinearVelocitiesB.z],xmm5
+ // wB += matmul(cross(OriginsB, P), iB). cross into xmm0/1/2.
+ movups xmm0,dqword ptr [rcx+TWB.OriginsB.y]
+ mulps xmm0,dqword ptr [rsp+272]
+ movups xmm3,dqword ptr [rcx+TWB.OriginsB.z]
+ mulps xmm3,dqword ptr [rsp+256]
+ subps xmm0,xmm3
+ movups xmm1,dqword ptr [rcx+TWB.OriginsB.z]
+ mulps xmm1,dqword ptr [rsp+240]
+ movups xmm3,dqword ptr [rcx+TWB.OriginsB.x]
+ mulps xmm3,dqword ptr [rsp+272]
+ subps xmm1,xmm3
+ movups xmm2,dqword ptr [rcx+TWB.OriginsB.x]
+ mulps xmm2,dqword ptr [rsp+256]
+ movups xmm3,dqword ptr [rcx+TWB.OriginsB.y]
+ mulps xmm3,dqword ptr [rsp+240]
+ subps xmm2,xmm3
+ movups xmm3,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB]
+ mulps xmm3,xmm0
+ movups xmm4,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+48]
+ mulps xmm4,xmm1
+ addps xmm3,xmm4
+ movups xmm4,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+96]
+ mulps xmm4,xmm2
+ addps xmm3,xmm4
+ movups xmm4,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+16]
+ mulps xmm4,xmm0
+ movups xmm5,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+64]
+ mulps xmm5,xmm1
+ addps xmm4,xmm5
+ movups xmm5,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+112]
+ mulps xmm5,xmm2
+ addps xmm4,xmm5
+ movups xmm5,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+32]
+ mulps xmm5,xmm0
+ movups xmm6,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+80]
+ mulps xmm6,xmm1
+ addps xmm5,xmm6
+ movups xmm6,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+128]
+ mulps xmm6,xmm2
+ addps xmm5,xmm6
+ movups xmm6,dqword ptr [rdx+TWV.AngularVelocitiesB.x]
+ addps xmm6,xmm3
+ movups dqword ptr [rdx+TWV.AngularVelocitiesB.x],xmm6
+ movups xmm6,dqword ptr [rdx+TWV.AngularVelocitiesB.y]
+ addps xmm6,xmm4
+ movups dqword ptr [rdx+TWV.AngularVelocitiesB.y],xmm6
+ movups xmm6,dqword ptr [rdx+TWV.AngularVelocitiesB.z]
+ addps xmm6,xmm5
+ movups dqword ptr [rdx+TWV.AngularVelocitiesB.z],xmm6
+
+@SolveVelocityDone:
+ movaps xmm6,dqword ptr [rsp]
+ movaps xmm7,dqword ptr [rsp+16]
+ movaps xmm8,dqword ptr [rsp+32]
+ movaps xmm9,dqword ptr [rsp+48]
+ movaps xmm10,dqword ptr [rsp+64]
+ movaps xmm11,dqword ptr [rsp+80]
+ movaps xmm12,dqword ptr [rsp+96]
+ movaps xmm13,dqword ptr [rsp+112]
+ movaps xmm14,dqword ptr [rsp+128]
+ movaps xmm15,dqword ptr [rsp+144]
+ add rsp,296
+end;
+{$endif}
+
 procedure TKraftSolver.SolveVelocitySubStepWideRange(const aFromBatchIndex,aToBatchIndex,aThreadIndex:TKraftInt32);
 // Wide counterpart of SolveVelocitySubStepRange: the lanes run the identical scalar operations in the
 // identical order, only against the lane major batch storage.
@@ -59308,6 +61266,12 @@ var BatchIndex,LaneIndex,ContactIndex,IndexA,IndexB,CountPoints,RowIndex,ColumnI
     TangentVectors:array[0..1] of TKraftVector3;
     TimeStep:TKraftTimeStep;
     aUseBias:boolean;
+{$ifdef KraftWideContactSolverAssembler}
+    Scratch:TKraftSolverWideVelocityScratch;
+    SolveScratch:TKraftSolverWideSolveScratch;
+    Params:TKraftSolverWideSolveParams;
+    UseBiasBits,FrictionBits:TKraftUInt32;
+{$endif}
 begin
 
  TimeStep:=fStageTimeStep;
@@ -59315,6 +61279,37 @@ begin
 
  InverseH:=TimeStep.InverseSubStepDeltaTime;
  MaxBiasVelocity:=fPhysics.fMaximalLinearCorrection*InverseH;
+
+{$ifdef KraftWideContactSolverAssembler}
+ // Assembler path: broadcast the uniform stage scalars and boolean masks once, then per batch gather the lanes'
+ // velocities and centre/orientation deltas, run the SSE kernel, and scatter the active lanes back.
+ if fPhysics.fWideContactSolverAssembler then begin
+  if aUseBias then begin
+   UseBiasBits:=TKraftUInt32($ffffffff);
+  end else begin
+   UseBiasBits:=0;
+  end;
+  if fEnableFriction then begin
+   FrictionBits:=TKraftUInt32($ffffffff);
+  end else begin
+   FrictionBits:=0;
+  end;
+  for LaneIndex:=0 to 3 do begin
+   Params.InverseH[LaneIndex]:=InverseH;
+   Params.NegativeMaxBiasVelocity[LaneIndex]:=-MaxBiasVelocity;
+   PKraftUInt32(pointer(@Params.UseBiasMask[LaneIndex]))^:=UseBiasBits;
+   PKraftUInt32(pointer(@Params.FrictionMask[LaneIndex]))^:=FrictionBits;
+  end;
+  for BatchIndex:=aFromBatchIndex to aToBatchIndex do begin
+   Batch:=@fWideContactBatches[BatchIndex];
+   GatherWideVelocities(Batch,Scratch);
+   GatherWideSolveExtras(Batch,SolveScratch);
+   KraftWideSolveVelocityBatchSSE(Batch,@Scratch,@SolveScratch,@Params);
+   ScatterWideVelocities(Batch,Scratch);
+  end;
+  exit;
+ end;
+{$endif}
 
  for BatchIndex:=aFromBatchIndex to aToBatchIndex do begin
   Batch:=@fWideContactBatches[BatchIndex];
@@ -59353,6 +61348,7 @@ begin
    dqA:=QuaternionTermNormalize(QuaternionMul(fPositions[IndexA].Orientation,QuaternionConjugate(fPrepareOrientations[IndexA])));
    dqB:=QuaternionTermNormalize(QuaternionMul(fPositions[IndexB].Orientation,QuaternionConjugate(fPrepareOrientations[IndexB])));
 
+
    // Central-friction limits accumulated over the normal loop.
    TotalNormalImpulse:=0.0;
    TotalTwistLimit:=0.0;
@@ -59367,6 +61363,7 @@ begin
 
     // Recompute the current separation from the accumulated delta positions and delta rotations.
     Separation:=WidePoint^.AdjustedSeparations[LaneIndex]+Vector3Dot(Vector3Sub(Vector3Add(dcB,Vector3TermQuaternionRotate(rB,dqB)),Vector3Add(dcA,Vector3TermQuaternionRotate(rA,dqA))),Normal);
+
 
     // Choose the bias regime for this point.
     if Separation>0.0 then begin
@@ -59416,6 +61413,7 @@ begin
     // Accumulate the totals the central friction limits need.
     TotalNormalImpulse:=TotalNormalImpulse+NewNormalImpulse;
     TotalTwistLimit:=TotalTwistLimit+(WidePoint^.LeverArms[LaneIndex]*NewNormalImpulse);
+
 
    end;
 
@@ -59525,6 +61523,298 @@ begin
 
 end;
 
+{$ifdef KraftWideContactSolverAssembler}
+procedure KraftWideApplyRestitutionBatchSSE(const aBatch:Pointer;const aScratch:Pointer); assembler; {$ifdef fpc}nostackframe; ms_abi_default;{$endif}
+// SSE assembler wide restitution pass for one batch, bit-identical to the per-lane scalar ApplyRestitutionWideRange.
+// RCX = batch, RDX = velocity scratch. The scalar per-lane and per-point skips (restitution zero, not approaching
+// fast enough, no normal impulse) become a per-lane mask: the delta impulse is anded to zero for a skipped lane, so
+// the impulse stays untouched (Max(0,Old)=Old since Old>=0) and the bodies get a zero, exactly like the skip. The
+// four points run unconditionally; inactive lanes and points carry zero impulses and a zero restitution mask.
+type TWB=TKraftSolverWideContactBatch;
+     TWP=TKraftSolverWideContactPoint;
+     TWS=TKraftSolverWideVelocityScratch;
+asm
+{$ifndef fpc}
+ .noframe
+{$endif}
+ sub rsp,72
+ movaps dqword ptr [rsp],xmm6
+ movaps dqword ptr [rsp+16],xmm7
+ movaps dqword ptr [rsp+32],xmm8
+ movaps dqword ptr [rsp+48],xmm9
+
+ mov r9,4
+ lea r8,[rcx+TWB.Points]
+@RestitutionPointLoop:
+ // Relative normal velocity at the point: vn = dot((vB + wB x rB) - (vA + wA x rA), Normal). vpB into xmm0/1/2.
+ // The batch and scratch lane fields are not 16 byte aligned, so every operand is loaded with movups first (the
+ // packed arithmetic ops fault on an unaligned memory operand, unlike movups).
+ movups xmm0,dqword ptr [rdx+TWS.AngularVelocitiesB.y]
+ movups xmm3,dqword ptr [r8+TWP.RelativePositionsB.z]
+ mulps xmm0,xmm3
+ movups xmm3,dqword ptr [rdx+TWS.AngularVelocitiesB.z]
+ movups xmm4,dqword ptr [r8+TWP.RelativePositionsB.y]
+ mulps xmm3,xmm4
+ subps xmm0,xmm3
+ movups xmm3,dqword ptr [rdx+TWS.LinearVelocitiesB.x]
+ addps xmm0,xmm3
+ movups xmm1,dqword ptr [rdx+TWS.AngularVelocitiesB.z]
+ movups xmm3,dqword ptr [r8+TWP.RelativePositionsB.x]
+ mulps xmm1,xmm3
+ movups xmm3,dqword ptr [rdx+TWS.AngularVelocitiesB.x]
+ movups xmm4,dqword ptr [r8+TWP.RelativePositionsB.z]
+ mulps xmm3,xmm4
+ subps xmm1,xmm3
+ movups xmm3,dqword ptr [rdx+TWS.LinearVelocitiesB.y]
+ addps xmm1,xmm3
+ movups xmm2,dqword ptr [rdx+TWS.AngularVelocitiesB.x]
+ movups xmm3,dqword ptr [r8+TWP.RelativePositionsB.y]
+ mulps xmm2,xmm3
+ movups xmm3,dqword ptr [rdx+TWS.AngularVelocitiesB.y]
+ movups xmm4,dqword ptr [r8+TWP.RelativePositionsB.x]
+ mulps xmm3,xmm4
+ subps xmm2,xmm3
+ movups xmm3,dqword ptr [rdx+TWS.LinearVelocitiesB.z]
+ addps xmm2,xmm3
+ // subtract vpA
+ movups xmm3,dqword ptr [rdx+TWS.AngularVelocitiesA.y]
+ movups xmm4,dqword ptr [r8+TWP.RelativePositionsA.z]
+ mulps xmm3,xmm4
+ movups xmm4,dqword ptr [rdx+TWS.AngularVelocitiesA.z]
+ movups xmm5,dqword ptr [r8+TWP.RelativePositionsA.y]
+ mulps xmm4,xmm5
+ subps xmm3,xmm4
+ movups xmm4,dqword ptr [rdx+TWS.LinearVelocitiesA.x]
+ addps xmm3,xmm4
+ subps xmm0,xmm3
+ movups xmm3,dqword ptr [rdx+TWS.AngularVelocitiesA.z]
+ movups xmm4,dqword ptr [r8+TWP.RelativePositionsA.x]
+ mulps xmm3,xmm4
+ movups xmm4,dqword ptr [rdx+TWS.AngularVelocitiesA.x]
+ movups xmm5,dqword ptr [r8+TWP.RelativePositionsA.z]
+ mulps xmm4,xmm5
+ subps xmm3,xmm4
+ movups xmm4,dqword ptr [rdx+TWS.LinearVelocitiesA.y]
+ addps xmm3,xmm4
+ subps xmm1,xmm3
+ movups xmm3,dqword ptr [rdx+TWS.AngularVelocitiesA.x]
+ movups xmm4,dqword ptr [r8+TWP.RelativePositionsA.y]
+ mulps xmm3,xmm4
+ movups xmm4,dqword ptr [rdx+TWS.AngularVelocitiesA.y]
+ movups xmm5,dqword ptr [r8+TWP.RelativePositionsA.x]
+ mulps xmm4,xmm5
+ subps xmm3,xmm4
+ movups xmm4,dqword ptr [rdx+TWS.LinearVelocitiesA.z]
+ addps xmm3,xmm4
+ subps xmm2,xmm3
+ // vn = dot(dv, Normal), summed z, then x, then y to match the scalar Vector3Dot horizontal add order.
+ movups xmm3,dqword ptr [rcx+TWB.Normals.z]
+ mulps xmm3,xmm2
+ movups xmm4,dqword ptr [rcx+TWB.Normals.x]
+ mulps xmm4,xmm0
+ addps xmm3,xmm4
+ movups xmm4,dqword ptr [rcx+TWB.Normals.y]
+ mulps xmm4,xmm1
+ addps xmm3,xmm4
+ // t = vn + Restitution*RelativeVelocity ; Lambda = -(NormalMass * t)
+ movups xmm4,dqword ptr [rcx+TWB.Restitutions]
+ movups xmm5,dqword ptr [r8+TWP.RelativeVelocities]
+ mulps xmm4,xmm5
+ addps xmm3,xmm4
+ movups xmm4,dqword ptr [r8+TWP.NormalMasses]
+ mulps xmm4,xmm3
+ xorps xmm5,xmm5
+ subps xmm5,xmm4
+ // Bounce mask = (Restitution<>0) and (RelativeVelocity<=-RestitutionThreshold) and (NormalImpulse<>0)
+ movups xmm3,dqword ptr [rcx+TWB.Restitutions]
+ xorps xmm6,xmm6
+ cmpneqps xmm3,xmm6
+ movups xmm4,dqword ptr [rcx+TWB.RestitutionThresholds]
+ xorps xmm7,xmm7
+ subps xmm7,xmm4
+ movups xmm4,dqword ptr [r8+TWP.RelativeVelocities]
+ cmpleps xmm4,xmm7
+ andps xmm3,xmm4
+ movups xmm4,dqword ptr [r8+TWP.NormalImpulses]
+ xorps xmm6,xmm6
+ cmpneqps xmm4,xmm6
+ andps xmm3,xmm4
+ andps xmm5,xmm3
+ // NewNormalImpulse = Max(0, Old + Lambda) ; delta = New - Old ; write New back
+ movups xmm6,dqword ptr [r8+TWP.NormalImpulses]
+ movaps xmm4,xmm6
+ addps xmm4,xmm5
+{$ifdef KraftWideRestitutionClampBlend}
+ xorps xmm7,xmm7
+ movaps xmm8,xmm4
+ cmpnltps xmm8,xmm7
+ andps xmm4,xmm8
+{$else}
+ xorps xmm7,xmm7
+ maxps xmm4,xmm7
+{$endif}
+ movups dqword ptr [r8+TWP.NormalImpulses],xmm4
+ subps xmm4,xmm6
+ // P = Normal * delta, then apply to A (subtract) and B (add), rA/rB at the point
+ movups xmm0,dqword ptr [rcx+TWB.Normals.x]
+ mulps xmm0,xmm4
+ movups xmm1,dqword ptr [rcx+TWB.Normals.y]
+ mulps xmm1,xmm4
+ movups xmm2,dqword ptr [rcx+TWB.Normals.z]
+ mulps xmm2,xmm4
+
+ // Body A linear: vA -= P .* (lA * mA)
+ movups xmm3,dqword ptr [rcx+TWB.InverseMassesA]
+ movups xmm4,dqword ptr [rdx+TWS.LinearFactorsA.x]
+ mulps xmm4,xmm3
+ mulps xmm4,xmm0
+ movups xmm5,dqword ptr [rdx+TWS.LinearVelocitiesA.x]
+ subps xmm5,xmm4
+ movups dqword ptr [rdx+TWS.LinearVelocitiesA.x],xmm5
+ movups xmm4,dqword ptr [rdx+TWS.LinearFactorsA.y]
+ mulps xmm4,xmm3
+ mulps xmm4,xmm1
+ movups xmm5,dqword ptr [rdx+TWS.LinearVelocitiesA.y]
+ subps xmm5,xmm4
+ movups dqword ptr [rdx+TWS.LinearVelocitiesA.y],xmm5
+ movups xmm4,dqword ptr [rdx+TWS.LinearFactorsA.z]
+ mulps xmm4,xmm3
+ mulps xmm4,xmm2
+ movups xmm5,dqword ptr [rdx+TWS.LinearVelocitiesA.z]
+ subps xmm5,xmm4
+ movups dqword ptr [rdx+TWS.LinearVelocitiesA.z],xmm5
+ // Body A angular: wA -= matmul(cross(rA,P), iA)
+ movups xmm3,dqword ptr [r8+TWP.RelativePositionsA.y]
+ mulps xmm3,xmm2
+ movups xmm4,dqword ptr [r8+TWP.RelativePositionsA.z]
+ mulps xmm4,xmm1
+ subps xmm3,xmm4
+ movups xmm4,dqword ptr [r8+TWP.RelativePositionsA.z]
+ mulps xmm4,xmm0
+ movups xmm5,dqword ptr [r8+TWP.RelativePositionsA.x]
+ mulps xmm5,xmm2
+ subps xmm4,xmm5
+ movups xmm5,dqword ptr [r8+TWP.RelativePositionsA.x]
+ mulps xmm5,xmm1
+ movups xmm6,dqword ptr [r8+TWP.RelativePositionsA.y]
+ mulps xmm6,xmm0
+ subps xmm5,xmm6
+ movups xmm6,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA]
+ mulps xmm6,xmm3
+ movups xmm7,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+48]
+ mulps xmm7,xmm4
+ addps xmm6,xmm7
+ movups xmm7,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+96]
+ mulps xmm7,xmm5
+ addps xmm6,xmm7
+ movups xmm7,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+16]
+ mulps xmm7,xmm3
+ movups xmm8,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+64]
+ mulps xmm8,xmm4
+ addps xmm7,xmm8
+ movups xmm8,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+112]
+ mulps xmm8,xmm5
+ addps xmm7,xmm8
+ movups xmm8,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+32]
+ mulps xmm8,xmm3
+ movups xmm9,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+80]
+ mulps xmm9,xmm4
+ addps xmm8,xmm9
+ movups xmm9,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsA+128]
+ mulps xmm9,xmm5
+ addps xmm8,xmm9
+ movups xmm3,dqword ptr [rdx+TWS.AngularVelocitiesA.x]
+ subps xmm3,xmm6
+ movups dqword ptr [rdx+TWS.AngularVelocitiesA.x],xmm3
+ movups xmm3,dqword ptr [rdx+TWS.AngularVelocitiesA.y]
+ subps xmm3,xmm7
+ movups dqword ptr [rdx+TWS.AngularVelocitiesA.y],xmm3
+ movups xmm3,dqword ptr [rdx+TWS.AngularVelocitiesA.z]
+ subps xmm3,xmm8
+ movups dqword ptr [rdx+TWS.AngularVelocitiesA.z],xmm3
+
+ // Body B linear: vB += P .* (lB * mB)
+ movups xmm3,dqword ptr [rcx+TWB.InverseMassesB]
+ movups xmm4,dqword ptr [rdx+TWS.LinearFactorsB.x]
+ mulps xmm4,xmm3
+ mulps xmm4,xmm0
+ movups xmm5,dqword ptr [rdx+TWS.LinearVelocitiesB.x]
+ addps xmm5,xmm4
+ movups dqword ptr [rdx+TWS.LinearVelocitiesB.x],xmm5
+ movups xmm4,dqword ptr [rdx+TWS.LinearFactorsB.y]
+ mulps xmm4,xmm3
+ mulps xmm4,xmm1
+ movups xmm5,dqword ptr [rdx+TWS.LinearVelocitiesB.y]
+ addps xmm5,xmm4
+ movups dqword ptr [rdx+TWS.LinearVelocitiesB.y],xmm5
+ movups xmm4,dqword ptr [rdx+TWS.LinearFactorsB.z]
+ mulps xmm4,xmm3
+ mulps xmm4,xmm2
+ movups xmm5,dqword ptr [rdx+TWS.LinearVelocitiesB.z]
+ addps xmm5,xmm4
+ movups dqword ptr [rdx+TWS.LinearVelocitiesB.z],xmm5
+ // Body B angular: wB += matmul(cross(rB,P), iB)
+ movups xmm3,dqword ptr [r8+TWP.RelativePositionsB.y]
+ mulps xmm3,xmm2
+ movups xmm4,dqword ptr [r8+TWP.RelativePositionsB.z]
+ mulps xmm4,xmm1
+ subps xmm3,xmm4
+ movups xmm4,dqword ptr [r8+TWP.RelativePositionsB.z]
+ mulps xmm4,xmm0
+ movups xmm5,dqword ptr [r8+TWP.RelativePositionsB.x]
+ mulps xmm5,xmm2
+ subps xmm4,xmm5
+ movups xmm5,dqword ptr [r8+TWP.RelativePositionsB.x]
+ mulps xmm5,xmm1
+ movups xmm6,dqword ptr [r8+TWP.RelativePositionsB.y]
+ mulps xmm6,xmm0
+ subps xmm5,xmm6
+ movups xmm6,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB]
+ mulps xmm6,xmm3
+ movups xmm7,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+48]
+ mulps xmm7,xmm4
+ addps xmm6,xmm7
+ movups xmm7,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+96]
+ mulps xmm7,xmm5
+ addps xmm6,xmm7
+ movups xmm7,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+16]
+ mulps xmm7,xmm3
+ movups xmm8,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+64]
+ mulps xmm8,xmm4
+ addps xmm7,xmm8
+ movups xmm8,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+112]
+ mulps xmm8,xmm5
+ addps xmm7,xmm8
+ movups xmm8,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+32]
+ mulps xmm8,xmm3
+ movups xmm9,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+80]
+ mulps xmm9,xmm4
+ addps xmm8,xmm9
+ movups xmm9,dqword ptr [rcx+TWB.WorldInverseInertiaTensorsB+128]
+ mulps xmm9,xmm5
+ addps xmm8,xmm9
+ movups xmm3,dqword ptr [rdx+TWS.AngularVelocitiesB.x]
+ addps xmm3,xmm6
+ movups dqword ptr [rdx+TWS.AngularVelocitiesB.x],xmm3
+ movups xmm3,dqword ptr [rdx+TWS.AngularVelocitiesB.y]
+ addps xmm3,xmm7
+ movups dqword ptr [rdx+TWS.AngularVelocitiesB.y],xmm3
+ movups xmm3,dqword ptr [rdx+TWS.AngularVelocitiesB.z]
+ addps xmm3,xmm8
+ movups dqword ptr [rdx+TWS.AngularVelocitiesB.z],xmm3
+
+ add r8,SizeOf(TWP)
+ dec r9
+ jnz @RestitutionPointLoop
+
+ movaps xmm6,dqword ptr [rsp]
+ movaps xmm7,dqword ptr [rsp+16]
+ movaps xmm8,dqword ptr [rsp+32]
+ movaps xmm9,dqword ptr [rsp+48]
+ add rsp,72
+end;
+{$endif}
+
 procedure TKraftSolver.ApplyRestitutionWideRange(const aFromBatchIndex,aToBatchIndex,aThreadIndex:TKraftInt32);
 // Wide counterpart of ApplyRestitutionRange: the lanes run the identical scalar operations in the
 // identical order, only against the lane major batch storage.
@@ -59534,7 +61824,22 @@ var BatchIndex,LaneIndex,ContactIndex,IndexA,IndexB,CountPoints,RowIndex,ColumnI
     iA,iB:TKraftMatrix3x3;
     mA,mB,Restitution,RestitutionThreshold,vn,Lambda,Old,NewNormalImpulse:TKraftScalar;
     Normal,vA,lA,wA,rA,vB,lB,wB,rB,dv,P:TKraftVector3;
+{$ifdef KraftWideContactSolverAssembler}
+    Scratch:TKraftSolverWideVelocityScratch;
+{$endif}
 begin
+
+{$ifdef KraftWideContactSolverAssembler}
+ if fPhysics.fWideContactSolverAssembler then begin
+  for BatchIndex:=aFromBatchIndex to aToBatchIndex do begin
+   Batch:=@fWideContactBatches[BatchIndex];
+   GatherWideVelocities(Batch,Scratch);
+   KraftWideApplyRestitutionBatchSSE(Batch,@Scratch);
+   ScatterWideVelocities(Batch,Scratch);
+  end;
+  exit;
+ end;
+{$endif}
 
  for BatchIndex:=aFromBatchIndex to aToBatchIndex do begin
   Batch:=@fWideContactBatches[BatchIndex];
@@ -61935,6 +64240,7 @@ begin
 
 {$ifdef KraftConstraintGraphColoring}
  fWideContactSolver:=false;
+ fWideContactSolverAssembler:=true;
 
  fSolverStagePipeline:=true;
  fSolverFusedColorStages:=true;
