@@ -160,6 +160,8 @@ unit kraft;
 
 {$define UseTriangleMeshFullPerturbation}
 
+{$define KraftConstraintGraphColoring}
+
 // Internal/ghost edge handling for triangle meshes (keeps convex bodies from snagging on the shared inner edges
 // of tessellated surfaces) is selected at runtime via TKraft.InternalEdgeHandlingMode. Both the contact-normal
 // clamping and the feature-ownership arbitration are always compiled; the edge-convexity precomputation
@@ -843,6 +845,28 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property FourMillisecondsInterval:TKraftInt64 read fFourMillisecondsInterval;
        property QuarterSecondInterval:TKraftInt64 read fQuarterSecondInterval;
        property HourInterval:TKraftInt64 read fHourInterval;
+     end;
+
+     { TKraftContentionCheckLock }
+     // Diagnostic recursive lock around the persistent island bookkeeping. It wraps a plain critical section but
+     // first probes with a non-blocking TryEnter, so it can tell apart a harmless recursive re-entry from the
+     // same thread and a real concurrent access where a second thread arrives while another still holds it. Only
+     // the latter is a genuine inter-thread conflict; it is counted and routed through HandleContention, where a
+     // breakpoint pinpoints the exact bookkeeping site (from the call stack) and the two thread ids involved.
+     // The aim is to learn which sites truly need serialization and to drop the locks again where they do not.
+     TKraftContentionCheckLock=class
+      private
+       fCriticalSection:TCriticalSection;
+       fOwnerThreadID:TThreadID;
+       fRecursionDepth:TKraftInt32;
+       fContentionCount:TKraftInt64;
+      public
+       constructor Create;
+       destructor Destroy; override;
+       procedure Acquire(const aWhere:TKraftString='');
+       procedure Release;
+       procedure HandleContention(const aWhere:TKraftString;const aBlockingThreadID,aWaitingThreadID:TThreadID);
+       property ContentionCount:TKraftInt64 read fContentionCount;
      end;
 
 {$ifdef KraftConstraintGraphColoring}
@@ -6068,7 +6092,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        property ConstraintGraph:TKraftConstraintGraph read fConstraintGraph;
 
-       function ValidatePersistentIslands(out aError:string):boolean;
+       function ValidatePersistentIslands(out aError:TKraftString):boolean;
+       function ValidatePersistentIslandLists(out aError:TKraftString):boolean;
+       function ValidatePersistentIslandConnectivity(out aError:TKraftString):boolean;
 {$endif}
 
        property ShapeIDCounter:TKraftUInt64 read fShapeIDCounter;
@@ -16394,6 +16420,56 @@ begin
  end;
 end;
 
+{ TKraftContentionCheckLock }
+
+constructor TKraftContentionCheckLock.Create;
+begin
+ inherited Create;
+ fCriticalSection:=TCriticalSection.Create;
+ fOwnerThreadID:=TThreadID(0);
+ fRecursionDepth:=0;
+ fContentionCount:=0;
+end;
+
+destructor TKraftContentionCheckLock.Destroy;
+begin
+ FreeAndNil(fCriticalSection);
+ inherited Destroy;
+end;
+
+procedure TKraftContentionCheckLock.Acquire(const aWhere:TKraftString);
+var WaitingThreadID:TThreadID;
+begin
+ WaitingThreadID:={$ifdef fpc}GetThreadID{$else}GetCurrentThreadID{$endif};
+ // A non-blocking probe first: on a recursive re-entry from the same thread TryEnter still succeeds, so a
+ // failure here means another thread currently holds the lock, which is a real concurrent access.
+ if not fCriticalSection.TryEnter then begin
+  inc(fContentionCount);
+  HandleContention(aWhere,fOwnerThreadID,WaitingThreadID);
+  fCriticalSection.Enter;
+ end;
+ fOwnerThreadID:=WaitingThreadID;
+ inc(fRecursionDepth);
+end;
+
+procedure TKraftContentionCheckLock.Release;
+begin
+ dec(fRecursionDepth);
+ if fRecursionDepth<=0 then begin
+  fRecursionDepth:=0;
+  fOwnerThreadID:=TThreadID(0);
+ end;
+ fCriticalSection.Leave;
+end;
+
+procedure TKraftContentionCheckLock.HandleContention(const aWhere:TKraftString;const aBlockingThreadID,aWaitingThreadID:TThreadID);
+begin
+ // Diagnostic breakpoint site: this runs exactly when a second thread reaches the island bookkeeping lock while
+ // another still holds it. Set a breakpoint here; the call stack (plus aWhere) names the conflicting operation
+ // and the two thread ids show who collides. The log line records the same for a headless run.
+ writeln('TKraftContentionCheckLock contention #',fContentionCount,' at ',aWhere,': waiting thread ',{$ifdef fpc}PtrUInt{$else}NativeUInt{$endif}(aWaitingThreadID),' blocked by thread ',{$ifdef fpc}PtrUInt{$else}NativeUInt{$endif}(aBlockingThreadID));
+end;
+
 {$ifdef KraftConstraintGraphColoring}
 { TKraftIndexPool }
 
@@ -16880,7 +16956,7 @@ begin
  fRigidBodies:=nil;
  fCountRigidBodies:=0;
  fNeedsSplitCheck:=false;
- if fPhysics.fCountPersistentIslands>=length(fPhysics.fPersistentIslands) then begin
+ if length(fPhysics.fPersistentIslands)<=fPhysics.fCountPersistentIslands then begin
   SetLength(fPhysics.fPersistentIslands,(fPhysics.fCountPersistentIslands+1)*2);
  end;
  fPhysicsIndex:=fPhysics.fCountPersistentIslands;
@@ -16903,7 +16979,7 @@ end;
 
 procedure TKraftPersistentIsland.AddRigidBody(const aRigidBody:TKraftRigidBody);
 begin
- if fCountRigidBodies>=length(fRigidBodies) then begin
+ if length(fRigidBodies)<=fCountRigidBodies then begin
   SetLength(fRigidBodies,(fCountRigidBodies+1)*2);
  end;
  fRigidBodies[fCountRigidBodies]:=aRigidBody;
@@ -45686,41 +45762,41 @@ begin
     Shape:=Shape.fShapeNext;
    end;
 
+{$ifdef KraftConstraintGraphColoring}
+   UpdateAwakeListMembership;
+
+   // The color class of a constraint (movable versus static partner) and the body occupancy bits of the
+   // constraint graph depend on the body type, so the graph residency of this body gets rebuilt.
+   fPhysics.fConstraintGraph.RefreshRigidBody(self);
+
+   // Persistent island membership follows the movability of the body. A body which just became movable
+   // relinks over its already touching contacts and active joints at once, since those produce no new
+   // colliding state transition which would link it over the narrow phase bookkeeping.
+   if fRigidBodyType in [krbtDynamic,krbtKinematic] then begin
+    fPhysics.EnsurePersistentIsland(self);
+    ContactPairEdge:=fContactPairEdgeFirst;
+    while assigned(ContactPairEdge) do begin
+     if kcfColliding in ContactPairEdge^.ContactPair^.Flags then begin
+      fPhysics.LinkPersistentIslands(self,ContactPairEdge^.OtherRigidBody);
+     end;
+     ContactPairEdge:=ContactPairEdge^.Next;
+    end;
+    ConstraintEdge:=fConstraintEdgeFirst;
+    while assigned(ConstraintEdge) do begin
+     if assigned(ConstraintEdge^.Constraint) and
+        ((ConstraintEdge^.Constraint.fFlags*[kcfActive,kcfBreaked])=[kcfActive]) then begin
+      fPhysics.LinkPersistentIslands(self,ConstraintEdge^.OtherRigidBody);
+     end;
+     ConstraintEdge:=ConstraintEdge^.Next;
+    end;
+   end else begin
+    fPhysics.ReleaseFromPersistentIsland(self);
+   end;
+{$endif}
+
 {$ifdef KraftPasMPThreadSafeBVH}
   finally
    fPhysics.fLock.Release;
-  end;
-{$endif}
-
-{$ifdef KraftConstraintGraphColoring}
-  UpdateAwakeListMembership;
-
-  // The color class of a constraint (movable versus static partner) and the body occupancy bits of the
-  // constraint graph depend on the body type, so the graph residency of this body gets rebuilt.
-  fPhysics.fConstraintGraph.RefreshRigidBody(self);
-
-  // Persistent island membership follows the movability of the body. A body which just became movable
-  // relinks over its already touching contacts and active joints at once, since those produce no new
-  // colliding state transition which would link it over the narrow phase bookkeeping.
-  if fRigidBodyType in [krbtDynamic,krbtKinematic] then begin
-   fPhysics.EnsurePersistentIsland(self);
-   ContactPairEdge:=fContactPairEdgeFirst;
-   while assigned(ContactPairEdge) do begin
-    if kcfColliding in ContactPairEdge^.ContactPair^.Flags then begin
-     fPhysics.LinkPersistentIslands(self,ContactPairEdge^.OtherRigidBody);
-    end;
-    ContactPairEdge:=ContactPairEdge^.Next;
-   end;
-   ConstraintEdge:=fConstraintEdgeFirst;
-   while assigned(ConstraintEdge) do begin
-    if assigned(ConstraintEdge^.Constraint) and
-       ((ConstraintEdge^.Constraint.fFlags*[kcfActive,kcfBreaked])=[kcfActive]) then begin
-     fPhysics.LinkPersistentIslands(self,ConstraintEdge^.OtherRigidBody);
-    end;
-    ConstraintEdge:=ConstraintEdge^.Next;
-   end;
-  end else begin
-   fPhysics.ReleaseFromPersistentIsland(self);
   end;
 {$endif}
 
@@ -62590,6 +62666,9 @@ begin
        (OtherRigidBody.fPersistentIslandVisitGeneration<>fPersistentIslandVisitGeneration) and
        not assigned(OtherRigidBody.fPersistentIsland) then begin
      OtherRigidBody.fPersistentIslandVisitGeneration:=fPersistentIslandVisitGeneration;
+     if length(fPersistentIslandStack)<=StackCount then begin
+      SetLength(fPersistentIslandStack,(StackCount+1)*2);
+     end;
      fPersistentIslandStack[StackCount]:=OtherRigidBody;
      inc(StackCount);
     end;
@@ -62606,6 +62685,9 @@ begin
        (OtherRigidBody.fPersistentIslandVisitGeneration<>fPersistentIslandVisitGeneration) and
        not assigned(OtherRigidBody.fPersistentIsland) then begin
      OtherRigidBody.fPersistentIslandVisitGeneration:=fPersistentIslandVisitGeneration;
+     if length(fPersistentIslandStack)<=StackCount then begin
+      SetLength(fPersistentIslandStack,(StackCount+1)*2);
+     end;
      fPersistentIslandStack[StackCount]:=OtherRigidBody;
      inc(StackCount);
     end;
@@ -62619,13 +62701,15 @@ begin
 
 end;
 
-function TKraft.ValidatePersistentIslands(out aError:string):boolean;
+function TKraft.ValidatePersistentIslands(out aError:TKraftString):boolean;
 // Proves the persistent island bookkeeping against the per step island build: every movable body carries a
 // persistent island with a consistent back reference, and all movable bodies of one built island share one
 // persistent island (the persistent partition may be coarser while splits are pending, never finer).
-var IslandIndex,Index:TKraftInt32;
-    RigidBody:TKraftRigidBody;
+var IslandIndex,Index,SubIndex:TKraftInt32;
+    RigidBody,DiagBody:TKraftRigidBody;
     PersistentIsland:TKraftPersistentIsland;
+    DiagContactPairEdge:PKraftContactPairEdge;
+    DiagConstraintEdge:PKraftConstraintEdge;
 begin
  result:=false;
  aError:='';
@@ -62661,12 +62745,198 @@ begin
      if not assigned(PersistentIsland) then begin
       PersistentIsland:=RigidBody.fPersistentIsland;
      end else if RigidBody.fPersistentIsland<>PersistentIsland then begin
-      aError:='built island split over two persistent islands';
+      aError:='built island split over two persistent islands: builtIsland '+IntToStr(IslandIndex)+' count '+IntToStr(fIslands[IslandIndex].fCountRigidBodies);
+      for SubIndex:=0 to fIslands[IslandIndex].fCountRigidBodies-1 do begin
+       DiagBody:=fIslands[IslandIndex].fRigidBodies[SubIndex];
+       aError:=aError+' [b'+IntToStr(DiagBody.fBodyIndex)+' ty'+IntToStr(ord(DiagBody.fRigidBodyType));
+       if krbfSensor in DiagBody.fFlags then begin
+        aError:=aError+' SENS';
+       end;
+       if assigned(DiagBody.fPersistentIsland) then begin
+        aError:=aError+' pi'+IntToStr(DiagBody.fPersistentIsland.fPhysicsIndex)+' c'+IntToStr(DiagBody.fPersistentIsland.fCountRigidBodies);
+       end else begin
+        aError:=aError+' pi-nil';
+       end;
+       aError:=aError+']';
+      end;
+      aError:=aError+' >>edges of b'+IntToStr(RigidBody.fBodyIndex)+':';
+      DiagContactPairEdge:=RigidBody.fContactPairEdgeFirst;
+      while assigned(DiagContactPairEdge) do begin
+       aError:=aError+' C{o'+IntToStr(DiagContactPairEdge^.OtherRigidBody.fBodyIndex);
+       if kcfColliding in DiagContactPairEdge^.ContactPair^.Flags then begin
+        aError:=aError+' COLL';
+       end;
+       if kcfGraphDirty in DiagContactPairEdge^.ContactPair^.Flags then begin
+        aError:=aError+' GDIRTY';
+       end;
+       if (krbfSensor in DiagContactPairEdge^.OtherRigidBody.fFlags) or
+          (ksfSensor in DiagContactPairEdge^.ContactPair^.Shapes[0].fFlags) or
+          (ksfSensor in DiagContactPairEdge^.ContactPair^.Shapes[1].fFlags) then begin
+        aError:=aError+' SENS';
+       end;
+       aError:=aError+' gc'+IntToStr(DiagContactPairEdge^.ContactPair^.GraphColorIndex)+'}';
+       DiagContactPairEdge:=DiagContactPairEdge^.Next;
+      end;
+      DiagConstraintEdge:=RigidBody.fConstraintEdgeFirst;
+      while assigned(DiagConstraintEdge) do begin
+       if assigned(DiagConstraintEdge^.Constraint) then begin
+        aError:=aError+' J{o'+IntToStr(DiagConstraintEdge^.OtherRigidBody.fBodyIndex);
+        if (DiagConstraintEdge^.Constraint.fFlags*[kcfActive,kcfBreaked])=[kcfActive] then begin
+         aError:=aError+' ACTIVE';
+        end;
+        aError:=aError+'}';
+       end;
+       DiagConstraintEdge:=DiagConstraintEdge^.Next;
+      end;
+      aError:=aError+' <<who links to b'+IntToStr(RigidBody.fBodyIndex)+':';
+      for SubIndex:=0 to fIslands[IslandIndex].fCountRigidBodies-1 do begin
+       DiagBody:=fIslands[IslandIndex].fRigidBodies[SubIndex];
+       DiagContactPairEdge:=DiagBody.fContactPairEdgeFirst;
+       while assigned(DiagContactPairEdge) do begin
+        if DiagContactPairEdge^.OtherRigidBody=RigidBody then begin
+         aError:=aError+' C{from b'+IntToStr(DiagBody.fBodyIndex);
+         if kcfColliding in DiagContactPairEdge^.ContactPair^.Flags then begin
+          aError:=aError+' COLL';
+         end;
+         if kcfGraphDirty in DiagContactPairEdge^.ContactPair^.Flags then begin
+          aError:=aError+' GDIRTY';
+         end;
+         if (krbfSensor in DiagBody.fFlags) or
+            (ksfSensor in DiagContactPairEdge^.ContactPair^.Shapes[0].fFlags) or
+            (ksfSensor in DiagContactPairEdge^.ContactPair^.Shapes[1].fFlags) then begin
+          aError:=aError+' SENS';
+         end;
+         aError:=aError+' rb0='+IntToStr(DiagContactPairEdge^.ContactPair^.RigidBodies[0].fBodyIndex)+
+                        ' rb1='+IntToStr(DiagContactPairEdge^.ContactPair^.RigidBodies[1].fBodyIndex)+'}';
+        end;
+        DiagContactPairEdge:=DiagContactPairEdge^.Next;
+       end;
+       DiagConstraintEdge:=DiagBody.fConstraintEdgeFirst;
+       while assigned(DiagConstraintEdge) do begin
+        if (DiagConstraintEdge^.OtherRigidBody=RigidBody) and assigned(DiagConstraintEdge^.Constraint) then begin
+         aError:=aError+' J{from b'+IntToStr(DiagBody.fBodyIndex);
+         if (DiagConstraintEdge^.Constraint.fFlags*[kcfActive,kcfBreaked])=[kcfActive] then begin
+          aError:=aError+' ACTIVE';
+         end;
+         aError:=aError+'}';
+        end;
+        DiagConstraintEdge:=DiagConstraintEdge^.Next;
+       end;
+      end;
       exit;
      end;
     end;
    end;
   end;
+ end;
+ result:=true;
+end;
+
+function TKraft.ValidatePersistentIslandLists(out aError:TKraftString):boolean;
+// Proves the internal consistency of the persistent island bookkeeping itself, independent of the per step
+// island build, so it stays meaningful between the steps too (after body churn, type switches and joint
+// changes): every registered island slot points back to its own slot, every island slot body carries a
+// matching back reference, and every movable body names a registered island. Catches the dangling island
+// references, the count drift and the back reference leaks which the stale per step comparison in
+// ValidatePersistentIslands can no longer see once bodies got destroyed between the steps.
+var IslandIndex,BodyIndex:TKraftInt32;
+    Island:TKraftPersistentIsland;
+    RigidBody:TKraftRigidBody;
+begin
+ result:=false;
+ aError:='';
+
+ // Every registered island slot holds a live island whose physics index points back to its slot, and all of
+ // its body slots hold a body whose back reference names this island at the same local index
+ for IslandIndex:=0 to fCountPersistentIslands-1 do begin
+  Island:=fPersistentIslands[IslandIndex];
+  if not assigned(Island) then begin
+   aError:='nil persistent island in the registration list';
+   exit;
+  end;
+  if Island.fPhysicsIndex<>IslandIndex then begin
+   aError:='persistent island physics index does not match its slot (slot='+IntToStr(IslandIndex)+' islandPhysicsIndex='+IntToStr(Island.fPhysicsIndex)+' islandBodies='+IntToStr(Island.fCountRigidBodies)+' countPersistentIslands='+IntToStr(fCountPersistentIslands)+' islandLength='+IntToStr(length(fPersistentIslands))+')';
+   exit;
+  end;
+  for BodyIndex:=0 to Island.fCountRigidBodies-1 do begin
+   RigidBody:=Island.fRigidBodies[BodyIndex];
+   if not assigned(RigidBody) then begin
+    aError:='nil body inside a persistent island';
+    exit;
+   end;
+   if RigidBody.fPersistentIsland<>Island then begin
+    aError:='persistent island body does not point back to its island';
+    exit;
+   end;
+   if RigidBody.fPersistentIslandLocalIndex<>BodyIndex then begin
+    aError:='persistent island body local index does not match its slot';
+    exit;
+   end;
+  end;
+ end;
+
+ // Every movable body names an island which is registered at exactly the physics index it claims
+ RigidBody:=fRigidBodyFirst;
+ while assigned(RigidBody) do begin
+  Island:=RigidBody.fPersistentIsland;
+  if assigned(Island) then begin
+   if (Island.fPhysicsIndex<0) or
+      (Island.fPhysicsIndex>=fCountPersistentIslands) or
+      (fPersistentIslands[Island.fPhysicsIndex]<>Island) then begin
+    aError:='body references an unregistered persistent island';
+    exit;
+   end;
+  end;
+  RigidBody:=RigidBody.fRigidBodyNext;
+ end;
+
+ result:=true;
+end;
+
+function TKraft.ValidatePersistentIslandConnectivity(out aError:TKraftString):boolean;
+// Proves the persistent island partition against the actual connectivity: two movable bodies linked by a
+// colliding contact or an active unbroken joint must share one persistent island, the very graph the islands
+// track. Checked directly against the contact and joint edges (not against the per step island build), so it
+// holds after the time of impact sub stepping too. Only meaningful at a step boundary though: a freshly
+// created joint enters the graph and the islands at the next narrow phase walk, so between the mutations of a
+// step this can legitimately still see it unlinked.
+var RigidBody,OtherRigidBody:TKraftRigidBody;
+    ContactPairEdge:PKraftContactPairEdge;
+    ConstraintEdge:PKraftConstraintEdge;
+begin
+ result:=false;
+ aError:='';
+ RigidBody:=fRigidBodyFirst;
+ while assigned(RigidBody) do begin
+  if RigidBody.fRigidBodyType in [krbtDynamic,krbtKinematic] then begin
+   ContactPairEdge:=RigidBody.fContactPairEdgeFirst;
+   while assigned(ContactPairEdge) do begin
+    OtherRigidBody:=ContactPairEdge^.OtherRigidBody;
+    if (kcfColliding in ContactPairEdge^.ContactPair^.Flags) and
+       assigned(OtherRigidBody) and
+       (OtherRigidBody.fRigidBodyType in [krbtDynamic,krbtKinematic]) and
+       (RigidBody.fPersistentIsland<>OtherRigidBody.fPersistentIsland) then begin
+     aError:='colliding movable bodies in different persistent islands';
+     exit;
+    end;
+    ContactPairEdge:=ContactPairEdge^.Next;
+   end;
+   ConstraintEdge:=RigidBody.fConstraintEdgeFirst;
+   while assigned(ConstraintEdge) do begin
+    OtherRigidBody:=ConstraintEdge^.OtherRigidBody;
+    if assigned(ConstraintEdge^.Constraint) and
+       ((ConstraintEdge^.Constraint.fFlags*[kcfActive,kcfBreaked])=[kcfActive]) and
+       assigned(OtherRigidBody) and
+       (OtherRigidBody<>RigidBody) and
+       (OtherRigidBody.fRigidBodyType in [krbtDynamic,krbtKinematic]) and
+       (RigidBody.fPersistentIsland<>OtherRigidBody.fPersistentIsland) then begin
+     aError:='jointed movable bodies in different persistent islands';
+     exit;
+    end;
+    ConstraintEdge:=ConstraintEdge^.Next;
+   end;
+  end;
+  RigidBody:=RigidBody.fRigidBodyNext;
  end;
  result:=true;
 end;
