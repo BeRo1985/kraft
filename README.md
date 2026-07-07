@@ -44,7 +44,8 @@ Kraft Physics Engine has the following features:
 - Sleeping of inactive rigid bodies
 - Island-based multithreading, and optionally (compile-time define KraftConstraintGraphColoring) a persistent constraint-graph-coloring parallel solver architecture with a lock-free block-claiming solver stage pipeline, runtime-switchable between island-granular and colored parallelization
 - Optional wide (four-lane SoA) TGS soft contact solver with hand-written x86-64 SSE assembler kernels (warm start, velocity solve and restitution), bit-identical to the scalar path, with a pure Pascal fallback for other CPUs and for double precision
-- Cross-run-deterministic broadphase pair ordering keyed on stable shape ids (compile-time define KraftDeterministicPairSort)
+- Cross-run-deterministic broadphase pair ordering, keyed on stable shape ids rather than on the shape pointers
+- Optional large-world double precision world positions (compile-time define KraftDoublePositions), for larger but not overly gigantic worlds: only the absolute world positions (the rigid body sweep center of mass) become double while all other math and the SSE solver kernels stay single precision and operate relative to a base offset, with double precision far-from-origin query overloads; unlike the full double precision build this keeps the fast single precision solver
 - It can be used also for 1D and 2D physics, and not only for 3D physics
 - SIMD optimizations for x86-32 and x86-64
 
@@ -67,8 +68,8 @@ Most features are switchable at runtime through properties, but a few are gated 
 
 - **KraftPasMP** - use the PasMP job system instead of the built-in job manager (see above)
 - **KraftConstraintGraphColoring** - compile in the persistent constraint-graph-coloring parallel solver and its block-claiming solver stage pipeline; the parallelization architecture is then selected at runtime via TKraft.SolverParallelMode (defaults to the island-granular mode)
-- **KraftDeterministicPairSort** - order the broadphase contact pairs by the stable shape ids instead of by the shape pointers, for a cross-run-deterministic pair order (the pointer order converges box stacks in slightly fewer sequential-impulse velocity iterations, hence the switch)
-- **KraftUseDouble** - build the whole engine in double precision (TKraftScalar becomes Double; implies NonSIMD)
+- **KraftDoublePositions** - large-world double precision world positions, the middle step for larger but not overly gigantic worlds: only the absolute world positions (the rigid body sweep center of mass) become double while all other math and the SSE solver kernels stay single precision and operate relative to a base offset; this changes the ABI of TKraftSweep and adds double precision far-from-origin query overloads, and is byte for byte the classic path when undefined
+- **KraftUseDouble** - build the whole engine in double precision (TKraftScalar becomes Double; implies NonSIMD), for truly gigantic worlds where even the broadphase / BVH trees and the collision and solver math need 64-bit floating point (for example large open-world or open-space space games)
 
 ## Sandbox
 
