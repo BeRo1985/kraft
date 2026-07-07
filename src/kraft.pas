@@ -60409,6 +60409,7 @@ procedure KraftWideWarmStartBatchSSE(const aBatch:Pointer;const aScratch:Pointer
 type TWB=TKraftSolverWideContactBatch;      // shorthands so the assembler addresses the lane-major SoA fields
      TWP=TKraftSolverWideContactPoint;      // by name; a wide 3x3 matrix element [row,column] is the field base
      TWS=TKraftSolverWideVelocityScratch;   // plus a literal element offset ((row*3+column)*SizeOf(lane)=*16)
+const TWPSize=SizeOf(TWP);
 asm
 {$ifndef fpc}
  .noframe
@@ -60571,7 +60572,7 @@ asm
  addps xmm3,xmm8
  movups dqword ptr [rdx+TWS.AngularVelocitiesB.z],xmm3
 
- add r8,SizeOf(TWP)
+ add r8,TWPSize
  dec r9
  jnz @WarmStartPointLoop
 
@@ -61051,6 +61052,7 @@ const SignMaskW:array[0..3] of TKraftUInt32=($00000000,$00000000,$00000000,$8000
       SignMaskAll:array[0..3] of TKraftUInt32=($80000000,$80000000,$80000000,$80000000);
       OneV:array[0..3] of TKraftScalar=(1.0,1.0,1.0,1.0);
       EpsilonV:array[0..3] of TKraftScalar=(EPSILON,EPSILON,EPSILON,EPSILON);
+      TWPSize=SizeOf(TWP);
 {$ifdef fpc}{$pop}{$endif}
 asm
 {$ifndef fpc}
@@ -61693,7 +61695,7 @@ asm
  addps xmm3,xmm8
  movups dqword ptr [rdx+TWV.AngularVelocitiesB.z],xmm3
 
- add r10,SizeOf(TWP)
+ add r10,TWPSize
  dec r11
  jnz @SolveNormalLoop
 
@@ -62613,6 +62615,7 @@ procedure KraftWideApplyRestitutionBatchSSE(const aBatch:Pointer;const aScratch:
 type TWB=TKraftSolverWideContactBatch;
      TWP=TKraftSolverWideContactPoint;
      TWS=TKraftSolverWideVelocityScratch;
+const TWPSize=SizeOf(TWP);
 asm
 {$ifndef fpc}
  .noframe
@@ -62883,7 +62886,7 @@ asm
  addps xmm3,xmm8
  movups dqword ptr [rdx+TWS.AngularVelocitiesB.z],xmm3
 
- add r8,SizeOf(TWP)
+ add r8,TWPSize
  dec r9
  jnz @RestitutionPointLoop
 
