@@ -185,6 +185,15 @@ unit kraft;
 
 {-$define memdebug}
 
+// Double precision world positions without switching the whole engine to double. Unlike KraftUseDouble
+// (which flips TKraftScalar globally and thus disables the SSE contact solver kernels), only the
+// absolute world positions become double: the rigid body sweep center of mass, stored as TKraftPosition.
+// All other math stays TKraftScalar (single) and operates relative to a base offset, so the solver and
+// collision kernels are untouched. This changes the ABI of TKraftSweep (and TKraftRigidBody.Sweep) when
+// defined. When undefined, TKraftPosition is a plain alias of TKraftVector3 and the position helper
+// functions collapse to single precision no-ops, so the result is byte for byte the classic path.
+{-$define KraftDoublePositions}
+
 {$ifdef KraftUseDouble}
  {$define NonSIMD}
 {$endif}
@@ -895,6 +904,11 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      TKraftScalar={$ifdef KraftUseDouble}TKraftDouble{$else}TKraftFloat{$endif};
      PKraftScalar=^TKraftScalar;
 
+     // Scalar backing type for world positions only. Double when KraftDoublePositions is defined,
+     // otherwise identical to TKraftScalar so that nothing changes.
+     TKraftPositionScalar={$ifdef KraftDoublePositions}TKraftDouble{$else}TKraftScalar{$endif};
+     PKraftPositionScalar=^TKraftPositionScalar;
+
      TKraftScalars=array[0..($7fffffff div SizeOf(TKraftScalar))-1] of TKraftScalar;
      PKraftScalars=^TKraftScalars;
 
@@ -990,6 +1004,21 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      end;
      PKraftVector3=^TKraftVector3;
 
+     // World position type, used only for absolute world coordinates that need the extra range, i.e.
+     // the rigid body sweep center of mass. All other vectors stay TKraftVector3 (single). Plain record
+     // without a SIMD lane, since no hot math runs on it directly.
+{$ifdef KraftDoublePositions}
+     TKraftPosition=record
+      case TKraftUInt8 of
+       0:(x,y,z,w:TKraftPositionScalar); // w is an unused alignment pad, kept for a stable 32-byte size
+       1:(xyz:array[0..2] of TKraftPositionScalar);
+       2:(xyzw:array[0..3] of TKraftPositionScalar);
+     end;
+{$else}
+     TKraftPosition=TKraftVector3; // undefined: byte-identical alias, boundary functions become no-ops
+{$endif}
+     PKraftPosition=^TKraftPosition;
+
      TKraftVector4=record
       case TKraftUInt8 of
        0:(x,y,z,w:TKraftScalar);
@@ -1041,6 +1070,20 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      PKraftAABBs=^TKraftAABBs;
 
      TKraftAABBDynamicArray=array of TKraftAABB;
+
+     // Double precision world-space axis aligned bounding box for the public far-from-origin query API, so a region
+     // far from the origin can be expressed precisely. Mirrors TKraftPosition: a distinct double record when double
+     // positions are enabled, a byte-identical alias of TKraftAABB otherwise (the double-AABB query overloads are
+     // themselves ifdef'd to KraftDoublePositions, so nothing collides with the single TKraftAABB overloads).
+{$ifdef KraftDoublePositions}
+     PKraftPositionAABB=^TKraftPositionAABB;
+     TKraftPositionAABB=record
+      Min,Max:TKraftPosition;
+     end;
+{$else}
+     TKraftPositionAABB=TKraftAABB;
+     PKraftPositionAABB=PKraftAABB;
+{$endif}
 
      TKraftSphere=record
       Center:TKraftVector3;
@@ -1265,7 +1308,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftDynamicAABBTreeUserDataArray=array of Pointer;
 
-     TKraftDynamicAABBTreeGetDistance=function(const aTreeNode:PKraftDynamicAABBTreeNode;const aPoint:TKraftVector3):TKraftScalar of object;
+     TKraftDynamicAABBTreeGetDistance=function(const aTreeNode:PKraftDynamicAABBTreeNode;const aPoint:TKraftPosition):TKraftScalar of object;
 
      { TKraftDynamicAABBTreeSkipListNodeMap }
 
@@ -1291,7 +1334,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 {$ifdef KraftPasMPThreadSafeBVH}
        fMultipleReaderSingleWriterLockState:TPasMPInt32;
 {$endif}
-       function GetDistance(const aTreeNode:PKraftDynamicAABBTreeNode;const aPoint:TKraftVector3):TKraftScalar;
+       function GetDistance(const aTreeNode:PKraftDynamicAABBTreeNode;const aPoint:TKraftPosition):TKraftScalar;
       public
        constructor Create;
        destructor Destroy; override;
@@ -1322,9 +1365,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        function FastCheckIntersection(const aAABB:TKraftAABB;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)]):Boolean;
        function IntersectionQuery(const aAABB:TKraftAABB;var aArray:TKraftPointerDynamicArray;var aCount:TKraftSizeInt):Boolean;
        function ContainQuery(const aAABB:TKraftAABB;var aArray:TKraftPointerDynamicArray;var aCount:TKraftSizeInt):Boolean; overload;
-       function ContainQuery(const aPoint:TKraftVector3;var aArray:TKraftPointerDynamicArray;var aCount:TKraftSizeInt):Boolean; overload;
-       function FindClosest(const aPoint:TKraftVector3):Pointer;
-       function LookupClosest(const aPoint:TKraftVector3;var aArray:TKraftPointerDynamicArray;var aCount:TKraftSizeInt;aGetDistance:TKraftDynamicAABBTreeGetDistance=nil;const aMaxCount:TKraftSizeInt=1;aMaxDistance:TKraftScalar=-1.0):boolean;
+       function ContainQuery(const aPoint:TKraftPosition;var aArray:TKraftPointerDynamicArray;var aCount:TKraftSizeInt):Boolean; overload;
+       function FindClosest(const aPoint:TKraftPosition):Pointer;
+       function LookupClosest(const aPoint:TKraftPosition;var aArray:TKraftPointerDynamicArray;var aCount:TKraftSizeInt;aGetDistance:TKraftDynamicAABBTreeGetDistance=nil;const aMaxCount:TKraftSizeInt=1;aMaxDistance:TKraftScalar=-1.0):boolean;
       public
        property Root:TKraftInt32 read fRoot;
        property Nodes:PKraftDynamicAABBTreeNodes read fNodes;
@@ -1337,7 +1380,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftSweep=record
       LocalCenter:TKraftVector3; // Center of mass in local space
-      c0,c:TKraftVector3;        // Center of mass in world space
+      c0,c:TKraftPosition;       // Center of mass in world space (double under KraftDoublePositions)
       q0,q:TKraftQuaternion;     // Rotation/Orientation
       Alpha0:TKraftScalar;       // Fraction of timestep from [0, 1]; c0, and q0 are at Alpha0
      end;
@@ -1394,11 +1437,11 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      end;
 
      TKraftRayCastData=record
-      Origin:TKraftVector3;
+      Origin:TKraftPosition;      // world position
       Direction:TKraftVector3;
       MaxTime:TKraftScalar;
       TimeOfImpact:TKraftScalar;
-      Point:TKraftVector3;
+      Point:TKraftPosition;       // world hit position
       Normal:TKraftVector3;
       SurfaceNormal:TKraftVector3;
       CastProfilerData:PKraftCastProfilerData;
@@ -1415,12 +1458,12 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      PKraftSphereCastResult=^TKraftSphereCastResult;
 
      TKraftSphereCastData=record
-      Origin:TKraftVector3;
+      Origin:TKraftPosition;      // world position
       Radius:TKraftScalar;
       Direction:TKraftVector3;
       MaxTime:TKraftScalar;
       TimeOfImpact:TKraftScalar;
-      Point:TKraftVector3;
+      Point:TKraftPosition;       // world hit position
       Normal:TKraftVector3;
       SurfaceNormal:TKraftVector3;
       CastProfilerData:PKraftCastProfilerData;
@@ -2388,6 +2431,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fTag:TKraftPtrUInt;
 
        function GetProxyFatWorldAABB:PKraftAABB;
+{$ifdef KraftDoublePositions}
+       function GetWorldAABBD:TKraftPositionAABB;
+{$endif}
 
       public
 
@@ -2418,23 +2464,23 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        function GetLocalClosestPointTo(const Position:TKraftVector3):TKraftVector3; virtual;
 
-       function GetSignedDistance(const Position:TKraftVector3;const Transform:TKraftMatrix4x4):TKraftScalar; overload; virtual;
+       function GetSignedDistance(const Position:TKraftPosition;const Transform:TKraftMatrix4x4):TKraftScalar; overload; virtual;
 
-       function GetSignedDistance(const Position:TKraftVector3):TKraftScalar; overload; virtual;
+       function GetSignedDistance(const Position:TKraftPosition):TKraftScalar; overload; virtual;
 
-       function GetSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3;const Transform:TKraftMatrix4x4):TKraftScalar; overload; virtual;
+       function GetSignedDistanceAndDirection(const Position:TKraftPosition;out Direction:TKraftVector3;const Transform:TKraftMatrix4x4):TKraftScalar; overload; virtual;
 
-       function GetSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar; overload; virtual;
+       function GetSignedDistanceAndDirection(const Position:TKraftPosition;out Direction:TKraftVector3):TKraftScalar; overload; virtual;
 
-       function GetSignedDistanceNormalizedGradient(const Position:TKraftVector3;const Transform:TKraftMatrix4x4):TKraftVector3; overload; virtual;
+       function GetSignedDistanceNormalizedGradient(const Position:TKraftPosition;const Transform:TKraftMatrix4x4):TKraftVector3; overload; virtual;
 
-       function GetSignedDistanceNormalizedGradient(const Position:TKraftVector3):TKraftVector3; overload; virtual;
+       function GetSignedDistanceNormalizedGradient(const Position:TKraftPosition):TKraftVector3; overload; virtual;
 
-       function GetSignedDistanceNormal(const Position:TKraftVector3;const Transform:TKraftMatrix4x4):TKraftVector3; overload; virtual;
+       function GetSignedDistanceNormal(const Position:TKraftPosition;const Transform:TKraftMatrix4x4):TKraftVector3; overload; virtual;
 
-       function GetSignedDistanceNormal(const Position:TKraftVector3):TKraftVector3; overload; virtual;
+       function GetSignedDistanceNormal(const Position:TKraftPosition):TKraftVector3; overload; virtual;
 
-       function GetClosestPointTo(const Position:TKraftVector3):TKraftVector3; virtual;
+       function GetClosestPointTo(const Position:TKraftPosition):TKraftPosition; virtual;
 
        function GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3; virtual;
 
@@ -2444,7 +2490,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        function GetCenter(const Transform:TKraftMatrix4x4):TKraftVector3; virtual;
 
-       function TestPoint(const p:TKraftVector3):boolean; virtual;
+       function TestPoint(const p:TKraftPosition):boolean; virtual;
 
        function RayCast(var RayCastData:TKraftRayCastData):boolean; virtual;
 
@@ -2479,6 +2525,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property ShapeSphere:TKraftSphere read fShapeSphere;
 
        property WorldAABB:TKraftAABB read fWorldAABB;
+{$ifdef KraftDoublePositions}
+       property WorldAABBD:TKraftPositionAABB read GetWorldAABBD;
+{$endif}
 
        property ProxyFatWorldAABB:PKraftAABB read GetProxyFatWorldAABB;
 
@@ -2561,7 +2610,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        function GetLocalFeatureSupportVertex(const Index:TKraftInt32):TKraftVector3; override;
        function GetLocalFeatureSupportIndex(const Direction:TKraftVector3):TKraftInt32; override;
        function GetCenter(const Transform:TKraftMatrix4x4):TKraftVector3; override;
-       function TestPoint(const p:TKraftVector3):boolean; override;
+       function TestPoint(const p:TKraftPosition):boolean; override;
        function RayCast(var RayCastData:TKraftRayCastData):boolean; override;
        function SphereCast(var SphereCastData:TKraftSphereCastData):boolean; override;
 {$ifdef DebugDraw}
@@ -2591,7 +2640,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        function GetLocalFeatureSupportVertex(const Index:TKraftInt32):TKraftVector3; override;
        function GetLocalFeatureSupportIndex(const Direction:TKraftVector3):TKraftInt32; override;
        function GetCenter(const Transform:TKraftMatrix4x4):TKraftVector3; override;
-       function TestPoint(const p:TKraftVector3):boolean; override;
+       function TestPoint(const p:TKraftPosition):boolean; override;
        function RayCast(var RayCastData:TKraftRayCastData):boolean; override;
        function SphereCast(var SphereCastData:TKraftSphereCastData):boolean; override;
 {$ifdef DebugDraw}
@@ -2618,7 +2667,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        function GetLocalFeatureSupportVertex(const Index:TKraftInt32):TKraftVector3; override;
        function GetLocalFeatureSupportIndex(const Direction:TKraftVector3):TKraftInt32; override;
        function GetCenter(const Transform:TKraftMatrix4x4):TKraftVector3; override;
-       function TestPoint(const p:TKraftVector3):boolean; override;
+       function TestPoint(const p:TKraftPosition):boolean; override;
        function RayCast(var RayCastData:TKraftRayCastData):boolean; override;
        function SphereCast(var SphereCastData:TKraftSphereCastData):boolean; override;
 {$ifdef DebugDraw}
@@ -2649,7 +2698,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        function GetLocalFeatureSupportVertex(const Index:TKraftInt32):TKraftVector3; override;
        function GetLocalFeatureSupportIndex(const Direction:TKraftVector3):TKraftInt32; override;
        function GetCenter(const Transform:TKraftMatrix4x4):TKraftVector3; override;
-       function TestPoint(const p:TKraftVector3):boolean; override;
+       function TestPoint(const p:TKraftPosition):boolean; override;
        function RayCast(var RayCastData:TKraftRayCastData):boolean; override;
        function SphereCast(var SphereCastData:TKraftSphereCastData):boolean; override;
 {$ifdef DebugDraw}
@@ -2678,7 +2727,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        function GetLocalFeatureSupportVertex(const Index:TKraftInt32):TKraftVector3; override;
        function GetLocalFeatureSupportIndex(const Direction:TKraftVector3):TKraftInt32; override;
        function GetCenter(const Transform:TKraftMatrix4x4):TKraftVector3; override;
-       function TestPoint(const p:TKraftVector3):boolean; override;
+       function TestPoint(const p:TKraftPosition):boolean; override;
        function RayCast(var RayCastData:TKraftRayCastData):boolean; override;
        function SphereCast(var SphereCastData:TKraftSphereCastData):boolean; override;
 {$ifdef DebugDraw}
@@ -2720,7 +2769,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        function GetLocalFeatureSupportVertex(const Index:TKraftInt32):TKraftVector3; override;
        function GetLocalFeatureSupportIndex(const Direction:TKraftVector3):TKraftInt32; override;
        function GetCenter(const Transform:TKraftMatrix4x4):TKraftVector3; override;
-       function TestPoint(const p:TKraftVector3):boolean; override;
+       function TestPoint(const p:TKraftPosition):boolean; override;
        function RayCast(var RayCastData:TKraftRayCastData):boolean; override;
        function SphereCast(var SphereCastData:TKraftSphereCastData):boolean; override;
 {$ifdef DebugDraw}
@@ -2750,7 +2799,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        function GetLocalFeatureSupportVertex(const Index:TKraftInt32):TKraftVector3; override;
        function GetLocalFeatureSupportIndex(const Direction:TKraftVector3):TKraftInt32; override;
        function GetCenter(const Transform:TKraftMatrix4x4):TKraftVector3; override;
-       function TestPoint(const p:TKraftVector3):boolean; override;
+       function TestPoint(const p:TKraftPosition):boolean; override;
        function RayCast(var RayCastData:TKraftRayCastData):boolean; override;
        function SphereCast(var SphereCastData:TKraftSphereCastData):boolean; override;
 {$ifdef DebugDraw}
@@ -3541,17 +3590,25 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        function SetWorldPosition(const AWorldPosition:TKraftVector3):Boolean;
 
+{$ifdef KraftDoublePositions}
+       // Double precision world position accessors. Only exist under KraftDoublePositions; without it the single
+       // precision Get/SetWorldPosition are the API and TKraftPosition would just alias TKraftVector3.
+       function SetWorldPositionD(const AWorldPosition:TKraftPosition):Boolean;
+       function GetWorldCenterOfMassD:TKraftPosition; // center of mass, i.e. the sweep center directly
+       function GetWorldPositionD:TKraftPosition;      // body origin, i.e. center of mass minus the rotated local center
+{$endif}
+
        function SetOrientation(const AOrientation:TKraftMatrix3x3):Boolean; overload;
        function SetOrientation(const x,y,z:TKraftScalar):Boolean; overload;
        procedure AddOrientation(const x,y,z:TKraftScalar);
 
        procedure LimitVelocities;
 
-       procedure ApplyImpulseAtPosition(const Point,Impulse:TKraftVector3;const aWake:boolean=true);
+       procedure ApplyImpulseAtPosition(const Point:TKraftPosition;const Impulse:TKraftVector3;const aWake:boolean=true);
        procedure ApplyImpulseAtRelativePosition(const RelativePosition,Impulse:TKraftVector3;const aWake:boolean=true);
 
-       procedure SetForceAtPosition(const AForce,APosition:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
-       procedure AddForceAtPosition(const AForce,APosition:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
+       procedure SetForceAtPosition(const AForce:TKraftVector3;const APosition:TKraftPosition;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
+       procedure AddForceAtPosition(const AForce:TKraftVector3;const APosition:TKraftPosition;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
 
        procedure SetForceAtRelativePosition(const AForce,ARelativePosition:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
        procedure AddForceAtRelativePosition(const AForce,ARelativePosition:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
@@ -3580,10 +3637,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure SetBodyAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
        procedure AddBodyAngularMomentum(const AAngularMomentum:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
 
-       function GetWorldLinearVelocityFromPoint(const APoint:TKraftVector3):TKraftVector3;
+       function GetWorldLinearVelocityFromPoint(const APoint:TKraftPosition):TKraftVector3;
        function GetBodyLinearVelocityFromPoint(const APoint:TKraftVector3):TKraftVector3;
 
-       function ComputeImpulseDenominator(const aPosition,aNormal:TKraftVector3):TKraftScalar;
+       function ComputeImpulseDenominator(const aPosition:TKraftPosition;const aNormal:TKraftVector3):TKraftScalar;
 
        function ComputeAngularImpulseDenominator(const aAxis:TKraftVector3):TKraftScalar;
 
@@ -3871,7 +3928,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fGamma:TKraftScalar;
        fMass:TKraftScalar;
        fEffectiveMass:TKraftMatrix3x3;
-       fWorldPoint:TKraftVector3;
+       fWorldPoint:TKraftPosition;
        fMaximalForce:TKraftScalar;
       public
        constructor Create(const aPhysics:TKraft;const ARigidBody:TKraftRigidBody;const AWorldPoint:TKraftVector3;const AFrequencyHz:TKraftScalar=5.0;const ADampingRatio:TKraftScalar=0.7;const AMaximalForce:TKraftScalar=MAX_SCALAR;const ACollideConnected:boolean=false); reintroduce;
@@ -3888,8 +3945,14 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        function GetReactionForce(const InverseDeltaTime:TKraftScalar):TKraftVector3; override;
        function GetReactionTorque(const InverseDeltaTime:TKraftScalar):TKraftVector3; override;
        function GetWorldPoint:TKraftVector3; virtual;
+{$ifdef KraftDoublePositions}
+       function GetWorldPointD:TKraftPosition; virtual;
+{$endif}
        function GetMaximalForce:TKraftScalar; virtual;
        procedure SetWorldPoint(AWorldPoint:TKraftVector3); virtual;
+{$ifdef KraftDoublePositions}
+       procedure SetWorldPointD(AWorldPoint:TKraftPosition); virtual;
+{$endif}
        procedure SetMaximalForce(AMaximalForce:TKraftScalar); virtual;
      end;
 
@@ -3908,6 +3971,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fmU:TKraftVector3;
        fWorldPoint:TKraftVector3;
        fWorldPlane:TKraftPlane;
+{$ifdef KraftDoublePositions}
+       fWorldPlaneRel:TKraftPlane; // fWorldPlane shifted into the per-island solver base frame (Distance += n*Base)
+{$endif}
        fWorldDistance:TKraftScalar;
        fStiffness:TKraftScalar;
        fDamping:TKraftScalar;
@@ -5596,6 +5662,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure SolveSequentialImpulse(const aTimeStep:TKraftTimeStep);
        procedure SolveTGSSubStepped(const aTimeStep:TKraftTimeStep);
        procedure SolveTimeOfImpact(const aTimeStep:TKraftTimeStep;const aIndexA,aIndexB:TKraftInt32);
+{$ifdef KraftDoublePositions}
+       function GetSolverBaseOffset:TKraftPosition;
+{$endif}
 
        property Physics:TKraft read fPhysics;
 
@@ -5680,8 +5749,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
       ShapeB:TKraftShape;
       ShapeBMeshIndex:TKraftInt32;
       ShapeBTriangleIndex:TKraftInt32;
-      PositionA:TKraftVector3;
-      PositionB:TKraftVector3;
+      PositionA:TKraftPosition;      // world contact point on shape A
+      PositionB:TKraftPosition;      // world contact point on shape B
       Normal:TKraftVector3;
       PenetrationDepth:TKraftScalar;
      end;
@@ -5697,7 +5766,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftOnPushShapeFilterHook=function(const aWithShape:TKraftShape):boolean of object;
 
-     TKraftOnCastFilterHook=function(const aPoint,aNormal:TKraftVector3;const aTime:TKraftScalar;const aShape:TKraftShape):boolean of object;
+     TKraftOnCastFilterHook=function(const aPoint:TKraftPosition;const aNormal:TKraftVector3;const aTime:TKraftScalar;const aShape:TKraftShape):boolean of object;
 
      TKraftOnRayCastFilterHook=TKraftOnCastFilterHook;
 
@@ -5993,7 +6062,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fDebugDrawLine:TKraftDebugDrawLine;
 
-       procedure Integrate(var aPosition:TKraftVector3;var aOrientation:TKraftQuaternion;const aLinearVelocity,aAngularVelocity:TKraftVector3;const aDeltaTime:TKraftScalar);
+       procedure Integrate(var aPosition:TKraftVector3;var aOrientation:TKraftQuaternion;const aLinearVelocity,aAngularVelocity:TKraftVector3;const aDeltaTime:TKraftScalar); overload;
+{$ifdef KraftDoublePositions}
+       procedure Integrate(var aPosition:TKraftPosition;var aOrientation:TKraftQuaternion;const aLinearVelocity,aAngularVelocity:TKraftVector3;const aDeltaTime:TKraftScalar); overload;
+{$endif}
 
        procedure SetSolverParallelMode(const aValue:TKraftSolverParallelMode);
 
@@ -6082,25 +6154,25 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        procedure Step(const aDeltaTime:TKraftScalar=0);
 
-       function TestPoint(const aPoint:TKraftVector3):TKraftShape;
+       function TestPoint(const aPoint:TKraftPosition):TKraftShape;
 
-       function RayCast(const aOrigin,aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnRayCastFilterHook:TKraftOnRayCastFilterHook=nil;const aCastProfilerData:PKraftCastProfilerData=nil):boolean; overload;
+       function RayCast(const aOrigin:TKraftPosition;const aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint:TKraftPosition;out aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnRayCastFilterHook:TKraftOnRayCastFilterHook=nil;const aCastProfilerData:PKraftCastProfilerData=nil):boolean; overload;
 
-       function RayCast(const aOrigin,aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnRayCastFilterHook:TKraftOnRayCastFilterHook=nil;const aCastProfilerData:PKraftCastProfilerData=nil):boolean; overload;
+       function RayCast(const aOrigin:TKraftPosition;const aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint:TKraftPosition;out aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnRayCastFilterHook:TKraftOnRayCastFilterHook=nil;const aCastProfilerData:PKraftCastProfilerData=nil):boolean; overload;
 
-       function RayCast(const aSource,aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnRayCastFilterHook:TKraftOnRayCastFilterHook=nil;const aCastProfilerData:PKraftCastProfilerData=nil):boolean; overload;
+       function RayCast(const aSource,aTarget:TKraftPosition;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint:TKraftPosition;out aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnRayCastFilterHook:TKraftOnRayCastFilterHook=nil;const aCastProfilerData:PKraftCastProfilerData=nil):boolean; overload;
 
-       function RayCast(const aSource,aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnRayCastFilterHook:TKraftOnRayCastFilterHook=nil;const aCastProfilerData:PKraftCastProfilerData=nil):boolean; overload;
+       function RayCast(const aSource,aTarget:TKraftPosition;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint:TKraftPosition;out aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnRayCastFilterHook:TKraftOnRayCastFilterHook=nil;const aCastProfilerData:PKraftCastProfilerData=nil):boolean; overload;
 
-       function SphereCast(const aOrigin:TKraftVector3;const aRadius:TKraftScalar;const aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook=nil;const aCastProfilerData:PKraftCastProfilerData=nil):boolean; overload;
+       function SphereCast(const aOrigin:TKraftPosition;const aRadius:TKraftScalar;const aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint:TKraftPosition;out aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook=nil;const aCastProfilerData:PKraftCastProfilerData=nil):boolean; overload;
 
-       function SphereCast(const aOrigin:TKraftVector3;const aRadius:TKraftScalar;const aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook=nil;const aCastProfilerData:PKraftCastProfilerData=nil):boolean; overload;
+       function SphereCast(const aOrigin:TKraftPosition;const aRadius:TKraftScalar;const aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint:TKraftPosition;out aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook=nil;const aCastProfilerData:PKraftCastProfilerData=nil):boolean; overload;
 
-       function SphereCast(const aSource:TKraftVector3;const aRadius:TKraftScalar;const aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook=nil;const aCastProfilerData:PKraftCastProfilerData=nil):boolean; overload;
+       function SphereCast(const aSource:TKraftPosition;const aRadius:TKraftScalar;const aTarget:TKraftPosition;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint:TKraftPosition;out aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook=nil;const aCastProfilerData:PKraftCastProfilerData=nil):boolean; overload;
 
-       function SphereCast(const aSource:TKraftVector3;const aRadius:TKraftScalar;const aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook=nil;const aCastProfilerData:PKraftCastProfilerData=nil):boolean; overload;
+       function SphereCast(const aSource:TKraftPosition;const aRadius:TKraftScalar;const aTarget:TKraftPosition;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint:TKraftPosition;out aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook=nil;const aCastProfilerData:PKraftCastProfilerData=nil):boolean; overload;
 
-       function PushSphere(var aCenter:TKraftVector3;const aRadius:TKraftScalar;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aTryIterations:TKraftInt32=4;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook=nil;const aKraftOnPushShapeFilterHook:TKraftOnPushShapeFilterHook=nil;const aAvoidShape:TKraftShape=nil):boolean;
+       function PushSphere(var aCenter:TKraftPosition;const aRadius:TKraftScalar;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aTryIterations:TKraftInt32=4;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook=nil;const aKraftOnPushShapeFilterHook:TKraftOnPushShapeFilterHook=nil;const aAvoidShape:TKraftShape=nil):boolean;
 
        function CollideShape(const aShape:TKraftShape;
                              var aContacts:TKraftShapeCollisionContacts;
@@ -6111,17 +6183,24 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        function SolveShapeCollisionContacts(const aContacts:TKraftShapeCollisionContacts;
                                             const aCountContacts:TKraftInt32;
-                                            var aPosition:TKraftVector3;
+                                            var aPosition:TKraftPosition;
                                             var aVelocity:TKraftVector3;
                                             const aCountPositionIterations:TKraftInt32=32;
                                             const aCountVelocityIterations:TKraftInt32=32):Boolean;
 
-       function FastCheckIntersection(const aAABB:TKraftAABB;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)]):Boolean;
-       function IntersectionQuery(const aAABB:TKraftAABB;var aArray:TKraftShapeDynamicArray;var aCount:TKraftSizeInt):Boolean;
+       function FastCheckIntersection(const aAABB:TKraftAABB;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)]):Boolean;{$ifdef KraftDoublePositions} overload;{$endif}
+       function IntersectionQuery(const aAABB:TKraftAABB;var aArray:TKraftShapeDynamicArray;var aCount:TKraftSizeInt):Boolean;{$ifdef KraftDoublePositions} overload;{$endif}
        function ContainQuery(const aAABB:TKraftAABB;var aArray:TKraftShapeDynamicArray;var aCount:TKraftSizeInt):Boolean; overload;
-       function ContainQuery(const aPoint:TKraftVector3;var aArray:TKraftShapeDynamicArray;var aCount:TKraftSizeInt):Boolean; overload;
-       function FindClosest(const aPoint:TKraftVector3):TKraftShape;
-       function LookupClosest(const aPoint:TKraftVector3;var aArray:TKraftShapeDynamicArray;var aCount:TKraftSizeInt;aGetDistance:TKraftDynamicAABBTreeGetDistance=nil;const aMaxCount:TKraftSizeInt=1;aMaxDistance:TKraftScalar=-1.0):boolean;
+       function ContainQuery(const aPoint:TKraftPosition;var aArray:TKraftShapeDynamicArray;var aCount:TKraftSizeInt):Boolean; overload;
+{$ifdef KraftDoublePositions}
+       // Double precision far-from-origin query overloads: the double region box is narrowed conservatively to the
+       // single broad-phase tree box, so the result is a conservative superset the caller can filter precisely.
+       function FastCheckIntersection(const aAABB:TKraftPositionAABB;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)]):Boolean; overload;
+       function IntersectionQuery(const aAABB:TKraftPositionAABB;var aArray:TKraftShapeDynamicArray;var aCount:TKraftSizeInt):Boolean; overload;
+       function ContainQuery(const aAABB:TKraftPositionAABB;var aArray:TKraftShapeDynamicArray;var aCount:TKraftSizeInt):Boolean; overload;
+{$endif}
+       function FindClosest(const aPoint:TKraftPosition):TKraftShape;
+       function LookupClosest(const aPoint:TKraftPosition;var aArray:TKraftShapeDynamicArray;var aCount:TKraftSizeInt;aGetDistance:TKraftDynamicAABBTreeGetDistance=nil;const aMaxCount:TKraftSizeInt=1;aMaxDistance:TKraftScalar=-1.0):boolean;
 
        function GetDistance(const aShapeA,aShapeB:TKraftShape):TKraftScalar;
 
@@ -6405,6 +6484,12 @@ const KraftSignatureConvexHull:TKraftSignature=('K','R','P','H','C','O','H','U')
       Vector3All:TKraftVector3=(x:1.0;y:1.0;z:1.0);
 {$endif}
 
+{$ifdef KraftDoublePositions}
+      PositionOrigin:TKraftPosition=(x:0.0;y:0.0;z:0.0;w:0.0);
+{$else}
+      PositionOrigin:TKraftPosition=(x:0.0;y:0.0;z:0.0{$ifdef SIMD};w:0.0{$endif});
+{$endif}
+
       Vector4Origin:TKraftVector4=(x:0.0;y:0.0;z:0.0;w:1.0);
       Vector4XAxis:TKraftVector4=(x:1.0;y:0.0;z:0.0;w:1.0);
       Vector4YAxis:TKraftVector4=(x:0.0;y:1.0;z:0.0;w:1.0);
@@ -6547,6 +6632,26 @@ function Vector3Perpendicular(v:TKraftVector3):TKraftVector3; {$ifdef caninline}
 function Vector3Orthogonal(v:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
 function Vector3Lerp({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3;const w:TKraftScalar):TKraftVector3; {$ifdef caninline}inline;{$endif}
 function Vector3LerpEx({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3;const w:TKraftScalar):TKraftVector3; {$ifdef caninline}inline;{$endif}
+
+// Conversions between the double world position type and the single working vectors. These are the only
+// places where the precision boundary is crossed. When KraftDoublePositions is undefined they all reduce
+// to single precision no-ops. Vector3SubPosition is the primary boundary operation: it subtracts two
+// nearby world positions in full precision and narrows the small difference to single. RoundDownFloat
+// and RoundUpFloat narrow a world coordinate toward negative respectively positive infinity, so a single
+// precision bounding box built from them still fully contains the double precision one far from the origin.
+function PositionFromVector3({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3):TKraftPosition; {$ifdef caninline}inline;{$endif} // single vector -> world position
+function Vector3FromPosition({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} p:TKraftPosition):TKraftVector3; {$ifdef caninline}inline;{$endif} // world position -> single vector, lossy
+function Vector3SubPosition({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} a,b:TKraftPosition):TKraftVector3; {$ifdef caninline}inline;{$endif} // (single)(a-b), the primary boundary operation
+function PositionAddVector3({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} p:TKraftPosition;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} d:TKraftVector3):TKraftPosition; {$ifdef caninline}inline;{$endif} // world position + single offset
+function PositionSub({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} a,b:TKraftPosition):TKraftPosition; {$ifdef caninline}inline;{$endif} // double-double->double
+function PositionLerp({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} a,b:TKraftPosition;const t:TKraftScalar):TKraftPosition; {$ifdef caninline}inline;{$endif} // interpolation of two world positions
+function PositionCompareExact({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} a,b:TKraftPosition):boolean; {$ifdef caninline}inline;{$endif} // exact component wise compare
+function RoundDownFloat(const x:TKraftPositionScalar):TKraftScalar; {$ifdef caninline}inline;{$endif} // conservative narrowing, rounds toward -inf
+function RoundUpFloat(const x:TKraftPositionScalar):TKraftScalar; {$ifdef caninline}inline;{$endif} // conservative narrowing, rounds toward +inf
+{$ifdef KraftDoublePositions}
+function AABBFromPositionAABB(const aAABB:TKraftPositionAABB):TKraftAABB; // conservative double region box -> single tree box
+{$endif}
+
 function Vector3Nlerp({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3;const w:TKraftScalar):TKraftVector3;
 function Vector3Slerp({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3;const w:TKraftScalar):TKraftVector3;
 function Vector3TermQuaternionRotate({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} q:TKraftQuaternion):TKraftVector3; {$if defined(caninline) and not defined(SIMDASM)}inline;{$ifend} {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
@@ -8897,6 +9002,156 @@ begin
  result.w:=0.0;
 {$endif}
 end;
+
+function PositionFromVector3({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3):TKraftPosition;
+begin
+ result.x:=v.x;
+ result.y:=v.y;
+ result.z:=v.z;
+{$if defined(KraftDoublePositions) or defined(SIMD)}
+ result.w:=0.0;
+{$ifend}
+end;
+
+function Vector3FromPosition({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} p:TKraftPosition):TKraftVector3;
+begin
+ result.x:=p.x;
+ result.y:=p.y;
+ result.z:=p.z;
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
+end;
+
+function Vector3SubPosition({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} a,b:TKraftPosition):TKraftVector3;
+begin
+ result.x:=a.x-b.x;
+ result.y:=a.y-b.y;
+ result.z:=a.z-b.z;
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
+end;
+
+function PositionAddVector3({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} p:TKraftPosition;{$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} d:TKraftVector3):TKraftPosition;
+begin
+ result.x:=p.x+d.x;
+ result.y:=p.y+d.y;
+ result.z:=p.z+d.z;
+{$if defined(KraftDoublePositions) or defined(SIMD)}
+ result.w:=0.0;
+{$ifend}
+end;
+
+function PositionSub({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} a,b:TKraftPosition):TKraftPosition;
+begin
+ result.x:=a.x-b.x;
+ result.y:=a.y-b.y;
+ result.z:=a.z-b.z;
+{$if defined(KraftDoublePositions) or defined(SIMD)}
+ result.w:=0.0;
+{$ifend}
+end;
+
+function PositionLerp({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} a,b:TKraftPosition;const t:TKraftScalar):TKraftPosition;
+var it:TKraftPositionScalar;
+begin
+ // Same clamping as Vector3Lerp, so this stays a drop in replacement at the sweep callers.
+ if t<0.0 then begin
+  result:=a;
+ end else if t>1.0 then begin
+  result:=b;
+ end else begin
+  it:=1.0-t;
+  result.x:=(it*a.x)+(t*b.x);
+  result.y:=(it*a.y)+(t*b.y);
+  result.z:=(it*a.z)+(t*b.z);
+ end;
+{$if defined(KraftDoublePositions) or defined(SIMD)}
+ result.w:=0.0;
+{$ifend}
+end;
+
+function PositionCompareExact({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} a,b:TKraftPosition):boolean;
+begin
+ result:=(a.x=b.x) and (a.y=b.y) and (a.z=b.z);
+end;
+
+{$ifdef KraftDoublePositions}
+function RoundDownFloat(const x:TKraftPositionScalar):TKraftScalar;
+var f:TKraftFloat;
+    u:TKraftUInt32;
+begin
+ f:=x;
+ if f>x then begin
+  // The narrowing rounded up past x, so step one unit in the last place toward negative infinity.
+  if f=0.0 then begin
+   u:=TKraftUInt32($80000001); // smallest magnitude negative subnormal
+  end else begin
+   u:=PKraftUInt32(pointer(@f))^;
+   if f>0.0 then begin
+    dec(u);
+   end else begin
+    inc(u);
+   end;
+  end;
+  f:=PKraftFloat(pointer(@u))^;
+ end;
+ result:=f;
+end;
+
+function RoundUpFloat(const x:TKraftPositionScalar):TKraftScalar;
+var f:TKraftFloat;
+    u:TKraftUInt32;
+begin
+ f:=x;
+ if f<x then begin
+  // The narrowing rounded down below x, so step one unit in the last place toward positive infinity.
+  if f=0.0 then begin
+   u:=TKraftUInt32($00000001); // smallest magnitude positive subnormal
+  end else begin
+   u:=PKraftUInt32(pointer(@f))^;
+   if f>0.0 then begin
+    inc(u);
+   end else begin
+    dec(u);
+   end;
+  end;
+  f:=PKraftFloat(pointer(@u))^;
+ end;
+ result:=f;
+end;
+{$else}
+function RoundDownFloat(const x:TKraftPositionScalar):TKraftScalar;
+begin
+ result:=x;
+end;
+
+function RoundUpFloat(const x:TKraftPositionScalar):TKraftScalar;
+begin
+ result:=x;
+end;
+{$endif}
+
+{$ifdef KraftDoublePositions}
+function AABBFromPositionAABB(const aAABB:TKraftPositionAABB):TKraftAABB;
+begin
+ // Conservative narrowing of a double precision query box to the single precision one used by the broad phase tree:
+ // the minimum corner rounds toward -inf and the maximum toward +inf, so the single box always fully contains the
+ // double box far from the origin. The broad phase then returns a conservative superset of candidates, which the
+ // caller can filter precisely against the original double box.
+ result.Min.x:=RoundDownFloat(aAABB.Min.x);
+ result.Min.y:=RoundDownFloat(aAABB.Min.y);
+ result.Min.z:=RoundDownFloat(aAABB.Min.z);
+ result.Max.x:=RoundUpFloat(aAABB.Max.x);
+ result.Max.y:=RoundUpFloat(aAABB.Max.y);
+ result.Max.z:=RoundUpFloat(aAABB.Max.z);
+{$ifdef SIMD}
+ result.Min.w:=0.0;
+ result.Max.w:=0.0;
+{$endif}
+end;
+{$endif}
 
 function Vector3Nlerp({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3;const w:TKraftScalar):TKraftVector3;
 begin
@@ -15433,6 +15688,28 @@ begin
  result:=OctahedralProjectionMappingSignedDecode(Octahedral);
 end;
 
+{$ifdef KraftDoublePositions}
+// Builds a shape's world transform with its translation expressed relative to aBase, using the double
+// precision sweep center. Far from the origin the relative transform between two nearby shapes otherwise
+// suffers catastrophic cancellation (B.translation - A.translation from two large single values); feeding
+// the collision base-relative transforms with small translations keeps it precise. Rotation is unaffected.
+// Mirrors TKraftRigidBody.SynchronizeTransform composed with TKraftShape.SynchronizeTransform, only with
+// aBase subtracted from the world position.
+function ShapeBaseRelativeWorldTransform(const aShape:TKraftShape;const aBase:TKraftPosition):TKraftMatrix4x4;
+var RelBodyTransform:TKraftMatrix4x4;
+    Body:TKraftRigidBody;
+begin
+ Body:=aShape.fRigidBody;
+ if assigned(Body) then begin
+  RelBodyTransform:=QuaternionToMatrix4x4(Body.fSweep.q);
+  PKraftVector3(pointer(@RelBodyTransform[3,0]))^.xyz:=Vector3Sub(Vector3SubPosition(Body.fSweep.c,aBase),Vector3TermMatrixMulBasis(Body.fSweep.LocalCenter,RelBodyTransform)).xyz;
+  result:=Matrix4x4TermMul(aShape.fLocalTransform,RelBodyTransform);
+ end else begin
+  result:=aShape.fWorldTransform;
+ end;
+end;
+{$endif}
+
 { TKraftStack<T> }
 
 constructor TKraftStack<T>.Create;
@@ -17107,7 +17384,7 @@ type TKraftShapeTriangle=class(TKraftShapeConvexHull)
        function GetLocalFeatureSupportVertex(const aIndex:TKraftInt32):TKraftVector3; override;
        function GetLocalFeatureSupportIndex(const aDirection:TKraftVector3):TKraftInt32; override;
        function GetCenter(const aTransform:TKraftMatrix4x4):TKraftVector3; override;
-       function TestPoint(const aPoint:TKraftVector3):boolean; override;
+       function TestPoint(const aPoint:TKraftPosition):boolean; override;
        function RayCast(var aRayCastData:TKraftRayCastData):boolean; override;
        function SphereCast(var aSphereCastData:TKraftSphereCastData):boolean; override;
 {$ifdef DebugDraw}
@@ -17455,8 +17732,19 @@ end;
 function SweepTransform(const Sweep:TKraftSweep;const Beta:TKraftScalar):TKraftMatrix4x4;
 begin
  result:=QuaternionToMatrix4x4(QuaternionSlerp(Sweep.q0,Sweep.q,Beta));
- PKraftVector3(pointer(@result[3,0]))^.xyz:=Vector3Sub(Vector3Lerp(Sweep.c0,Sweep.c,Beta),Vector3TermMatrixMulBasis(Sweep.LocalCenter,result)).xyz;
+ PKraftVector3(pointer(@result[3,0]))^.xyz:={$ifdef KraftDoublePositions}Vector3SubPosition(PositionLerp(Sweep.c0,Sweep.c,Beta),PositionFromVector3(Vector3TermMatrixMulBasis(Sweep.LocalCenter,result))){$else}Vector3Sub(Vector3Lerp(Sweep.c0,Sweep.c,Beta),Vector3TermMatrixMulBasis(Sweep.LocalCenter,result)){$endif}.xyz;
 end;
+
+{$ifdef KraftDoublePositions}
+// Base-relative variant of SweepTransform: the interpolated world position is expressed relative to aBase in full
+// precision before the translation is narrowed to single, so a swept transform far from the origin keeps a small,
+// well conditioned translation for the time-of-impact GJK. The rotation is unaffected.
+function SweepTransformRelative(const Sweep:TKraftSweep;const Beta:TKraftScalar;const aBase:TKraftPosition):TKraftMatrix4x4;
+begin
+ result:=QuaternionToMatrix4x4(QuaternionSlerp(Sweep.q0,Sweep.q,Beta));
+ PKraftVector3(pointer(@result[3,0]))^.xyz:=Vector3Sub(Vector3SubPosition(PositionLerp(Sweep.c0,Sweep.c,Beta),aBase),Vector3TermMatrixMulBasis(Sweep.LocalCenter,result)).xyz;
+end;
+{$endif}
 
 function SweepTermAdvance(const Sweep:TKraftSweep;const Alpha:TKraftScalar):TKraftSweep;
 var Beta:TKraftScalar;
@@ -17464,7 +17752,7 @@ begin
  Assert(Sweep.Alpha0<1.0);
  Beta:=(Alpha-Sweep.Alpha0)/(1.0-Sweep.Alpha0);
  result.LocalCenter:=Sweep.LocalCenter;
- result.c0:=Vector3Lerp(Sweep.c0,Sweep.c,Beta);
+ result.c0:={$ifdef KraftDoublePositions}PositionLerp(Sweep.c0,Sweep.c,Beta){$else}Vector3Lerp(Sweep.c0,Sweep.c,Beta){$endif};
  result.c:=Sweep.c;
  result.q0:=QuaternionSlerp(Sweep.q0,Sweep.q,Beta);
  result.q:=Sweep.q;
@@ -17475,7 +17763,7 @@ procedure SweepAdvance(var Sweep:TKraftSweep;const Alpha:TKraftScalar);
 var Beta:TKraftScalar;
 begin
  Beta:=(Alpha-Sweep.Alpha0)/(1.0-Sweep.Alpha0);
- Sweep.c0:=Vector3Lerp(Sweep.c0,Sweep.c,Beta);
+ Sweep.c0:={$ifdef KraftDoublePositions}PositionLerp(Sweep.c0,Sweep.c,Beta){$else}Vector3Lerp(Sweep.c0,Sweep.c,Beta){$endif};
  Sweep.q0:=QuaternionSlerp(Sweep.q0,Sweep.q,Beta);
  Sweep.Alpha0:=Alpha;
 end;
@@ -22545,13 +22833,13 @@ begin
 
 end;
 
-procedure CalculateVelocity(const cA:TKraftVector3;const qA:TKraftQuaternion;const cB:TKraftVector3;const qB:TKraftQuaternion;const DeltaTime:TKraftScalar;out LinearVelocity,AngularVelocity:TKraftVector3);
+procedure CalculateVelocity(const cA:TKraftPosition;const qA:TKraftQuaternion;const cB:TKraftPosition;const qB:TKraftQuaternion;const DeltaTime:TKraftScalar;out LinearVelocity,AngularVelocity:TKraftVector3);
 var InverseDeltaTime,Angle:TKraftScalar;
     Axis:TKraftVector3;
     qD,qS,qB0:TKraftQuaternion;
 begin
  InverseDeltaTime:=1.0/DeltaTime;
- LinearVelocity:=Vector3ScalarMul(Vector3Sub(cB,cA),InverseDeltaTime);
+ LinearVelocity:=Vector3ScalarMul({$ifdef KraftDoublePositions}Vector3SubPosition(cB,cA){$else}Vector3Sub(cB,cA){$endif},InverseDeltaTime);
  if (abs(qA.x-qB.x)<EPSILON) and (abs(qA.y-qB.y)<EPSILON) and (abs(qA.z-qB.z)<EPSILON) and (abs(qA.w-qB.w)<EPSILON) then begin
   AngularVelocity:=Vector3Origin;
  end else begin
@@ -25307,7 +25595,7 @@ begin
 {$endif}
 end;
 
-function TKraftDynamicAABBTree.ContainQuery(const aPoint:TKraftVector3;var aArray:TKraftPointerDynamicArray;var aCount:TKraftSizeInt):Boolean;
+function TKraftDynamicAABBTree.ContainQuery(const aPoint:TKraftPosition;var aArray:TKraftPointerDynamicArray;var aCount:TKraftSizeInt):Boolean;
 type TStackItem=record
       NodeID:TKraftSizeInt;
      end;
@@ -25328,7 +25616,7 @@ begin
    Stack.Push(NewStackItem);
    while Stack.Pop(StackItem) do begin
     Node:=@fNodes[StackItem.NodeID];
-    if AABBContains(Node^.AABB,aPoint) then begin
+    if AABBContains(Node^.AABB,{$ifdef KraftDoublePositions}Vector3FromPosition(aPoint){$else}aPoint{$endif}) then begin
      if Node^.UserData<>nil then begin
       if aCount>=length(aArray) then begin
        SetLength(aArray,(aCount+1)+((aCount+1) shr 1));
@@ -25356,7 +25644,7 @@ begin
 {$endif}
 end;
 
-function TKraftDynamicAABBTree.FindClosest(const aPoint:TKraftVector3):Pointer;
+function TKraftDynamicAABBTree.FindClosest(const aPoint:TKraftPosition):Pointer;
 type TStack=TKraftDynamicFastNonRTTIStack<TKraftSizeInt>;
 var Stack:TStack;
     NodeIndex:TKraftSizeInt;
@@ -25377,7 +25665,7 @@ begin
     TreeNode:=@fNodes[NodeIndex];
     if assigned(TreeNode.UserData) then begin
      if assigned(Pointer(TreeNode^.UserData)) then begin
-      Distance:=ClosestPointToAABB(TreeNode^.AABB,aPoint,nil);
+      Distance:=ClosestPointToAABB(TreeNode^.AABB,{$ifdef KraftDoublePositions}Vector3FromPosition(aPoint){$else}aPoint{$endif},nil);
       if (not assigned(result)) or (BestDistance>Distance) then begin
        BestDistance:=Distance;
        result:=TreeNode;
@@ -25390,8 +25678,8 @@ begin
     end;
     if (TreeNode.Children[0]>=0) and
        (TreeNode.Children[1]>=0) then begin
-     ChildDistances[0]:=ClosestPointToAABB(fNodes[TreeNode.Children[0]].AABB,aPoint);
-     ChildDistances[1]:=ClosestPointToAABB(fNodes[TreeNode.Children[1]].AABB,aPoint);
+     ChildDistances[0]:=ClosestPointToAABB(fNodes[TreeNode.Children[0]].AABB,{$ifdef KraftDoublePositions}Vector3FromPosition(aPoint){$else}aPoint{$endif});
+     ChildDistances[1]:=ClosestPointToAABB(fNodes[TreeNode.Children[1]].AABB,{$ifdef KraftDoublePositions}Vector3FromPosition(aPoint){$else}aPoint{$endif});
      if ChildDistances[0]<ChildDistances[1] then begin
       if ChildDistances[0]<=BestDistance then begin
        if ChildDistances[1]<=BestDistance then begin
@@ -25409,12 +25697,12 @@ begin
      end;
     end else begin
      if TreeNode.Children[0]>=0 then begin
-      if ClosestPointToAABB(fNodes[TreeNode.Children[0]].AABB,aPoint)<=BestDistance then begin
+      if ClosestPointToAABB(fNodes[TreeNode.Children[0]].AABB,{$ifdef KraftDoublePositions}Vector3FromPosition(aPoint){$else}aPoint{$endif})<=BestDistance then begin
        Stack.Push(TreeNode.Children[0]);
       end;
      end;
      if TreeNode.Children[1]>=0 then begin
-      if ClosestPointToAABB(fNodes[TreeNode.Children[1]].AABB,aPoint)<=BestDistance then begin
+      if ClosestPointToAABB(fNodes[TreeNode.Children[1]].AABB,{$ifdef KraftDoublePositions}Vector3FromPosition(aPoint){$else}aPoint{$endif})<=BestDistance then begin
        Stack.Push(TreeNode.Children[1]);
       end;
      end;
@@ -25429,11 +25717,11 @@ begin
 {$endif}
 end;
 
-function TKraftDynamicAABBTree.GetDistance(const aTreeNode:PKraftDynamicAABBTreeNode;const aPoint:TKraftVector3):TKraftScalar;
+function TKraftDynamicAABBTree.GetDistance(const aTreeNode:PKraftDynamicAABBTreeNode;const aPoint:TKraftPosition):TKraftScalar;
 begin
  if assigned(aTreeNode) then begin
   if assigned(aTreeNode^.UserData) then begin
-   result:=ClosestPointToAABB(aTreeNode^.AABB,aPoint,nil);
+   result:=ClosestPointToAABB(aTreeNode^.AABB,{$ifdef KraftDoublePositions}Vector3FromPosition(aPoint){$else}aPoint{$endif},nil);
   end else begin
    result:=Infinity;
   end;
@@ -25442,7 +25730,7 @@ begin
  end;
 end;
 
-function TKraftDynamicAABBTree.LookupClosest(const aPoint:TKraftVector3;var aArray:TKraftPointerDynamicArray;var aCount:TKraftSizeInt;aGetDistance:TKraftDynamicAABBTreeGetDistance=nil;const aMaxCount:TKraftSizeInt=1;aMaxDistance:TKraftScalar=-1.0):boolean;
+function TKraftDynamicAABBTree.LookupClosest(const aPoint:TKraftPosition;var aArray:TKraftPointerDynamicArray;var aCount:TKraftSizeInt;aGetDistance:TKraftDynamicAABBTreeGetDistance=nil;const aMaxCount:TKraftSizeInt=1;aMaxDistance:TKraftScalar=-1.0):boolean;
 type TStackItem=record
       NodeID:TKraftSizeInt;
       Distance:TKraftScalar;
@@ -25487,7 +25775,7 @@ begin
 
   NewStackItem:=Pointer(Stack.PushIndirect);
   NewStackItem^.NodeID:=fRoot;
-  NewStackItem^.Distance:=ClosestPointToAABB(fNodes[fRoot].AABB,aPoint);
+  NewStackItem^.Distance:=ClosestPointToAABB(fNodes[fRoot].AABB,{$ifdef KraftDoublePositions}Vector3FromPosition(aPoint){$else}aPoint{$endif});
 
   while Stack.Pop(StackItem) do begin
 
@@ -25578,9 +25866,9 @@ begin
 
     // Add the children to the stack in the order of the closest one first
     if Node^.Children[0]>=0 then begin
-     DistanceA:=ClosestPointToAABB(fNodes[Node^.Children[0]].AABB,aPoint);
+     DistanceA:=ClosestPointToAABB(fNodes[Node^.Children[0]].AABB,{$ifdef KraftDoublePositions}Vector3FromPosition(aPoint){$else}aPoint{$endif});
      if Node^.Children[1]>=0 then begin
-      DistanceB:=ClosestPointToAABB(fNodes[Node^.Children[1]].AABB,aPoint);
+      DistanceB:=ClosestPointToAABB(fNodes[Node^.Children[1]].AABB,{$ifdef KraftDoublePositions}Vector3FromPosition(aPoint){$else}aPoint{$endif});
       if DistanceA<DistanceB then begin
        if DistanceB<=aMaxDistance then begin
         NewStackItem:=Pointer(Stack.PushIndirect);
@@ -25612,7 +25900,7 @@ begin
       end;
      end;
     end else if Node^.Children[1]>=0 then begin
-     DistanceB:=ClosestPointToAABB(fNodes[Node^.Children[1]].AABB,aPoint);
+     DistanceB:=ClosestPointToAABB(fNodes[Node^.Children[1]].AABB,{$ifdef KraftDoublePositions}Vector3FromPosition(aPoint){$else}aPoint{$endif});
      if DistanceB<=aMaxDistance then begin
       NewStackItem:=Pointer(Stack.PushIndirect);
       NewStackItem^.NodeID:=Node^.Children[1];
@@ -34756,10 +35044,13 @@ end;
 function TKraftSignedDistanceField.RayCast(var RayCastData:TKraftRayCastData;const Transform:TKraftMatrix4x4):boolean;
 var Step:TKraftInt32;
     Time,Distance,Center:TKraftScalar;
-    Current,Origin,Direction:TKraftVector3;
+    Current,Origin,Direction{$ifdef KraftDoublePositions},LocalPoint{$endif}:TKraftVector3;
 begin
  result:=false;
- Origin:=Vector3TermMatrixMulInverted(RayCastData.Origin,Transform);
+ // Under KraftDoublePositions the caller passes Transform base-relative to RayCastData.Origin, so the ray
+ // starts at the frame origin and the hit point is offset back by RayCastData.Origin at the very end. This
+ // keeps the whole cast precise arbitrarily far from the world origin without narrowing RayCastData.Origin.
+ Origin:=Vector3TermMatrixMulInverted({$ifdef KraftDoublePositions}Vector3Origin{$else}RayCastData.Origin{$endif},Transform);
  Direction:=Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,Transform);
  if (Vector3LengthSquared(Direction)>EPSILON) and AABBAdjustRayIntersect(fAABB,Origin,Direction) then begin
   Time:=0.0;
@@ -34769,15 +35060,28 @@ begin
     Distance:=GetLocalSignedDistance(Current);
     if abs(Distance)<EPSILON then begin
      RayCastData.TimeOfImpact:=Time;
+{$ifdef KraftDoublePositions}
+     LocalPoint:=Current;
+     Center:=GetLocalSignedDistance(LocalPoint);
+     RayCastData.Normal.x:=Center-GetLocalSignedDistance(Vector3(LocalPoint.x+EPSILON,LocalPoint.y,LocalPoint.z));
+     RayCastData.Normal.y:=Center-GetLocalSignedDistance(Vector3(LocalPoint.x,LocalPoint.y+EPSILON,LocalPoint.z));
+     RayCastData.Normal.z:=Center-GetLocalSignedDistance(Vector3(LocalPoint.x,LocalPoint.y,LocalPoint.z+EPSILON));
+{$else}
      RayCastData.Point:=Current;
      Center:=GetLocalSignedDistance(RayCastData.Point);
      RayCastData.Normal.x:=Center-GetLocalSignedDistance(Vector3(RayCastData.Point.x+EPSILON,RayCastData.Point.y,RayCastData.Point.z));
      RayCastData.Normal.y:=Center-GetLocalSignedDistance(Vector3(RayCastData.Point.x,RayCastData.Point.y+EPSILON,RayCastData.Point.z));
      RayCastData.Normal.z:=Center-GetLocalSignedDistance(Vector3(RayCastData.Point.x,RayCastData.Point.y,RayCastData.Point.z+EPSILON));
+{$endif}
 {$ifdef SIMD}
      RayCastData.Normal.w:=0.0;
 {$endif}
+{$ifdef KraftDoublePositions}
+     Vector3MatrixMul(LocalPoint,Transform);
+     RayCastData.Point:=PositionAddVector3(RayCastData.Origin,LocalPoint);
+{$else}
      Vector3MatrixMul(RayCastData.Point,Transform);
+{$endif}
      Vector3MatrixMulBasis(RayCastData.Normal,Transform);
      Vector3Normalize(RayCastData.Normal);
      RayCastData.SurfaceNormal:=RayCastData.Normal;
@@ -34796,10 +35100,12 @@ end;
 function TKraftSignedDistanceField.SphereCast(var SphereCastData:TKraftSphereCastData;const Transform:TKraftMatrix4x4):boolean;
 var Step:TKraftInt32;
     Time,Distance,Center:TKraftScalar;
-    Current,Origin,Direction:TKraftVector3;
+    Current,Origin,Direction{$ifdef KraftDoublePositions},LocalPoint{$endif}:TKraftVector3;
 begin
  result:=false;
- Origin:=Vector3TermMatrixMulInverted(SphereCastData.Origin,Transform);
+ // As in RayCast: under KraftDoublePositions the caller passes Transform base-relative to SphereCastData.Origin,
+ // so the cast marches from the frame origin and the hit point is offset back by the origin at the end.
+ Origin:=Vector3TermMatrixMulInverted({$ifdef KraftDoublePositions}Vector3Origin{$else}SphereCastData.Origin{$endif},Transform);
  Direction:=Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,Transform);
  if (Vector3LengthSquared(Direction)>EPSILON) and AABBAdjustRayIntersect(fAABB,Origin,Direction) then begin
   Time:=0.0;
@@ -34809,15 +35115,28 @@ begin
     Distance:=GetLocalSignedDistance(Current);
     if abs(Distance)<EPSILON then begin
      SphereCastData.TimeOfImpact:=Time;
+{$ifdef KraftDoublePositions}
+     LocalPoint:=Current;
+     Center:=GetLocalSignedDistance(LocalPoint);
+     SphereCastData.Normal.x:=Center-GetLocalSignedDistance(Vector3(LocalPoint.x+EPSILON,LocalPoint.y,LocalPoint.z));
+     SphereCastData.Normal.y:=Center-GetLocalSignedDistance(Vector3(LocalPoint.x,LocalPoint.y+EPSILON,LocalPoint.z));
+     SphereCastData.Normal.z:=Center-GetLocalSignedDistance(Vector3(LocalPoint.x,LocalPoint.y,LocalPoint.z+EPSILON));
+{$else}
      SphereCastData.Point:=Current;
      Center:=GetLocalSignedDistance(SphereCastData.Point);
      SphereCastData.Normal.x:=Center-GetLocalSignedDistance(Vector3(SphereCastData.Point.x+EPSILON,SphereCastData.Point.y,SphereCastData.Point.z));
      SphereCastData.Normal.y:=Center-GetLocalSignedDistance(Vector3(SphereCastData.Point.x,SphereCastData.Point.y+EPSILON,SphereCastData.Point.z));
      SphereCastData.Normal.z:=Center-GetLocalSignedDistance(Vector3(SphereCastData.Point.x,SphereCastData.Point.y,SphereCastData.Point.z+EPSILON));
+{$endif}
 {$ifdef SIMD}
      SphereCastData.Normal.w:=0.0;
 {$endif}
+{$ifdef KraftDoublePositions}
+     Vector3MatrixMul(LocalPoint,Transform);
+     SphereCastData.Point:=PositionAddVector3(SphereCastData.Origin,LocalPoint);
+{$else}
      Vector3MatrixMul(SphereCastData.Point,Transform);
+{$endif}
      Vector3MatrixMulBasis(SphereCastData.Normal,Transform);
      Vector3Normalize(SphereCastData.Normal);
      SphereCastData.SurfaceNormal:=SphereCastData.Normal;
@@ -35192,6 +35511,26 @@ begin
  end;
 end;
 
+{$ifdef KraftDoublePositions}
+function TKraftShape.GetWorldAABBD:TKraftPositionAABB;
+var Base:TKraftPosition;
+    RelativeAABB:TKraftAABB;
+begin
+ // Precise double precision world bounding box: the shape's local AABB transformed by the body-relative world
+ // transform (small, precise) and offset by the body's double sweep center. Free shapes without a body fall back to
+ // widening the single world AABB, which is all the precision their single transform can provide.
+ if assigned(fRigidBody) then begin
+  Base:=fRigidBody.fSweep.c;
+  RelativeAABB:=AABBHomogenTransform(fShapeAABB,ShapeBaseRelativeWorldTransform(self,Base));
+  result.Min:=PositionAddVector3(Base,RelativeAABB.Min);
+  result.Max:=PositionAddVector3(Base,RelativeAABB.Max);
+ end else begin
+  result.Min:=PositionFromVector3(fWorldAABB.Min);
+  result.Max:=PositionFromVector3(fWorldAABB.Max);
+ end;
+end;
+{$endif}
+
 procedure TKraftShape.RemoveContactPairEdges;
 var ContactPairEdge,NextContactPairEdge:PKraftContactPairEdge;
     ContactPair:PKraftContactPair;
@@ -35230,6 +35569,10 @@ procedure TKraftShape.SynchronizeProxies;
 var NeedUpdate:boolean;
     WorldCenterOfMass,WorldDisplacement,WorldBoundsExpansion,TempPoint:TKraftVector3;
     TempAABB:TKraftAABB;
+{$ifdef KraftDoublePositions}
+    AABBBase:TKraftPosition;
+    AABBWorldTransform:TKraftMatrix4x4;
+{$endif}
 begin
 
  if assigned(fRigidBody) then begin
@@ -35237,7 +35580,22 @@ begin
  end else begin
   fWorldTransform:=fLocalTransform;
  end;
+{$ifdef KraftDoublePositions}
+ // Build the world bounding box relative to the body's double sweep center so its corners stay small and precise far
+ // from the origin, then round them outward when narrowing back to the single tree AABB (see below). Shapes without a
+ // body keep the plain single computation (there is no double position to improve upon).
+ if assigned(fRigidBody) then begin
+  AABBBase:=fRigidBody.fSweep.c;
+  AABBWorldTransform:=ShapeBaseRelativeWorldTransform(self,AABBBase);
+  WorldCenterOfMass:=Vector3TermMatrixMul(fLocalCenterOfMass,AABBWorldTransform);
+ end else begin
+  AABBBase:=PositionOrigin;
+  AABBWorldTransform:=fWorldTransform;
+  WorldCenterOfMass:=Vector3TermMatrixMul(fLocalCenterOfMass,fWorldTransform);
+ end;
+{$else}
  WorldCenterOfMass:=Vector3TermMatrixMul(fLocalCenterOfMass,fWorldTransform);
+{$endif}
 
  case fShapeType of
   kstSphere:begin
@@ -35254,9 +35612,19 @@ begin
    fWorldAABB:=AABBCombine(fWorldAABB,TempAABB);
   end;
   else begin
-   fWorldAABB:=AABBHomogenTransform(fShapeAABB,fWorldTransform);
+   fWorldAABB:=AABBHomogenTransform(fShapeAABB,{$ifdef KraftDoublePositions}AABBWorldTransform{$else}fWorldTransform{$endif});
   end;
  end;
+{$ifdef KraftDoublePositions}
+ // Shift the base-relative bounding box back to absolute world space and round each corner outward, so the single
+ // precision tree AABB always fully contains the true double precision bounds even far from the origin.
+ fWorldAABB.Min.x:=RoundDownFloat(AABBBase.x+fWorldAABB.Min.x);
+ fWorldAABB.Min.y:=RoundDownFloat(AABBBase.y+fWorldAABB.Min.y);
+ fWorldAABB.Min.z:=RoundDownFloat(AABBBase.z+fWorldAABB.Min.z);
+ fWorldAABB.Max.x:=RoundUpFloat(AABBBase.x+fWorldAABB.Max.x);
+ fWorldAABB.Max.y:=RoundUpFloat(AABBBase.y+fWorldAABB.Max.y);
+ fWorldAABB.Max.z:=RoundUpFloat(AABBBase.z+fWorldAABB.Max.z);
+{$endif}
 
  if assigned(fRigidBody) then begin
 
@@ -35405,51 +35773,61 @@ begin
  result:=Vector3Sub(Position,Vector3ScalarMul(Direction,Distance));
 end;
 
-function TKraftShape.GetSignedDistance(const Position:TKraftVector3;const Transform:TKraftMatrix4x4):TKraftScalar;
+// The (Position,Transform) overloads keep the caller supplied single precision Transform, so the world point is
+// narrowed to match it. The (Position) overloads use the shape's own transform and run base-relative to Position
+// (ShapeBaseRelativeWorldTransform), so they stay precise arbitrarily far from the world origin.
+function TKraftShape.GetSignedDistance(const Position:TKraftPosition;const Transform:TKraftMatrix4x4):TKraftScalar;
 begin
- result:=GetLocalSignedDistance(Vector3TermMatrixMulInverted(Position,Transform));
+ result:=GetLocalSignedDistance(Vector3TermMatrixMulInverted({$ifdef KraftDoublePositions}Vector3FromPosition(Position){$else}Position{$endif},Transform));
 end;
 
-function TKraftShape.GetSignedDistance(const Position:TKraftVector3):TKraftScalar;
+function TKraftShape.GetSignedDistance(const Position:TKraftPosition):TKraftScalar;
 begin
- result:=GetLocalSignedDistance(Vector3TermMatrixMulInverted(Position,fWorldTransform));
+ result:=GetLocalSignedDistance(Vector3TermMatrixMulInverted({$ifdef KraftDoublePositions}Vector3Origin,ShapeBaseRelativeWorldTransform(self,Position){$else}Position,fWorldTransform{$endif}));
 end;
 
-function TKraftShape.GetSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3;const Transform:TKraftMatrix4x4):TKraftScalar;
+function TKraftShape.GetSignedDistanceAndDirection(const Position:TKraftPosition;out Direction:TKraftVector3;const Transform:TKraftMatrix4x4):TKraftScalar;
 begin
- result:=GetLocalSignedDistanceAndDirection(Vector3TermMatrixMulInverted(Position,Transform),Direction);
+ result:=GetLocalSignedDistanceAndDirection(Vector3TermMatrixMulInverted({$ifdef KraftDoublePositions}Vector3FromPosition(Position){$else}Position{$endif},Transform),Direction);
  Vector3MatrixMulBasis(Direction,Transform);
 end;
 
-function TKraftShape.GetSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar;
+function TKraftShape.GetSignedDistanceAndDirection(const Position:TKraftPosition;out Direction:TKraftVector3):TKraftScalar;
 begin
- result:=GetLocalSignedDistanceAndDirection(Vector3TermMatrixMulInverted(Position,fWorldTransform),Direction);
+ result:=GetLocalSignedDistanceAndDirection(Vector3TermMatrixMulInverted({$ifdef KraftDoublePositions}Vector3Origin,ShapeBaseRelativeWorldTransform(self,Position){$else}Position,fWorldTransform{$endif}),Direction);
  Vector3MatrixMulBasis(Direction,fWorldTransform);
 end;
 
-function TKraftShape.GetSignedDistanceNormalizedGradient(const Position:TKraftVector3;const Transform:TKraftMatrix4x4):TKraftVector3;
+function TKraftShape.GetSignedDistanceNormalizedGradient(const Position:TKraftPosition;const Transform:TKraftMatrix4x4):TKraftVector3;
 begin
- result:=Vector3Norm(Vector3TermMatrixMulBasis(GetLocalSignedDistanceNormalizedGradient(Vector3TermMatrixMulInverted(Position,Transform)),Transform));
+ result:=Vector3Norm(Vector3TermMatrixMulBasis(GetLocalSignedDistanceNormalizedGradient(Vector3TermMatrixMulInverted({$ifdef KraftDoublePositions}Vector3FromPosition(Position){$else}Position{$endif},Transform)),Transform));
 end;
 
-function TKraftShape.GetSignedDistanceNormalizedGradient(const Position:TKraftVector3):TKraftVector3;
+function TKraftShape.GetSignedDistanceNormalizedGradient(const Position:TKraftPosition):TKraftVector3;
 begin
- result:=Vector3Norm(Vector3TermMatrixMulBasis(GetLocalSignedDistanceNormalizedGradient(Vector3TermMatrixMulInverted(Position,fWorldTransform)),fWorldTransform));
+ result:=Vector3Norm(Vector3TermMatrixMulBasis(GetLocalSignedDistanceNormalizedGradient(Vector3TermMatrixMulInverted({$ifdef KraftDoublePositions}Vector3Origin,ShapeBaseRelativeWorldTransform(self,Position){$else}Position,fWorldTransform{$endif})),fWorldTransform));
 end;
 
-function TKraftShape.GetSignedDistanceNormal(const Position:TKraftVector3;const Transform:TKraftMatrix4x4):TKraftVector3;
+function TKraftShape.GetSignedDistanceNormal(const Position:TKraftPosition;const Transform:TKraftMatrix4x4):TKraftVector3;
 begin
- result:=Vector3Norm(Vector3TermMatrixMulBasis(GetLocalSignedDistanceNormal(Vector3TermMatrixMulInverted(Position,Transform)),Transform));
+ result:=Vector3Norm(Vector3TermMatrixMulBasis(GetLocalSignedDistanceNormal(Vector3TermMatrixMulInverted({$ifdef KraftDoublePositions}Vector3FromPosition(Position){$else}Position{$endif},Transform)),Transform));
 end;
 
-function TKraftShape.GetSignedDistanceNormal(const Position:TKraftVector3):TKraftVector3;
+function TKraftShape.GetSignedDistanceNormal(const Position:TKraftPosition):TKraftVector3;
 begin
- result:=Vector3Norm(Vector3TermMatrixMulBasis(GetLocalSignedDistanceNormal(Vector3TermMatrixMulInverted(Position,fWorldTransform)),fWorldTransform));
+ result:=Vector3Norm(Vector3TermMatrixMulBasis(GetLocalSignedDistanceNormal(Vector3TermMatrixMulInverted({$ifdef KraftDoublePositions}Vector3Origin,ShapeBaseRelativeWorldTransform(self,Position){$else}Position,fWorldTransform{$endif})),fWorldTransform));
 end;
 
-function TKraftShape.GetClosestPointTo(const Position:TKraftVector3):TKraftVector3;
+function TKraftShape.GetClosestPointTo(const Position:TKraftPosition):TKraftPosition;
+{$ifdef KraftDoublePositions}
+var RelativeTransform:TKraftMatrix4x4;
+begin
+ RelativeTransform:=ShapeBaseRelativeWorldTransform(self,Position);
+ result:=PositionAddVector3(Position,Vector3TermMatrixMul(GetLocalClosestPointTo(Vector3TermMatrixMulInverted(Vector3Origin,RelativeTransform)),RelativeTransform));
+{$else}
 begin
  result:=Vector3TermMatrixMul(GetLocalClosestPointTo(Vector3TermMatrixMulInverted(Position,fWorldTransform)),fWorldTransform);
+{$endif}
 end;
 
 function TKraftShape.GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3;
@@ -35472,10 +35850,10 @@ begin
  result:=Vector3TermMatrixMul(fLocalCentroid,Transform);
 end;
 
-function TKraftShape.TestPoint(const p:TKraftVector3):boolean;
+function TKraftShape.TestPoint(const p:TKraftPosition):boolean;
 begin
  if ksfPointTestable in fFlags then begin
-  result:=GetLocalSignedDistance(Vector3TermMatrixMulInverted(p,fWorldTransform))<=0.0;
+  result:=GetLocalSignedDistance(Vector3TermMatrixMulInverted({$ifdef KraftDoublePositions}Vector3Origin,ShapeBaseRelativeWorldTransform(self,p){$else}p,fWorldTransform{$endif}))<=0.0;
  end else begin
   result:=false;
  end;
@@ -35628,23 +36006,37 @@ begin
 {$endif}
 end;
 
-function TKraftShapeSphere.TestPoint(const p:TKraftVector3):boolean;
+function TKraftShapeSphere.TestPoint(const p:TKraftPosition):boolean;
 begin
  if ksfPointTestable in fFlags then begin
-  result:=Vector3Length(Vector3TermMatrixMulInverted(p,fWorldTransform))<=fRadius;
+  result:=Vector3Length(Vector3TermMatrixMulInverted({$ifdef KraftDoublePositions}Vector3Origin,ShapeBaseRelativeWorldTransform(self,p){$else}p,fWorldTransform{$endif}))<=fRadius;
  end else begin
   result:=false;
  end;
 end;
 
 function TKraftShapeSphere.RayCast(var RayCastData:TKraftRayCastData):boolean;
-var Origin,Direction,m:TKraftVector3;
+var Origin,Direction,m{$ifdef KraftDoublePositions},LocalWorldPoint{$endif}:TKraftVector3;
     p,d,s1,s2,t:TKraftScalar;
+{$ifdef KraftDoublePositions}
+    CastTransform:TKraftMatrix4x4;
+    CastOrigin:TKraftVector3;
+{$endif}
 begin
  result:=false;
  if ksfRayCastable in fFlags then begin
+  // Under KraftDoublePositions the cast runs base-relative to RayCastData.Origin (CastTransform is the shape
+  // transform relative to it, CastOrigin the ray origin in that frame = zero), and the hit point is offset back
+  // by RayCastData.Origin. Off, CastTransform is the world transform and CastOrigin the ray origin, unchanged.
+{$ifdef KraftDoublePositions}
+  CastTransform:=ShapeBaseRelativeWorldTransform(self,RayCastData.Origin);
+  CastOrigin:=Vector3Origin;
+  Origin:=Vector3TermMatrixMulInverted(CastOrigin,CastTransform);
+  Direction:=Vector3SafeNorm(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,CastTransform));
+{$else}
   Origin:=Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform);
   Direction:=Vector3SafeNorm(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform));
+{$endif}
   m:=Vector3Sub(Origin,Vector3Origin);
   p:=-Vector3Dot(m,Direction);
   d:=(sqr(p)-Vector3LengthSquared(m))+sqr(fRadius);
@@ -35660,8 +36052,14 @@ begin
     end;
     if (t>=0.0) and (t<=RayCastData.MaxTime) then begin
      RayCastData.TimeOfImpact:=t;
+{$ifdef KraftDoublePositions}
+     LocalWorldPoint:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,t)),CastTransform);
+     RayCastData.Point:=PositionAddVector3(RayCastData.Origin,LocalWorldPoint);
+     RayCastData.Normal:=Vector3NormEx(Vector3Sub(LocalWorldPoint,Vector3TermMatrixMul(Vector3Origin,CastTransform)));
+{$else}
      RayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,t)),fWorldTransform);
      RayCastData.Normal:=Vector3NormEx(Vector3Sub(RayCastData.Point,Vector3TermMatrixMul(Vector3Origin,fWorldTransform)));
+{$endif}
      result:=true;
     end;
    end;
@@ -35670,13 +36068,24 @@ begin
 end;
 
 function TKraftShapeSphere.SphereCast(var SphereCastData:TKraftSphereCastData):boolean;
-var Origin,Direction:TKraftVector3;
+var Origin,Direction{$ifdef KraftDoublePositions},LocalWorldPoint{$endif}:TKraftVector3;
     Time,SecondTime:TKraftScalar;
+{$ifdef KraftDoublePositions}
+    CastTransform:TKraftMatrix4x4;
+    CastOrigin:TKraftVector3;
+{$endif}
 begin
  result:=false;
  if ksfSphereCastable in fFlags then begin
+{$ifdef KraftDoublePositions}
+  CastTransform:=ShapeBaseRelativeWorldTransform(self,SphereCastData.Origin);
+  CastOrigin:=Vector3Origin;
+  Origin:=Vector3TermMatrixMulInverted(CastOrigin,CastTransform);
+  Direction:=Vector3SafeNorm(Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,CastTransform));
+{$else}
   Origin:=Vector3TermMatrixMulInverted(SphereCastData.Origin,fWorldTransform);
   Direction:=Vector3SafeNorm(Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,fWorldTransform));
+{$endif}
   if SweepSphereSphere(Vector3Origin,
                        Vector3Origin,
                        fRadius,
@@ -35688,8 +36097,14 @@ begin
    if (Time>=0.0) and (Time<=1.0) then begin
     Time:=Time*SphereCastData.MaxTime; // Unnormalize normalized time
     SphereCastData.TimeOfImpact:=Time;
+{$ifdef KraftDoublePositions}
+    LocalWorldPoint:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),CastTransform);
+    SphereCastData.Point:=PositionAddVector3(SphereCastData.Origin,LocalWorldPoint);
+    SphereCastData.Normal:=Vector3NormEx(Vector3Sub(LocalWorldPoint,Vector3TermMatrixMul(Vector3Origin,CastTransform)));
+{$else}
     SphereCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
     SphereCastData.Normal:=Vector3NormEx(Vector3Sub(SphereCastData.Point,Vector3TermMatrixMul(Vector3Origin,fWorldTransform)));
+{$endif}
     SphereCastData.SurfaceNormal:=SphereCastData.Normal;
     result:=true;
    end;
@@ -36069,12 +36484,12 @@ begin
 {$endif}
 end;
 
-function TKraftShapeCapsule.TestPoint(const p:TKraftVector3):boolean;
+function TKraftShapeCapsule.TestPoint(const p:TKraftPosition):boolean;
 var v:TKraftVector3;
     HalfHeight:TKraftScalar;
 begin
  if ksfPointTestable in fFlags then begin
-  v:=Vector3TermMatrixMulInverted(p,fWorldTransform);
+  v:=Vector3TermMatrixMulInverted({$ifdef KraftDoublePositions}Vector3Origin,ShapeBaseRelativeWorldTransform(self,p){$else}p,fWorldTransform{$endif});
   HalfHeight:=fHeight*0.5;
   result:=(abs(v.y)<=(HalfHeight+fRadius)) and (Vector3Length(Vector3(v.x,Min(Max(v.y,-HalfHeight),HalfHeight),v.z))<=fRadius);
  end else begin
@@ -36083,13 +36498,24 @@ begin
 end;
 
 function TKraftShapeCapsule.RayCast(var RayCastData:TKraftRayCastData):boolean;
-var Origin,Direction,p,m:TKraftVector3;
+var Origin,Direction,p,m{$ifdef KraftDoublePositions},LocalWorldPoint{$endif}:TKraftVector3;
     Aq,Bq,Cq,t,t0,t1,y0,y1,HalfHeight,pp,d,s1,s2:TKraftScalar;
+{$ifdef KraftDoublePositions}
+    CastTransform:TKraftMatrix4x4;
+    CastOrigin:TKraftVector3;
+{$endif}
 begin
  result:=false;
  if ksfRayCastable in fFlags then begin
+{$ifdef KraftDoublePositions}
+  CastTransform:=ShapeBaseRelativeWorldTransform(self,RayCastData.Origin);
+  CastOrigin:=Vector3Origin;
+  Origin:=Vector3TermMatrixMulInverted(CastOrigin,CastTransform);
+  Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,CastTransform));
+{$else}
   Origin:=Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform);
   Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform));
+{$endif}
   HalfHeight:=fHeight*0.5;
   Aq:=sqr(Direction.x)+sqr(Direction.z);
   Bq:=((2.0*Origin.x)*Direction.x)+((2.0*Origin.z)*Direction.z);
@@ -36110,8 +36536,14 @@ begin
       t:=t0+(((t1-t0)*(y0+HalfHeight))/t);
       if (t>=0.0) and (t<=RayCastData.MaxTime) then begin
        RayCastData.TimeOfImpact:=t;
+{$ifdef KraftDoublePositions}
+       LocalWorldPoint:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,t)),CastTransform);
+       RayCastData.Point:=PositionAddVector3(RayCastData.Origin,LocalWorldPoint);
+       RayCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(Vector3(0.0,-1.0,0.0),CastTransform));
+{$else}
        RayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,t)),fWorldTransform);
        RayCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(Vector3(0.0,-1.0,0.0),fWorldTransform));
+{$endif}
        RayCastData.SurfaceNormal:=RayCastData.Normal;
        result:=true;
        exit;
@@ -36126,8 +36558,14 @@ begin
       t:=t0+(((t1-t0)*(y0-HalfHeight))/t);
       if (t>=0.0) and (t<=RayCastData.MaxTime) then begin
        RayCastData.TimeOfImpact:=t;
+{$ifdef KraftDoublePositions}
+       LocalWorldPoint:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,t)),CastTransform);
+       RayCastData.Point:=PositionAddVector3(RayCastData.Origin,LocalWorldPoint);
+       RayCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(Vector3(0.0,1.0,0.0),CastTransform));
+{$else}
        RayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,t)),fWorldTransform);
        RayCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(Vector3(0.0,1.0,0.0),fWorldTransform));
+{$endif}
        RayCastData.SurfaceNormal:=RayCastData.Normal;
        result:=true;
        exit;
@@ -36139,8 +36577,14 @@ begin
      // if y0 < HalfHeight and y0 > -HalfHeight and t0 >= 0.0, then the ray intersects then Capsule wall
      RayCastData.TimeOfImpact:=t0;
      p:=Vector3Add(Origin,Vector3ScalarMul(Direction,t0));
+{$ifdef KraftDoublePositions}
+     LocalWorldPoint:=Vector3TermMatrixMul(p,CastTransform);
+     RayCastData.Point:=PositionAddVector3(RayCastData.Origin,LocalWorldPoint);
+     RayCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(p,CastTransform));
+{$else}
      RayCastData.Point:=Vector3TermMatrixMul(p,fWorldTransform);
      RayCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(p,fWorldTransform));
+{$endif}
      RayCastData.SurfaceNormal:=RayCastData.Normal;
      result:=true;
      exit;
@@ -36163,8 +36607,14 @@ begin
      end;
      if (t>=0.0) and (t<=RayCastData.MaxTime) then begin
       RayCastData.TimeOfImpact:=t;
+{$ifdef KraftDoublePositions}
+      LocalWorldPoint:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,t)),CastTransform);
+      RayCastData.Point:=PositionAddVector3(RayCastData.Origin,LocalWorldPoint);
+      RayCastData.Normal:=Vector3NormEx(Vector3Sub(LocalWorldPoint,Vector3TermMatrixMul(Vector3(0.0,-HalfHeight,0.0),CastTransform)));
+{$else}
       RayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,t)),fWorldTransform);
       RayCastData.Normal:=Vector3NormEx(Vector3Sub(RayCastData.Point,Vector3TermMatrixMul(Vector3(0.0,-HalfHeight,0.0),fWorldTransform)));
+{$endif}
       RayCastData.SurfaceNormal:=RayCastData.Normal;
       result:=true;
       exit;
@@ -36188,8 +36638,14 @@ begin
      end;
      if (t>=0.0) and (t<=RayCastData.MaxTime) then begin
       RayCastData.TimeOfImpact:=t;
+{$ifdef KraftDoublePositions}
+      LocalWorldPoint:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,t)),CastTransform);
+      RayCastData.Point:=PositionAddVector3(RayCastData.Origin,LocalWorldPoint);
+      RayCastData.Normal:=Vector3NormEx(Vector3Sub(LocalWorldPoint,Vector3TermMatrixMul(Vector3(0.0,HalfHeight,0.0),CastTransform)));
+{$else}
       RayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,t)),fWorldTransform);
       RayCastData.Normal:=Vector3NormEx(Vector3Sub(RayCastData.Point,Vector3TermMatrixMul(Vector3(0.0,HalfHeight,0.0),fWorldTransform)));
+{$endif}
       RayCastData.SurfaceNormal:=RayCastData.Normal;
       result:=true;
      end;
@@ -36200,13 +36656,24 @@ begin
 end;
 
 function TKraftShapeCapsule.SphereCast(var SphereCastData:TKraftSphereCastData):boolean;
-var Origin,Direction,Normal,Point:TKraftVector3;
+var Origin,Direction,Normal,Point{$ifdef KraftDoublePositions},LocalWorldPoint{$endif}:TKraftVector3;
     Time,HalfHeight:TKraftScalar;
+{$ifdef KraftDoublePositions}
+    CastTransform:TKraftMatrix4x4;
+    CastOrigin:TKraftVector3;
+{$endif}
 begin
  result:=false;
  if ksfSphereCastable in fFlags then begin
+{$ifdef KraftDoublePositions}
+  CastTransform:=ShapeBaseRelativeWorldTransform(self,SphereCastData.Origin);
+  CastOrigin:=Vector3Origin;
+  Origin:=Vector3TermMatrixMulInverted(CastOrigin,CastTransform);
+  Direction:=Vector3SafeNorm(Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,CastTransform));
+{$else}
   Origin:=Vector3TermMatrixMulInverted(SphereCastData.Origin,fWorldTransform);
   Direction:=Vector3SafeNorm(Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,fWorldTransform));
+{$endif}
   if SweepSphereCapsule(Origin,
                         SphereCastData.Radius,
                         Vector3(0.0,-(fHeight*0.5),0.0),
@@ -36231,8 +36698,14 @@ begin
      // Capsule body
      Normal:=Vector3NormEx(Vector3(Point.x,0.0,Point.z));
     end;
+{$ifdef KraftDoublePositions}
+    LocalWorldPoint:=Vector3TermMatrixMul(Point,CastTransform);
+    SphereCastData.Point:=PositionAddVector3(SphereCastData.Origin,LocalWorldPoint);
+    SphereCastData.Normal:=Vector3TermMatrixMulBasis(Normal,CastTransform);
+{$else}
     SphereCastData.Point:=Vector3TermMatrixMul(Point,fWorldTransform);
     SphereCastData.Normal:=Vector3TermMatrixMulBasis(Normal,fWorldTransform);
+{$endif}
     SphereCastData.SurfaceNormal:=SphereCastData.Normal;
     result:=true;
    end;
@@ -36435,10 +36908,10 @@ begin
  result:=Vector3TermMatrixMulWithScale(fLocalCentroid,Transform,fScale);
 end;
 
-function TKraftShapeConvexHull.TestPoint(const p:TKraftVector3):boolean;
+function TKraftShapeConvexHull.TestPoint(const p:TKraftPosition):boolean;
 begin
  if ksfPointTestable in fFlags then begin
-  result:=fConvexHull.TestPoint(Vector3ScalarMul(Vector3TermMatrixMulInverted(p,fWorldTransform),fInverseScale));
+  result:=fConvexHull.TestPoint(Vector3ScalarMul(Vector3TermMatrixMulInverted({$ifdef KraftDoublePositions}Vector3Origin,ShapeBaseRelativeWorldTransform(self,p){$else}p,fWorldTransform{$endif}),fInverseScale));
  end else begin
   result:=false;
  end;
@@ -36448,12 +36921,23 @@ function TKraftShapeConvexHull.RayCast(var RayCastData:TKraftRayCastData):boolea
 var FaceIndex,BestFaceIndex:TKraftInt32;
     Face:PKraftConvexHullFace;
     TimeFirst,TimeLast,Numerator,Denominator,Time:TKraftScalar;
-    Origin,Direction:TKraftVector3;
+    Origin,Direction{$ifdef KraftDoublePositions},LocalWorldPoint{$endif}:TKraftVector3;
+{$ifdef KraftDoublePositions}
+    CastTransform:TKraftMatrix4x4;
+    CastOrigin:TKraftVector3;
+{$endif}
 begin
  result:=false;
  if ksfRayCastable in fFlags then begin
+{$ifdef KraftDoublePositions}
+  CastTransform:=ShapeBaseRelativeWorldTransform(self,RayCastData.Origin);
+  CastOrigin:=Vector3Origin;
+  Origin:=Vector3TermMatrixMulInverted(CastOrigin,CastTransform);
+  Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,CastTransform));
+{$else}
   Origin:=Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform);
   Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform));
+{$endif}
   if Vector3LengthSquared(Direction)>EPSILON then begin
    BestFaceIndex:=-1;
    TimeFirst:=0.0;
@@ -36485,8 +36969,14 @@ begin
    end;
    if (BestFaceIndex>=0) and (TimeFirst<=TimeLast) and (TimeFirst<=RayCastData.MaxTime) then begin
     RayCastData.TimeOfImpact:=TimeFirst;
+{$ifdef KraftDoublePositions}
+    LocalWorldPoint:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,TimeFirst)),CastTransform);
+    RayCastData.Point:=PositionAddVector3(RayCastData.Origin,LocalWorldPoint);
+    RayCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(fConvexHull.fFaces[BestFaceIndex].Plane.Normal,CastTransform));
+{$else}
     RayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,TimeFirst)),fWorldTransform);
     RayCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(fConvexHull.fFaces[BestFaceIndex].Plane.Normal,fWorldTransform));
+{$endif}
     RayCastData.SurfaceNormal:=RayCastData.Normal;
     result:=true;
    end;
@@ -36501,13 +36991,26 @@ var FaceIndex,BestFaceIndex,VertexIndex:TKraftInt32;
     Face:PKraftConvexHullFace;
     First,SidePass:boolean;
     Radius,Nearest,Time,u,v,w:TKraftScalar;
-    Origin,Direction,InvDirection,p,TriangleNormal,Normal:TKraftVector3;
+    Origin,Direction,InvDirection,p,TriangleNormal,Normal{$ifdef KraftDoublePositions},LocalPoint,LocalWorldPoint,CastOrigin{$endif}:TKraftVector3;
+{$ifdef KraftDoublePositions}
+    CastTransform:TKraftMatrix4x4;
+{$endif}
 begin
  result:=false;
  if ksfSphereCastable in fFlags then begin
+{$ifdef KraftDoublePositions}
+  CastTransform:=ShapeBaseRelativeWorldTransform(self,SphereCastData.Origin);
+  CastOrigin:=Vector3Origin;
+  Origin:=Vector3TermMatrixMulInverted(CastOrigin,CastTransform);
+{$else}
   Origin:=Vector3TermMatrixMulInverted(SphereCastData.Origin,fWorldTransform);
+{$endif}
   Radius:=SphereCastData.Radius;
+{$ifdef KraftDoublePositions}
+  Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,CastTransform));
+{$else}
   Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,fWorldTransform));
+{$endif}
   if Vector3LengthSquared(Direction)>EPSILON then begin
    InvDirection:=Vector3Div(Vector3All,Direction);
    Nearest:=MAX_SCALAR;
@@ -36538,7 +37041,11 @@ begin
         Nearest:=Time;
         Normal:=Face^.Plane.Normal;
         SphereCastData.TimeOfImpact:=Time;
+{$ifdef KraftDoublePositions}
+        LocalPoint:=p;
+{$else}
         SphereCastData.Point:=p;
+{$endif}
         if SidePass then begin
          SphereCastData.Normal:=Vector3Neg(Normal);
         end else begin
@@ -36552,9 +37059,16 @@ begin
     end;
    end;
    if result then begin
+{$ifdef KraftDoublePositions}
+    LocalWorldPoint:=Vector3TermMatrixMul(LocalPoint,CastTransform);
+    SphereCastData.Point:=PositionAddVector3(SphereCastData.Origin,LocalWorldPoint);
+    SphereCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(SphereCastData.Normal,CastTransform));
+    SphereCastData.SurfaceNormal:=Vector3NormEx(Vector3TermMatrixMulBasis(SphereCastData.SurfaceNormal,CastTransform));
+{$else}
     SphereCastData.Point:=Vector3TermMatrixMul(SphereCastData.Point,fWorldTransform);
     SphereCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(SphereCastData.Normal,fWorldTransform));
     SphereCastData.SurfaceNormal:=Vector3NormEx(Vector3TermMatrixMulBasis(SphereCastData.SurfaceNormal,fWorldTransform));
+{$endif}
    end;
   end;
  end;
@@ -36563,15 +37077,26 @@ end;
 var FaceIndex,BestFaceIndex:TKraftInt32;
     Face:PKraftConvexHullFace;
     TimeMin,TimeMax,Numerator,Denominator,TimeEnter,TimeExit,TemporaryTime:TKraftScalar;
-    Origin,Direction:TKraftVector3;
+    Origin,Direction{$ifdef KraftDoublePositions},LocalWorldPoint{$endif}:TKraftVector3;
+{$ifdef KraftDoublePositions}
+    CastTransform:TKraftMatrix4x4;
+    CastOrigin:TKraftVector3;
+{$endif}
 begin
 
  result:=false;
 
  if ksfRayCastable in fFlags then begin
 
+{$ifdef KraftDoublePositions}
+  CastTransform:=ShapeBaseRelativeWorldTransform(self,SphereCastData.Origin);
+  CastOrigin:=Vector3Origin;
+  Origin:=Vector3TermMatrixMulInverted(CastOrigin,CastTransform);
+  Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,CastTransform));
+{$else}
   Origin:=Vector3TermMatrixMulInverted(SphereCastData.Origin,fWorldTransform);
   Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,fWorldTransform));
+{$endif}
 
   if Vector3LengthSquared(Direction)>EPSILON then begin
 
@@ -36641,8 +37166,14 @@ begin
 
    if (BestFaceIndex>=0) and (TimeMin<=TimeMax) and (TimeMin<=SphereCastData.MaxTime) then begin
     SphereCastData.TimeOfImpact:=TimeMin;
+{$ifdef KraftDoublePositions}
+    LocalWorldPoint:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,TimeMin)),CastTransform);
+    SphereCastData.Point:=PositionAddVector3(SphereCastData.Origin,LocalWorldPoint);
+    SphereCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(fConvexHull.fFaces[BestFaceIndex].Plane.Normal,CastTransform));
+{$else}
     SphereCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,TimeMin)),fWorldTransform);
     SphereCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(fConvexHull.fFaces[BestFaceIndex].Plane.Normal,fWorldTransform));
+{$endif}
     result:=true;
    end;
 
@@ -37170,11 +37701,11 @@ begin
 {$endif}
 end;
 
-function TKraftShapeBox.TestPoint(const p:TKraftVector3):boolean;
+function TKraftShapeBox.TestPoint(const p:TKraftPosition):boolean;
 var v:TKraftVector3;
 begin
  if ksfPointTestable in fFlags then begin
-  v:=Vector3TermMatrixMulInverted(p,fWorldTransform);
+  v:=Vector3TermMatrixMulInverted({$ifdef KraftDoublePositions}Vector3Origin,ShapeBaseRelativeWorldTransform(self,p){$else}p,fWorldTransform{$endif});
   result:=((v.x>=(-fExtents.x)) and (v.x<=fExtents.x)) and
           ((v.y>=(-fExtents.y)) and (v.x<=fExtents.y)) and
           ((v.z>=(-fExtents.z)) and (v.x<=fExtents.z));
@@ -37184,15 +37715,25 @@ begin
 end;
 
 function TKraftShapeBox.RayCast(var RayCastData:TKraftRayCastData):boolean;
-var s,v,h:TKraftVector3;
+var s,v,h{$ifdef KraftDoublePositions},CastOrigin{$endif}:TKraftVector3;
     lo,hi,k,Alpha:TKraftScalar;
     nlo,nhi,n:TKraftInt32;
     sign:array[0..2] of TKraftScalar;
+{$ifdef KraftDoublePositions}
+    CastTransform:TKraftMatrix4x4;
+{$endif}
 begin
  result:=false;
  if ksfRayCastable in fFlags then begin
+{$ifdef KraftDoublePositions}
+  CastTransform:=ShapeBaseRelativeWorldTransform(self,RayCastData.Origin);
+  CastOrigin:=Vector3Origin;
+  s:=Vector3TermMatrixMulInverted(CastOrigin,CastTransform);
+  v:=Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,CastTransform);
+{$else}
   s:=Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform);
   v:=Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform);
+{$endif}
   if v.x<0 then begin
    s.x:=-s.x;
    v.x:=-v.x;
@@ -37278,23 +37819,37 @@ begin
    exit;
   end;
   RayCastData.TimeOfImpact:=Alpha;
-  RayCastData.Point:=Vector3Add(RayCastData.Origin,Vector3ScalarMul(RayCastData.Direction,Alpha));
+  RayCastData.Point:={$ifdef KraftDoublePositions}PositionAddVector3(RayCastData.Origin,Vector3ScalarMul(RayCastData.Direction,Alpha)){$else}Vector3Add(RayCastData.Origin,Vector3ScalarMul(RayCastData.Direction,Alpha)){$endif};
+{$ifdef KraftDoublePositions}
+  RayCastData.Normal:=Vector3ScalarMul(Vector3(CastTransform[n,0],CastTransform[n,1],CastTransform[n,2]),sign[n]);
+{$else}
   RayCastData.Normal:=Vector3ScalarMul(Vector3(fWorldTransform[n,0],fWorldTransform[n,1],fWorldTransform[n,2]),sign[n]);
+{$endif}
   RayCastData.SurfaceNormal:=RayCastData.Normal;
   result:=true;
  end;
 end;
 
 function TKraftShapeBox.SphereCast(var SphereCastData:TKraftSphereCastData):boolean;
-var s,v,h:TKraftVector3;
+var s,v,h{$ifdef KraftDoublePositions},CastOrigin{$endif}:TKraftVector3;
     lo,hi,k,Alpha:TKraftScalar;
     nlo,nhi,n:TKraftInt32;
     sign:array[0..2] of TKraftScalar;
+{$ifdef KraftDoublePositions}
+    CastTransform:TKraftMatrix4x4;
+{$endif}
 begin
  result:=false;
  if ksfSphereCastable in fFlags then begin
+{$ifdef KraftDoublePositions}
+  CastTransform:=ShapeBaseRelativeWorldTransform(self,SphereCastData.Origin);
+  CastOrigin:=Vector3Origin;
+  s:=Vector3TermMatrixMulInverted(CastOrigin,CastTransform);
+  v:=Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,CastTransform);
+{$else}
   s:=Vector3TermMatrixMulInverted(SphereCastData.Origin,fWorldTransform);
   v:=Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,fWorldTransform);
+{$endif}
   if v.x<0 then begin
    s.x:=-s.x;
    v.x:=-v.x;
@@ -37385,8 +37940,12 @@ begin
    exit;
   end;
   SphereCastData.TimeOfImpact:=Alpha;
-  SphereCastData.Point:=Vector3Add(SphereCastData.Origin,Vector3ScalarMul(SphereCastData.Direction,Alpha));
+  SphereCastData.Point:={$ifdef KraftDoublePositions}PositionAddVector3(SphereCastData.Origin,Vector3ScalarMul(SphereCastData.Direction,Alpha)){$else}Vector3Add(SphereCastData.Origin,Vector3ScalarMul(SphereCastData.Direction,Alpha)){$endif};
+{$ifdef KraftDoublePositions}
+  SphereCastData.Normal:=Vector3ScalarMul(Vector3(CastTransform[n,0],CastTransform[n,1],CastTransform[n,2]),sign[n]);
+{$else}
   SphereCastData.Normal:=Vector3ScalarMul(Vector3(fWorldTransform[n,0],fWorldTransform[n,1],fWorldTransform[n,2]),sign[n]);
+{$endif}
   SphereCastData.SurfaceNormal:=SphereCastData.Normal;
   result:=true;
  end;
@@ -37608,23 +38167,33 @@ begin
  result:=Vector3TermMatrixMul(fPlaneCenter,Transform);
 end;
 
-function TKraftShapePlane.TestPoint(const p:TKraftVector3):boolean;
+function TKraftShapePlane.TestPoint(const p:TKraftPosition):boolean;
 begin
  if ksfPointTestable in fFlags then begin
-  result:=PlaneVectorDistance(Plane,Vector3TermMatrixMulInverted(p,fWorldTransform))<=0.0;
+  result:=PlaneVectorDistance(Plane,Vector3TermMatrixMulInverted({$ifdef KraftDoublePositions}Vector3Origin,ShapeBaseRelativeWorldTransform(self,p){$else}p,fWorldTransform{$endif}))<=0.0;
  end else begin
   result:=false;
  end;
 end;
 
 function TKraftShapePlane.RayCast(var RayCastData:TKraftRayCastData):boolean;
-var Origin,Direction:TKraftVector3;
+var Origin,Direction{$ifdef KraftDoublePositions},LocalWorldPoint,CastOrigin{$endif}:TKraftVector3;
     Time:TKraftScalar;
+{$ifdef KraftDoublePositions}
+    CastTransform:TKraftMatrix4x4;
+{$endif}
 begin
  result:=false;
  if ksfRayCastable in fFlags then begin
+{$ifdef KraftDoublePositions}
+  CastTransform:=ShapeBaseRelativeWorldTransform(self,RayCastData.Origin);
+  CastOrigin:=Vector3Origin;
+  Origin:=Vector3TermMatrixMulInverted(CastOrigin,CastTransform);
+  Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,CastTransform));
+{$else}
   Origin:=Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform);
   Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform));
+{$endif}
   if Vector3LengthSquared(Direction)>EPSILON then begin
    Time:=-Vector3Dot(fPlane.Normal,Direction);
    if abs(Time)>EPSILON then begin
@@ -37632,8 +38201,14 @@ begin
     if Time>=0.0 then begin
      if Time<RayCastData.MaxTime then begin
       RayCastData.TimeOfImpact:=Time;
+{$ifdef KraftDoublePositions}
+      LocalWorldPoint:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),CastTransform);
+      RayCastData.Point:=PositionAddVector3(RayCastData.Origin,LocalWorldPoint);
+      RayCastData.Normal:=Vector3TermMatrixMulBasis(fPlane.Normal,CastTransform);
+{$else}
       RayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
       RayCastData.Normal:=Vector3TermMatrixMulBasis(fPlane.Normal,fWorldTransform);
+{$endif}
       RayCastData.SurfaceNormal:=RayCastData.Normal;
       result:=true;
      end;
@@ -37646,18 +38221,34 @@ end;
 function TKraftShapePlane.SphereCast(var SphereCastData:TKraftSphereCastData):boolean;
 {$define SingleSidedTKraftShapePlaneSphereCast}
 {$ifdef SingleSidedTKraftShapePlaneSphereCast}
-var Origin,Direction:TKraftVector3;
+var Origin,Direction{$ifdef KraftDoublePositions},LocalWorldPoint,CastOrigin{$endif}:TKraftVector3;
     Distance,Time:TKraftScalar;
+{$ifdef KraftDoublePositions}
+    CastTransform:TKraftMatrix4x4;
+{$endif}
 begin
  result:=false;
  if ksfSphereCastable in fFlags then begin
+{$ifdef KraftDoublePositions}
+  CastTransform:=ShapeBaseRelativeWorldTransform(self,SphereCastData.Origin);
+  CastOrigin:=Vector3Origin;
+  Origin:=Vector3TermMatrixMulInverted(CastOrigin,CastTransform);
+  Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,CastTransform));
+{$else}
   Origin:=Vector3TermMatrixMulInverted(SphereCastData.Origin,fWorldTransform);
   Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,fWorldTransform));
+{$endif}
   Distance:=PlaneVectorDistance(fPlane,Origin);
   if Distance<SphereCastData.Radius then begin
    SphereCastData.TimeOfImpact:=0.0;
+{$ifdef KraftDoublePositions}
+   LocalWorldPoint:=Vector3TermMatrixMul(Origin,CastTransform);
+   SphereCastData.Point:=PositionAddVector3(SphereCastData.Origin,LocalWorldPoint);
+   SphereCastData.Normal:=Vector3TermMatrixMulBasis(fPlane.Normal,CastTransform);
+{$else}
    SphereCastData.Point:=Vector3TermMatrixMul(Origin,fWorldTransform);
    SphereCastData.Normal:=Vector3TermMatrixMulBasis(fPlane.Normal,fWorldTransform);
+{$endif}
    SphereCastData.SurfaceNormal:=SphereCastData.Normal;
    result:=true;
   end else if Vector3LengthSquared(Direction)>EPSILON then begin
@@ -37666,8 +38257,14 @@ begin
     Time:=(Distance-SphereCastData.Radius)/Time;
     if (Time>=0.0) and (Time<SphereCastData.MaxTime) then begin
      SphereCastData.TimeOfImpact:=Time;
+{$ifdef KraftDoublePositions}
+     LocalWorldPoint:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),CastTransform);
+     SphereCastData.Point:=PositionAddVector3(SphereCastData.Origin,LocalWorldPoint);
+     SphereCastData.Normal:=Vector3TermMatrixMulBasis(fPlane.Normal,CastTransform);
+{$else}
      SphereCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
      SphereCastData.Normal:=Vector3TermMatrixMulBasis(fPlane.Normal,fWorldTransform);
+{$endif}
      SphereCastData.SurfaceNormal:=SphereCastData.Normal;
      result:=true;
     end;
@@ -37676,13 +38273,23 @@ begin
  end;
 end;
 {$else}
-var Origin,Direction,Normal:TKraftVector3;
+var Origin,Direction,Normal{$ifdef KraftDoublePositions},LocalWorldPoint,CastOrigin{$endif}:TKraftVector3;
     Distance,Time,Dot:TKraftScalar;
+{$ifdef KraftDoublePositions}
+    CastTransform:TKraftMatrix4x4;
+{$endif}
 begin
  result:=false;
  if ksfSphereCastable in fFlags then begin
+{$ifdef KraftDoublePositions}
+  CastTransform:=ShapeBaseRelativeWorldTransform(self,SphereCastData.Origin);
+  CastOrigin:=Vector3Origin;
+  Origin:=Vector3TermMatrixMulInverted(CastOrigin,CastTransform);
+  Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,CastTransform));
+{$else}
   Origin:=Vector3TermMatrixMulInverted(SphereCastData.Origin,fWorldTransform);
   Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,fWorldTransform));
+{$endif}
   Distance:=PlaneVectorDistance(fPlane,Origin);
   Normal:=fPlane.Normal;
   if Distance<0.0 then begin
@@ -37705,8 +38312,14 @@ begin
   end;
   if (Time>=0.0) and (Time<SphereCastData.MaxTime) then begin
    SphereCastData.TimeOfImpact:=Time;
+{$ifdef KraftDoublePositions}
+   LocalWorldPoint:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),CastTransform);
+   SphereCastData.Point:=PositionAddVector3(SphereCastData.Origin,LocalWorldPoint);
+   SphereCastData.Normal:=Vector3TermMatrixMulBasis(fPlane.Normal,CastTransform);
+{$else}
    SphereCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
    SphereCastData.Normal:=Vector3TermMatrixMulBasis(fPlane.Normal,fWorldTransform);
+{$endif}
    result:=true;
   end;
  end;
@@ -38088,39 +38701,61 @@ begin
  result:=Vector3TermMatrixMul(fShapeSphere.Center,aTransform);
 end;
 
-function TKraftShapeTriangle.TestPoint(const aPoint:TKraftVector3):boolean;
+function TKraftShapeTriangle.TestPoint(const aPoint:TKraftPosition):boolean;
 begin
  if ksfPointTestable in fFlags then begin
-  result:=PlaneVectorDistance(fConvexHull.fFaces[0].Plane,Vector3TermMatrixMulInverted(aPoint,fWorldTransform))<=0.0;
+  result:=PlaneVectorDistance(fConvexHull.fFaces[0].Plane,Vector3TermMatrixMulInverted({$ifdef KraftDoublePositions}Vector3Origin,ShapeBaseRelativeWorldTransform(self,aPoint){$else}aPoint,fWorldTransform{$endif}))<=0.0;
  end else begin
   result:=false;
  end;
 end;
 
 function TKraftShapeTriangle.RayCast(var aRayCastData:TKraftRayCastData):boolean;
-var Origin,Direction:TKraftVector3;
+var Origin,Direction{$ifdef KraftDoublePositions},LocalWorldPoint,CastOrigin{$endif}:TKraftVector3;
     Vertices:PPKraftConvexHullVertices;
     Time,u,v,w:TKraftScalar;
+{$ifdef KraftDoublePositions}
+    CastTransform:TKraftMatrix4x4;
+{$endif}
 begin
  result:=false;
  if ksfRayCastable in fFlags then begin
+{$ifdef KraftDoublePositions}
+  CastTransform:=ShapeBaseRelativeWorldTransform(self,aRayCastData.Origin);
+  CastOrigin:=Vector3Origin;
+  Origin:=Vector3TermMatrixMulInverted(CastOrigin,CastTransform);
+  Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(aRayCastData.Direction,CastTransform));
+{$else}
   Origin:=Vector3TermMatrixMulInverted(aRayCastData.Origin,fWorldTransform);
   Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(aRayCastData.Direction,fWorldTransform));
+{$endif}
   if Vector3LengthSquared(Direction)>EPSILON then begin
    Vertices:=@fConvexHull.fVertices[0];
    if RayIntersectTriangle(Origin,Direction,Vertices^[0].Position,Vertices^[1].Position,Vertices^[2].Position,Time,u,v,w) then begin
     if (Time>=0.0) and (Time<=aRayCastData.MaxTime) then begin
      aRayCastData.TimeOfImpact:=Time;
+{$ifdef KraftDoublePositions}
+     LocalWorldPoint:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),CastTransform);
+     aRayCastData.Point:=PositionAddVector3(aRayCastData.Origin,LocalWorldPoint);
+     aRayCastData.Normal:=Vector3TermMatrixMulBasis(Vector3NormEx(Vector3Cross(Vector3Sub(Vertices^[1].Position,Vertices^[0].Position),Vector3Sub(Vertices^[2].Position,Vertices^[0].Position))),CastTransform);
+{$else}
      aRayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
      aRayCastData.Normal:=Vector3TermMatrixMulBasis(Vector3NormEx(Vector3Cross(Vector3Sub(Vertices^[1].Position,Vertices^[0].Position),Vector3Sub(Vertices^[2].Position,Vertices^[0].Position))),fWorldTransform);
+{$endif}
      aRayCastData.SurfaceNormal:=aRayCastData.Normal;
      result:=true;
     end;
    end else if RayIntersectTriangle(Origin,Direction,Vertices^[2].Position,Vertices^[1].Position,Vertices^[0].Position,Time,u,v,w) then begin
     if (Time>=0.0) and (Time<=aRayCastData.MaxTime) then begin
      aRayCastData.TimeOfImpact:=Time;
+{$ifdef KraftDoublePositions}
+     LocalWorldPoint:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),CastTransform);
+     aRayCastData.Point:=PositionAddVector3(aRayCastData.Origin,LocalWorldPoint);
+     aRayCastData.Normal:=Vector3TermMatrixMulBasis(Vector3NormEx(Vector3Cross(Vector3Sub(Vertices^[1].Position,Vertices^[2].Position),Vector3Sub(Vertices^[0].Position,Vertices^[2].Position))),CastTransform);
+{$else}
      aRayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
      aRayCastData.Normal:=Vector3TermMatrixMulBasis(Vector3NormEx(Vector3Cross(Vector3Sub(Vertices^[1].Position,Vertices^[2].Position),Vector3Sub(Vertices^[0].Position,Vertices^[2].Position))),fWorldTransform);
+{$endif}
      aRayCastData.SurfaceNormal:=aRayCastData.Normal;
      result:=true;
     end;
@@ -38130,14 +38765,24 @@ begin
 end;
 
 function TKraftShapeTriangle.SphereCast(var aSphereCastData:TKraftSphereCastData):boolean;
-var Origin,Direction,Normal:TKraftVector3;
+var Origin,Direction,Normal{$ifdef KraftDoublePositions},LocalWorldPoint,CastOrigin{$endif}:TKraftVector3;
     Vertices:PPKraftConvexHullVertices;
     Time:TKraftScalar;
+{$ifdef KraftDoublePositions}
+    CastTransform:TKraftMatrix4x4;
+{$endif}
 begin
  result:=false;
  if ksfSphereCastable in fFlags then begin
+{$ifdef KraftDoublePositions}
+  CastTransform:=ShapeBaseRelativeWorldTransform(self,aSphereCastData.Origin);
+  CastOrigin:=Vector3Origin;
+  Origin:=Vector3TermMatrixMulInverted(CastOrigin,CastTransform);
+  Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(aSphereCastData.Direction,CastTransform));
+{$else}
   Origin:=Vector3TermMatrixMulInverted(aSphereCastData.Origin,fWorldTransform);
   Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(aSphereCastData.Direction,fWorldTransform));
+{$endif}
   if Vector3LengthSquared(Direction)>EPSILON then begin
    Vertices:=@fConvexHull.fVertices[0];
    if SphereCastTriangle(Origin,
@@ -38152,6 +38797,16 @@ begin
                          Time) then begin
     if (Time>=0.0) and (Time<=aSphereCastData.MaxTime) then begin
      aSphereCastData.TimeOfImpact:=Time;
+{$ifdef KraftDoublePositions}
+     LocalWorldPoint:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),CastTransform);
+     aSphereCastData.Point:=PositionAddVector3(aSphereCastData.Origin,LocalWorldPoint);
+     aSphereCastData.Normal:=Vector3TermMatrixMulBasis(Normal,CastTransform);
+     if Vector3Dot(fShapeConvexHull.fFaces[0].Plane.Normal,Direction)>=0 then begin
+      aSphereCastData.SurfaceNormal:=Vector3TermMatrixMulBasis(Vector3Neg(fShapeConvexHull.fFaces[0].Plane.Normal),CastTransform);
+     end else begin
+      aSphereCastData.SurfaceNormal:=Vector3TermMatrixMulBasis(fShapeConvexHull.fFaces[0].Plane.Normal,CastTransform);
+     end;
+{$else}
      aSphereCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
      aSphereCastData.Normal:=Vector3TermMatrixMulBasis(Normal,fWorldTransform);
      if Vector3Dot(fShapeConvexHull.fFaces[0].Plane.Normal,Direction)>=0 then begin
@@ -38159,6 +38814,7 @@ begin
      end else begin
       aSphereCastData.SurfaceNormal:=Vector3TermMatrixMulBasis(fShapeConvexHull.fFaces[0].Plane.Normal,fWorldTransform);
      end;
+{$endif}
      result:=true;
     end;
    end;
@@ -38755,13 +39411,13 @@ begin
  result:=Vector3TermMatrixMul(fLocalCentroid,Transform);
 end;
 
-function TKraftShapeMesh.TestPoint(const p:TKraftVector3):boolean;
+function TKraftShapeMesh.TestPoint(const p:TKraftPosition):boolean;
 var Index:TKraftInt32;
 begin
  result:=false;
  if ksfPointTestable in fFlags then begin
   for Index:=0 to fCountMeshes-1 do begin
-   if fMeshes[Index].TestPoint(Vector3TermMatrixMulInverted(p,fWorldTransform)) then begin
+   if fMeshes[Index].TestPoint(Vector3TermMatrixMulInverted({$ifdef KraftDoublePositions}Vector3Origin,ShapeBaseRelativeWorldTransform(self,p){$else}p,fWorldTransform{$endif})) then begin
     result:=true;
     break;
    end;
@@ -38783,7 +39439,10 @@ var ShapeMeshTreeNodeIndex,MeshTreeNodeIndex,TriangleIndex:TKraftInt32;
     First,SidePass:boolean;
     ChildHit0,ChildHit1:boolean;
     Nearest,Time,u,v,w,ShapeMeshTreeNodeTime,MeshTreeNodeTime,ChildTime0,ChildTime1:TKraftScalar;
-    Origin,Direction,InvDirection,p,Normal:TKraftVector3;
+    Origin,Direction,InvDirection,p,Normal{$ifdef KraftDoublePositions},LocalPoint,LocalWorldPoint,CastOrigin{$endif}:TKraftVector3;
+{$ifdef KraftDoublePositions}
+    CastTransform:TKraftMatrix4x4;
+{$endif}
     LocalCountTotalBottomLevelAccelerationStructureMeshNodes:TKraftInt32;
     LocalCountCheckedBottomLevelAccelerationStructureMeshNodes:TKraftInt32;
     LocalCountCheckedBottomLevelAccelerationStructureMeshLeafs:TKraftInt32;
@@ -38794,8 +39453,15 @@ var ShapeMeshTreeNodeIndex,MeshTreeNodeIndex,TriangleIndex:TKraftInt32;
 begin
  result:=false;
  if ksfRayCastable in fFlags then begin
+{$ifdef KraftDoublePositions}
+  CastTransform:=ShapeBaseRelativeWorldTransform(self,RayCastData.Origin);
+  CastOrigin:=Vector3Origin;
+  Origin:=Vector3ScalarMul(Vector3TermMatrixMulInverted(CastOrigin,CastTransform),fInverseScale);
+  Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,CastTransform));
+{$else}
   Origin:=Vector3ScalarMul(Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform),fInverseScale);
   Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform));
+{$endif}
   if Vector3LengthSquared(Direction)>EPSILON then begin
    InvDirection:=Vector3Div(Vector3All,Direction);
    Nearest:=RayCastData.MaxTime*fInverseScale;
@@ -38859,7 +39525,11 @@ begin
                    Normal:=Triangle^.Plane.Normal;
                   end;
                   RayCastData.TimeOfImpact:=Time;
+{$ifdef KraftDoublePositions}
+                  LocalPoint:=p;
+{$else}
                   RayCastData.Point:=p;
+{$endif}
                   if SidePass then begin
                    RayCastData.Normal:=Vector3Neg(Normal);
                    RayCastData.SurfaceNormal:=Vector3Neg(Triangle^.Plane.Normal);
@@ -38938,9 +39608,16 @@ begin
    end;
    if result then begin
     RayCastData.TimeOfImpact:=RayCastData.TimeOfImpact*fScale;
+{$ifdef KraftDoublePositions}
+    LocalWorldPoint:=Vector3TermMatrixMulWithScale(LocalPoint,CastTransform,fScale);
+    RayCastData.Point:=PositionAddVector3(RayCastData.Origin,LocalWorldPoint);
+    RayCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(RayCastData.Normal,CastTransform));
+    RayCastData.SurfaceNormal:=Vector3NormEx(Vector3TermMatrixMulBasis(RayCastData.SurfaceNormal,CastTransform));
+{$else}
     RayCastData.Point:=Vector3TermMatrixMulWithScale(RayCastData.Point,fWorldTransform,fScale);
     RayCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(RayCastData.Normal,fWorldTransform));
     RayCastData.SurfaceNormal:=Vector3NormEx(Vector3TermMatrixMulBasis(RayCastData.SurfaceNormal,fWorldTransform));
+{$endif}
    end;
   end;
  end;
@@ -38959,7 +39636,10 @@ var SkipListNodeIndex,MeshSkipListNodeIndex,TriangleIndex:TKraftInt32;
     First,SidePass:boolean;
     ChildHit0,ChildHit1:boolean;
     Nearest,Time,u,v,w,SkipListNodeTime,MeshSkipListNodeTime,ChildTime0,ChildTime1:TKraftScalar;
-    Origin,Direction,InvDirection,p,Normal:TKraftVector3;
+    Origin,Direction,InvDirection,p,Normal{$ifdef KraftDoublePositions},LocalPoint,LocalWorldPoint,CastOrigin{$endif}:TKraftVector3;
+{$ifdef KraftDoublePositions}
+    CastTransform:TKraftMatrix4x4;
+{$endif}
     LocalCountTotalBottomLevelAccelerationStructureMeshNodes:TKraftInt32;
     LocalCountCheckedBottomLevelAccelerationStructureMeshNodes:TKraftInt32;
     LocalCountCheckedBottomLevelAccelerationStructureMeshLeafs:TKraftInt32;
@@ -38972,8 +39652,15 @@ begin
  if ksfRayCastable in fFlags then begin
   // Mesh geometry/BVH is base-space; cast in base coords (origin/scale, distances/scale) and
   // rescale the impact distance/point by scale on exit. Bit-exact at fScale=1.
+{$ifdef KraftDoublePositions}
+  CastTransform:=ShapeBaseRelativeWorldTransform(self,RayCastData.Origin);
+  CastOrigin:=Vector3Origin;
+  Origin:=Vector3ScalarMul(Vector3TermMatrixMulInverted(CastOrigin,CastTransform),fInverseScale);
+  Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,CastTransform));
+{$else}
   Origin:=Vector3ScalarMul(Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform),fInverseScale);
   Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform));
+{$endif}
   if Vector3LengthSquared(Direction)>EPSILON then begin
    InvDirection:=Vector3Div(Vector3All,Direction);
    Nearest:=RayCastData.MaxTime*fInverseScale;
@@ -39034,7 +39721,11 @@ begin
                   Normal:=Triangle^.Plane.Normal;
                  end;
                  RayCastData.TimeOfImpact:=Time;
+{$ifdef KraftDoublePositions}
+                 LocalPoint:=p;
+{$else}
                  RayCastData.Point:=p;
+{$endif}
                  if SidePass then begin
                   RayCastData.Normal:=Vector3Neg(Normal);
                   RayCastData.SurfaceNormal:=Vector3Neg(Triangle^.Plane.Normal);
@@ -39118,9 +39809,16 @@ begin
    end;
    if result then begin
     RayCastData.TimeOfImpact:=RayCastData.TimeOfImpact*fScale;
+{$ifdef KraftDoublePositions}
+    LocalWorldPoint:=Vector3TermMatrixMulWithScale(LocalPoint,CastTransform,fScale);
+    RayCastData.Point:=PositionAddVector3(RayCastData.Origin,LocalWorldPoint);
+    RayCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(RayCastData.Normal,CastTransform));
+    RayCastData.SurfaceNormal:=Vector3NormEx(Vector3TermMatrixMulBasis(RayCastData.SurfaceNormal,CastTransform));
+{$else}
     RayCastData.Point:=Vector3TermMatrixMulWithScale(RayCastData.Point,fWorldTransform,fScale);
     RayCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(RayCastData.Normal,fWorldTransform));
     RayCastData.SurfaceNormal:=Vector3NormEx(Vector3TermMatrixMulBasis(RayCastData.SurfaceNormal,fWorldTransform));
+{$endif}
    end;
   end;
  end;
@@ -39141,7 +39839,10 @@ var ShapeMeshTreeNodeIndex,MeshTreeNodeIndex,TriangleIndex:TKraftInt32;
     First,SidePass:boolean;
     ChildHit0,ChildHit1:boolean;
     Radius,Nearest,Time,u,v,w,ShapeMeshTreeNodeTime,MeshTreeNodeTime,ChildTime0,ChildTime1:TKraftScalar;
-    Origin,Direction,InvDirection,p,TriangleNormal,Normal:TKraftVector3;
+    Origin,Direction,InvDirection,p,TriangleNormal,Normal{$ifdef KraftDoublePositions},LocalPoint,LocalWorldPoint,CastOrigin{$endif}:TKraftVector3;
+{$ifdef KraftDoublePositions}
+    CastTransform:TKraftMatrix4x4;
+{$endif}
     LocalCountTotalBottomLevelAccelerationStructureMeshNodes:TKraftInt32;
     LocalCountCheckedBottomLevelAccelerationStructureMeshNodes:TKraftInt32;
     LocalCountCheckedBottomLevelAccelerationStructureMeshLeafs:TKraftInt32;
@@ -39152,9 +39853,19 @@ var ShapeMeshTreeNodeIndex,MeshTreeNodeIndex,TriangleIndex:TKraftInt32;
 begin
  result:=false;
  if ksfSphereCastable in fFlags then begin
+{$ifdef KraftDoublePositions}
+  CastTransform:=ShapeBaseRelativeWorldTransform(self,SphereCastData.Origin);
+  CastOrigin:=Vector3Origin;
+  Origin:=Vector3ScalarMul(Vector3TermMatrixMulInverted(CastOrigin,CastTransform),fInverseScale);
+{$else}
   Origin:=Vector3ScalarMul(Vector3TermMatrixMulInverted(SphereCastData.Origin,fWorldTransform),fInverseScale);
+{$endif}
   Radius:=SphereCastData.Radius*fInverseScale;
+{$ifdef KraftDoublePositions}
+  Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,CastTransform));
+{$else}
   Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,fWorldTransform));
+{$endif}
   if Vector3LengthSquared(Direction)>EPSILON then begin
    InvDirection:=Vector3Div(Vector3All,Direction);
    Nearest:=SphereCastData.MaxTime*fInverseScale;
@@ -39212,7 +39923,11 @@ begin
                   First:=false;
                   Nearest:=Time;
                   SphereCastData.TimeOfImpact:=Time;
+{$ifdef KraftDoublePositions}
+                  LocalPoint:=p;
+{$else}
                   SphereCastData.Point:=p;
+{$endif}
                   SphereCastData.Normal:=Normal;
                   if Mesh.fDoubleSided and (Vector3Dot(Triangle^.Plane.Normal,Direction)>=0) then begin
                    SphereCastData.SurfaceNormal:=Vector3Neg(Triangle^.Plane.Normal);
@@ -39252,7 +39967,11 @@ begin
                     Normal:=Triangle^.Plane.Normal;
                    end;
                    SphereCastData.TimeOfImpact:=Time;
+{$ifdef KraftDoublePositions}
+                   LocalPoint:=p;
+{$else}
                    SphereCastData.Point:=p;
+{$endif}
                    if SidePass then begin
                     SphereCastData.Normal:=Vector3Neg(Normal);
                    end else begin
@@ -39331,9 +40050,16 @@ begin
    end;
    if result then begin
     SphereCastData.TimeOfImpact:=SphereCastData.TimeOfImpact*fScale;
+{$ifdef KraftDoublePositions}
+    LocalWorldPoint:=Vector3TermMatrixMulWithScale(LocalPoint,CastTransform,fScale);
+    SphereCastData.Point:=PositionAddVector3(SphereCastData.Origin,LocalWorldPoint);
+    SphereCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(SphereCastData.Normal,CastTransform));
+    SphereCastData.SurfaceNormal:=Vector3NormEx(Vector3TermMatrixMulBasis(SphereCastData.SurfaceNormal,CastTransform));
+{$else}
     SphereCastData.Point:=Vector3TermMatrixMulWithScale(SphereCastData.Point,fWorldTransform,fScale);
     SphereCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(SphereCastData.Normal,fWorldTransform));
     SphereCastData.SurfaceNormal:=Vector3NormEx(Vector3TermMatrixMulBasis(SphereCastData.SurfaceNormal,fWorldTransform));
+{$endif}
    end;
   end;
  end;
@@ -39352,7 +40078,10 @@ var SkipListNodeIndex,MeshSkipListNodeIndex,TriangleIndex:TKraftInt32;
     First,SidePass:boolean;
     ChildHit0,ChildHit1:boolean;
     Radius,Nearest,Time,u,v,w,SkipListNodeTime,MeshSkipListNodeTime,ChildTime0,ChildTime1:TKraftScalar;
-    Origin,Direction,InvDirection,p,TriangleNormal,Normal:TKraftVector3;
+    Origin,Direction,InvDirection,p,TriangleNormal,Normal{$ifdef KraftDoublePositions},LocalPoint,LocalWorldPoint,CastOrigin{$endif}:TKraftVector3;
+{$ifdef KraftDoublePositions}
+    CastTransform:TKraftMatrix4x4;
+{$endif}
     LocalCountTotalBottomLevelAccelerationStructureMeshNodes:TKraftInt32;
     LocalCountCheckedBottomLevelAccelerationStructureMeshNodes:TKraftInt32;
     LocalCountCheckedBottomLevelAccelerationStructureMeshLeafs:TKraftInt32;
@@ -39365,9 +40094,19 @@ begin
  if ksfSphereCastable in fFlags then begin
   // Mesh geometry/BVH is base-space; cast in base coords (origin/scale, radius/scale, distances/
   // scale) and rescale the impact distance/point by scale on exit. Bit-exact at fScale=1.
+{$ifdef KraftDoublePositions}
+  CastTransform:=ShapeBaseRelativeWorldTransform(self,SphereCastData.Origin);
+  CastOrigin:=Vector3Origin;
+  Origin:=Vector3ScalarMul(Vector3TermMatrixMulInverted(CastOrigin,CastTransform),fInverseScale);
+{$else}
   Origin:=Vector3ScalarMul(Vector3TermMatrixMulInverted(SphereCastData.Origin,fWorldTransform),fInverseScale);
+{$endif}
   Radius:=SphereCastData.Radius*fInverseScale;
+{$ifdef KraftDoublePositions}
+  Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,CastTransform));
+{$else}
   Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,fWorldTransform));
+{$endif}
   if Vector3LengthSquared(Direction)>EPSILON then begin
    InvDirection:=Vector3Div(Vector3All,Direction);
    Nearest:=SphereCastData.MaxTime*fInverseScale;
@@ -39424,7 +40163,11 @@ begin
                  First:=false;
                  Nearest:=Time;
                  SphereCastData.TimeOfImpact:=Time;
+{$ifdef KraftDoublePositions}
+                 LocalPoint:=p;
+{$else}
                  SphereCastData.Point:=p;
+{$endif}
                  SphereCastData.Normal:=Normal;
                  if Mesh.fDoubleSided and (Vector3Dot(Triangle^.Plane.Normal,Direction)>=0) then begin
                   SphereCastData.SurfaceNormal:=Vector3Neg(Triangle^.Plane.Normal);
@@ -39464,7 +40207,11 @@ begin
                    Normal:=Triangle^.Plane.Normal;
                   end;
                   SphereCastData.TimeOfImpact:=Time;
+{$ifdef KraftDoublePositions}
+                  LocalPoint:=p;
+{$else}
                   SphereCastData.Point:=p;
+{$endif}
                   if SidePass then begin
                    SphereCastData.Normal:=Vector3Neg(Normal);
                   end else begin
@@ -39548,9 +40295,16 @@ begin
    end;
    if result then begin
     SphereCastData.TimeOfImpact:=SphereCastData.TimeOfImpact*fScale;
+{$ifdef KraftDoublePositions}
+    LocalWorldPoint:=Vector3TermMatrixMulWithScale(LocalPoint,CastTransform,fScale);
+    SphereCastData.Point:=PositionAddVector3(SphereCastData.Origin,LocalWorldPoint);
+    SphereCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(SphereCastData.Normal,CastTransform));
+    SphereCastData.SurfaceNormal:=Vector3NormEx(Vector3TermMatrixMulBasis(SphereCastData.SurfaceNormal,CastTransform));
+{$else}
     SphereCastData.Point:=Vector3TermMatrixMulWithScale(SphereCastData.Point,fWorldTransform,fScale);
     SphereCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(SphereCastData.Normal,fWorldTransform));
     SphereCastData.SurfaceNormal:=Vector3NormEx(Vector3TermMatrixMulBasis(SphereCastData.SurfaceNormal,fWorldTransform));
+{$endif}
    end;
   end;
  end;
@@ -39710,10 +40464,10 @@ begin
  result:=fSignedDistanceField.GetCenter(Transform);
 end;
 
-function TKraftShapeSignedDistanceField.TestPoint(const p:TKraftVector3):boolean;
+function TKraftShapeSignedDistanceField.TestPoint(const p:TKraftPosition):boolean;
 begin
  if ksfPointTestable in fFlags then begin
-  result:=fSignedDistanceField.TestPoint(Vector3TermMatrixMulInverted(p,fWorldTransform));
+  result:=fSignedDistanceField.TestPoint(Vector3TermMatrixMulInverted({$ifdef KraftDoublePositions}Vector3Origin,ShapeBaseRelativeWorldTransform(self,p){$else}p,fWorldTransform{$endif}));
  end else begin
   result:=false;
  end;
@@ -39722,7 +40476,7 @@ end;
 function TKraftShapeSignedDistanceField.RayCast(var RayCastData:TKraftRayCastData):boolean;
 begin
  if ksfRayCastable in fFlags then begin
-  result:=fSignedDistanceField.RayCast(RayCastData,fWorldTransform);
+  result:=fSignedDistanceField.RayCast(RayCastData,{$ifdef KraftDoublePositions}ShapeBaseRelativeWorldTransform(self,RayCastData.Origin){$else}fWorldTransform{$endif});
  end else begin
   result:=false;
  end;
@@ -39731,7 +40485,7 @@ end;
 function TKraftShapeSignedDistanceField.SphereCast(var SphereCastData:TKraftSphereCastData):boolean;
 begin
  if ksfSphereCastable in fFlags then begin
-  result:=fSignedDistanceField.SphereCast(SphereCastData,fWorldTransform);
+  result:=fSignedDistanceField.SphereCast(SphereCastData,{$ifdef KraftDoublePositions}ShapeBaseRelativeWorldTransform(self,SphereCastData.Origin){$else}fWorldTransform{$endif});
  end else begin
   result:=false;
  end;
@@ -39916,6 +40670,10 @@ procedure TKraftContactPair.DetectCollisions(const ContactManager:TKraftContactM
 var OldManifoldCountContacts:TKraftInt32;
     OldContactManifoldType:TKraftContactManifoldType;
     ShapeTriangle:TKraftShapeTriangle;
+{$ifdef KraftDoublePositions}
+    DetectBase:TKraftPosition;
+    RecycleWorldTransformA,RecycleWorldTransformB:TKraftMatrix4x4;
+{$endif}
 {$ifdef KraftConstraintGraphColoring}
     GraphWasColliding:boolean;
 {$endif}
@@ -39927,6 +40685,17 @@ var OldManifoldCountContacts:TKraftInt32;
  function CreateFeatureID(const Key:TKraftInt64):TKraftContactFeatureID; overload; {$if defined(caninline) and defined(fpc)}inline;{$ifend}
  begin
   result.Key:=Key;
+ end;
+ function ShapeWorldTransform(const aShape:TKraftShape):TKraftMatrix4x4; {$if defined(caninline) and defined(fpc)}inline;{$ifend}
+ begin
+{$ifdef KraftDoublePositions}
+  // The narrow phase runs relative to DetectBase so the collision math stays precise far from the origin. The
+  // resulting contact points are stored as shape-local points, which are base-independent, so DetectBase does
+  // not have to match the solver's per-island base — any nearby base keeps the intermediate maths well conditioned.
+  result:=ShapeBaseRelativeWorldTransform(aShape,DetectBase);
+{$else}
+  result:=aShape.fWorldTransform;
+{$endif}
  end;
 {$ifdef KraftConstraintGraphColoring}
  procedure MarkGraphDirtyOnCollidingChange;
@@ -39949,8 +40718,13 @@ var OldManifoldCountContacts:TKraftInt32;
     Contact^.LocalPoints[0]:=p0;
     Contact^.LocalPoints[1]:=p1;
    end else begin
+{$ifdef KraftDoublePositions}
+    Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(p0,ShapeWorldTransform(Shapes[0]));
+    Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(p1,ShapeWorldTransform(Shapes[1]));
+{$else}
     Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(p0,Shapes[0].fWorldTransform);
     Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(p1,Shapes[1].fWorldTransform);
+{$endif}
    end;
    Contact^.FeatureID:=FeatureID;
   end;
@@ -39969,8 +40743,13 @@ var OldManifoldCountContacts:TKraftInt32;
     Contact^.LocalPoints[0]:=p0;
     Contact^.LocalPoints[1]:=p1;
    end else begin
+{$ifdef KraftDoublePositions}
+    Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(p0,ShapeWorldTransform(Shapes[0]));
+    Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(p1,ShapeWorldTransform(Shapes[1]));
+{$else}
     Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(p0,Shapes[0].fWorldTransform);
     Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(p1,Shapes[1].fWorldTransform);
+{$endif}
    end;
    Contact^.FeatureID:=FeatureID;
   end;
@@ -39989,8 +40768,13 @@ var OldManifoldCountContacts:TKraftInt32;
     Contact^.LocalPoints[0]:=p0;
     Contact^.LocalPoints[1]:=p1;
    end else begin
+{$ifdef KraftDoublePositions}
+    Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(p0,ShapeWorldTransform(Shapes[0]));
+    Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(p1,ShapeWorldTransform(Shapes[1]));
+{$else}
     Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(p0,Shapes[0].fWorldTransform);
     Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(p1,Shapes[1].fWorldTransform);
+{$endif}
    end;
    Contact^.FeatureID:=FeatureID;
   end;
@@ -40009,8 +40793,13 @@ var OldManifoldCountContacts:TKraftInt32;
     Contact^.LocalPoints[0]:=p0;
     Contact^.LocalPoints[1]:=p1;
    end else begin
+{$ifdef KraftDoublePositions}
+    Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(p0,ShapeWorldTransform(Shapes[0]));
+    Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(p1,ShapeWorldTransform(Shapes[1]));
+{$else}
     Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(p0,Shapes[0].fWorldTransform);
     Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(p1,Shapes[1].fWorldTransform);
+{$endif}
    end;
    Contact^.FeatureID:=FeatureID;
   end;
@@ -40029,8 +40818,13 @@ var OldManifoldCountContacts:TKraftInt32;
     Contact^.LocalPoints[0]:=p0;
     Contact^.LocalPoints[1]:=p1;
    end else begin
+{$ifdef KraftDoublePositions}
+    Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(p0,ShapeWorldTransform(Shapes[0]));
+    Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(p1,ShapeWorldTransform(Shapes[1]));
+{$else}
     Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(p0,Shapes[0].fWorldTransform);
     Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(p1,Shapes[1].fWorldTransform);
+{$endif}
    end;
    Contact^.FeatureID:=FeatureID;
   end;
@@ -40194,9 +40988,19 @@ var OldManifoldCountContacts:TKraftInt32;
  procedure CollideSphereWithSphere(ShapeA,ShapeB:TKraftShapeSphere);
  var Distance:TKraftScalar;
      CenterA,CenterB:TKraftVector3;
+{$ifdef KraftDoublePositions}
+     WorldTransformA,WorldTransformB:TKraftMatrix4x4;
+{$endif}
  begin
+{$ifdef KraftDoublePositions}
+  WorldTransformA:=ShapeWorldTransform(ShapeA);
+  WorldTransformB:=ShapeWorldTransform(ShapeB);
+  CenterA:=Vector3TermMatrixMul(ShapeA.fLocalCentroid,WorldTransformA);
+  CenterB:=Vector3TermMatrixMul(ShapeB.fLocalCentroid,WorldTransformB);
+{$else}
   CenterA:=Vector3TermMatrixMul(ShapeA.fLocalCentroid,ShapeA.fWorldTransform);
   CenterB:=Vector3TermMatrixMul(ShapeB.fLocalCentroid,ShapeB.fWorldTransform);
+{$endif}
   Distance:=Vector3Length(Vector3Sub(CenterB,CenterA));
   if Distance<(ShapeA.fRadius+ShapeB.fRadius) then begin
    AddImplicitContact(ShapeA.fLocalCentroid,ShapeB.fLocalCentroid,ShapeA.fRadius,ShapeB.fRadius,CreateFeatureID(0),true);
@@ -40205,10 +41009,21 @@ var OldManifoldCountContacts:TKraftInt32;
  procedure CollideSphereWithCapsule(ShapeA:TKraftShapeSphere;ShapeB:TKraftShapeCapsule);
  var Alpha,HalfLength,Distance:TKraftScalar;
      CenterA,CenterB,Position,GeometryDirection:TKraftVector3;
+{$ifdef KraftDoublePositions}
+     WorldTransformA,WorldTransformB:TKraftMatrix4x4;
+{$endif}
  begin
+{$ifdef KraftDoublePositions}
+  WorldTransformA:=ShapeWorldTransform(ShapeA);
+  WorldTransformB:=ShapeWorldTransform(ShapeB);
+  GeometryDirection:=Vector3(PKraftRawVector3(pointer(@WorldTransformB[1,0]))^);
+  CenterA:=Vector3TermMatrixMul(ShapeA.fLocalCentroid,WorldTransformA);
+  CenterB:=Vector3TermMatrixMul(ShapeB.fLocalCentroid,WorldTransformB);
+{$else}
   GeometryDirection:=Vector3(PKraftRawVector3(pointer(@ShapeB.fWorldTransform[1,0]))^);
   CenterA:=Vector3TermMatrixMul(ShapeA.fLocalCentroid,ShapeA.fWorldTransform);
   CenterB:=Vector3TermMatrixMul(ShapeB.fLocalCentroid,ShapeB.fWorldTransform);
+{$endif}
   Alpha:=(GeometryDirection.x*(CenterA.x-CenterB.x))+(GeometryDirection.y*(Centera.y-CenterB.y))+(GeometryDirection.z*(CenterA.z-CenterB.z));
   HalfLength:=ShapeB.fHeight*0.5;
   if Alpha>HalfLength then begin
@@ -40229,14 +41044,27 @@ var OldManifoldCountContacts:TKraftInt32;
      InsideSphere,InsidePolygon,HasBestClosestPoint:boolean;
      Face:PKraftConvexHullFace;
      GJK:TKraftGJK;
+{$ifdef KraftDoublePositions}
+     WorldTransformA,WorldTransformB:TKraftMatrix4x4;
+{$endif}
  begin
+
+{$ifdef KraftDoublePositions}
+  WorldTransformA:=ShapeWorldTransform(ShapeA);
+  WorldTransformB:=ShapeWorldTransform(ShapeB);
+{$endif}
 
   GJK.CachedSimplex:=@Manifold.GJKCachedSimplex;
   GJK.Simplex.Count:=0;
   GJK.Shapes[0]:=ShapeA;
   GJK.Shapes[1]:=ShapeB;
+{$ifdef KraftDoublePositions}
+  GJK.Transforms[0]:=@WorldTransformA;
+  GJK.Transforms[1]:=@WorldTransformB;
+{$else}
   GJK.Transforms[0]:=@ShapeA.fWorldTransform;
   GJK.Transforms[1]:=@ShapeB.fWorldTransform;
+{$endif}
   GJK.UseRadii:=false;
 
   GJK.Run;
@@ -40268,8 +41096,13 @@ var OldManifoldCountContacts:TKraftInt32;
    ClosestDistance:=MAX_SCALAR;
    ClosestFaceIndex:=-1;
    InsideSphere:=true;
+{$ifdef KraftDoublePositions}
+   Center:=Vector3TermMatrixMul(ShapeA.fLocalCentroid,WorldTransformA);
+   SphereCenter:=Vector3TermMatrixMulInverted(Center,WorldTransformB);
+{$else}
    Center:=Vector3TermMatrixMul(ShapeA.fLocalCentroid,ShapeA.fWorldTransform);
    SphereCenter:=Vector3TermMatrixMulInverted(Center,ShapeB.fWorldTransform);
+{$endif}
    for FaceIndex:=0 to ShapeB.fConvexHull.fCountFaces-1 do begin
     Face:=@ShapeB.fConvexHull.fFaces[FaceIndex];
     Distance:=PlaneVectorDistanceWithScale(Face^.Plane,SphereCenter,ShapeB.fScale);
@@ -40304,7 +41137,7 @@ var OldManifoldCountContacts:TKraftInt32;
         // sphere is directly touching the convex hull . . .
         AddFaceBContact(n,
                         Center,
-                        Vector3TermMatrixMul(Vector3Sub(SphereCenter,Vector3ScalarMul(n,Distance)),ShapeB.fWorldTransform),
+                        Vector3TermMatrixMul(Vector3Sub(SphereCenter,Vector3ScalarMul(n,Distance)),{$ifdef KraftDoublePositions}WorldTransformB{$else}ShapeB.fWorldTransform{$endif}),
                         ShapeA.fRadius,
                         0.0,
                         CreateFeatureID(0,FaceIndex),
@@ -40338,7 +41171,7 @@ var OldManifoldCountContacts:TKraftInt32;
     n:=ShapeB.fConvexHull.fFaces[ClosestFaceIndex].Plane.Normal;
     AddImplicitNormalContact(n,
                              Center,
-                             Vector3TermMatrixMul(Vector3Add(SphereCenter,Vector3ScalarMul(n,-ClosestDistance)),ShapeB.fWorldTransform),
+                             Vector3TermMatrixMul(Vector3Add(SphereCenter,Vector3ScalarMul(n,-ClosestDistance)),{$ifdef KraftDoublePositions}WorldTransformB{$else}ShapeB.fWorldTransform{$endif}),
                              ShapeA.fRadius,
                              0.0,
                              CreateFeatureID(1,ClosestFaceIndex),
@@ -40346,7 +41179,7 @@ var OldManifoldCountContacts:TKraftInt32;
    end else if HasBestClosestPoint then begin
     AddImplicitNormalContact(Vector3Neg(BestClosestPointNormal),
                              Center,
-                             Vector3TermMatrixMul(BestClosestPointOnHull,ShapeB.fWorldTransform),
+                             Vector3TermMatrixMul(BestClosestPointOnHull,{$ifdef KraftDoublePositions}WorldTransformB{$else}ShapeB.fWorldTransform{$endif}),
                              ShapeA.fRadius,
                              0.0,
                              CreateFeatureID(2,BestClosestFaceIndex),
@@ -40359,9 +41192,24 @@ var OldManifoldCountContacts:TKraftInt32;
  var IntersectionDist,ContactDist,DistSqr,FaceDist,MinDist:TKraftScalar;
      Center,SphereRelativePosition,ClosestPoint,Normal:TKraftVector3;
      Axis,AxisSign,BestFaceIndex:TKraftInt32;
+{$ifdef KraftDoublePositions}
+     WorldTransformA,WorldTransformB:TKraftMatrix4x4;
+{$endif}
  begin
+{$ifdef KraftDoublePositions}
+  WorldTransformA:=ShapeWorldTransform(ShapeA);
+  WorldTransformB:=ShapeWorldTransform(ShapeB);
+  Center:=Vector3TermMatrixMul(ShapeA.fLocalCentroid,WorldTransformA);
+  SphereRelativePosition:=Vector3TermMatrixMulInverted(Center,WorldTransformB);
+{$else}
+{$ifdef KraftDoublePositions}
+  Center:=Vector3TermMatrixMul(ShapeA.fLocalCentroid,WorldTransformA);
+  SphereRelativePosition:=Vector3TermMatrixMulInverted(Center,WorldTransformB);
+{$else}
   Center:=Vector3TermMatrixMul(ShapeA.fLocalCentroid,ShapeA.fWorldTransform);
   SphereRelativePosition:=Vector3TermMatrixMulInverted(Center,ShapeB.fWorldTransform);
+{$endif}
+{$endif}
   ClosestPoint.x:=Min(Max(SphereRelativePosition.x,-ShapeB.fExtents.x),ShapeB.fExtents.x);
   ClosestPoint.y:=Min(Max(SphereRelativePosition.y,-ShapeB.fExtents.y),ShapeB.fExtents.y);
   ClosestPoint.z:=Min(Max(SphereRelativePosition.z,-ShapeB.fExtents.z),ShapeB.fExtents.z);
@@ -40435,19 +41283,29 @@ var OldManifoldCountContacts:TKraftInt32;
    end else begin
     {Distance:=}Vector3NormalizeEx(Normal);
    end;
-   AddFaceBContact(Normal,Center,Vector3TermMatrixMul(ClosestPoint,ShapeB.fWorldTransform),ShapeA.fRadius,0.0,CreateFeatureID(BestFaceIndex),false);
+   AddFaceBContact(Normal,Center,Vector3TermMatrixMul(ClosestPoint,{$ifdef KraftDoublePositions}WorldTransformB{$else}ShapeB.fWorldTransform{$endif}),ShapeA.fRadius,0.0,CreateFeatureID(BestFaceIndex),false);
   end;
  end;
  procedure CollideSphereWithPlane(ShapeA:TKraftShapeSphere;ShapeB:TKraftShapePlane);
  var Distance:TKraftScalar;
      Center,SphereCenter,Normal:TKraftVector3;
+{$ifdef KraftDoublePositions}
+     WorldTransformA,WorldTransformB:TKraftMatrix4x4;
+{$endif}
  begin
+{$ifdef KraftDoublePositions}
+  WorldTransformA:=ShapeWorldTransform(ShapeA);
+  WorldTransformB:=ShapeWorldTransform(ShapeB);
+  Center:=Vector3TermMatrixMul(ShapeA.fLocalCentroid,WorldTransformA);
+  SphereCenter:=Vector3TermMatrixMulInverted(Center,WorldTransformB);
+{$else}
   Center:=Vector3TermMatrixMul(ShapeA.fLocalCentroid,ShapeA.fWorldTransform);
   SphereCenter:=Vector3TermMatrixMulInverted(Center,ShapeB.fWorldTransform);
+{$endif}
   Distance:=PlaneVectorDistance(ShapeB.fPlane,SphereCenter);
   if Distance<=ShapeA.fRadius then begin
    Normal:=ShapeB.fPlane.Normal;
-   AddFaceBContact(Normal,Center,Vector3TermMatrixMul(Vector3Sub(SphereCenter,Vector3ScalarMul(Normal,Distance)),ShapeB.fWorldTransform),ShapeA.fRadius,0.0,CreateFeatureID(0),false);
+   AddFaceBContact(Normal,Center,Vector3TermMatrixMul(Vector3Sub(SphereCenter,Vector3ScalarMul(Normal,Distance)),{$ifdef KraftDoublePositions}WorldTransformB{$else}ShapeB.fWorldTransform{$endif}),ShapeA.fRadius,0.0,CreateFeatureID(0),false);
   end;
  end;
  procedure CollideSphereWithTriangle(ShapeA:TKraftShapeSphere;ShapeB:TKraftShapeTriangle);
@@ -40457,12 +41315,22 @@ var OldManifoldCountContacts:TKraftInt32;
      Center,SphereCenter,Normal,P0ToCenter,ContactPointOnTriangle,NearestOnEdge,ContactToCenter:TKraftVector3;
      IsInsideContactPlane,HasContact,IsEdge:boolean;
      v:array[0..2] of PKraftVector3;
+{$ifdef KraftDoublePositions}
+     WorldTransformA,WorldTransformB:TKraftMatrix4x4;
+{$endif}
  begin
   v[0]:=@ShapeB.fConvexHull.fVertices[0].Position;
   v[1]:=@ShapeB.fConvexHull.fVertices[1].Position;
   v[2]:=@ShapeB.fConvexHull.fVertices[2].Position;
+{$ifdef KraftDoublePositions}
+  WorldTransformA:=ShapeWorldTransform(ShapeA);
+  WorldTransformB:=ShapeWorldTransform(ShapeB);
+  Center:=Vector3TermMatrixMul(ShapeA.fLocalCentroid,WorldTransformA);
+  SphereCenter:=Vector3TermMatrixMulInverted(Center,WorldTransformB);
+{$else}
   Center:=Vector3TermMatrixMul(ShapeA.fLocalCentroid,ShapeA.fWorldTransform);
   SphereCenter:=Vector3TermMatrixMulInverted(Center,ShapeB.fWorldTransform);
+{$endif}
   Radius:=ShapeA.fRadius;
   RadiusWithThreshold:=Radius+EPSILON;
   Normal:=Vector3SafeNorm(Vector3Cross(Vector3Sub(v[1]^,v[0]^),Vector3Sub(v[2]^,v[0]^)));
@@ -40498,12 +41366,12 @@ var OldManifoldCountContacts:TKraftInt32;
    if DistanceSqr<ContactRadiusSqr then begin
     if DistanceSqr>EPSILON then begin
      if IsEdge then begin
-      AddImplicitNormalContact(Vector3Neg(Vector3Norm(ContactToCenter)),Center,Vector3TermMatrixMul(ContactPointOnTriangle,ShapeB.fWorldTransform),ShapeA.fRadius,0.0,CreateFeatureID(2),false);
+      AddImplicitNormalContact(Vector3Neg(Vector3Norm(ContactToCenter)),Center,Vector3TermMatrixMul(ContactPointOnTriangle,{$ifdef KraftDoublePositions}WorldTransformB{$else}ShapeB.fWorldTransform{$endif}),ShapeA.fRadius,0.0,CreateFeatureID(2),false);
      end else begin
-      AddImplicitContact(Center,Vector3TermMatrixMul(ContactPointOnTriangle,ShapeB.fWorldTransform),ShapeA.fRadius,0.0,CreateFeatureID(0),false);
+      AddImplicitContact(Center,Vector3TermMatrixMul(ContactPointOnTriangle,{$ifdef KraftDoublePositions}WorldTransformB{$else}ShapeB.fWorldTransform{$endif}),ShapeA.fRadius,0.0,CreateFeatureID(0),false);
      end;
     end else begin
-     AddFaceBContact(Normal,Center,Vector3TermMatrixMul(ContactPointOnTriangle,ShapeB.fWorldTransform),ShapeA.fRadius,0.0,CreateFeatureID(1),false);
+     AddFaceBContact(Normal,Center,Vector3TermMatrixMul(ContactPointOnTriangle,{$ifdef KraftDoublePositions}WorldTransformB{$else}ShapeB.fWorldTransform{$endif}),ShapeA.fRadius,0.0,CreateFeatureID(1),false);
     end;
    end;
   end;
@@ -40513,10 +41381,20 @@ var OldManifoldCountContacts:TKraftInt32;
  var RadiusA,RadiusB,SquaredRadiiWithTolerance,HalfLengthA,HalfLengthB,TimeA,TimeB,SquaredDistance:TKraftScalar;
      CenterA,CenterB,GeometryDirectionA,GeometryDirectionB,HalfAxis,ClosestPointA,ClosestPointB:TKraftVector3;
      SegmentA,SegmentB:TKraftSegment;
+{$ifdef KraftDoublePositions}
+     WorldTransformA,WorldTransformB:TKraftMatrix4x4;
+{$endif}
  begin
 
+{$ifdef KraftDoublePositions}
+  WorldTransformA:=ShapeWorldTransform(ShapeA);
+  WorldTransformB:=ShapeWorldTransform(ShapeB);
+  CenterA:=Vector3TermMatrixMul(ShapeA.fLocalCenterOfMass,WorldTransformA);
+  CenterB:=Vector3TermMatrixMul(ShapeB.fLocalCenterOfMass,WorldTransformB);
+{$else}
   CenterA:=Vector3TermMatrixMul(ShapeA.fLocalCenterOfMass,ShapeA.fWorldTransform);
   CenterB:=Vector3TermMatrixMul(ShapeB.fLocalCenterOfMass,ShapeB.fWorldTransform);
+{$endif}
 
 {$ifdef SIMD}
   GeometryDirectionA:=Vector3(PKraftRawVector3(pointer(@ShapeA.fWorldTransform[1,0]))^);
@@ -40597,6 +41475,9 @@ var OldManifoldCountContacts:TKraftInt32;
      ClosestPoints:array[0..1] of TKraftVector3;
      GJK:TKraftGJK;
      Transform:TKraftMatrix4x4;
+{$ifdef KraftDoublePositions}
+     WorldTransformA,WorldTransformB:TKraftMatrix4x4;
+{$endif}
   function GetEdgeContact(var CA,CB:TKraftVector3;const PA,QA,PB,QB:TKraftVector3):boolean;
   var DA,DB,r:TKraftVector3;
       a,e,f,c,b,d,TA,TB:TKraftScalar;
@@ -40624,12 +41505,22 @@ var OldManifoldCountContacts:TKraftInt32;
 
   Manifold.CountContacts:=0;
 
+{$ifdef KraftDoublePositions}
+  WorldTransformA:=ShapeWorldTransform(ShapeA);
+  WorldTransformB:=ShapeWorldTransform(ShapeB);
+{$endif}
+
   GJK.CachedSimplex:=@Manifold.GJKCachedSimplex;
   GJK.Simplex.Count:=0;
   GJK.Shapes[0]:=ShapeA;
   GJK.Shapes[1]:=ShapeB;
+{$ifdef KraftDoublePositions}
+  GJK.Transforms[0]:=@WorldTransformA;
+  GJK.Transforms[1]:=@WorldTransformB;
+{$else}
   GJK.Transforms[0]:=@ShapeA.fWorldTransform;
   GJK.Transforms[1]:=@ShapeB.fWorldTransform;
+{$endif}
   GJK.UseRadii:=false;
 
   GJK.Run;
@@ -40644,11 +41535,16 @@ var OldManifoldCountContacts:TKraftInt32;
     Normal:=GJK.Normal;
     for FaceIndex:=0 to ShapeB.fConvexHull.fCountFaces-1 do begin
      Face:=@ShapeB.fConvexHull.fFaces[FaceIndex];
-     FaceNormal:=Vector3Norm(Vector3TermMatrixMulBasis(Face^.Plane.Normal,ShapeB.fWorldTransform));
+     FaceNormal:=Vector3Norm(Vector3TermMatrixMulBasis(Face^.Plane.Normal,{$ifdef KraftDoublePositions}WorldTransformB{$else}ShapeB.fWorldTransform{$endif}));
      if (Vector3Dot(FaceNormal,Normal)>0.0) and
         (Vector3Length(Vector3Cross(FaceNormal,Normal))<(sqrt(Vector3LengthSquared(FaceNormal)*Vector3LengthSquared(Normal))*ParallelFaceTolerance)) then begin
+{$ifdef KraftDoublePositions}
+      CapsulePosition:=Vector3TermMatrixMulInverted(Vector3TermMatrixMul(ShapeA.fLocalCentroid,WorldTransformA),WorldTransformB);
+      CapsuleAxis:=Vector3Norm(Vector3TermMatrixMulTransposedBasis(Vector3(WorldTransformA[1,0],WorldTransformA[1,1],WorldTransformA[1,2]),WorldTransformB));
+{$else}
       CapsulePosition:=Vector3TermMatrixMulInverted(Vector3TermMatrixMul(ShapeA.fLocalCentroid,ShapeA.fWorldTransform),ShapeB.fWorldTransform);
       CapsuleAxis:=Vector3Norm(Vector3TermMatrixMulTransposedBasis(Vector3(ShapeA.fWorldTransform[1,0],ShapeA.fWorldTransform[1,1],ShapeA.fWorldTransform[1,2]),ShapeB.fWorldTransform));
+{$endif}
       ClosestPoints[0]:=Vector3Sub(CapsulePosition,Vector3ScalarMul(CapsuleAxis,ShapeA.fHeight*0.5));
       ClosestPoints[1]:=Vector3Add(CapsulePosition,Vector3ScalarMul(CapsuleAxis,ShapeA.fHeight*0.5));
       if Face^.CountVertices>0 then begin
@@ -40673,8 +41569,8 @@ var OldManifoldCountContacts:TKraftInt32;
          if (Distance<=ShapeA.fRadius) and (Distance>=(-ShapeA.fRadius)) then begin
           FaceNormal:=Face^.Plane.Normal;
           AddFaceBContact(FaceNormal,
-                          Vector3TermMatrixMul(ClosestPoints[PointIndex],ShapeB.fWorldTransform),
-                          Vector3TermMatrixMul(Vector3Sub(ClosestPoints[PointIndex],Vector3ScalarMul(FaceNormal,Distance)),ShapeB.fWorldTransform),
+                          Vector3TermMatrixMul(ClosestPoints[PointIndex],{$ifdef KraftDoublePositions}WorldTransformB{$else}ShapeB.fWorldTransform{$endif}),
+                          Vector3TermMatrixMul(Vector3Sub(ClosestPoints[PointIndex],Vector3ScalarMul(FaceNormal,Distance)),{$ifdef KraftDoublePositions}WorldTransformB{$else}ShapeB.fWorldTransform{$endif}),
                           ShapeA.fRadius,
                           0.0,
                           CreateFeatureID(1,PointIndex),
@@ -40707,13 +41603,18 @@ var OldManifoldCountContacts:TKraftInt32;
 
    CapsuleRadius:=ShapeA.fRadius;
 
+{$ifdef KraftDoublePositions}
+   CapsulePosition:=Vector3TermMatrixMulInverted(Vector3TermMatrixMul(ShapeA.fLocalCentroid,WorldTransformA),WorldTransformB);
+   CapsuleAxis:=Vector3Norm(Vector3TermMatrixMulTransposedBasis(Vector3(WorldTransformA[1,0],WorldTransformA[1,1],WorldTransformA[1,2]),WorldTransformB));
+{$else}
    CapsulePosition:=Vector3TermMatrixMulInverted(Vector3TermMatrixMul(ShapeA.fLocalCentroid,ShapeA.fWorldTransform),ShapeB.fWorldTransform);
    CapsuleAxis:=Vector3Norm(Vector3TermMatrixMulTransposedBasis(Vector3(ShapeA.fWorldTransform[1,0],ShapeA.fWorldTransform[1,1],ShapeA.fWorldTransform[1,2]),ShapeB.fWorldTransform));
+{$endif}
 
    CapsulePointStart:=Vector3Sub(CapsulePosition,Vector3ScalarMul(CapsuleAxis,ShapeA.fHeight*0.5));
    CapsulePointEnd:=Vector3Add(CapsulePosition,Vector3ScalarMul(CapsuleAxis,ShapeA.fHeight*0.5));
 
-   Transform:=Matrix4x4TermMulInverted(ShapeB.fWorldTransform,ShapeA.fWorldTransform);
+   Transform:=Matrix4x4TermMulInverted({$ifdef KraftDoublePositions}WorldTransformB,WorldTransformA{$else}ShapeB.fWorldTransform,ShapeA.fWorldTransform{$endif});
    MaxFaceIndex:=-1;
    MaxFaceSeparation:=-MAX_SCALAR;
    for FaceIndex:=0 to ShapeB.fConvexHull.fCountFaces-1 do begin
@@ -40808,8 +41709,8 @@ var OldManifoldCountContacts:TKraftInt32;
        Distance:=PlaneVectorDistanceWithScale(Face^.Plane,ClosestPoints[PointIndex],ShapeB.fScale);
        if Distance<=ShapeA.fRadius then begin
         AddFaceBContact(FaceNormal,
-                        Vector3TermMatrixMul(ClosestPoints[PointIndex],ShapeB.fWorldTransform),
-                        Vector3TermMatrixMul(Vector3Sub(ClosestPoints[PointIndex],Vector3ScalarMul(FaceNormal,Distance)),ShapeB.fWorldTransform),
+                        Vector3TermMatrixMul(ClosestPoints[PointIndex],{$ifdef KraftDoublePositions}WorldTransformB{$else}ShapeB.fWorldTransform{$endif}),
+                        Vector3TermMatrixMul(Vector3Sub(ClosestPoints[PointIndex],Vector3ScalarMul(FaceNormal,Distance)),{$ifdef KraftDoublePositions}WorldTransformB{$else}ShapeB.fWorldTransform{$endif}),
                         CapsuleRadius,
                         0.0,
                         CreateFeatureID(3,PointIndex),
@@ -40829,11 +41730,20 @@ var OldManifoldCountContacts:TKraftInt32;
      Segment:TKraftSegment;
      Triangle:TKraftTriangle;
      UseTriangleNormal:boolean;
+{$ifdef KraftDoublePositions}
+     WorldTransformA,WorldTransformB:TKraftMatrix4x4;
+{$endif}
  begin
 
   Manifold.CountContacts:=0;
 
+{$ifdef KraftDoublePositions}
+  WorldTransformA:=ShapeWorldTransform(ShapeA);
+  WorldTransformB:=ShapeWorldTransform(ShapeB);
+  Center:=Vector3TermMatrixMulInverted(Vector3TermMatrixMul(ShapeA.fLocalCentroid,WorldTransformA),WorldTransformB);
+{$else}
   Center:=Vector3TermMatrixMulInverted(Vector3TermMatrixMul(ShapeA.fLocalCentroid,ShapeA.fWorldTransform),ShapeB.fWorldTransform);
+{$endif}
 
   GeometryDirection:=Vector3TermMatrixMulTransposedBasis(Vector3(PKraftRawVector3(pointer(@ShapeA.fWorldTransform[1,0]))^),ShapeB.fWorldTransform);
 
@@ -40870,8 +41780,8 @@ var OldManifoldCountContacts:TKraftInt32;
     end;
     //Normal:=Vector3TermMatrixMulBasis(Normal,ShapeB.fWorldTransform);
     AddFaceBContact(Normal,
-                    Vector3TermMatrixMul(pa,ShapeB.fWorldTransform),
-                    Vector3TermMatrixMul(pb,ShapeB.fWorldTransform),
+                    Vector3TermMatrixMul(pa,{$ifdef KraftDoublePositions}WorldTransformB{$else}ShapeB.fWorldTransform{$endif}),
+                    Vector3TermMatrixMul(pb,{$ifdef KraftDoublePositions}WorldTransformB{$else}ShapeB.fWorldTransform{$endif}),
                     Radius,
                     0.0,
                     CreateFeatureID(1,Index),
@@ -40897,8 +41807,8 @@ var OldManifoldCountContacts:TKraftInt32;
     end;
     //Normal:=Vector3TermMatrixMulBasis(Normal,ShapeB.fWorldTransform);
     AddFaceBContact(Normal,
-                    Vector3TermMatrixMul(pa,ShapeB.fWorldTransform),
-                    Vector3TermMatrixMul(pb,ShapeB.fWorldTransform),
+                    Vector3TermMatrixMul(pa,{$ifdef KraftDoublePositions}WorldTransformB{$else}ShapeB.fWorldTransform{$endif}),
+                    Vector3TermMatrixMul(pb,{$ifdef KraftDoublePositions}WorldTransformB{$else}ShapeB.fWorldTransform{$endif}),
                     Radius,
                     0.0,
                     CreateFeatureID(0),
@@ -40928,7 +41838,7 @@ var OldManifoldCountContacts:TKraftInt32;
   var Plane:TKraftPlane;
       Transform:TKraftMatrix4x4;
   begin
-   Transform:=Matrix4x4TermMulSimpleInverted(HullA.fWorldTransform,HullB.fWorldTransform);
+   Transform:=Matrix4x4TermMulSimpleInverted({$ifdef KraftDoublePositions}ShapeWorldTransform(HullA),ShapeWorldTransform(HullB){$else}HullA.fWorldTransform,HullB.fWorldTransform{$endif});
    Plane:=PlaneFastTransformWithScale(HullA.fConvexHull.fFaces[FaceQuery.Index].Plane,Transform,HullA.fScale);
    FaceQuery.Separation:=PlaneVectorDistance(Plane,HullB.GetLocalFullSupport(Vector3Neg(Plane.Normal)));
    result:=FaceQuery.Separation>0.0;
@@ -40940,7 +41850,7 @@ var OldManifoldCountContacts:TKraftInt32;
       Transform:TKraftMatrix4x4;
   begin
    result:=false;
-   Transform:=Matrix4x4TermMulSimpleInverted(HullA.fWorldTransform,HullB.fWorldTransform);
+   Transform:=Matrix4x4TermMulSimpleInverted({$ifdef KraftDoublePositions}ShapeWorldTransform(HullA),ShapeWorldTransform(HullB){$else}HullA.fWorldTransform,HullB.fWorldTransform{$endif});
    CenterA:=HullA.GetCenter(Transform);
    EdgeA:=@HullA.fConvexHull.fEdges[EdgeQuery.IndexA];
    Pa:=Vector3TermMatrixMulWithScale(HullA.fConvexHull.fVertices[EdgeA^.Vertices[0]].Position,Transform,HullA.fScale);
@@ -40986,7 +41896,7 @@ var OldManifoldCountContacts:TKraftInt32;
       Plane:TKraftPlane;
       Transform:TKraftMatrix4x4;
   begin
-   Transform:=Matrix4x4TermMulSimpleInverted(HullA.fWorldTransform,HullB.fWorldTransform);
+   Transform:=Matrix4x4TermMulSimpleInverted({$ifdef KraftDoublePositions}ShapeWorldTransform(HullA),ShapeWorldTransform(HullB){$else}HullA.fWorldTransform,HullB.fWorldTransform{$endif});
    MaxIndex:=-1;
    MaxSeparation:=-MAX_SCALAR;
    for Index:=0 to HullA.fConvexHull.fCountFaces-1 do begin
@@ -41015,7 +41925,7 @@ var OldManifoldCountContacts:TKraftInt32;
    MaxIndexB:=-1;
    MaxSeparation:=-MAX_SCALAR;
    MaxNormal:=Vector3Origin;
-   Transform:=Matrix4x4TermMulSimpleInverted(HullA.fWorldTransform,HullB.fWorldTransform);
+   Transform:=Matrix4x4TermMulSimpleInverted({$ifdef KraftDoublePositions}ShapeWorldTransform(HullA),ShapeWorldTransform(HullB){$else}HullA.fWorldTransform,HullB.fWorldTransform{$endif});
    CenterA:=HullA.GetCenter(Transform);
    First:=true;
    for IndexA:=0 to HullA.fConvexHull.fCountEdges-1 do begin
@@ -41122,13 +42032,23 @@ var OldManifoldCountContacts:TKraftInt32;
       ClipVertices:array[0..2] of TKraftClipVertexList;
       ReferencePoint:TKraftVector3;
       ReferenceWorldPlane,ReferenceEdgePlane:TKraftPlane;
+{$ifdef KraftDoublePositions}
+      ReferenceWorldTransform,IncidentWorldTransform:TKraftMatrix4x4;
+{$endif}
       FeatureID:TKraftContactFeatureID;
   begin
 
    ContactManager.fCountTemporaryContacts[ThreadIndex]:=0;
 
+{$ifdef KraftDoublePositions}
+   // Base-relative world transforms for the reference and incident hull, so the clipped contact points stay
+   // precise far from the origin. When double positions are off, the plain world transforms are used directly.
+   ReferenceWorldTransform:=ShapeWorldTransform(ReferenceHull);
+   IncidentWorldTransform:=ShapeWorldTransform(IncidentHull);
+{$endif}
+
    ReferenceFace:=@ReferenceHull.fConvexHull.fFaces[ReferenceFaceIndex];
-   ReferenceWorldPlane:=PlaneFastTransformWithScale(ReferenceFace^.Plane,ReferenceHull.fWorldTransform,ReferenceHull.fScale);
+   ReferenceWorldPlane:=PlaneFastTransformWithScale(ReferenceFace^.Plane,{$ifdef KraftDoublePositions}ReferenceWorldTransform{$else}ReferenceHull.fWorldTransform{$endif},ReferenceHull.fScale);
 
    IncidentFace:=@IncidentHull.fConvexHull.fFaces[IncidentFaceIndex];
 
@@ -41141,7 +42061,7 @@ var OldManifoldCountContacts:TKraftInt32;
    for IncidentVertexIndex:=0 to IncidentFace^.CountVertices-1 do begin
     FeatureID.ElementA:=IncidentEdgeIndexOffset+IncidentVertexIndex;
     FeatureID.ElementB:=IncidentEdgeIndexOffset+(IncidentVertexIndex+1);
-    ClipVertices[0].Add(Vector3TermMatrixMulWithScale(IncidentHull.fConvexHull.fVertices[IncidentFace^.Vertices[IncidentVertexIndex]].Position,IncidentHull.fWorldTransform,IncidentHull.fScale),FeatureID);
+    ClipVertices[0].Add(Vector3TermMatrixMulWithScale(IncidentHull.fConvexHull.fVertices[IncidentFace^.Vertices[IncidentVertexIndex]].Position,{$ifdef KraftDoublePositions}IncidentWorldTransform{$else}IncidentHull.fWorldTransform{$endif},IncidentHull.fScale),FeatureID);
    end;
 
 {$ifdef DebugDraw}
@@ -41174,7 +42094,7 @@ var OldManifoldCountContacts:TKraftInt32;
       ContactManager.fDebugClipVertexLists[DebugClipVertexListIndex].fColor.a:=1.0;
       ContactManager.fDebugClipVertexLists[DebugClipVertexListIndex].Clear;
       for ReferenceVertexIndex:=0 to ReferenceFace^.CountVertices-1 do begin
-       ReferencePoint:=Vector3TermMatrixMulWithScale(ReferenceHull.fConvexHull.fVertices[ReferenceFace^.Vertices[ReferenceVertexIndex]].Position,ReferenceHull.fWorldTransform,ReferenceHull.fScale);
+       ReferencePoint:=Vector3TermMatrixMulWithScale(ReferenceHull.fConvexHull.fVertices[ReferenceFace^.Vertices[ReferenceVertexIndex]].Position,{$ifdef KraftDoublePositions}ReferenceWorldTransform{$else}ReferenceHull.fWorldTransform{$endif},ReferenceHull.fScale);
        FeatureID.ElementA:=ReferenceEdgeIndexOffset+ReferenceVertexIndex;
        FeatureID.ElementB:=ReferenceEdgeIndexOffset+(ReferenceVertexIndex+1);
        ContactManager.fDebugClipVertexLists[DebugClipVertexListIndex].Add(ReferencePoint,FeatureID);
@@ -41190,8 +42110,8 @@ var OldManifoldCountContacts:TKraftInt32;
    OtherReferenceVertexIndex:=ReferenceFace^.CountVertices-1;
    for ReferenceVertexIndex:=0 to ReferenceFace^.CountVertices-1 do begin
     if ClipVertices[0].Count>=2 then begin
-     ReferencePoint:=Vector3TermMatrixMulWithScale(ReferenceHull.fConvexHull.fVertices[ReferenceFace^.Vertices[ReferenceVertexIndex]].Position,ReferenceHull.fWorldTransform,ReferenceHull.fScale);
-     ReferenceEdgePlane.Normal:=Vector3Neg(Vector3NormEx(Vector3Cross(ReferenceWorldPlane.Normal,Vector3Sub(ReferencePoint,Vector3TermMatrixMulWithScale(ReferenceHull.fConvexHull.fVertices[ReferenceFace^.Vertices[OtherReferenceVertexIndex]].Position,ReferenceHull.fWorldTransform,ReferenceHull.fScale)))));
+     ReferencePoint:=Vector3TermMatrixMulWithScale(ReferenceHull.fConvexHull.fVertices[ReferenceFace^.Vertices[ReferenceVertexIndex]].Position,{$ifdef KraftDoublePositions}ReferenceWorldTransform{$else}ReferenceHull.fWorldTransform{$endif},ReferenceHull.fScale);
+     ReferenceEdgePlane.Normal:=Vector3Neg(Vector3NormEx(Vector3Cross(ReferenceWorldPlane.Normal,Vector3Sub(ReferencePoint,Vector3TermMatrixMulWithScale(ReferenceHull.fConvexHull.fVertices[ReferenceFace^.Vertices[OtherReferenceVertexIndex]].Position,{$ifdef KraftDoublePositions}ReferenceWorldTransform{$else}ReferenceHull.fWorldTransform{$endif},ReferenceHull.fScale)))));
      ReferenceEdgePlane.Distance:=-Vector3Dot(ReferenceEdgePlane.Normal,ReferencePoint);
      PreviousClipVertex:=@ClipVertices[0].Vertices[ClipVertices[0].Count-1];
      CurrentClipVertex:=@ClipVertices[0].Vertices[0];
@@ -41265,11 +42185,11 @@ var OldManifoldCountContacts:TKraftInt32;
       Contact^.Penetration:=Distance;
       if Flip then begin
        // Face BA contact, where B is the reference face and where A is the incident face
-       Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(ClipVertex^.Position,Shapes[0].fWorldTransform);
+       Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(ClipVertex^.Position,{$ifdef KraftDoublePositions}ShapeWorldTransform(Shapes[0]){$else}Shapes[0].fWorldTransform{$endif});
        Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(Vector3Sub(ClipVertex^.Position,
                                                                         Vector3ScalarMul(ReferenceWorldPlane.Normal,
                                                                                          Distance)),
-                                                             Shapes[1].fWorldTransform);
+                                                             {$ifdef KraftDoublePositions}ShapeWorldTransform(Shapes[1]){$else}Shapes[1].fWorldTransform{$endif});
        Contact^.FeatureID.ElementA:=ClipVertex^.FeatureID.ElementB;
        Contact^.FeatureID.ElementB:=ClipVertex^.FeatureID.ElementA;
       end else begin
@@ -41277,8 +42197,8 @@ var OldManifoldCountContacts:TKraftInt32;
        Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(Vector3Sub(ClipVertex^.Position,
                                                                         Vector3ScalarMul(ReferenceWorldPlane.Normal,
                                                                                          Distance)),
-                                                             Shapes[0].fWorldTransform);
-       Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(ClipVertex^.Position,Shapes[1].fWorldTransform);
+                                                             {$ifdef KraftDoublePositions}ShapeWorldTransform(Shapes[0]){$else}Shapes[0].fWorldTransform{$endif});
+       Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(ClipVertex^.Position,{$ifdef KraftDoublePositions}ShapeWorldTransform(Shapes[1]){$else}Shapes[1].fWorldTransform{$endif});
        Contact^.FeatureID.ElementA:=ClipVertex^.FeatureID.ElementA;
        Contact^.FeatureID.ElementB:=ClipVertex^.FeatureID.ElementB;
       end;
@@ -41505,6 +42425,9 @@ var OldManifoldCountContacts:TKraftInt32;
      UnperturbatedTransform,PerturbatedTransform:TKraftMatrix4x4;
      ShapeTransformMatrices:array[0..1] of PKraftMatrix4x4;
      PerturbationRotationQuaternion0,PerturbationRotationQuaternion1,PerturbationRotationQuaternion2,UnpreturbedQuaternion:TKraftQuaternion;
+{$ifdef KraftDoublePositions}
+     WorldTransformA,WorldTransformB:TKraftMatrix4x4;
+{$endif}
  begin
   Manifold.Persistent:=false;
 
@@ -41515,10 +42438,15 @@ var OldManifoldCountContacts:TKraftInt32;
 
   Manifold.CountContacts:=0;
 
+{$ifdef KraftDoublePositions}
+  WorldTransformA:=ShapeWorldTransform(ShapeA);
+  WorldTransformB:=ShapeWorldTransform(ShapeB);
+{$endif}
+
   if (ShapeA.ShapeType=kstSignedDistanceField) or (ShapeB.ShapeType=kstSignedDistanceField) then begin
-   OK:=SignedDistanceFieldPenetration(ShapeA,ShapeB,ShapeA.fWorldTransform,ShapeB.fWorldTransform,pa,pb,Normal,PenetrationDepth);
+   OK:=SignedDistanceFieldPenetration(ShapeA,ShapeB,{$ifdef KraftDoublePositions}WorldTransformA,WorldTransformB{$else}ShapeA.fWorldTransform,ShapeB.fWorldTransform{$endif},pa,pb,Normal,PenetrationDepth);
   end else begin
-   OK:=MPRPenetration(ShapeA,ShapeB,ShapeA.fWorldTransform,ShapeB.fWorldTransform,pa,pb,Normal,PenetrationDepth);
+   OK:=MPRPenetration(ShapeA,ShapeB,{$ifdef KraftDoublePositions}WorldTransformA,WorldTransformB{$else}ShapeA.fWorldTransform,ShapeB.fWorldTransform{$endif},pa,pb,Normal,PenetrationDepth);
   end;
 
   if OK then begin
@@ -41536,11 +42464,11 @@ var OldManifoldCountContacts:TKraftInt32;
     if {$ifndef UseTriangleMeshFullPerturbation}assigned(MeshContactPair) or{$endif} (RadiusA<RadiusB) then begin
      PerturbationAngle:=Min(PerturbationAngleLimit,ContactManager.fPhysics.fContactBreakingThreshold/RadiusA);
      PerturbationA:=true;
-     UnperturbatedTransform:=ShapeA.fWorldTransform;
+     UnperturbatedTransform:={$ifdef KraftDoublePositions}WorldTransformA{$else}ShapeA.fWorldTransform{$endif};
     end else begin
      PerturbationAngle:=Min(PerturbationAngleLimit,ContactManager.fPhysics.fContactBreakingThreshold/RadiusB);
      PerturbationA:=false;
-     UnperturbatedTransform:=ShapeB.fWorldTransform;
+     UnperturbatedTransform:={$ifdef KraftDoublePositions}WorldTransformB{$else}ShapeB.fWorldTransform{$endif};
     end;
     UnpreturbedQuaternion:=QuaternionFromMatrix4x4(UnperturbatedTransform);
    end else begin
@@ -41550,8 +42478,8 @@ var OldManifoldCountContacts:TKraftInt32;
     Manifold.LocalRadius[0]:=0.0;
     Manifold.LocalRadius[1]:=0.0;
     tp:=Vector3Avg(pa,pb);
-    Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(tp,Shapes[0].fWorldTransform);
-    Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(tp,Shapes[1].fWorldTransform);
+    Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(tp,{$ifdef KraftDoublePositions}WorldTransformA{$else}Shapes[0].fWorldTransform{$endif});
+    Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(tp,{$ifdef KraftDoublePositions}WorldTransformB{$else}Shapes[1].fWorldTransform{$endif});
     Contact^.Penetration:=-PenetrationDepth;
     Contact^.FeatureID:=CreateFeatureID(-1);
     exit;
@@ -41565,12 +42493,12 @@ var OldManifoldCountContacts:TKraftInt32;
     PerturbationRotationQuaternion2:=QuaternionMul(QuaternionMul(QuaternionInverse(PerturbationRotationQuaternion1),PerturbationRotationQuaternion0),PerturbationRotationQuaternion1);
     PerturbatedTransform:=QuaternionToMatrix4x4(QuaternionMul(UnpreturbedQuaternion,PerturbationRotationQuaternion2));
     if PerturbationA then begin
-     PKraftVector3(pointer(@PerturbatedTransform[3,0]))^.xyz:=PKraftVector3(pointer(@ShapeA.fWorldTransform[3,0]))^.xyz;
+     PKraftVector3(pointer(@PerturbatedTransform[3,0]))^.xyz:=PKraftVector3(pointer(@{$ifdef KraftDoublePositions}WorldTransformA{$else}ShapeA.fWorldTransform{$endif}[3,0]))^.xyz;
      ShapeTransformMatrices[0]:=@PerturbatedTransform;
-     ShapeTransformMatrices[1]:=@ShapeB.fWorldTransform;
+     ShapeTransformMatrices[1]:=@{$ifdef KraftDoublePositions}WorldTransformB{$else}ShapeB.fWorldTransform{$endif};
     end else begin
-     PKraftVector3(pointer(@PerturbatedTransform[3,0]))^.xyz:=PKraftVector3(pointer(@ShapeB.fWorldTransform[3,0]))^.xyz;
-     ShapeTransformMatrices[0]:=@ShapeA.fWorldTransform;
+     PKraftVector3(pointer(@PerturbatedTransform[3,0]))^.xyz:=PKraftVector3(pointer(@{$ifdef KraftDoublePositions}WorldTransformB{$else}ShapeB.fWorldTransform{$endif}[3,0]))^.xyz;
+     ShapeTransformMatrices[0]:=@{$ifdef KraftDoublePositions}WorldTransformA{$else}ShapeA.fWorldTransform{$endif};
      ShapeTransformMatrices[1]:=@PerturbatedTransform;
     end;
     if (ShapeA.ShapeType=kstSignedDistanceField) or (ShapeB.ShapeType=kstSignedDistanceField) then begin
@@ -41580,14 +42508,14 @@ var OldManifoldCountContacts:TKraftInt32;
     end;
     if OK then begin
      if PerturbationA then begin
-      Vector3MatrixMul(tpa,Matrix4x4TermMul(Matrix4x4TermInverse(PerturbatedTransform),ShapeA.fWorldTransform));
+      Vector3MatrixMul(tpa,Matrix4x4TermMul(Matrix4x4TermInverse(PerturbatedTransform),{$ifdef KraftDoublePositions}WorldTransformA{$else}ShapeA.fWorldTransform{$endif}));
      end else begin
-      Vector3MatrixMul(tpb,Matrix4x4TermMul(Matrix4x4TermInverse(PerturbatedTransform),ShapeB.fWorldTransform));
+      Vector3MatrixMul(tpb,Matrix4x4TermMul(Matrix4x4TermInverse(PerturbatedTransform),{$ifdef KraftDoublePositions}WorldTransformB{$else}ShapeB.fWorldTransform{$endif}));
      end;
      if ContactManager.fCountTemporaryContacts[ThreadIndex]<MAX_TEMPORARY_CONTACTS then begin
       OK:=true;
       tp:=Vector3Avg(tpa,tpb);
-      v0:=Vector3TermMatrixMulInverted(tp,Shapes[0].fWorldTransform);
+      v0:=Vector3TermMatrixMulInverted(tp,{$ifdef KraftDoublePositions}WorldTransformA{$else}Shapes[0].fWorldTransform{$endif});
       for ContactIndex:=0 to ContactManager.fCountTemporaryContacts[ThreadIndex]-1 do begin
        Contact:=@ContactManager.fTemporaryContacts[ThreadIndex,ContactIndex];
        if Vector3Dist(Contact^.LocalPoints[0],v0)<ContactManager.fPhysics.fContactBreakingThreshold then begin
@@ -41598,8 +42526,8 @@ var OldManifoldCountContacts:TKraftInt32;
       if OK then begin
        Contact:=@ContactManager.fTemporaryContacts[ThreadIndex,ContactManager.fCountTemporaryContacts[ThreadIndex]];
        inc(ContactManager.fCountTemporaryContacts[ThreadIndex]);
-       Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(tp,Shapes[0].fWorldTransform);
-       Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(tp,Shapes[1].fWorldTransform);
+       Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(tp,{$ifdef KraftDoublePositions}WorldTransformA{$else}Shapes[0].fWorldTransform{$endif});
+       Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(tp,{$ifdef KraftDoublePositions}WorldTransformB{$else}Shapes[1].fWorldTransform{$endif});
        Contact^.Penetration:=-PenetrationDepth;
        Contact^.FeatureID:=CreateFeatureID(-1);
       end;
@@ -41625,8 +42553,8 @@ var OldManifoldCountContacts:TKraftInt32;
     Manifold.LocalRadius[0]:=0.0;
     Manifold.LocalRadius[1]:=0.0;
     tp:=Vector3Avg(pa,pb);
-    Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(tp,Shapes[0].fWorldTransform);
-    Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(tp,Shapes[1].fWorldTransform);
+    Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(tp,{$ifdef KraftDoublePositions}WorldTransformA{$else}Shapes[0].fWorldTransform{$endif});
+    Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(tp,{$ifdef KraftDoublePositions}WorldTransformB{$else}Shapes[1].fWorldTransform{$endif});
     Contact^.Penetration:=-PenetrationDepth;
     Contact^.FeatureID:=CreateFeatureID(-1);
    end;
@@ -41694,11 +42622,18 @@ var OldManifoldCountContacts:TKraftInt32;
      Contact:PKraftContact;
      NewContact:TKraftContact;
      OK:boolean;
+{$ifdef KraftDoublePositions}
+     WorldTransformA,WorldTransformB:TKraftMatrix4x4;
+{$endif}
  begin
 {$ifdef UseTriangleMeshFullPerturbation}
   if ShapeB=TriangleShape then begin
    PreprocessTriangle;
   end;
+{$endif}
+{$ifdef KraftDoublePositions}
+  WorldTransformA:=ShapeWorldTransform(ShapeA);
+  WorldTransformB:=ShapeWorldTransform(ShapeB);
 {$endif}
   if ((OldManifoldCountContacts=0) or ContactManager.fPhysics.fAlwaysPerturbating) and
      (ContactManager.fPhysics.fPerturbationIterations>0) then begin
@@ -41709,9 +42644,9 @@ var OldManifoldCountContacts:TKraftInt32;
    Manifold.Persistent:=true;
 
    if (ShapeA.ShapeType=kstSignedDistanceField) or (ShapeB.ShapeType=kstSignedDistanceField) then begin
-    OK:=SignedDistanceFieldPenetration(ShapeA,ShapeB,ShapeA.fWorldTransform,ShapeB.fWorldTransform,WorldPositions[0],WorldPositions[1],Normal,PenetrationDepth);
+    OK:=SignedDistanceFieldPenetration(ShapeA,ShapeB,{$ifdef KraftDoublePositions}WorldTransformA,WorldTransformB{$else}ShapeA.fWorldTransform,ShapeB.fWorldTransform{$endif},WorldPositions[0],WorldPositions[1],Normal,PenetrationDepth);
    end else begin
-    OK:=MPRPenetration(ShapeA,ShapeB,ShapeA.fWorldTransform,ShapeB.fWorldTransform,WorldPositions[0],WorldPositions[1],Normal,PenetrationDepth);
+    OK:=MPRPenetration(ShapeA,ShapeB,{$ifdef KraftDoublePositions}WorldTransformA,WorldTransformB{$else}ShapeA.fWorldTransform,ShapeB.fWorldTransform{$endif},WorldPositions[0],WorldPositions[1],Normal,PenetrationDepth);
    end;
 
    if OK then begin
@@ -41732,8 +42667,8 @@ var OldManifoldCountContacts:TKraftInt32;
 
     // Find the nearest point to replace with it, if possible
     Nearest:=-1;
-    LocalPoints[0]:=Vector3TermMatrixMulInverted(WorldPositions[0],Shapes[0].fWorldTransform);
-    LocalPoints[1]:=Vector3TermMatrixMulInverted(WorldPositions[1],Shapes[1].fWorldTransform);
+    LocalPoints[0]:=Vector3TermMatrixMulInverted(WorldPositions[0],{$ifdef KraftDoublePositions}WorldTransformA{$else}Shapes[0].fWorldTransform{$endif});
+    LocalPoints[1]:=Vector3TermMatrixMulInverted(WorldPositions[1],{$ifdef KraftDoublePositions}WorldTransformB{$else}Shapes[1].fWorldTransform{$endif});
     if Manifold.CountContacts>0 then begin
      ShortestDistance:=ContactManager.fPhysics.fContactBreakingThreshold;
      for Index:=0 to Manifold.CountContacts-1 do begin
@@ -41799,8 +42734,8 @@ var OldManifoldCountContacts:TKraftInt32;
     Contact:=@Manifold.Contacts[Index];
 
     // First refresh world-space positions
-    WorldPositions[0]:=Vector3TermMatrixMul(Contact^.LocalPoints[0],Shapes[0].fWorldTransform);
-    WorldPositions[1]:=Vector3TermMatrixMul(Contact^.LocalPoints[1],Shapes[1].fWorldTransform);
+    WorldPositions[0]:=Vector3TermMatrixMul(Contact^.LocalPoints[0],{$ifdef KraftDoublePositions}WorldTransformA{$else}Shapes[0].fWorldTransform{$endif});
+    WorldPositions[1]:=Vector3TermMatrixMul(Contact^.LocalPoints[1],{$ifdef KraftDoublePositions}WorldTransformB{$else}Shapes[1].fWorldTransform{$endif});
 
     // Then check
     if (Vector3Dot(Normal,Vector3Sub(WorldPositions[0],WorldPositions[1]))>ContactManager.fPhysics.fContactBreakingThreshold) or
@@ -41838,7 +42773,14 @@ var OldManifoldCountContacts:TKraftInt32;
      Velocity:TKraftVector3;
      LinearVelocities:array[0..1] of TKraftVector3;
      GJK:TKraftGJK;
+{$ifdef KraftDoublePositions}
+     WorldTransformA,WorldTransformB:TKraftMatrix4x4;
+{$endif}
  begin
+{$ifdef KraftDoublePositions}
+  WorldTransformA:=ShapeWorldTransform(ShapeA);
+  WorldTransformB:=ShapeWorldTransform(ShapeB);
+{$endif}
   if (Manifold.CountContacts=0) and SpeculativeContacts and (ContactManager.fPhysics.fContinuousMode=kcmSpeculativeContacts) and
      (assigned(Shapes[0].fRigidBody) and assigned(Shapes[1].fRigidBody)) and
      ((krbfContinuous in Shapes[0].fRigidBody.fFlags) or (krbfContinuous in Shapes[1].fRigidBody.fFlags)) then begin
@@ -41870,8 +42812,13 @@ var OldManifoldCountContacts:TKraftInt32;
       GJK.Simplex.Count:=0;
       GJK.Shapes[0]:=ShapeA;
       GJK.Shapes[1]:=ShapeB;
+{$ifdef KraftDoublePositions}
+      GJK.Transforms[0]:=@WorldTransformA;
+      GJK.Transforms[1]:=@WorldTransformB;
+{$else}
       GJK.Transforms[0]:=@ShapeA.fWorldTransform;
       GJK.Transforms[1]:=@ShapeB.fWorldTransform;
+{$endif}
       GJK.UseRadii:=false;
       GJK.Run;
       if (GJK.Distance>0.0) and (GJK.Distance<(VelocityLength+EPSILON)) and not GJK.Failed then begin
@@ -41883,8 +42830,8 @@ var OldManifoldCountContacts:TKraftInt32;
          Manifold.LocalNormal:=Vector3YAxis;
         end;
         Contact:=@Manifold.Contacts[0];
-        Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(GJK.ClosestPoints[0],Shapes[0].fWorldTransform);
-        Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(GJK.ClosestPoints[1],Shapes[1].fWorldTransform);
+        Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(GJK.ClosestPoints[0],{$ifdef KraftDoublePositions}WorldTransformA{$else}Shapes[0].fWorldTransform{$endif});
+        Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(GJK.ClosestPoints[1],{$ifdef KraftDoublePositions}WorldTransformB{$else}Shapes[1].fWorldTransform{$endif});
         Contact^.Penetration:=GJK.Distance;
         Contact^.FeatureID:=CreateFeatureID(-1);
        end;
@@ -41994,7 +42941,7 @@ begin
 
   InverseOrientationA:=QuaternionConjugate(RigidBodies[0].fSweep.q);
   CurrentRelativeOrientation:=QuaternionMul(InverseOrientationA,RigidBodies[1].fSweep.q);
-  CurrentRelativePosition:=Vector3TermQuaternionRotate(Vector3Sub(RigidBodies[1].fSweep.c,RigidBodies[0].fSweep.c),InverseOrientationA);
+  CurrentRelativePosition:=Vector3TermQuaternionRotate({$ifdef KraftDoublePositions}Vector3SubPosition(RigidBodies[1].fSweep.c,RigidBodies[0].fSweep.c){$else}Vector3Sub(RigidBodies[1].fSweep.c,RigidBodies[0].fSweep.c){$endif},InverseOrientationA);
 
   // Static bodies do not move, so only the angular motion discs of the non-static bodies can let contact
   // points drift under relative rotation. This also keeps huge static shapes like planes and meshes with
@@ -42073,6 +43020,18 @@ begin
  ShapeA:=Shapes[0];
  ShapeB:=Shapes[1];
 
+{$ifdef KraftDoublePositions}
+ // Base for the base-relative narrow phase: the world center of the first body of the pair. Both shapes of a
+ // contact pair are close to each other, so this keeps every relative translation small and well conditioned.
+ if assigned(Shapes[0].fRigidBody) then begin
+  DetectBase:=Shapes[0].fRigidBody.fSweep.c;
+ end else if assigned(Shapes[1].fRigidBody) then begin
+  DetectBase:=Shapes[1].fRigidBody.fSweep.c;
+ end else begin
+  DetectBase:=PositionOrigin;
+ end;
+{$endif}
+
  if assigned(MeshContactPair) then begin
   if (ContainerIndex>=0) and
      (ElementIndex>=0) and
@@ -42085,7 +43044,9 @@ begin
    ShapeB:=TriangleShape;
    ShapeTriangle:=TKraftShapeTriangle(TriangleShape);
    MeshTriangle:=@Mesh.fTriangles[ElementIndex];
-   ShapeTriangle.fWorldTransform:=MeshShape.fWorldTransform;
+   // The synthesized triangle has no rigid body, so ShapeWorldTransform returns its fWorldTransform verbatim; set
+   // it base-relative here so the whole mesh narrow phase stays precise far from the origin (identity when off).
+   ShapeTriangle.fWorldTransform:={$ifdef KraftDoublePositions}ShapeWorldTransform(MeshShape){$else}MeshShape.fWorldTransform{$endif};
    // Bake the mesh's uniform scale into the synthesized triangle (shared mesh stays base-space).
    ShapeTriangle.fConvexHull.fVertices[0].Position:=Vector3ScalarMul(Mesh.fVertices[MeshTriangle^.Vertices[0]],MeshShape.fScale);
    ShapeTriangle.fConvexHull.fVertices[1].Position:=Vector3ScalarMul(Mesh.fVertices[MeshTriangle^.Vertices[1]],MeshShape.fScale);
@@ -42283,7 +43244,7 @@ begin
 
   InverseOrientationA:=QuaternionConjugate(RigidBodies[0].fSweep.q);
   RecycleRelativeOrientation:=QuaternionMul(InverseOrientationA,RigidBodies[1].fSweep.q);
-  RecycleRelativePosition:=Vector3TermQuaternionRotate(Vector3Sub(RigidBodies[1].fSweep.c,RigidBodies[0].fSweep.c),InverseOrientationA);
+  RecycleRelativePosition:=Vector3TermQuaternionRotate({$ifdef KraftDoublePositions}Vector3SubPosition(RigidBodies[1].fSweep.c,RigidBodies[0].fSweep.c){$else}Vector3Sub(RigidBodies[1].fSweep.c,RigidBodies[0].fSweep.c){$endif},InverseOrientationA);
   RecycleWorldOrientations[0]:=RigidBodies[0].fSweep.q;
   RecycleWorldOrientations[1]:=RigidBodies[1].fSweep.q;
 
@@ -42307,8 +43268,15 @@ begin
    RecycleGJK.Simplex.Count:=0;
    RecycleGJK.Shapes[0]:=ShapeA;
    RecycleGJK.Shapes[1]:=ShapeB;
+{$ifdef KraftDoublePositions}
+   RecycleWorldTransformA:=ShapeWorldTransform(ShapeA);
+   RecycleWorldTransformB:=ShapeWorldTransform(ShapeB);
+   RecycleGJK.Transforms[0]:=@RecycleWorldTransformA;
+   RecycleGJK.Transforms[1]:=@RecycleWorldTransformB;
+{$else}
    RecycleGJK.Transforms[0]:=@ShapeA.fWorldTransform;
    RecycleGJK.Transforms[1]:=@ShapeB.fWorldTransform;
+{$endif}
    RecycleGJK.UseRadii:=true;
    RecycleGJK.Run;
    if (RecycleGJK.Distance>0.0) and not RecycleGJK.Failed then begin
@@ -43448,7 +44416,7 @@ begin
 
   InverseOrientationA:=QuaternionConjugate(aMeshContactPair.fRigidBodyConvex.fSweep.q);
   CurrentRelativeOrientation:=QuaternionMul(InverseOrientationA,aMeshContactPair.fRigidBodyMesh.fSweep.q);
-  CurrentRelativePosition:=Vector3TermQuaternionRotate(Vector3Sub(aMeshContactPair.fRigidBodyMesh.fSweep.c,aMeshContactPair.fRigidBodyConvex.fSweep.c),InverseOrientationA);
+  CurrentRelativePosition:=Vector3TermQuaternionRotate({$ifdef KraftDoublePositions}Vector3SubPosition(aMeshContactPair.fRigidBodyMesh.fSweep.c,aMeshContactPair.fRigidBodyConvex.fSweep.c){$else}Vector3Sub(aMeshContactPair.fRigidBodyMesh.fSweep.c,aMeshContactPair.fRigidBodyConvex.fSweep.c){$endif},InverseOrientationA);
 
   MaxAngularMotionDisc:=0.0;
   if (aMeshContactPair.fRigidBodyConvex.fRigidBodyType<>krbtStatic) and (MaxAngularMotionDisc<aMeshContactPair.fShapeConvex.fAngularMotionDisc) then begin
@@ -43643,7 +44611,7 @@ begin
  // contact recycling gate of the next steps.
  InverseOrientationA:=QuaternionConjugate(aMeshContactPair.fRigidBodyConvex.fSweep.q);
  aMeshContactPair.fRecycleRelativeOrientation:=QuaternionMul(InverseOrientationA,aMeshContactPair.fRigidBodyMesh.fSweep.q);
- aMeshContactPair.fRecycleRelativePosition:=Vector3TermQuaternionRotate(Vector3Sub(aMeshContactPair.fRigidBodyMesh.fSweep.c,aMeshContactPair.fRigidBodyConvex.fSweep.c),InverseOrientationA);
+ aMeshContactPair.fRecycleRelativePosition:=Vector3TermQuaternionRotate({$ifdef KraftDoublePositions}Vector3SubPosition(aMeshContactPair.fRigidBodyMesh.fSweep.c,aMeshContactPair.fRigidBodyConvex.fSweep.c){$else}Vector3Sub(aMeshContactPair.fRigidBodyMesh.fSweep.c,aMeshContactPair.fRigidBodyConvex.fSweep.c){$endif},InverseOrientationA);
  aMeshContactPair.fRecycleWorldOrientations[0]:=aMeshContactPair.fRigidBodyConvex.fSweep.q;
  aMeshContactPair.fRecycleWorldOrientations[1]:=aMeshContactPair.fRigidBodyMesh.fSweep.q;
  aMeshContactPair.fFlags:=aMeshContactPair.fFlags+[kcfRecycleCacheValid];
@@ -45161,8 +46129,8 @@ begin
  fWorldBoundExpansion:=Vector3Origin;
 
  fSweep.LocalCenter:=Vector3Origin;
- fSweep.c0:=Vector3Origin;
- fSweep.c:=Vector3Origin;
+ fSweep.c0:=PositionOrigin;
+ fSweep.c:=PositionOrigin;
  fSweep.q0:=QuaternionIdentity;
  fSweep.q:=QuaternionIdentity;
  fSweep.Alpha0:=0.0;
@@ -45919,7 +46887,7 @@ end;
 procedure TKraftRigidBody.SynchronizeTransform;
 begin
  fWorldTransform:=QuaternionToMatrix4x4(fSweep.q);
- PKraftVector3(pointer(@fWorldTransform[3,0]))^.xyz:=Vector3Sub(fSweep.c,Vector3TermMatrixMulBasis(fSweep.LocalCenter,fWorldTransform)).xyz;
+ PKraftVector3(pointer(@fWorldTransform[3,0]))^.xyz:={$ifdef KraftDoublePositions}Vector3SubPosition(fSweep.c,PositionFromVector3(Vector3TermMatrixMulBasis(fSweep.LocalCenter,fWorldTransform))){$else}Vector3Sub(fSweep.c,Vector3TermMatrixMulBasis(fSweep.LocalCenter,fWorldTransform)){$endif}.xyz;
 end;
 
 procedure TKraftRigidBody.SynchronizeTransformIncludingShapes;
@@ -46115,7 +47083,7 @@ procedure TKraftRigidBody.Finish;
    end;
 
    fSweep.LocalCenter:=TempLocalCenter;
-   fSweep.c0:=Vector3TermMatrixMul(TempLocalCenter,fWorldTransform);
+   fSweep.c0:={$ifdef KraftDoublePositions}PositionFromVector3(Vector3TermMatrixMul(TempLocalCenter,fWorldTransform)){$else}Vector3TermMatrixMul(TempLocalCenter,fWorldTransform){$endif};
    fSweep.c:=fSweep.c0;
 
   end;
@@ -46145,7 +47113,7 @@ var Shape:TKraftShape;
     NewTransform:TKraftMatrix4x4;
 begin
  NewTransform:=QuaternionToMatrix4x4(fSweep.q0);
- PKraftVector3(pointer(@NewTransform[3,0]))^.xyz:=Vector3Sub(fSweep.c0,Vector3TermMatrixMulBasis(fSweep.LocalCenter,NewTransform)).xyz;
+ PKraftVector3(pointer(@NewTransform[3,0]))^.xyz:={$ifdef KraftDoublePositions}Vector3SubPosition(fSweep.c0,PositionFromVector3(Vector3TermMatrixMulBasis(fSweep.LocalCenter,NewTransform))){$else}Vector3Sub(fSweep.c0,Vector3TermMatrixMulBasis(fSweep.LocalCenter,NewTransform)){$endif}.xyz;
  fWorldDisplacement:=Vector3Sub(PKraftVector3(pointer(@NewTransform[3,0]))^,PKraftVector3(pointer(@fWorldTransform[3,0]))^);
  Shape:=fShapeFirst;
  while assigned(Shape) do begin
@@ -46330,9 +47298,9 @@ begin
  result:=false;
  fWorldTransform:=AWorldTransformation;
  UpdateWorldInertiaTensor;
- fSweep.c0:=Vector3TermMatrixMul(fSweep.LocalCenter,aWorldTransformation);
+ fSweep.c0:={$ifdef KraftDoublePositions}PositionFromVector3(Vector3TermMatrixMul(fSweep.LocalCenter,aWorldTransformation)){$else}Vector3TermMatrixMul(fSweep.LocalCenter,aWorldTransformation){$endif};
  fSweep.q0:=QuaternionFromMatrix4x4(aWorldTransformation);
- if (not Vector3CompareExact(fSweep.c,fSweep.c0)) or (not QuaternionCompareExact(fSweep.q,fSweep.q0)) then begin
+ if (not {$ifdef KraftDoublePositions}PositionCompareExact{$else}Vector3CompareExact{$endif}(fSweep.c,fSweep.c0)) or (not QuaternionCompareExact(fSweep.q,fSweep.q0)) then begin
   result:=true;
   fSweep.c:=fSweep.c0;
   fSweep.q:=fSweep.q0;
@@ -46351,6 +47319,13 @@ begin
 end;
 
 function TKraftRigidBody.SetWorldPosition(const AWorldPosition:TKraftVector3):Boolean;
+{$ifdef KraftDoublePositions}
+// ON: thin wrapper over the double precision variant.
+begin
+ result:=SetWorldPositionD(PositionFromVector3(AWorldPosition));
+end;
+{$else}
+// OFF: original single precision body verbatim, so the existing path never routes through the D variant.
 begin
  result:=false;
  PKraftVector3(pointer(@fWorldTransform[3,0]))^.xyz:=AWorldPosition.xyz;
@@ -46371,6 +47346,42 @@ begin
   end;
  end;
 end;
+{$endif}
+
+{$ifdef KraftDoublePositions}
+function TKraftRigidBody.SetWorldPositionD(const AWorldPosition:TKraftPosition):Boolean;
+begin
+ result:=false;
+ PKraftVector3(pointer(@fWorldTransform[3,0]))^.xyz:=Vector3FromPosition(AWorldPosition).xyz;
+ fSweep.c0:=PositionAddVector3(AWorldPosition,Vector3TermMatrixMulBasis(fSweep.LocalCenter,fWorldTransform));
+ if not PositionCompareExact(fSweep.c,fSweep.c0) then begin
+  result:=true;
+  fSweep.c:=fSweep.c0;
+  SynchronizeProxies;
+{$ifdef KraftPasMPThreadSafeBVH}
+  TPasMPMultipleReaderSingleWriterSpinLock.AcquireWrite(fMultipleReaderSingleWriterLockState);
+{$endif}
+  SetToAwake;
+{$ifdef KraftPasMPThreadSafeBVH}
+  TPasMPMultipleReaderSingleWriterSpinLock.ReleaseWrite(fMultipleReaderSingleWriterLockState);
+{$endif}
+  if fRigidBodyType in [krbtUnknown,krbtStatic] then begin
+   UpdateWorldTransformation;
+  end;
+ end;
+end;
+
+function TKraftRigidBody.GetWorldCenterOfMassD:TKraftPosition;
+begin
+ result:=fSweep.c;
+end;
+
+function TKraftRigidBody.GetWorldPositionD:TKraftPosition;
+begin
+ // Body origin, i.e. the center of mass minus the world space rotated local center.
+ result:=PositionAddVector3(fSweep.c,Vector3Neg(Vector3TermQuaternionRotate(fSweep.LocalCenter,fSweep.q)));
+end;
+{$endif}
 
 function TKraftRigidBody.SetOrientation(const AOrientation:TKraftMatrix3x3):Boolean;
 begin
@@ -46476,11 +47487,11 @@ begin
  end;
 end;
 
-procedure TKraftRigidBody.ApplyImpulseAtPosition(const Point,Impulse:TKraftVector3;const aWake:boolean=true);
+procedure TKraftRigidBody.ApplyImpulseAtPosition(const Point:TKraftPosition;const Impulse:TKraftVector3;const aWake:boolean=true);
 begin
  if fRigidBodyType=krbtDynamic then begin
   fLinearVelocity:=Vector3Add(fLinearVelocity,Vector3Mul(Impulse,Vector3ScalarMul(fLinearFactor,fInverseMass)));
-  fAngularVelocity:=Vector3Add(fAngularVelocity,Vector3TermMatrixMul(Vector3Cross(Vector3Sub(Point,fSweep.c),Impulse),fWorldInverseInertiaTensor));
+  fAngularVelocity:=Vector3Add(fAngularVelocity,Vector3TermMatrixMul(Vector3Cross({$ifdef KraftDoublePositions}Vector3SubPosition(Point,fSweep.c){$else}Vector3Sub(Point,fSweep.c){$endif},Impulse),fWorldInverseInertiaTensor));
   if aWake and not (krbfAwake in fFlags) then begin
    SetToAwake;
   end;
@@ -46498,22 +47509,22 @@ begin
  end;
 end;
 
-procedure TKraftRigidBody.SetForceAtPosition(const AForce,APosition:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
+procedure TKraftRigidBody.SetForceAtPosition(const AForce:TKraftVector3;const APosition:TKraftPosition;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
 begin
  if fRigidBodyType=krbtDynamic then begin
   SetWorldForce(AForce,AForceMode,false);
-  SetWorldTorque(Vector3Cross(Vector3Sub(APosition,fSweep.c),AForce),AForceMode,false);
+  SetWorldTorque(Vector3Cross({$ifdef KraftDoublePositions}Vector3SubPosition(APosition,fSweep.c){$else}Vector3Sub(APosition,fSweep.c){$endif},AForce),AForceMode,false);
   if aWake and not (krbfAwake in fFlags) then begin
    SetToAwake;
   end;
  end;
 end;
 
-procedure TKraftRigidBody.AddForceAtPosition(const AForce,APosition:TKraftVector3;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
+procedure TKraftRigidBody.AddForceAtPosition(const AForce:TKraftVector3;const APosition:TKraftPosition;const AForceMode:TKraftForceMode=kfmForce;const aWake:boolean=true);
 begin
  if fRigidBodyType=krbtDynamic then begin
   AddWorldForce(AForce,AForceMode,false);
-  AddWorldTorque(Vector3Cross(Vector3Sub(APosition,fSweep.c),AForce),AForceMode,false);
+  AddWorldTorque(Vector3Cross({$ifdef KraftDoublePositions}Vector3SubPosition(APosition,fSweep.c){$else}Vector3Sub(APosition,fSweep.c){$endif},AForce),AForceMode,false);
   if aWake and not (krbfAwake in fFlags) then begin
    SetToAwake;
   end;
@@ -46716,14 +47727,14 @@ begin
  fAngularVelocity:=Vector3TermMatrixMul(NewAngularMomentum,fWorldInverseInertiaTensor);
 end;
 
-function TKraftRigidBody.GetWorldLinearVelocityFromPoint(const APoint:TKraftVector3):TKraftVector3;
+function TKraftRigidBody.GetWorldLinearVelocityFromPoint(const APoint:TKraftPosition):TKraftVector3;
 begin
- result:=Vector3Add(fLinearVelocity,Vector3Cross(fAngularVelocity,Vector3Sub(APoint,fSweep.c)));
+ result:=Vector3Add(fLinearVelocity,Vector3Cross(fAngularVelocity,{$ifdef KraftDoublePositions}Vector3SubPosition(APoint,fSweep.c){$else}Vector3Sub(APoint,fSweep.c){$endif}));
 end;
 
 function TKraftRigidBody.GetBodyLinearVelocityFromPoint(const APoint:TKraftVector3):TKraftVector3;
 begin
- result:=Vector3TermMatrixMulTransposedBasis(GetWorldLinearVelocityFromPoint(Vector3TermMatrixMul(APoint,fWorldTransform)),fWorldTransform);
+ result:=Vector3TermMatrixMulTransposedBasis(GetWorldLinearVelocityFromPoint({$ifdef KraftDoublePositions}PositionFromVector3(Vector3TermMatrixMul(APoint,fWorldTransform)){$else}Vector3TermMatrixMul(APoint,fWorldTransform){$endif}),fWorldTransform);
 end;
 {var WorldPoint:TKraftVector3;
 begin
@@ -46731,10 +47742,10 @@ begin
  result:=Vector3TermQuaternionRotate(Vector3Add(fLinearVelocity,Vector3Cross(fAngularVelocity,Vector3Sub(WorldPoint,fSweep.c))),QuaternionInverse(fSweep.q));
 end;}
 
-function TKraftRigidBody.ComputeImpulseDenominator(const aPosition,aNormal:TKraftVector3):TKraftScalar;
+function TKraftRigidBody.ComputeImpulseDenominator(const aPosition:TKraftPosition;const aNormal:TKraftVector3):TKraftScalar;
 var RelativePositionToCenterMassPosition:TKraftVector3;
 begin
- RelativePositionToCenterMassPosition:=Vector3Sub(aPosition,fSweep.c);
+ RelativePositionToCenterMassPosition:={$ifdef KraftDoublePositions}Vector3SubPosition(aPosition,fSweep.c){$else}Vector3Sub(aPosition,fSweep.c){$endif};
  result:=fInverseMass+
          Vector3Dot(aNormal,
                     Vector3Cross(Vector3TermMatrixMul(Vector3Cross(RelativePositionToCenterMassPosition,
@@ -47054,9 +48065,9 @@ end;
 constructor TKraftConstraintJointGrab.Create(const aPhysics:TKraft;const ARigidBody:TKraftRigidBody;const AWorldPoint:TKraftVector3;const AFrequencyHz:TKraftScalar=5.0;const ADampingRatio:TKraftScalar=0.7;const AMaximalForce:TKraftScalar=MAX_SCALAR;const ACollideConnected:boolean=false);
 begin
 
- fWorldPoint:=AWorldPoint;
+ fWorldPoint:={$ifdef KraftDoublePositions}PositionFromVector3(AWorldPoint){$else}AWorldPoint{$endif};
 
- fLocalAnchor:=Vector3TermMatrixMulInverted(AWorldPoint,ARigidBody.fWorldTransform);
+ fLocalAnchor:={$ifdef KraftDoublePositions}Vector3TermMatrixMulTransposedBasis(Vector3SubPosition(PositionFromVector3(AWorldPoint),ARigidBody.GetWorldPositionD),ARigidBody.fWorldTransform){$else}Vector3TermMatrixMulInverted(AWorldPoint,ARigidBody.fWorldTransform){$endif};
 
  LinearStiffness(fStiffness,fDamping,aFrequencyHz,aDampingRatio,aRigidBody,nil);
 
@@ -47082,9 +48093,9 @@ end;
 constructor TKraftConstraintJointGrab.CreateStiffness(const aPhysics:TKraft;const ARigidBody:TKraftRigidBody;const AWorldPoint:TKraftVector3;const aStiffness,aDamping:TKraftScalar;const AMaximalForce:TKraftScalar=MAX_SCALAR;const ACollideConnected:boolean=false);
 begin
 
- fWorldPoint:=AWorldPoint;
+ fWorldPoint:={$ifdef KraftDoublePositions}PositionFromVector3(AWorldPoint){$else}AWorldPoint{$endif};
 
- fLocalAnchor:=Vector3TermMatrixMulInverted(AWorldPoint,ARigidBody.fWorldTransform);
+ fLocalAnchor:={$ifdef KraftDoublePositions}Vector3TermMatrixMulTransposedBasis(Vector3SubPosition(PositionFromVector3(AWorldPoint),ARigidBody.GetWorldPositionD),ARigidBody.fWorldTransform){$else}Vector3TermMatrixMulInverted(AWorldPoint,ARigidBody.fWorldTransform){$endif};
 
  fStiffness:=aStiffness;
  fDamping:=aDamping;
@@ -47256,7 +48267,7 @@ begin
 
  Matrix3x3Inverse(fEffectiveMass,MassMatrix);
 
- fmC:=Vector3ScalarMul(Vector3Sub(Vector3Add(cA^,fRelativePosition),fWorldPoint),fBeta);
+ fmC:=Vector3ScalarMul(Vector3Sub(Vector3Add(cA^,fRelativePosition),{$ifdef KraftDoublePositions}Vector3SubPosition(fWorldPoint,Island.GetSolverBaseOffset){$else}fWorldPoint{$endif}),fBeta);
 
  Vector3Scale(wA^,0.98);
 
@@ -47427,7 +48438,7 @@ begin
  Matrix3x3Inverse(fEffectiveMass,MassMatrix);
 
  // Position bias fmC = beta * (currentAnchor - worldPoint), refreshed each substep.
- fmC:=Vector3ScalarMul(Vector3Sub(Vector3Add(cA^,fRelativePosition),fWorldPoint),fBeta);
+ fmC:=Vector3ScalarMul(Vector3Sub(Vector3Add(cA^,fRelativePosition),{$ifdef KraftDoublePositions}Vector3SubPosition(fWorldPoint,Island.GetSolverBaseOffset){$else}fWorldPoint{$endif}),fBeta);
 
  // Cdot = v + cross(w, r); soft impulse = -M * (Cdot + fmC + gamma * accumulated).
  Cdot:=Vector3Add(vA^,Vector3Cross(wA^,fRelativePosition));
@@ -47464,8 +48475,15 @@ end;
 
 function TKraftConstraintJointGrab.GetWorldPoint:TKraftVector3;
 begin
+ result:={$ifdef KraftDoublePositions}Vector3FromPosition(fWorldPoint){$else}fWorldPoint{$endif};
+end;
+
+{$ifdef KraftDoublePositions}
+function TKraftConstraintJointGrab.GetWorldPointD:TKraftPosition;
+begin
  result:=fWorldPoint;
 end;
+{$endif}
 
 function TKraftConstraintJointGrab.GetMaximalForce:TKraftScalar;
 begin
@@ -47474,8 +48492,15 @@ end;
 
 procedure TKraftConstraintJointGrab.SetWorldPoint(AWorldPoint:TKraftVector3);
 begin
+ fWorldPoint:={$ifdef KraftDoublePositions}PositionFromVector3(AWorldPoint){$else}AWorldPoint{$endif};
+end;
+
+{$ifdef KraftDoublePositions}
+procedure TKraftConstraintJointGrab.SetWorldPointD(AWorldPoint:TKraftPosition);
+begin
  fWorldPoint:=AWorldPoint;
 end;
+{$endif}
 
 procedure TKraftConstraintJointGrab.SetMaximalForce(AMaximalForce:TKraftScalar);
 begin
@@ -47566,9 +48591,19 @@ var cA,vA,wA:PKraftVector3;
     qA:PKraftQuaternion;
     crAu,P,AbsolutePosition,u:TKraftVector3;
     l,TotalInverseMass,C,k,h,d,BiasFactor:TKraftScalar;
+{$ifdef KraftDoublePositions}
+    PlaneBase:TKraftPosition;
+{$endif}
 begin
 
  fIslandIndex:=fRigidBodies[0].fIslandIndices[Island.fIslandIndex];
+{$ifdef KraftDoublePositions}
+ // Shift the absolute world plane into the per-island solver base frame (the solver runs relative to that base,
+ // so AbsolutePosition below is base-relative). Distance += n*Base, computed in double to avoid cancellation.
+ PlaneBase:=Island.GetSolverBaseOffset;
+ fWorldPlaneRel.Normal:=fWorldPlane.Normal;
+ fWorldPlaneRel.Distance:=fWorldPlane.Distance+((fWorldPlane.Normal.x*PlaneBase.x)+(fWorldPlane.Normal.y*PlaneBase.y)+(fWorldPlane.Normal.z*PlaneBase.z));
+{$endif}
 
  fLocalCenter:=fRigidBodies[0].fSweep.LocalCenter;
 
@@ -47590,7 +48625,7 @@ begin
  fRelativePosition:=Vector3TermQuaternionRotate(Vector3Sub(fLocalAnchor,fLocalCenter),qA^);
  AbsolutePosition:=Vector3Add(cA^,fRelativePosition);
 
- fWorldPoint:=Vector3Add(AbsolutePosition,Vector3ScalarMul(fWorldPlane.Normal,-PlaneVectorDistance(fWorldPlane,AbsolutePosition)));
+ fWorldPoint:=Vector3Add(AbsolutePosition,Vector3ScalarMul(fWorldPlane.Normal,-PlaneVectorDistance({$ifdef KraftDoublePositions}fWorldPlaneRel{$else}fWorldPlane{$endif},AbsolutePosition)));
 
  if fDoubleSidedWorldPlane then begin
 
@@ -47606,7 +48641,7 @@ begin
 
  end else begin
 
-  l:=PlaneVectorDistance(fWorldPlane,AbsolutePosition);
+  l:=PlaneVectorDistance({$ifdef KraftDoublePositions}fWorldPlaneRel{$else}fWorldPlane{$endif},AbsolutePosition);
 
   if abs(l)>fPhysics.fLinearSlop then begin
    fmU:=Vector3Neg(fWorldPlane.Normal);
@@ -47693,13 +48728,13 @@ begin
   if (fPhysics.fConstraintPositionCorrectionMode=kpcmBaumgarte) and not fSoftConstraint then begin
    AbsolutePosition:=Vector3Add(cA^,fRelativePosition);
    if fDoubleSidedWorldPlane then begin
-    fWorldPoint:=Vector3Add(AbsolutePosition,Vector3ScalarMul(fWorldPlane.Normal,-PlaneVectorDistance(fWorldPlane,AbsolutePosition)));
+    fWorldPoint:=Vector3Add(AbsolutePosition,Vector3ScalarMul(fWorldPlane.Normal,-PlaneVectorDistance({$ifdef KraftDoublePositions}fWorldPlaneRel{$else}fWorldPlane{$endif},AbsolutePosition)));
     u:=Vector3Sub(fWorldPoint,AbsolutePosition);
     l:=Vector3LengthNormalize(u);
     C:=Min(Max(l-fWorldDistance,-fPhysics.fMaximalLinearCorrection),fPhysics.fMaximalLinearCorrection);
    end else begin
     // Same sign convention as the soft constraint error above, since both feed the same fmU impulse chain.
-    C:=Min(Max(PlaneVectorDistance(fWorldPlane,AbsolutePosition)-fWorldDistance,-fPhysics.fMaximalLinearCorrection),fPhysics.fMaximalLinearCorrection);
+    C:=Min(Max(PlaneVectorDistance({$ifdef KraftDoublePositions}fWorldPlaneRel{$else}fWorldPlane{$endif},AbsolutePosition)-fWorldDistance,-fPhysics.fMaximalLinearCorrection),fPhysics.fMaximalLinearCorrection);
    end;
    BiasFactor:=fPhysics.fConstraintBaumgarte/TimeStep.DeltaTime;
    fBias:=fBias+(C*BiasFactor);
@@ -47774,7 +48809,15 @@ var cA:PKraftVector3;
     qA:PKraftQuaternion;
     rA,AbsolutePosition,u,P:TKraftVector3;
     l,C,Impulse:TKraftScalar;
+{$ifdef KraftDoublePositions}
+    PlaneBase:TKraftPosition;
+{$endif}
 begin
+{$ifdef KraftDoublePositions}
+ PlaneBase:=Island.GetSolverBaseOffset;
+ fWorldPlaneRel.Normal:=fWorldPlane.Normal;
+ fWorldPlaneRel.Distance:=fWorldPlane.Distance+((fWorldPlane.Normal.x*PlaneBase.x)+(fWorldPlane.Normal.y*PlaneBase.y)+(fWorldPlane.Normal.z*PlaneBase.z));
+{$endif}
 
  if (fPhysics.fConstraintPositionCorrectionMode<>kpcmNonLinearGaussSeidel) or fSoftConstraint or fSkip then begin
 
@@ -47792,7 +48835,7 @@ begin
 
   if fDoubleSidedWorldPlane then begin
 
-   fWorldPoint:=Vector3Add(AbsolutePosition,Vector3ScalarMul(fWorldPlane.Normal,-PlaneVectorDistance(fWorldPlane,AbsolutePosition)));
+   fWorldPoint:=Vector3Add(AbsolutePosition,Vector3ScalarMul(fWorldPlane.Normal,-PlaneVectorDistance({$ifdef KraftDoublePositions}fWorldPlaneRel{$else}fWorldPlane{$endif},AbsolutePosition)));
 
    u:=Vector3Sub(fWorldPoint,AbsolutePosition);
 
@@ -47816,7 +48859,7 @@ begin
 
   end else begin
 
-   C:=Min(Max(fWorldDistance-PlaneVectorDistance(fWorldPlane,AbsolutePosition),-fPhysics.fMaximalLinearCorrection),fPhysics.fMaximalLinearCorrection);
+   C:=Min(Max(fWorldDistance-PlaneVectorDistance({$ifdef KraftDoublePositions}fWorldPlaneRel{$else}fWorldPlane{$endif},AbsolutePosition),-fPhysics.fMaximalLinearCorrection),fPhysics.fMaximalLinearCorrection);
 
    // One-sided limit behaviors only correct into the violated direction (note the reversed error sign here).
    case fLimitBehavior of
@@ -47897,17 +48940,25 @@ procedure TKraftConstraintJointWorldPlaneDistance.WarmStartSubStep(const Island:
 var vA,wA:PKraftVector3;
     AbsolutePosition,P:TKraftVector3;
     l:TKraftScalar;
+{$ifdef KraftDoublePositions}
+    PlaneBase:TKraftPosition;
+{$endif}
 begin
 
  if not fPhysics.fWarmStarting then begin
   exit;
  end;
 
+{$ifdef KraftDoublePositions}
+ PlaneBase:=Island.GetSolverBaseOffset;
+ fWorldPlaneRel.Normal:=fWorldPlane.Normal;
+ fWorldPlaneRel.Distance:=fWorldPlane.Distance+((fWorldPlane.Normal.x*PlaneBase.x)+(fWorldPlane.Normal.y*PlaneBase.y)+(fWorldPlane.Normal.z*PlaneBase.z));
+{$endif}
  // Rebuild the constraint direction and the limit-skip flag from the current substep position.
  fRelativePosition:=Vector3TermQuaternionRotate(Vector3Sub(fLocalAnchor,fLocalCenter),fSolverPosition^.Orientation);
  AbsolutePosition:=Vector3Add(fSolverPosition^.Position,fRelativePosition);
  if fDoubleSidedWorldPlane then begin
-  fWorldPoint:=Vector3Add(AbsolutePosition,Vector3ScalarMul(fWorldPlane.Normal,-PlaneVectorDistance(fWorldPlane,AbsolutePosition)));
+  fWorldPoint:=Vector3Add(AbsolutePosition,Vector3ScalarMul(fWorldPlane.Normal,-PlaneVectorDistance({$ifdef KraftDoublePositions}fWorldPlaneRel{$else}fWorldPlane{$endif},AbsolutePosition)));
   fmU:=Vector3Sub(fWorldPoint,AbsolutePosition);
   l:=Vector3Length(fmU);
   if l>fPhysics.fLinearSlop then begin
@@ -47916,7 +48967,7 @@ begin
    fmU:=Vector3Origin;
   end;
  end else begin
-  l:=PlaneVectorDistance(fWorldPlane,AbsolutePosition);
+  l:=PlaneVectorDistance({$ifdef KraftDoublePositions}fWorldPlaneRel{$else}fWorldPlane{$endif},AbsolutePosition);
   if abs(l)>fPhysics.fLinearSlop then begin
    fmU:=Vector3Neg(fWorldPlane.Normal);
   end else begin
@@ -47956,13 +49007,21 @@ procedure TKraftConstraintJointWorldPlaneDistance.SolveVelocitySubStep(const Isl
 var vA,wA:PKraftVector3;
     AbsolutePosition,vpA,P,crAu:TKraftVector3;
     l,TotalInverseMass,C,Cdot,Bias,MassScale,ImpulseScale,Impulse,OldImpulse,h,Hertz,Omega,A1,A2,A3:TKraftScalar;
+{$ifdef KraftDoublePositions}
+    PlaneBase:TKraftPosition;
+{$endif}
 begin
+{$ifdef KraftDoublePositions}
+ PlaneBase:=Island.GetSolverBaseOffset;
+ fWorldPlaneRel.Normal:=fWorldPlane.Normal;
+ fWorldPlaneRel.Distance:=fWorldPlane.Distance+((fWorldPlane.Normal.x*PlaneBase.x)+(fWorldPlane.Normal.y*PlaneBase.y)+(fWorldPlane.Normal.z*PlaneBase.z));
+{$endif}
 
  // Rebuild the constraint direction, the along-axis distance and the limit-skip flag from the current position.
  fRelativePosition:=Vector3TermQuaternionRotate(Vector3Sub(fLocalAnchor,fLocalCenter),fSolverPosition^.Orientation);
  AbsolutePosition:=Vector3Add(fSolverPosition^.Position,fRelativePosition);
  if fDoubleSidedWorldPlane then begin
-  fWorldPoint:=Vector3Add(AbsolutePosition,Vector3ScalarMul(fWorldPlane.Normal,-PlaneVectorDistance(fWorldPlane,AbsolutePosition)));
+  fWorldPoint:=Vector3Add(AbsolutePosition,Vector3ScalarMul(fWorldPlane.Normal,-PlaneVectorDistance({$ifdef KraftDoublePositions}fWorldPlaneRel{$else}fWorldPlane{$endif},AbsolutePosition)));
   fmU:=Vector3Sub(fWorldPoint,AbsolutePosition);
   l:=Vector3Length(fmU);
   if l>fPhysics.fLinearSlop then begin
@@ -47971,7 +49030,7 @@ begin
    fmU:=Vector3Origin;
   end;
  end else begin
-  l:=PlaneVectorDistance(fWorldPlane,AbsolutePosition);
+  l:=PlaneVectorDistance({$ifdef KraftDoublePositions}fWorldPlaneRel{$else}fWorldPlane{$endif},AbsolutePosition);
   if abs(l)>fPhysics.fLinearSlop then begin
    fmU:=Vector3Neg(fWorldPlane.Normal);
   end else begin
@@ -49063,8 +50122,8 @@ begin
  fGroundAnchors[0]:=AWorldGroundAnchorA;
  fGroundAnchors[1]:=AWorldGroundAnchorB;
 
- fLocalAnchors[0]:=Vector3TermMatrixMulInverted(AWorldAnchorPointA,ARigidBodyA.fWorldTransform);
- fLocalAnchors[1]:=Vector3TermMatrixMulInverted(AWorldAnchorPointB,ARigidBodyB.fWorldTransform);
+ fLocalAnchors[0]:={$ifdef KraftDoublePositions}Vector3TermMatrixMulTransposedBasis(Vector3SubPosition(PositionFromVector3(AWorldAnchorPointA),ARigidBodyA.GetWorldPositionD),ARigidBodyA.fWorldTransform){$else}Vector3TermMatrixMulInverted(AWorldAnchorPointA,ARigidBodyA.fWorldTransform){$endif};
+ fLocalAnchors[1]:={$ifdef KraftDoublePositions}Vector3TermMatrixMulTransposedBasis(Vector3SubPosition(PositionFromVector3(AWorldAnchorPointB),ARigidBodyB.GetWorldPositionD),ARigidBodyB.fWorldTransform){$else}Vector3TermMatrixMulInverted(AWorldAnchorPointB,ARigidBodyB.fWorldTransform){$endif};
 
  fLengths[0]:=Vector3Dist(AWorldAnchorPointA,AWorldGroundAnchorA);
  fLengths[1]:=Vector3Dist(AWorldAnchorPointB,AWorldGroundAnchorB);
@@ -49134,8 +50193,8 @@ begin
  fRelativePositions[0]:=Vector3TermQuaternionRotate(Vector3Sub(fLocalAnchors[0],fLocalCenters[0]),qA^);
  fRelativePositions[1]:=Vector3TermQuaternionRotate(Vector3Sub(fLocalAnchors[1],fLocalCenters[1]),qB^);
 
- fmU[0]:=Vector3Sub(Vector3Add(cA^,fRelativePositions[0]),fGroundAnchors[0]);
- fmU[1]:=Vector3Sub(Vector3Add(cB^,fRelativePositions[1]),fGroundAnchors[1]);
+ fmU[0]:=Vector3Sub(Vector3Add(cA^,fRelativePositions[0]),{$ifdef KraftDoublePositions}Vector3SubPosition(PositionFromVector3(fGroundAnchors[0]),Island.GetSolverBaseOffset){$else}fGroundAnchors[0]{$endif});
+ fmU[1]:=Vector3Sub(Vector3Add(cB^,fRelativePositions[1]),{$ifdef KraftDoublePositions}Vector3SubPosition(PositionFromVector3(fGroundAnchors[1]),Island.GetSolverBaseOffset){$else}fGroundAnchors[1]{$endif});
 
  LengthA:=Vector3Length(fmU[0]);
  LengthB:=Vector3Length(fmU[1]);
@@ -49251,8 +50310,8 @@ begin
   rB:=Vector3TermQuaternionRotate(Vector3Sub(fLocalAnchors[1],fLocalCenters[1]),qB^);
 
   // Get the pulley axes
-  uA:=Vector3Sub(Vector3Add(cA^,rA),fGroundAnchors[0]);
-  uB:=Vector3Sub(Vector3Add(cB^,rB),fGroundAnchors[1]);
+  uA:=Vector3Sub(Vector3Add(cA^,rA),{$ifdef KraftDoublePositions}Vector3SubPosition(PositionFromVector3(fGroundAnchors[0]),Island.GetSolverBaseOffset){$else}fGroundAnchors[0]{$endif});
+  uB:=Vector3Sub(Vector3Add(cB^,rB),{$ifdef KraftDoublePositions}Vector3SubPosition(PositionFromVector3(fGroundAnchors[1]),Island.GetSolverBaseOffset){$else}fGroundAnchors[1]{$endif});
 
   LengthA:=Vector3Length(uA);
   LengthB:=Vector3Length(uB);
@@ -49367,8 +50426,8 @@ begin
  // Anchors and the two rope directions (anchor to ground anchor) rebuilt in the current substep orientation.
  fRelativePositions[0]:=Vector3TermQuaternionRotate(Vector3Sub(fLocalAnchors[0],fLocalCenters[0]),qA);
  fRelativePositions[1]:=Vector3TermQuaternionRotate(Vector3Sub(fLocalAnchors[1],fLocalCenters[1]),qB);
- fmU[0]:=Vector3Sub(Vector3Add(cA^,fRelativePositions[0]),fGroundAnchors[0]);
- fmU[1]:=Vector3Sub(Vector3Add(cB^,fRelativePositions[1]),fGroundAnchors[1]);
+ fmU[0]:=Vector3Sub(Vector3Add(cA^,fRelativePositions[0]),{$ifdef KraftDoublePositions}Vector3SubPosition(PositionFromVector3(fGroundAnchors[0]),Island.GetSolverBaseOffset){$else}fGroundAnchors[0]{$endif});
+ fmU[1]:=Vector3Sub(Vector3Add(cB^,fRelativePositions[1]),{$ifdef KraftDoublePositions}Vector3SubPosition(PositionFromVector3(fGroundAnchors[1]),Island.GetSolverBaseOffset){$else}fGroundAnchors[1]{$endif});
  LengthA:=Vector3Length(fmU[0]);
  LengthB:=Vector3Length(fmU[1]);
  if LengthA>(10.0*fPhysics.fLinearSlop) then begin
@@ -49412,8 +50471,8 @@ begin
  // Anchors, the two rope directions and their lengths rebuilt in the current substep orientation.
  fRelativePositions[0]:=Vector3TermQuaternionRotate(Vector3Sub(fLocalAnchors[0],fLocalCenters[0]),qA);
  fRelativePositions[1]:=Vector3TermQuaternionRotate(Vector3Sub(fLocalAnchors[1],fLocalCenters[1]),qB);
- fmU[0]:=Vector3Sub(Vector3Add(cA^,fRelativePositions[0]),fGroundAnchors[0]);
- fmU[1]:=Vector3Sub(Vector3Add(cB^,fRelativePositions[1]),fGroundAnchors[1]);
+ fmU[0]:=Vector3Sub(Vector3Add(cA^,fRelativePositions[0]),{$ifdef KraftDoublePositions}Vector3SubPosition(PositionFromVector3(fGroundAnchors[0]),Island.GetSolverBaseOffset){$else}fGroundAnchors[0]{$endif});
+ fmU[1]:=Vector3Sub(Vector3Add(cB^,fRelativePositions[1]),{$ifdef KraftDoublePositions}Vector3SubPosition(PositionFromVector3(fGroundAnchors[1]),Island.GetSolverBaseOffset){$else}fGroundAnchors[1]{$endif});
  LengthA:=Vector3Length(fmU[0]);
  LengthB:=Vector3Length(fmU[1]);
  if LengthA>(10.0*fPhysics.fLinearSlop) then begin
@@ -49518,8 +50577,8 @@ end;
 constructor TKraftConstraintJointBallSocket.Create(const aPhysics:TKraft;const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const AWorldAnchorPoint:TKraftVector3;const ACollideConnected:boolean=false);
 begin
 
- fLocalAnchors[0]:=Vector3TermMatrixMulInverted(AWorldAnchorPoint,ARigidBodyA.fWorldTransform);
- fLocalAnchors[1]:=Vector3TermMatrixMulInverted(AWorldAnchorPoint,ARigidBodyB.fWorldTransform);
+ fLocalAnchors[0]:={$ifdef KraftDoublePositions}Vector3TermMatrixMulTransposedBasis(Vector3SubPosition(PositionFromVector3(AWorldAnchorPoint),ARigidBodyA.GetWorldPositionD),ARigidBodyA.fWorldTransform){$else}Vector3TermMatrixMulInverted(AWorldAnchorPoint,ARigidBodyA.fWorldTransform){$endif};
+ fLocalAnchors[1]:={$ifdef KraftDoublePositions}Vector3TermMatrixMulTransposedBasis(Vector3SubPosition(PositionFromVector3(AWorldAnchorPoint),ARigidBodyB.GetWorldPositionD),ARigidBodyB.fWorldTransform){$else}Vector3TermMatrixMulInverted(AWorldAnchorPoint,ARigidBodyB.fWorldTransform){$endif};
 
  fAccumulatedImpulse:=Vector3Origin;
 
@@ -50575,8 +51634,8 @@ end;
 constructor TKraftConstraintJointFixed.Create(const aPhysics:TKraft;const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const AWorldAnchorPoint:TKraftVector3;const ACollideConnected:boolean=false);
 begin
 
- fLocalAnchors[0]:=Vector3TermMatrixMulInverted(AWorldAnchorPoint,ARigidBodyA.fWorldTransform);
- fLocalAnchors[1]:=Vector3TermMatrixMulInverted(AWorldAnchorPoint,ARigidBodyB.fWorldTransform);
+ fLocalAnchors[0]:={$ifdef KraftDoublePositions}Vector3TermMatrixMulTransposedBasis(Vector3SubPosition(PositionFromVector3(AWorldAnchorPoint),ARigidBodyA.GetWorldPositionD),ARigidBodyA.fWorldTransform){$else}Vector3TermMatrixMulInverted(AWorldAnchorPoint,ARigidBodyA.fWorldTransform){$endif};
+ fLocalAnchors[1]:={$ifdef KraftDoublePositions}Vector3TermMatrixMulTransposedBasis(Vector3SubPosition(PositionFromVector3(AWorldAnchorPoint),ARigidBodyB.GetWorldPositionD),ARigidBodyB.fWorldTransform){$else}Vector3TermMatrixMulInverted(AWorldAnchorPoint,ARigidBodyB.fWorldTransform){$endif};
 
  fAccumulatedImpulseTranslation:=Vector3Origin;
  fAccumulatedImpulseRotation:=Vector3Origin;
@@ -51132,8 +52191,8 @@ begin
 
  fMaximalMotorTorque:=AMaximalMotorTorque;
 
- fLocalAnchors[0]:=Vector3TermMatrixMulInverted(AWorldAnchorPoint,ARigidBodyA.fWorldTransform);
- fLocalAnchors[1]:=Vector3TermMatrixMulInverted(AWorldAnchorPoint,ARigidBodyB.fWorldTransform);
+ fLocalAnchors[0]:={$ifdef KraftDoublePositions}Vector3TermMatrixMulTransposedBasis(Vector3SubPosition(PositionFromVector3(AWorldAnchorPoint),ARigidBodyA.GetWorldPositionD),ARigidBodyA.fWorldTransform){$else}Vector3TermMatrixMulInverted(AWorldAnchorPoint,ARigidBodyA.fWorldTransform){$endif};
+ fLocalAnchors[1]:={$ifdef KraftDoublePositions}Vector3TermMatrixMulTransposedBasis(Vector3SubPosition(PositionFromVector3(AWorldAnchorPoint),ARigidBodyB.GetWorldPositionD),ARigidBodyB.fWorldTransform){$else}Vector3TermMatrixMulInverted(AWorldAnchorPoint,ARigidBodyB.fWorldTransform){$endif};
 
  fLocalAxes[0]:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(AWorldRotationAxis,ARigidBodyA.fWorldTransform));
  fLocalAxes[1]:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(AWorldRotationAxis,ARigidBodyB.fWorldTransform));
@@ -52161,8 +53220,8 @@ begin
 
  fMaximalMotorForce:=AMaximalMotorForce;
 
- fLocalAnchors[0]:=Vector3TermMatrixMulInverted(AWorldAnchorPoint,ARigidBodyA.fWorldTransform);
- fLocalAnchors[1]:=Vector3TermMatrixMulInverted(AWorldAnchorPoint,ARigidBodyB.fWorldTransform);
+ fLocalAnchors[0]:={$ifdef KraftDoublePositions}Vector3TermMatrixMulTransposedBasis(Vector3SubPosition(PositionFromVector3(AWorldAnchorPoint),ARigidBodyA.GetWorldPositionD),ARigidBodyA.fWorldTransform){$else}Vector3TermMatrixMulInverted(AWorldAnchorPoint,ARigidBodyA.fWorldTransform){$endif};
+ fLocalAnchors[1]:={$ifdef KraftDoublePositions}Vector3TermMatrixMulTransposedBasis(Vector3SubPosition(PositionFromVector3(AWorldAnchorPoint),ARigidBodyB.GetWorldPositionD),ARigidBodyB.fWorldTransform){$else}Vector3TermMatrixMulInverted(AWorldAnchorPoint,ARigidBodyB.fWorldTransform){$endif};
 
  fSliderAxisBodyA:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(AWorldSliderAxis,ARigidBodyA.fWorldTransform));
 
@@ -53064,8 +54123,8 @@ begin
  // Computed from the rigid body sweep states instead of the solver pointers, since the solver pointers are
  // valid only during solving, so that this is safe to call outside the solver as well, for example before
  // the very first world step.
- result:=Vector3Dot(Vector3Sub(Vector3Add(fRigidBodies[1].fSweep.c,Vector3TermQuaternionRotate(Vector3Sub(fLocalAnchors[1],fRigidBodies[1].fSweep.LocalCenter),fRigidBodies[1].fSweep.q)),
-                               Vector3Add(fRigidBodies[0].fSweep.c,Vector3TermQuaternionRotate(Vector3Sub(fLocalAnchors[0],fRigidBodies[0].fSweep.LocalCenter),fRigidBodies[0].fSweep.q))),
+ result:=Vector3Dot({$ifdef KraftDoublePositions}Vector3SubPosition{$else}Vector3Sub{$endif}({$ifdef KraftDoublePositions}PositionAddVector3{$else}Vector3Add{$endif}(fRigidBodies[1].fSweep.c,Vector3TermQuaternionRotate(Vector3Sub(fLocalAnchors[1],fRigidBodies[1].fSweep.LocalCenter),fRigidBodies[1].fSweep.q)),
+                                                                                             {$ifdef KraftDoublePositions}PositionAddVector3{$else}Vector3Add{$endif}(fRigidBodies[0].fSweep.c,Vector3TermQuaternionRotate(Vector3Sub(fLocalAnchors[0],fRigidBodies[0].fSweep.LocalCenter),fRigidBodies[0].fSweep.q))),
                     Vector3TermQuaternionRotate(fSliderAxisBodyA,fRigidBodies[0].fSweep.q));
 end;
 
@@ -53519,12 +54578,12 @@ end;
 
 function TKraftConstraintJointParallel.GetAnchorA:TKraftVector3;
 begin
- result:=fRigidBodies[0].fSweep.c;
+ result:={$ifdef KraftDoublePositions}Vector3FromPosition(fRigidBodies[0].fSweep.c){$else}fRigidBodies[0].fSweep.c{$endif};
 end;
 
 function TKraftConstraintJointParallel.GetAnchorB:TKraftVector3;
 begin
- result:=fRigidBodies[1].fSweep.c;
+ result:={$ifdef KraftDoublePositions}Vector3FromPosition(fRigidBodies[1].fSweep.c){$else}fRigidBodies[1].fSweep.c{$endif};
 end;
 
 function TKraftConstraintJointParallel.GetReactionForce(const InverseDeltaTime:TKraftScalar):TKraftVector3;
@@ -53541,8 +54600,8 @@ end;
 constructor TKraftConstraintJointMotor.Create(const aPhysics:TKraft;const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const AWorldAnchorPoint:TKraftVector3;const ACollideConnected:boolean=false);
 begin
 
- fLocalAnchors[0]:=Vector3TermMatrixMulInverted(AWorldAnchorPoint,ARigidBodyA.fWorldTransform);
- fLocalAnchors[1]:=Vector3TermMatrixMulInverted(AWorldAnchorPoint,ARigidBodyB.fWorldTransform);
+ fLocalAnchors[0]:={$ifdef KraftDoublePositions}Vector3TermMatrixMulTransposedBasis(Vector3SubPosition(PositionFromVector3(AWorldAnchorPoint),ARigidBodyA.GetWorldPositionD),ARigidBodyA.fWorldTransform){$else}Vector3TermMatrixMulInverted(AWorldAnchorPoint,ARigidBodyA.fWorldTransform){$endif};
+ fLocalAnchors[1]:={$ifdef KraftDoublePositions}Vector3TermMatrixMulTransposedBasis(Vector3SubPosition(PositionFromVector3(AWorldAnchorPoint),ARigidBodyB.GetWorldPositionD),ARigidBodyB.fWorldTransform){$else}Vector3TermMatrixMulInverted(AWorldAnchorPoint,ARigidBodyB.fWorldTransform){$endif};
 
  // Neutral relative orientation, snapshotted at creation; the angular spring drives back towards this.
  fReferenceOrientations[0]:=QuaternionTermNormalize(QuaternionInverse(ARigidBodyA.fSweep.q));
@@ -54120,8 +55179,8 @@ var SuspensionAxis,SpinAxisRaw,AxisX,AxisY,AxisZ:TKraftVector3;
     FrameOrientation:TKraftQuaternion;
 begin
 
- fLocalAnchors[0]:=Vector3TermMatrixMulInverted(AWorldAnchorPoint,AChassis.fWorldTransform);
- fLocalAnchors[1]:=Vector3TermMatrixMulInverted(AWorldAnchorPoint,AWheel.fWorldTransform);
+ fLocalAnchors[0]:={$ifdef KraftDoublePositions}Vector3TermMatrixMulTransposedBasis(Vector3SubPosition(PositionFromVector3(AWorldAnchorPoint),AChassis.GetWorldPositionD),AChassis.fWorldTransform){$else}Vector3TermMatrixMulInverted(AWorldAnchorPoint,AChassis.fWorldTransform){$endif};
+ fLocalAnchors[1]:={$ifdef KraftDoublePositions}Vector3TermMatrixMulTransposedBasis(Vector3SubPosition(PositionFromVector3(AWorldAnchorPoint),AWheel.GetWorldPositionD),AWheel.fWorldTransform){$else}Vector3TermMatrixMulInverted(AWorldAnchorPoint,AWheel.fWorldTransform){$endif};
 
  // Build one reference frame shared by both bodies, so that at rest the steering angle is zero and the
  // collinearity relative orientation is identity (it expects localFrameA and localFrameB to coincide in the
@@ -55245,8 +56304,8 @@ begin
  fRigidBodies[0]:=ARigidBodyA;
  fRigidBodies[1]:=ARigidBodyB;
 
- fLocalAnchors[0]:=Vector3TermMatrixMulInverted(AWorldAnchorPoint,ARigidBodyA.fWorldTransform);
- fLocalAnchors[1]:=Vector3TermMatrixMulInverted(AWorldAnchorPoint,ARigidBodyB.fWorldTransform);
+ fLocalAnchors[0]:={$ifdef KraftDoublePositions}Vector3TermMatrixMulTransposedBasis(Vector3SubPosition(PositionFromVector3(AWorldAnchorPoint),ARigidBodyA.GetWorldPositionD),ARigidBodyA.fWorldTransform){$else}Vector3TermMatrixMulInverted(AWorldAnchorPoint,ARigidBodyA.fWorldTransform){$endif};
+ fLocalAnchors[1]:={$ifdef KraftDoublePositions}Vector3TermMatrixMulTransposedBasis(Vector3SubPosition(PositionFromVector3(AWorldAnchorPoint),ARigidBodyB.GetWorldPositionD),ARigidBodyB.fWorldTransform){$else}Vector3TermMatrixMulInverted(AWorldAnchorPoint,ARigidBodyB.fWorldTransform){$endif};
 
  // Build the shared reference frame from the twist axis (frame z axis = twist axis, like the parallel joint).
  // The swing reference axis is projected into the plane perpendicular to the twist axis and becomes the
@@ -57141,8 +58200,8 @@ begin
 {$endif}
 
   VelocityState:=@fVelocityStates[ContactPairIndex];
-  VelocityState^.Centers[0]:=ContactPair^.RigidBodies[0].fSweep.c0;
-  VelocityState^.Centers[1]:=ContactPair^.RigidBodies[1].fSweep.c0;
+  VelocityState^.Centers[0]:={$ifdef KraftDoublePositions}Vector3FromPosition(ContactPair^.RigidBodies[0].fSweep.c0){$else}ContactPair^.RigidBodies[0].fSweep.c0{$endif};
+  VelocityState^.Centers[1]:={$ifdef KraftDoublePositions}Vector3FromPosition(ContactPair^.RigidBodies[1].fSweep.c0){$else}ContactPair^.RigidBodies[1].fSweep.c0{$endif};
   VelocityState^.WorldInverseInertiaTensors[0]:=ContactPair^.RigidBodies[0].fWorldInverseInertiaTensor;
   VelocityState^.WorldInverseInertiaTensors[1]:=ContactPair^.RigidBodies[1].fWorldInverseInertiaTensor;
   VelocityState^.NormalMass:=0.0;
@@ -57250,8 +58309,8 @@ begin
 
   Contact:=@ContactPair^.Manifold.Contacts[0];
   SpeculativeContactState:=@fSpeculativeContactStates[ContactPairIndex];
-  SpeculativeContactState^.Centers[0]:=ContactPair^.RigidBodies[0].fSweep.c0;
-  SpeculativeContactState^.Centers[1]:=ContactPair^.RigidBodies[1].fSweep.c0;
+  SpeculativeContactState^.Centers[0]:={$ifdef KraftDoublePositions}Vector3FromPosition(ContactPair^.RigidBodies[0].fSweep.c0){$else}ContactPair^.RigidBodies[0].fSweep.c0{$endif};
+  SpeculativeContactState^.Centers[1]:={$ifdef KraftDoublePositions}Vector3FromPosition(ContactPair^.RigidBodies[1].fSweep.c0){$else}ContactPair^.RigidBodies[1].fSweep.c0{$endif};
   SpeculativeContactState^.LocalCenters[0]:=ContactPair^.RigidBodies[0].fSweep.LocalCenter;
   SpeculativeContactState^.LocalCenters[1]:=ContactPair^.RigidBodies[1].fSweep.LocalCenter;
   SpeculativeContactState^.WorldInverseInertiaTensors[0]:=ContactPair^.RigidBodies[0].fWorldInverseInertiaTensor;
@@ -63013,16 +64072,24 @@ var Iteration,Index:TKraftInt32;
     GyroscopicForce:TKraftVector3;
     Position,LinearVelocity,AngularVelocity,Translation,Rotation:TKraftVector3;
     Orientation:TKraftQuaternion;
+{$ifdef KraftDoublePositions}
+    Base:TKraftPosition;
+{$endif}
 begin
 
  fSolver.Store;
+
+{$ifdef KraftDoublePositions}
+ // The single precision solver runs relative to this order-invariant per-island base; see GetSolverBaseOffset.
+ Base:=GetSolverBaseOffset;
+{$endif}
 
  // Integrate velocities and create state buffers, calculate world inertia
  for Index:=0 to fCountRigidBodies-1 do begin
 
   RigidBody:=fRigidBodies[Index];
 
-  Position:=RigidBody.fSweep.c;
+  Position:={$ifdef KraftDoublePositions}Vector3FromPosition(RigidBody.fSweep.c){$else}RigidBody.fSweep.c{$endif};
   Orientation:=RigidBody.fSweep.q;
   RigidBody.fSweep.c0:=RigidBody.fSweep.c;
   RigidBody.fSweep.q0:=RigidBody.fSweep.q;
@@ -63126,9 +64193,14 @@ begin
   SolverVelocity^.LinearVelocity:=RigidBody.fLinearVelocity;
   SolverVelocity^.AngularVelocity:=RigidBody.fAngularVelocity;
 
-  // Transfer positions
+  // Transfer positions (relative to the per-island base when double precision world positions are enabled;
+  // the absolute Position above stays single for the midpoint gravity direction, which only needs single precision)
   SolverPosition:=@fSolver.fPositions[Index];
+{$ifdef KraftDoublePositions}
+  SolverPosition^.Position:=Vector3SubPosition(RigidBody.fSweep.c,Base);
+{$else}
   SolverPosition^.Position:=Position;
+{$endif}
   SolverPosition^.Orientation:=Orientation;
 
   // Transfer linear factors
@@ -63273,7 +64345,11 @@ begin
    krbtDynamic,krbtKinematic:begin
 
     SolverPosition:=@fSolver.fPositions[Index];
+{$ifdef KraftDoublePositions}
+    RigidBody.fSweep.c:=PositionAddVector3(Base,SolverPosition^.Position);
+{$else}
     RigidBody.fSweep.c:=SolverPosition^.Position;
+{$endif}
     RigidBody.fSweep.q:=SolverPosition^.Orientation;
 
     SolverVelocity:=@fSolver.fVelocities[Index];
@@ -63348,6 +64424,9 @@ var SubStep,Iteration,Index:TKraftInt32;
     Position,LinearVelocity,AngularVelocity,Translation,Rotation,Gravity,Acceleration,GyroscopicForce,EffectiveTorque:TKraftVector3;
     Orientation:TKraftQuaternion;
     SubStepTimeStep:TKraftTimeStep;
+{$ifdef KraftDoublePositions}
+    Base:TKraftPosition;
+{$endif}
 begin
 
  h:=aTimeStep.SubStepDeltaTime;
@@ -63363,6 +64442,11 @@ begin
  fSolveSubStepTimeStep:=SubStepTimeStep;
 
  fSolver.Store;
+
+{$ifdef KraftDoublePositions}
+ // The single precision substepping solver runs relative to this order-invariant per-island base; see GetSolverBaseOffset.
+ Base:=GetSolverBaseOffset;
+{$endif}
 
  fSolver.Initialize(aTimeStep);
 
@@ -63385,7 +64469,11 @@ begin
 {$endif}
   fSolver.fVelocities[Index].LinearVelocity:=RigidBody.fLinearVelocity;
   fSolver.fVelocities[Index].AngularVelocity:=RigidBody.fAngularVelocity;
+{$ifdef KraftDoublePositions}
+  fSolver.fPositions[Index].Position:=Vector3SubPosition(RigidBody.fSweep.c,Base);
+{$else}
   fSolver.fPositions[Index].Position:=RigidBody.fSweep.c;
+{$endif}
   fSolver.fPositions[Index].Orientation:=RigidBody.fSweep.q;
   fSolver.fLinearFactors[Index]:=RigidBody.fLinearFactor;
  end;
@@ -63587,7 +64675,11 @@ begin
     end;
 
     // Write the final solver state back into the body and refresh its world transform and inertia.
+{$ifdef KraftDoublePositions}
+    RigidBody.fSweep.c:=PositionAddVector3(Base,SolverPosition^.Position);
+{$else}
     RigidBody.fSweep.c:=SolverPosition^.Position;
+{$endif}
     RigidBody.fSweep.q:=SolverPosition^.Orientation;
     RigidBody.fLinearVelocity:=LinearVelocity;
     RigidBody.fAngularVelocity:=AngularVelocity;
@@ -63639,6 +64731,37 @@ begin
 
 end;
 
+{$ifdef KraftDoublePositions}
+function TKraftIsland.GetSolverBaseOffset:TKraftPosition;
+var Index:TKraftInt32;
+    Position:TKraftPosition;
+begin
+ // Order-invariant per-island base for the single precision solver: the component wise minimum of every
+ // body world center. Bodies in one island are connected by contacts or joints and are therefore spatially
+ // close, so the minimum yields small relative coordinates that the single precision solver can represent
+ // without catastrophic cancellation far from the origin. The minimum is commutative and associative and
+ // exact in floating point, so the result does not depend on the order in which bodies entered the island,
+ // which keeps the solver deterministic.
+ if fCountRigidBodies>0 then begin
+  result:=fRigidBodies[0].fSweep.c;
+  for Index:=1 to fCountRigidBodies-1 do begin
+   Position:=fRigidBodies[Index].fSweep.c;
+   if Position.x<result.x then begin
+    result.x:=Position.x;
+   end;
+   if Position.y<result.y then begin
+    result.y:=Position.y;
+   end;
+   if Position.z<result.z then begin
+    result.z:=Position.z;
+   end;
+  end;
+ end else begin
+  result:=PositionOrigin;
+ end;
+end;
+{$endif}
+
 procedure TKraftIsland.Solve(const aTimeStep:TKraftTimeStep);
 begin
 
@@ -63667,9 +64790,17 @@ var Iteration,Index:TKraftInt32;
     SolverPosition:PKraftSolverPosition;
     Position,LinearVelocity,AngularVelocity,Translation,Rotation:TKraftVector3;
     Orientation:TKraftQuaternion;
+{$ifdef KraftDoublePositions}
+    Base:TKraftPosition;
+{$endif}
 begin
 
  fSolver.Store;
+
+{$ifdef KraftDoublePositions}
+ // The single precision time of impact solver runs relative to this order-invariant per-island base; see GetSolverBaseOffset.
+ Base:=GetSolverBaseOffset;
+{$endif}
 
  // Integrate velocities and create state buffers
  for Index:=0 to fCountRigidBodies-1 do begin
@@ -63678,7 +64809,11 @@ begin
   SolverVelocity^.LinearVelocity:=RigidBody.fLinearVelocity;
   SolverVelocity^.AngularVelocity:=RigidBody.fAngularVelocity;
   SolverPosition:=@fSolver.fPositions[Index];
+{$ifdef KraftDoublePositions}
+  SolverPosition^.Position:=Vector3SubPosition(RigidBody.fSweep.c,Base);
+{$else}
   SolverPosition^.Position:=RigidBody.fSweep.c;
+{$endif}
   SolverPosition^.Orientation:=RigidBody.fSweep.q;
  end;
 
@@ -63696,7 +64831,11 @@ begin
   case RigidBody.fRigidBodyType of
    krbtDynamic,krbtKinematic:begin
     SolverPosition:=@fSolver.fPositions[Index];
+{$ifdef KraftDoublePositions}
+    RigidBody.fSweep.c0:=PositionAddVector3(Base,SolverPosition^.Position);
+{$else}
     RigidBody.fSweep.c0:=SolverPosition^.Position;
+{$endif}
     RigidBody.fSweep.q0:=SolverPosition^.Orientation;
    end;
    else begin
@@ -63760,7 +64899,11 @@ begin
 
     fPhysics.Integrate(Position,Orientation,LinearVelocity,AngularVelocity,aTimeStep.DeltaTime);
 
+{$ifdef KraftDoublePositions}
+    RigidBody.fSweep.c:=PositionAddVector3(Base,Position);
+{$else}
     RigidBody.fSweep.c:=Position;
+{$endif}
     RigidBody.fSweep.q:=Orientation;
 
     RigidBody.fLinearVelocity:=LinearVelocity;
@@ -64510,6 +65653,19 @@ begin
  end;
 
 end;
+
+{$ifdef KraftDoublePositions}
+procedure TKraft.Integrate(var aPosition:TKraftPosition;var aOrientation:TKraftQuaternion;const aLinearVelocity,aAngularVelocity:TKraftVector3;const aDeltaTime:TKraftScalar);
+var LinearDelta:TKraftVector3;
+begin
+ // The linear part depends only on the velocity, not on the starting position, so integrate a zero based
+ // delta in single precision, add it to the double position, and let the shared routine advance the
+ // orientation in place.
+ LinearDelta:=Vector3Origin;
+ Integrate(LinearDelta,aOrientation,aLinearVelocity,aAngularVelocity,aDeltaTime);
+ aPosition:=PositionAddVector3(aPosition,LinearDelta);
+end;
+{$endif}
 
 procedure TKraft.SetSolverParallelMode(const aValue:TKraftSolverParallelMode);
 begin
@@ -65894,8 +67050,8 @@ begin
  GJK.Transforms[1]:=@Transforms[1];
  GJK.UseRadii:=true;
 
- Transforms[0]:=Matrix4x4TermMul(Shapes[0].fLocalTransform,SweepTransform(aSweepA,0.0));
- Transforms[1]:=Matrix4x4TermMul(Shapes[1].fLocalTransform,SweepTransform(aSweepB,0.0));
+ Transforms[0]:=Matrix4x4TermMul(Shapes[0].fLocalTransform,{$ifdef KraftDoublePositions}SweepTransformRelative(aSweepA,0.0,aSweepA.c0){$else}SweepTransform(aSweepA,0.0){$endif});
+ Transforms[1]:=Matrix4x4TermMul(Shapes[1].fLocalTransform,{$ifdef KraftDoublePositions}SweepTransformRelative(aSweepB,0.0,aSweepA.c0){$else}SweepTransform(aSweepB,0.0){$endif});
 
  if GJK.Run then begin
 
@@ -65924,8 +67080,8 @@ begin
 
    LastLambda:=Lambda;
 
-   Transforms[0]:=Matrix4x4TermMul(Shapes[0].fLocalTransform,SweepTransform(aSweepA,Lambda));
-   Transforms[1]:=Matrix4x4TermMul(Shapes[1].fLocalTransform,SweepTransform(aSweepB,Lambda));
+   Transforms[0]:=Matrix4x4TermMul(Shapes[0].fLocalTransform,{$ifdef KraftDoublePositions}SweepTransformRelative(aSweepA,Lambda,aSweepA.c0){$else}SweepTransform(aSweepA,Lambda){$endif});
+   Transforms[1]:=Matrix4x4TermMul(Shapes[1].fLocalTransform,{$ifdef KraftDoublePositions}SweepTransformRelative(aSweepB,Lambda,aSweepA.c0){$else}SweepTransform(aSweepB,Lambda){$endif});
 
    if GJK.Run then begin
 
@@ -66062,7 +67218,7 @@ begin
 
  ContinuousMinimumRadiusScaleFactor:=Max(aShapeA.fContinuousMinimumRadiusScaleFactor,aShapeB.fContinuousMinimumRadiusScaleFactor);
  if (ContinuousMinimumRadiusScaleFactor>EPSILON) and
-    (Vector3Length(Vector3Sub(Vector3Sub(aSweepB.c0,aSweepB.c),Vector3Sub(aSweepA.c0,aSweepA.c)))<Max(EPSILON,Min(Shapes[0].fShapeSphere.Radius,Shapes[1].fShapeSphere.Radius)*ContinuousMinimumRadiusScaleFactor)) then begin
+    (Vector3Length(Vector3Sub({$ifdef KraftDoublePositions}Vector3SubPosition(aSweepB.c0,aSweepB.c){$else}Vector3Sub(aSweepB.c0,aSweepB.c){$endif},{$ifdef KraftDoublePositions}Vector3SubPosition(aSweepA.c0,aSweepA.c){$else}Vector3Sub(aSweepA.c0,aSweepA.c){$endif}))<Max(EPSILON,Min(Shapes[0].fShapeSphere.Radius,Shapes[1].fShapeSphere.Radius)*ContinuousMinimumRadiusScaleFactor)) then begin
   exit;
  end;
 
@@ -66101,8 +67257,8 @@ begin
 
  for Iteration:=1 to TimeOfImpactMaximumIterations do begin
 
-  Transforms[0]:=Matrix4x4TermMul(Shapes[0].fLocalTransform,SweepTransform(aSweepA,t0));
-  Transforms[1]:=Matrix4x4TermMul(Shapes[1].fLocalTransform,SweepTransform(aSweepB,t0));
+  Transforms[0]:=Matrix4x4TermMul(Shapes[0].fLocalTransform,{$ifdef KraftDoublePositions}SweepTransformRelative(aSweepA,t0,aSweepA.c0){$else}SweepTransform(aSweepA,t0){$endif});
+  Transforms[1]:=Matrix4x4TermMul(Shapes[1].fLocalTransform,{$ifdef KraftDoublePositions}SweepTransformRelative(aSweepB,t0,aSweepA.c0){$else}SweepTransform(aSweepB,t0){$endif});
 
   if not GJK.Run then begin
    aBeta:=0.0;
@@ -66412,8 +67568,8 @@ begin
   for TryIteration:=1 to 64 do begin
 
    // Compute deepest witness points at t1
-   Transforms[0]:=Matrix4x4TermMul(Shapes[0].fLocalTransform,SweepTransform(aSweepA,t1));
-   Transforms[1]:=Matrix4x4TermMul(Shapes[1].fLocalTransform,SweepTransform(aSweepB,t1));
+   Transforms[0]:=Matrix4x4TermMul(Shapes[0].fLocalTransform,{$ifdef KraftDoublePositions}SweepTransformRelative(aSweepA,t1,aSweepA.c0){$else}SweepTransform(aSweepA,t1){$endif});
+   Transforms[1]:=Matrix4x4TermMul(Shapes[1].fLocalTransform,{$ifdef KraftDoublePositions}SweepTransformRelative(aSweepB,t1,aSweepA.c0){$else}SweepTransform(aSweepB,t1){$endif});
    s1:=FindMinSeparation;
 
    // Is the final configuration separated?
@@ -66433,8 +67589,8 @@ begin
    end;
 
    // Compute the initial separation of the witness points
-   Transforms[0]:=Matrix4x4TermMul(Shapes[0].fLocalTransform,SweepTransform(aSweepA,t0));
-   Transforms[1]:=Matrix4x4TermMul(Shapes[1].fLocalTransform,SweepTransform(aSweepB,t0));
+   Transforms[0]:=Matrix4x4TermMul(Shapes[0].fLocalTransform,{$ifdef KraftDoublePositions}SweepTransformRelative(aSweepA,t0,aSweepA.c0){$else}SweepTransform(aSweepA,t0){$endif});
+   Transforms[1]:=Matrix4x4TermMul(Shapes[1].fLocalTransform,{$ifdef KraftDoublePositions}SweepTransformRelative(aSweepB,t0,aSweepA.c0){$else}SweepTransform(aSweepB,t0){$endif});
    s0:=Evaluate;
 
    // Check for initial overlap
@@ -66463,8 +67619,8 @@ begin
      t:=(a0+a1)*0.5;
     end;
 
-    Transforms[0]:=Matrix4x4TermMul(Shapes[0].fLocalTransform,SweepTransform(aSweepA,t));
-    Transforms[1]:=Matrix4x4TermMul(Shapes[1].fLocalTransform,SweepTransform(aSweepB,t));
+    Transforms[0]:=Matrix4x4TermMul(Shapes[0].fLocalTransform,{$ifdef KraftDoublePositions}SweepTransformRelative(aSweepA,t,aSweepA.c0){$else}SweepTransform(aSweepA,t){$endif});
+    Transforms[1]:=Matrix4x4TermMul(Shapes[1].fLocalTransform,{$ifdef KraftDoublePositions}SweepTransformRelative(aSweepB,t,aSweepA.c0){$else}SweepTransform(aSweepB,t){$endif});
     s:=Evaluate;
 
     if abs(s-Target)<Tolerance then begin
@@ -67513,7 +68669,7 @@ begin
 
 end;
 
-function TKraft.TestPoint(const aPoint:TKraftVector3):TKraftShape;
+function TKraft.TestPoint(const aPoint:TKraftPosition):TKraftShape;
 type TStack=TKraftDynamicFastNonRTTIStack<TKraftInt32>;
 var AABBTreeIndex:TKraftInt32;
     AABBTree:TKraftDynamicAABBTree;
@@ -67521,8 +68677,14 @@ var AABBTreeIndex:TKraftInt32;
     NodeID:TKraftInt32;
     Node:PKraftDynamicAABBTreeNode;
     CurrentShape:TKraftShape;
+{$ifdef KraftDoublePositions}
+    BroadPoint:TKraftVector3;
+{$endif}
 begin
  result:=nil;
+{$ifdef KraftDoublePositions}
+ BroadPoint:=Vector3FromPosition(aPoint); // broadphase point test runs against the single precision AABB tree
+{$endif}
  Stack.Initialize;
  try
   for AABBTreeIndex:=0 to 3 do begin
@@ -67546,7 +68708,7 @@ begin
     while Stack.Pop(NodeID) and not assigned(result) do begin
      while (NodeID>=0) and not assigned(result) do begin
       Node:=@AABBTree.fNodes[NodeID];
-      if AABBContains(Node^.AABB,aPoint) then begin
+      if AABBContains(Node^.AABB,{$ifdef KraftDoublePositions}BroadPoint{$else}aPoint{$endif}) then begin
        if Node^.Children[0]<0 then begin
         CurrentShape:=Node^.UserData;
         if assigned(CurrentShape) and CurrentShape.TestPoint(aPoint) then begin
@@ -67572,7 +68734,7 @@ begin
  end;
 end;
 
-function TKraft.RayCast(const aOrigin,aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnRayCastFilterHook:TKraftOnRayCastFilterHook;const aCastProfilerData:PKraftCastProfilerData):boolean;
+function TKraft.RayCast(const aOrigin:TKraftPosition;const aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint:TKraftPosition;out aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnRayCastFilterHook:TKraftOnRayCastFilterHook;const aCastProfilerData:PKraftCastProfilerData):boolean;
 type TStack=TKraftDynamicFastNonRTTIStack<TKraftInt32>;
 var AABBTreeIndex:TKraftInt32;
     AABBTree:TKraftDynamicAABBTree;
@@ -67581,7 +68743,7 @@ var AABBTreeIndex:TKraftInt32;
     Node:PKraftDynamicAABBTreeNode;
     CurrentShape:TKraftShape;
     RayCastData:TKraftRaycastData;
-    InvDirection:TKraftVector3;
+    InvDirection{$ifdef KraftDoublePositions},BroadOrigin{$endif}:TKraftVector3;
     NodeTime,ChildTime0,ChildTime1:TKraftScalar;
     ChildHit0,ChildHit1:boolean;
     LocalCountTotalTopLevelAccelerationStructureNodes:TKraftInt32;
@@ -67591,6 +68753,9 @@ begin
  result:=false;
  aTime:=aMaxTime;
  InvDirection:=Vector3Div(Vector3All,aDirection);
+{$ifdef KraftDoublePositions}
+ BroadOrigin:=Vector3FromPosition(aOrigin); // broadphase tests run against the single precision AABB tree (base-relative broadphase is Phase 4)
+{$endif}
  Stack.Initialize;
  try
   RayCastData.CastProfilerData:=aCastProfilerData;
@@ -67622,7 +68787,7 @@ begin
     while Stack.Pop(NodeID) do begin
      while NodeID>=0 do begin
       Node:=@AABBTree.fNodes[NodeID];
-      if AABBRayIntersectionOpt(Node^.AABB,aOrigin,InvDirection,NodeTime) and (NodeTime<=aTime) then begin
+      if AABBRayIntersectionOpt(Node^.AABB,{$ifdef KraftDoublePositions}BroadOrigin{$else}aOrigin{$endif},InvDirection,NodeTime) and (NodeTime<=aTime) then begin
        inc(LocalCountCheckedTopLevelAccelerationStructureNodes);
        if Node^.Children[0]<0 then begin
         inc(LocalCountCheckedTopLevelAccelerationStructureLeafs);
@@ -67642,8 +68807,8 @@ begin
          end;
         end;
        end else begin
-        ChildHit0:=AABBRayIntersectionOpt(AABBTree.fNodes[Node^.Children[0]].AABB,aOrigin,InvDirection,ChildTime0) and (ChildTime0<=aTime);
-        ChildHit1:=AABBRayIntersectionOpt(AABBTree.fNodes[Node^.Children[1]].AABB,aOrigin,InvDirection,ChildTime1) and (ChildTime1<=aTime);
+        ChildHit0:=AABBRayIntersectionOpt(AABBTree.fNodes[Node^.Children[0]].AABB,{$ifdef KraftDoublePositions}BroadOrigin{$else}aOrigin{$endif},InvDirection,ChildTime0) and (ChildTime0<=aTime);
+        ChildHit1:=AABBRayIntersectionOpt(AABBTree.fNodes[Node^.Children[1]].AABB,{$ifdef KraftDoublePositions}BroadOrigin{$else}aOrigin{$endif},InvDirection,ChildTime1) and (ChildTime1<=aTime);
         if ChildHit0 and ChildHit1 then begin
          if ChildTime0<=ChildTime1 then begin
           Stack.Push(Node^.Children[1]);
@@ -67677,7 +68842,7 @@ begin
  end;
 end;
 
-function TKraft.RayCast(const aOrigin,aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnRayCastFilterHook:TKraftOnRayCastFilterHook;const aCastProfilerData:PKraftCastProfilerData):boolean;
+function TKraft.RayCast(const aOrigin:TKraftPosition;const aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint:TKraftPosition;out aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnRayCastFilterHook:TKraftOnRayCastFilterHook;const aCastProfilerData:PKraftCastProfilerData):boolean;
 type TStack=TKraftDynamicFastNonRTTIStack<TKraftInt32>;
 var AABBTreeIndex:TKraftInt32;
     AABBTree:TKraftDynamicAABBTree;
@@ -67686,7 +68851,7 @@ var AABBTreeIndex:TKraftInt32;
     Node:PKraftDynamicAABBTreeNode;
     CurrentShape:TKraftShape;
     RayCastData:TKraftRaycastData;
-    InvDirection:TKraftVector3;
+    InvDirection{$ifdef KraftDoublePositions},BroadOrigin{$endif}:TKraftVector3;
     NodeTime,ChildTime0,ChildTime1:TKraftScalar;
     ChildHit0,ChildHit1:boolean;
     LocalCountTotalTopLevelAccelerationStructureNodes:TKraftInt32;
@@ -67696,6 +68861,9 @@ begin
  result:=false;
  aTime:=aMaxTime;
  InvDirection:=Vector3Div(Vector3All,aDirection);
+{$ifdef KraftDoublePositions}
+ BroadOrigin:=Vector3FromPosition(aOrigin); // broadphase tests run against the single precision AABB tree (base-relative broadphase is Phase 4)
+{$endif}
  Stack.Initialize;
  try
   RayCastData.CastProfilerData:=aCastProfilerData;
@@ -67727,7 +68895,7 @@ begin
     while Stack.Pop(NodeID) do begin
      while NodeID>=0 do begin
       Node:=@AABBTree.fNodes[NodeID];
-      if AABBRayIntersectionOpt(Node^.AABB,aOrigin,InvDirection,NodeTime) and (NodeTime<=aTime) then begin
+      if AABBRayIntersectionOpt(Node^.AABB,{$ifdef KraftDoublePositions}BroadOrigin{$else}aOrigin{$endif},InvDirection,NodeTime) and (NodeTime<=aTime) then begin
        inc(LocalCountCheckedTopLevelAccelerationStructureNodes);
        if Node^.Children[0]<0 then begin
         inc(LocalCountCheckedTopLevelAccelerationStructureLeafs);
@@ -67748,8 +68916,8 @@ begin
          end;
         end;
        end else begin
-        ChildHit0:=AABBRayIntersectionOpt(AABBTree.fNodes[Node^.Children[0]].AABB,aOrigin,InvDirection,ChildTime0) and (ChildTime0<=aTime);
-        ChildHit1:=AABBRayIntersectionOpt(AABBTree.fNodes[Node^.Children[1]].AABB,aOrigin,InvDirection,ChildTime1) and (ChildTime1<=aTime);
+        ChildHit0:=AABBRayIntersectionOpt(AABBTree.fNodes[Node^.Children[0]].AABB,{$ifdef KraftDoublePositions}BroadOrigin{$else}aOrigin{$endif},InvDirection,ChildTime0) and (ChildTime0<=aTime);
+        ChildHit1:=AABBRayIntersectionOpt(AABBTree.fNodes[Node^.Children[1]].AABB,{$ifdef KraftDoublePositions}BroadOrigin{$else}aOrigin{$endif},InvDirection,ChildTime1) and (ChildTime1<=aTime);
         if ChildHit0 and ChildHit1 then begin
          if ChildTime0<=ChildTime1 then begin
           Stack.Push(Node^.Children[1]);
@@ -67783,27 +68951,27 @@ begin
  end;
 end;
 
-function TKraft.RayCast(const aSource,aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnRayCastFilterHook:TKraftOnRayCastFilterHook;const aCastProfilerData:PKraftCastProfilerData):boolean;
+function TKraft.RayCast(const aSource,aTarget:TKraftPosition;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint:TKraftPosition;out aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnRayCastFilterHook:TKraftOnRayCastFilterHook;const aCastProfilerData:PKraftCastProfilerData):boolean;
 var Len:TKraftScalar;
 begin
- Len:=Vector3Dist(aSource,aTarget);
- result:=RayCast(aSource,Vector3Norm(Vector3Sub(aTarget,aSource)),Len,aShape,aTime,aPoint,aNormal,aCollisionGroups,aOnRayCastFilterHook,aCastProfilerData);
+ Len:={$ifdef KraftDoublePositions}Vector3Length(Vector3SubPosition(aTarget,aSource)){$else}Vector3Dist(aSource,aTarget){$endif};
+ result:=RayCast(aSource,Vector3Norm({$ifdef KraftDoublePositions}Vector3SubPosition(aTarget,aSource){$else}Vector3Sub(aTarget,aSource){$endif}),Len,aShape,aTime,aPoint,aNormal,aCollisionGroups,aOnRayCastFilterHook,aCastProfilerData);
  if result then begin
   aTime:=aTime/Len;
  end;
 end;
 
-function TKraft.RayCast(const aSource,aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnRayCastFilterHook:TKraftOnRayCastFilterHook;const aCastProfilerData:PKraftCastProfilerData):boolean;
+function TKraft.RayCast(const aSource,aTarget:TKraftPosition;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint:TKraftPosition;out aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnRayCastFilterHook:TKraftOnRayCastFilterHook;const aCastProfilerData:PKraftCastProfilerData):boolean;
 var Len:TKraftScalar;
 begin
- Len:=Vector3Dist(aSource,aTarget);
- result:=RayCast(aSource,Vector3Norm(Vector3Sub(aTarget,aSource)),Len,aShape,aTime,aPoint,aNormal,aSurfaceNormal,aCollisionGroups,aOnRayCastFilterHook,aCastProfilerData);
+ Len:={$ifdef KraftDoublePositions}Vector3Length(Vector3SubPosition(aTarget,aSource)){$else}Vector3Dist(aSource,aTarget){$endif};
+ result:=RayCast(aSource,Vector3Norm({$ifdef KraftDoublePositions}Vector3SubPosition(aTarget,aSource){$else}Vector3Sub(aTarget,aSource){$endif}),Len,aShape,aTime,aPoint,aNormal,aSurfaceNormal,aCollisionGroups,aOnRayCastFilterHook,aCastProfilerData);
  if result then begin
   aTime:=aTime/Len;
  end;
 end;
 
-function TKraft.SphereCast(const aOrigin:TKraftVector3;const aRadius:TKraftScalar;const aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook;const aCastProfilerData:PKraftCastProfilerData):boolean;
+function TKraft.SphereCast(const aOrigin:TKraftPosition;const aRadius:TKraftScalar;const aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint:TKraftPosition;out aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook;const aCastProfilerData:PKraftCastProfilerData):boolean;
 type TStack=TKraftDynamicFastNonRTTIStack<TKraftInt32>;
 var AABBTreeIndex:TKraftInt32;
     AABBTree:TKraftDynamicAABBTree;
@@ -67812,7 +68980,7 @@ var AABBTreeIndex:TKraftInt32;
     Node:PKraftDynamicAABBTreeNode;
     CurrentShape:TKraftShape;
     SphereCastData:TKraftSpherecastData;
-    InvDirection:TKraftVector3;
+    InvDirection{$ifdef KraftDoublePositions},BroadOrigin{$endif}:TKraftVector3;
     NodeTime,ChildTime0,ChildTime1:TKraftScalar;
     ChildHit0,ChildHit1:boolean;
     LocalCountTotalTopLevelAccelerationStructureNodes:TKraftInt32;
@@ -67822,6 +68990,9 @@ begin
  result:=false;
  aTime:=aMaxTime;
  InvDirection:=Vector3Div(Vector3All,aDirection);
+{$ifdef KraftDoublePositions}
+ BroadOrigin:=Vector3FromPosition(aOrigin); // broadphase tests run against the single precision AABB tree (base-relative broadphase is Phase 4)
+{$endif}
  Stack.Initialize;
  try
   SphereCastData.CastProfilerData:=aCastProfilerData;
@@ -67853,7 +69024,7 @@ begin
     while Stack.Pop(NodeID) do begin
      while NodeID>=0 do begin
       Node:=@AABBTree.fNodes[NodeID];
-      if SphereCastAABBIntersectionOpt(aOrigin,aRadius,InvDirection,Node^.AABB,NodeTime) and (NodeTime<=aTime) then begin
+      if SphereCastAABBIntersectionOpt({$ifdef KraftDoublePositions}BroadOrigin{$else}aOrigin{$endif},aRadius,InvDirection,Node^.AABB,NodeTime) and (NodeTime<=aTime) then begin
        inc(LocalCountCheckedTopLevelAccelerationStructureNodes);
        if Node^.Children[0]<0 then begin
         inc(LocalCountCheckedTopLevelAccelerationStructureLeafs);
@@ -67874,8 +69045,8 @@ begin
          end;
         end;
        end else begin
-        ChildHit0:=SphereCastAABBIntersectionOpt(aOrigin,aRadius,InvDirection,AABBTree.fNodes[Node^.Children[0]].AABB,ChildTime0) and (ChildTime0<=aTime);
-        ChildHit1:=SphereCastAABBIntersectionOpt(aOrigin,aRadius,InvDirection,AABBTree.fNodes[Node^.Children[1]].AABB,ChildTime1) and (ChildTime1<=aTime);
+        ChildHit0:=SphereCastAABBIntersectionOpt({$ifdef KraftDoublePositions}BroadOrigin{$else}aOrigin{$endif},aRadius,InvDirection,AABBTree.fNodes[Node^.Children[0]].AABB,ChildTime0) and (ChildTime0<=aTime);
+        ChildHit1:=SphereCastAABBIntersectionOpt({$ifdef KraftDoublePositions}BroadOrigin{$else}aOrigin{$endif},aRadius,InvDirection,AABBTree.fNodes[Node^.Children[1]].AABB,ChildTime1) and (ChildTime1<=aTime);
         if ChildHit0 and ChildHit1 then begin
          if ChildTime0<=ChildTime1 then begin
           Stack.Push(Node^.Children[1]);
@@ -67909,7 +69080,7 @@ begin
  end;
 end;
 
-function TKraft.SphereCast(const aOrigin:TKraftVector3;const aRadius:TKraftScalar;const aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook;const aCastProfilerData:PKraftCastProfilerData):boolean;
+function TKraft.SphereCast(const aOrigin:TKraftPosition;const aRadius:TKraftScalar;const aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint:TKraftPosition;out aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook;const aCastProfilerData:PKraftCastProfilerData):boolean;
 type TStack=TKraftDynamicFastNonRTTIStack<TKraftInt32>;
 var AABBTreeIndex:TKraftInt32;
     AABBTree:TKraftDynamicAABBTree;
@@ -67918,7 +69089,7 @@ var AABBTreeIndex:TKraftInt32;
     Node:PKraftDynamicAABBTreeNode;
     CurrentShape:TKraftShape;
     SphereCastData:TKraftSpherecastData;
-    InvDirection:TKraftVector3;
+    InvDirection{$ifdef KraftDoublePositions},BroadOrigin{$endif}:TKraftVector3;
     NodeTime,ChildTime0,ChildTime1:TKraftScalar;
     ChildHit0,ChildHit1:boolean;
     LocalCountTotalTopLevelAccelerationStructureNodes:TKraftInt32;
@@ -67928,6 +69099,9 @@ begin
  result:=false;
  aTime:=aMaxTime;
  InvDirection:=Vector3Div(Vector3All,aDirection);
+{$ifdef KraftDoublePositions}
+ BroadOrigin:=Vector3FromPosition(aOrigin); // broadphase tests run against the single precision AABB tree (base-relative broadphase is Phase 4)
+{$endif}
  Stack.Initialize;
  try
   SphereCastData.CastProfilerData:=aCastProfilerData;
@@ -67959,7 +69133,7 @@ begin
     while Stack.Pop(NodeID) do begin
      while NodeID>=0 do begin
       Node:=@AABBTree.fNodes[NodeID];
-      if SphereCastAABBIntersectionOpt(aOrigin,aRadius,InvDirection,Node^.AABB,NodeTime) and (NodeTime<=aTime) then begin
+      if SphereCastAABBIntersectionOpt({$ifdef KraftDoublePositions}BroadOrigin{$else}aOrigin{$endif},aRadius,InvDirection,Node^.AABB,NodeTime) and (NodeTime<=aTime) then begin
        inc(LocalCountCheckedTopLevelAccelerationStructureNodes);
        if Node^.Children[0]<0 then begin
         inc(LocalCountCheckedTopLevelAccelerationStructureLeafs);
@@ -67981,8 +69155,8 @@ begin
          end;
         end;
        end else begin
-        ChildHit0:=SphereCastAABBIntersectionOpt(aOrigin,aRadius,InvDirection,AABBTree.fNodes[Node^.Children[0]].AABB,ChildTime0) and (ChildTime0<=aTime);
-        ChildHit1:=SphereCastAABBIntersectionOpt(aOrigin,aRadius,InvDirection,AABBTree.fNodes[Node^.Children[1]].AABB,ChildTime1) and (ChildTime1<=aTime);
+        ChildHit0:=SphereCastAABBIntersectionOpt({$ifdef KraftDoublePositions}BroadOrigin{$else}aOrigin{$endif},aRadius,InvDirection,AABBTree.fNodes[Node^.Children[0]].AABB,ChildTime0) and (ChildTime0<=aTime);
+        ChildHit1:=SphereCastAABBIntersectionOpt({$ifdef KraftDoublePositions}BroadOrigin{$else}aOrigin{$endif},aRadius,InvDirection,AABBTree.fNodes[Node^.Children[1]].AABB,ChildTime1) and (ChildTime1<=aTime);
         if ChildHit0 and ChildHit1 then begin
          if ChildTime0<=ChildTime1 then begin
           Stack.Push(Node^.Children[1]);
@@ -68016,27 +69190,27 @@ begin
  end;
 end;
 
-function TKraft.SphereCast(const aSource:TKraftVector3;const aRadius:TKraftScalar;const aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook;const aCastProfilerData:PKraftCastProfilerData):boolean;
+function TKraft.SphereCast(const aSource:TKraftPosition;const aRadius:TKraftScalar;const aTarget:TKraftPosition;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint:TKraftPosition;out aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook;const aCastProfilerData:PKraftCastProfilerData):boolean;
 var Len:TKraftScalar;
 begin
- Len:=Vector3Dist(aSource,aTarget);
- result:=SphereCast(aSource,aRadius,Vector3Norm(Vector3Sub(aTarget,aSource)),Vector3Dist(aSource,aTarget),aShape,aTime,aPoint,aNormal,aCollisionGroups,aOnSphereCastFilterHook,aCastProfilerData);
+ Len:={$ifdef KraftDoublePositions}Vector3Length(Vector3SubPosition(aTarget,aSource)){$else}Vector3Dist(aSource,aTarget){$endif};
+ result:=SphereCast(aSource,aRadius,Vector3Norm({$ifdef KraftDoublePositions}Vector3SubPosition(aTarget,aSource){$else}Vector3Sub(aTarget,aSource){$endif}),{$ifdef KraftDoublePositions}Vector3Length(Vector3SubPosition(aTarget,aSource)){$else}Vector3Dist(aSource,aTarget){$endif},aShape,aTime,aPoint,aNormal,aCollisionGroups,aOnSphereCastFilterHook,aCastProfilerData);
  if result then begin
   aTime:=aTime/Len;
  end;
 end;
 
-function TKraft.SphereCast(const aSource:TKraftVector3;const aRadius:TKraftScalar;const aTarget:TKraftVector3;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint,aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook;const aCastProfilerData:PKraftCastProfilerData):boolean;
+function TKraft.SphereCast(const aSource:TKraftPosition;const aRadius:TKraftScalar;const aTarget:TKraftPosition;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint:TKraftPosition;out aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook;const aCastProfilerData:PKraftCastProfilerData):boolean;
 var Len:TKraftScalar;
 begin
- Len:=Vector3Dist(aSource,aTarget);
- result:=SphereCast(aSource,aRadius,Vector3Norm(Vector3Sub(aTarget,aSource)),Vector3Dist(aSource,aTarget),aShape,aTime,aPoint,aNormal,aSurfaceNormal,aCollisionGroups,aOnSphereCastFilterHook,aCastProfilerData);
+ Len:={$ifdef KraftDoublePositions}Vector3Length(Vector3SubPosition(aTarget,aSource)){$else}Vector3Dist(aSource,aTarget){$endif};
+ result:=SphereCast(aSource,aRadius,Vector3Norm({$ifdef KraftDoublePositions}Vector3SubPosition(aTarget,aSource){$else}Vector3Sub(aTarget,aSource){$endif}),{$ifdef KraftDoublePositions}Vector3Length(Vector3SubPosition(aTarget,aSource)){$else}Vector3Dist(aSource,aTarget){$endif},aShape,aTime,aPoint,aNormal,aSurfaceNormal,aCollisionGroups,aOnSphereCastFilterHook,aCastProfilerData);
  if result then begin
   aTime:=aTime/Len;
  end;
 end;
 
-function TKraft.PushSphere(var aCenter:TKraftVector3;const aRadius:TKraftScalar;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aTryIterations:TKraftInt32;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook;const aKraftOnPushShapeFilterHook:TKraftOnPushShapeFilterHook;const aAvoidShape:TKraftShape):boolean;
+function TKraft.PushSphere(var aCenter:TKraftPosition;const aRadius:TKraftScalar;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aTryIterations:TKraftInt32;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook;const aKraftOnPushShapeFilterHook:TKraftOnPushShapeFilterHook;const aAvoidShape:TKraftShape):boolean;
 var Hit:boolean;
     AABB:TKraftAABB;
     Sphere:TKraftSphere;
@@ -68046,7 +69220,7 @@ var Hit:boolean;
  var SphereCenter,Direction:TKraftVector3;
      Radius,Distance:TKraftScalar;
  begin
-  SphereCenter:=Vector3TermMatrixMulInverted(Sphere.Center,aWithShape.fWorldTransform);
+  SphereCenter:=Vector3TermMatrixMulInverted(Sphere.Center,{$ifdef KraftDoublePositions}ShapeBaseRelativeWorldTransform(aWithShape,aCenter){$else}aWithShape.fWorldTransform{$endif});
   Radius:=Sphere.Radius;
   Distance:=aWithShape.GetLocalSignedDistanceAndDirection(SphereCenter,Direction);
   if Distance<Radius then begin
@@ -68061,7 +69235,7 @@ var Hit:boolean;
  var Position,Normal:TKraftVector3;
      Depth:TKraftScalar;
  begin
-  Position:=Vector3Sub(Sphere.Center,Vector3TermMatrixMul(aWithShape.fLocalCenterOfMass,aWithShape.fWorldTransform));
+  Position:=Vector3Sub(Sphere.Center,Vector3TermMatrixMul(aWithShape.fLocalCenterOfMass,{$ifdef KraftDoublePositions}ShapeBaseRelativeWorldTransform(aWithShape,aCenter){$else}aWithShape.fWorldTransform{$endif}));
   if Vector3Length(Position)<(Sphere.Radius+aWithShape.fRadius) then begin
    Normal:=Vector3SafeNorm(Position);
    Depth:=(Sphere.Radius+aWithShape.fRadius)-Vector3Length(Position);
@@ -68076,11 +69250,19 @@ var Hit:boolean;
  procedure CollideSphereWithCapsule(const aWithShape:TKraftShapeCapsule);
  var Alpha,HalfLength,r1,r2,d,d1:TKraftScalar;
      Center,Position,Normal,GeometryDirection:TKraftVector3;
+     RelativeTransform:TKraftMatrix4x4;
  begin
+{$ifdef KraftDoublePositions}
+  RelativeTransform:=ShapeBaseRelativeWorldTransform(aWithShape,aCenter);
+{$endif}
   r1:=aWithShape.fRadius;
   r2:=Sphere.Radius;
+{$ifdef KraftDoublePositions}
+  GeometryDirection:=Vector3(RelativeTransform[1,0],RelativeTransform[1,1],RelativeTransform[1,2]);
+{$else}
   GeometryDirection:=Vector3(aWithShape.fWorldTransform[1,0],aWithShape.fWorldTransform[1,1],aWithShape.fWorldTransform[1,2]);
-  Center:=Vector3TermMatrixMul(aWithShape.fLocalCenterOfMass,aWithShape.fWorldTransform);
+{$endif}
+  Center:=Vector3TermMatrixMul(aWithShape.fLocalCenterOfMass,{$ifdef KraftDoublePositions}RelativeTransform{$else}aWithShape.fWorldTransform{$endif});
   Alpha:=(GeometryDirection.x*(Sphere.Center.x-Center.x))+
          (GeometryDirection.y*(Sphere.Center.y-Center.y))+
          (GeometryDirection.z*(Sphere.Center.z-Center.z));
@@ -68113,7 +69295,11 @@ var Hit:boolean;
      SphereCenter,Normal,ClosestPoint,{BestClosestPoint,}BestClosestPointNormal,ab,ap,a,b,v,n:TKraftVector3;
      InsideSphere,InsidePolygon,HasBestClosestPoint:boolean;
      Face:PKraftConvexHullFace;
+     RelativeTransform:TKraftMatrix4x4;
  begin
+{$ifdef KraftDoublePositions}
+  RelativeTransform:=ShapeBaseRelativeWorldTransform(aWithShape,aCenter);
+{$endif}
   BestClosestPointDistance:=MAX_SCALAR;
   BestClosestPointNormal:=Vector3Origin;
   HasBestClosestPoint:=false;
@@ -68121,7 +69307,7 @@ var Hit:boolean;
   ClosestDistance:=MAX_SCALAR;
   ClosestFaceIndex:=-1;
   InsideSphere:=true;
-  SphereCenter:=Vector3TermMatrixMulInverted(Sphere.Center,aWithShape.fWorldTransform);
+  SphereCenter:=Vector3TermMatrixMulInverted(Sphere.Center,{$ifdef KraftDoublePositions}RelativeTransform{$else}aWithShape.fWorldTransform{$endif});
   for FaceIndex:=0 to aWithShape.fConvexHull.fCountFaces-1 do begin
    Face:=@aWithShape.fConvexHull.fFaces[FaceIndex];
    Distance:=PlaneVectorDistance(Face^.Plane,SphereCenter);
@@ -68153,7 +69339,7 @@ var Hit:boolean;
       end;
       if InsidePolygon then begin
        // sphere is directly touching the convex hull . . .
-       Normal:=Vector3SafeNorm(Vector3TermMatrixMulBasis(aWithShape.fConvexHull.fFaces[FaceIndex].Plane.Normal,aWithShape.fWorldTransform));
+       Normal:=Vector3SafeNorm(Vector3TermMatrixMulBasis(aWithShape.fConvexHull.fFaces[FaceIndex].Plane.Normal,{$ifdef KraftDoublePositions}RelativeTransform{$else}aWithShape.fWorldTransform{$endif}));
        SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Normal,Sphere.Radius-Distance));
        inc(Count);
        Hit:=true;
@@ -68163,7 +69349,7 @@ var Hit:boolean;
        // the closest point on the poly and the aCenter of the sphere is less than the sphere aRadius we have a hit.
        Normal:=Vector3Sub(SphereCenter,ClosestPoint);
        if Vector3LengthSquared(Normal)<sqr(Sphere.Radius) then begin
-        Normal:=Vector3TermMatrixMulBasis(Normal,aWithShape.fWorldTransform);
+        Normal:=Vector3TermMatrixMulBasis(Normal,{$ifdef KraftDoublePositions}RelativeTransform{$else}aWithShape.fWorldTransform{$endif});
         Distance:=Vector3LengthNormalize(Normal);
         if (not HasBestClosestPoint) or (BestClosestPointDistance>Distance) then begin
          HasBestClosestPoint:=true;
@@ -68185,7 +69371,7 @@ var Hit:boolean;
    // the sphere aCenter is inside the convex hull . . .
    Face:=@aWithShape.fConvexHull.fFaces[ClosestFaceIndex];
    Distance:=PlaneVectorDistance(Face^.Plane,SphereCenter);
-   Normal:=Vector3SafeNorm(Vector3TermMatrixMulBasis(Face^.Plane.Normal,aWithShape.fWorldTransform));
+   Normal:=Vector3SafeNorm(Vector3TermMatrixMulBasis(Face^.Plane.Normal,{$ifdef KraftDoublePositions}RelativeTransform{$else}aWithShape.fWorldTransform{$endif}));
    SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Normal,Sphere.Radius-Distance));
    inc(Count);
    Hit:=true;
@@ -68206,8 +69392,12 @@ var Hit:boolean;
  var IntersectionDist,ContactDist,DistSqr,Distance,FaceDist,MinDist:TKraftScalar;
      SphereRelativePosition,ClosestPoint,Normal:TKraftVector3;
      Axis,AxisSign:TKraftInt32;
+     RelativeTransform:TKraftMatrix4x4;
  begin
-  SphereRelativePosition:=Vector3TermMatrixMulInverted(Sphere.Center,aWithShape.fWorldTransform);
+{$ifdef KraftDoublePositions}
+  RelativeTransform:=ShapeBaseRelativeWorldTransform(aWithShape,aCenter);
+{$endif}
+  SphereRelativePosition:=Vector3TermMatrixMulInverted(Sphere.Center,{$ifdef KraftDoublePositions}RelativeTransform{$else}aWithShape.fWorldTransform{$endif});
   ClosestPoint.x:=Min(Max(SphereRelativePosition.x,-aWithShape.fExtents.x),aWithShape.fExtents.x);
   ClosestPoint.y:=Min(Max(SphereRelativePosition.y,-aWithShape.fExtents.y),aWithShape.fExtents.y);
   ClosestPoint.z:=Min(Max(SphereRelativePosition.z,-aWithShape.fExtents.z),aWithShape.fExtents.z);
@@ -68274,7 +69464,7 @@ var Hit:boolean;
    end else begin
     Distance:=Vector3LengthNormalize(Normal);
    end;
-   SumMinimumTranslationVector:=Vector3Sub(SumMinimumTranslationVector,Vector3ScalarMul(Vector3SafeNorm(Vector3TermMatrixMulBasis(Normal,aWithShape.fWorldTransform)),Distance-IntersectionDist));
+   SumMinimumTranslationVector:=Vector3Sub(SumMinimumTranslationVector,Vector3ScalarMul(Vector3SafeNorm(Vector3TermMatrixMulBasis(Normal,{$ifdef KraftDoublePositions}RelativeTransform{$else}aWithShape.fWorldTransform{$endif})),Distance-IntersectionDist));
    inc(Count);
    Hit:=true;
    if assigned(aOnPushShapeContactHook) then begin
@@ -68285,11 +69475,15 @@ var Hit:boolean;
  procedure CollideSphereWithPlane(const aWithShape:TKraftShapePlane);
  var Distance:TKraftScalar;
      SphereCenter:TKraftVector3;
+     RelativeTransform:TKraftMatrix4x4;
  begin
-  SphereCenter:=Vector3TermMatrixMulInverted(Sphere.Center,aWithShape.fWorldTransform);
+{$ifdef KraftDoublePositions}
+  RelativeTransform:=ShapeBaseRelativeWorldTransform(aWithShape,aCenter);
+{$endif}
+  SphereCenter:=Vector3TermMatrixMulInverted(Sphere.Center,{$ifdef KraftDoublePositions}RelativeTransform{$else}aWithShape.fWorldTransform{$endif});
   Distance:=PlaneVectorDistance(aWithShape.fPlane,SphereCenter);
   if Distance<=Sphere.Radius then begin
-   SumMinimumTranslationVector:=Vector3Sub(SumMinimumTranslationVector,Vector3ScalarMul(Vector3SafeNorm(Vector3TermMatrixMulBasis(aWithShape.fPlane.Normal,aWithShape.fWorldTransform)),Distance-Sphere.Radius));
+   SumMinimumTranslationVector:=Vector3Sub(SumMinimumTranslationVector,Vector3ScalarMul(Vector3SafeNorm(Vector3TermMatrixMulBasis(aWithShape.fPlane.Normal,{$ifdef KraftDoublePositions}RelativeTransform{$else}aWithShape.fWorldTransform{$endif})),Distance-Sphere.Radius));
    inc(Count);
    Hit:=true;
    if assigned(aOnPushShapeContactHook) then begin
@@ -68304,11 +69498,15 @@ var Hit:boolean;
      SphereCenter,Normal,P0ToCenter,ContactPoint,NearestOnEdge,ContactToCenter:TKraftVector3;
      IsInsideContactPlane,HasContact:boolean;
      v:array[0..2] of PKraftVector3;
+     RelativeTransform:TKraftMatrix4x4;
  begin
+{$ifdef KraftDoublePositions}
+  RelativeTransform:=ShapeBaseRelativeWorldTransform(aWithShape,aCenter);
+{$endif}
   v[0]:=@aWithShape.fConvexHull.fVertices[0].Position;
   v[1]:=@aWithShape.fConvexHull.fVertices[1].Position;
   v[2]:=@aWithShape.fConvexHull.fVertices[2].Position;
-  SphereCenter:=Vector3TermMatrixMulInverted(Sphere.Center,aWithShape.fWorldTransform);
+  SphereCenter:=Vector3TermMatrixMulInverted(Sphere.Center,{$ifdef KraftDoublePositions}RelativeTransform{$else}aWithShape.fWorldTransform{$endif});
   Radius:=Sphere.Radius;
   RadiusWithThreshold:=Radius+EPSILON;
   Normal:=aWithShape.fConvexHull.fFaces[0].Plane.Normal;// Vector3SafeNorm(Vector3Cross(Vector3Sub(v[1]^,v[0]^),Vector3Sub(v[2]^,v[0]^)));
@@ -68341,9 +69539,9 @@ var Hit:boolean;
    DistanceSqr:=Vector3LengthSquared(ContactToCenter);
    if DistanceSqr<ContactRadiusSqr then begin
     if DistanceSqr>EPSILON then begin
-     SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Vector3SafeNorm(Vector3TermMatrixMulBasis(ContactToCenter,aWithShape.fWorldTransform)),Radius-sqrt(DistanceSqr)));
+     SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Vector3SafeNorm(Vector3TermMatrixMulBasis(ContactToCenter,{$ifdef KraftDoublePositions}RelativeTransform{$else}aWithShape.fWorldTransform{$endif})),Radius-sqrt(DistanceSqr)));
     end else begin
-     SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Vector3SafeNorm(Vector3TermMatrixMulBasis(Normal,aWithShape.fWorldTransform)),Radius));
+     SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Vector3SafeNorm(Vector3TermMatrixMulBasis(Normal,{$ifdef KraftDoublePositions}RelativeTransform{$else}aWithShape.fWorldTransform{$endif})),Radius));
     end;
     inc(Count);
     Hit:=true;
@@ -68367,9 +69565,13 @@ var Hit:boolean;
      AABB:TKraftAABB;
      Vertices:array[0..2] of PKraftVector3;
      WasHit:boolean;
+     RelativeTransform:TKraftMatrix4x4;
  begin
+{$ifdef KraftDoublePositions}
+  RelativeTransform:=ShapeBaseRelativeWorldTransform(aWithShape,aCenter);
+{$endif}
   WasHit:=false;
-  SphereCenter:=Vector3TermMatrixMulInverted(Sphere.Center,aWithShape.fWorldTransform);
+  SphereCenter:=Vector3TermMatrixMulInverted(Sphere.Center,{$ifdef KraftDoublePositions}RelativeTransform{$else}aWithShape.fWorldTransform{$endif});
   Radius:=Sphere.Radius;
   RadiusWithThreshold:=Radius+0.1;
   AABB.Min.x:=SphereCenter.x-RadiusWithThreshold;
@@ -68432,9 +69634,9 @@ var Hit:boolean;
           DistanceSqr:=Vector3LengthSquared(ContactToCenter);
           if DistanceSqr<ContactRadiusSqr then begin
            if DistanceSqr>EPSILON then begin
-            SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Vector3SafeNorm(Vector3TermMatrixMulBasis(ContactToCenter,aWithShape.fWorldTransform)),Radius-sqrt(DistanceSqr)));
+            SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Vector3SafeNorm(Vector3TermMatrixMulBasis(ContactToCenter,{$ifdef KraftDoublePositions}RelativeTransform{$else}aWithShape.fWorldTransform{$endif})),Radius-sqrt(DistanceSqr)));
            end else begin
-            SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Vector3SafeNorm(Vector3TermMatrixMulBasis(Normal,aWithShape.fWorldTransform)),Radius));
+            SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Vector3SafeNorm(Vector3TermMatrixMulBasis(Normal,{$ifdef KraftDoublePositions}RelativeTransform{$else}aWithShape.fWorldTransform{$endif})),Radius));
            end;
            inc(Count);
            Hit:=true;
@@ -68484,7 +69686,14 @@ begin
 {$ifdef SIMD}
    AABB.Max.w:=0.0;
 {$endif}
+{$ifdef KraftDoublePositions}
+   // Base-relative: aCenter is the base, so the sphere sits at the frame origin and every candidate shape is
+   // transformed relative to aCenter via ShapeBaseRelativeWorldTransform in the collide procs below. This keeps
+   // the push precise arbitrarily far from the world origin without ever narrowing aCenter to single.
+   Sphere.Center:=Vector3Origin;
+{$else}
    Sphere.Center:=aCenter;
+{$endif}
    Sphere.Radius:=aRadius;
    SumMinimumTranslationVector:=Vector3Origin;
    Count:=0;
@@ -68584,11 +69793,38 @@ var Sphere:TKraftSphere;
     BestPenetrationDepth:TKraftScalar;
     Count:TKraftInt32;
     TransformA:TKraftMatrix4x4;
+{$ifdef KraftDoublePositions}
+ // Base-relative transforms for the push maths so a shape pushed far from the origin does not collapse. The base is
+ // the pushed shape's world position; the pushed shape's own transform (TransformA, which already carries the current
+ // separation offset) is re-based inline. The world geometry uses its double body center when it has a body.
+ function PushBase:TKraftPosition;
+ begin
+  result:=PositionFromVector3(PKraftVector3(pointer(@aShape.fWorldTransform[3,0]))^);
+ end;
+ function PushWithShapeTransform(const aWithShape:TKraftShape):TKraftMatrix4x4;
+ begin
+  if assigned(aWithShape.fRigidBody) then begin
+   result:=ShapeBaseRelativeWorldTransform(aWithShape,PushBase);
+  end else begin
+   result:=aWithShape.fWorldTransform;
+   PKraftVector3(pointer(@result[3,0]))^.xyz:=Vector3SubPosition(PositionFromVector3(PKraftVector3(pointer(@result[3,0]))^),PushBase).xyz;
+  end;
+ end;
+ function PushRelativeTransformA:TKraftMatrix4x4;
+ begin
+  result:=TransformA;
+  PKraftVector3(pointer(@result[3,0]))^.xyz:=Vector3SubPosition(PositionFromVector3(PKraftVector3(pointer(@TransformA[3,0]))^),PushBase).xyz;
+ end;
+{$endif}
  procedure CollideConvex(const aWithShape:TKraftShape);
  var PositionA,PositionB,Normal:TKraftVector3;
      PenetrationDepth:TKraftScalar;
  begin
+{$ifdef KraftDoublePositions}
+  if MPRPenetration(aShape,aWithShape,PushRelativeTransformA,PushWithShapeTransform(aWithShape),PositionA,PositionB,Normal,PenetrationDepth) then begin
+{$else}
   if MPRPenetration(aShape,aWithShape,TransformA,aWithShape.fWorldTransform,PositionA,PositionB,Normal,PenetrationDepth) then begin
+{$endif}
    if aSingleDeepest then begin
     if (Count=0) or (BestPenetrationDepth<=PenetrationDepth) then begin
      Count:=1;
@@ -68622,7 +69858,11 @@ var Sphere:TKraftSphere;
      WasHit:boolean;
  begin
   WasHit:=false;
+{$ifdef KraftDoublePositions}
+  SphereCenter:=Vector3TermMatrixMulInverted(Vector3SubPosition(PositionFromVector3(Sphere.Center),PushBase),PushWithShapeTransform(aWithShape));
+{$else}
   SphereCenter:=Vector3TermMatrixMulInverted(Sphere.Center,aWithShape.fWorldTransform);
+{$endif}
   Radius:=Sphere.Radius;
   RadiusWithThreshold:=Radius+0.1;
   AABB.Min.x:=SphereCenter.x-RadiusWithThreshold;
@@ -68638,7 +69878,11 @@ var Sphere:TKraftSphere;
   AABB.Max.w:=0.0;
 {$endif}
   RadiusWithThreshold:=Radius+EPSILON;
+{$ifdef KraftDoublePositions}
+  RelativeTransform:=Matrix4x4TermMulInverted(PushRelativeTransformA,PushWithShapeTransform(aWithShape));
+{$else}
   RelativeTransform:=Matrix4x4TermMulInverted(TransformA,aWithShape.fWorldTransform);
+{$endif}
   SkipListNodeIndex:=0;
   while SkipListNodeIndex<TKraftShapeMesh(aWithShape).fCountSkipListNodes do begin
    SkipListNode:=@TKraftShapeMesh(aWithShape).fSkipListNodes[SkipListNodeIndex];
@@ -68701,7 +69945,7 @@ var Sphere:TKraftSphere;
  end;
 type TStack=TKraftDynamicFastNonRTTIStack<TKraftInt32>;
 var TryCounter,AABBTreeIndex,NodeID:TKraftInt32;
-    OriginalCenter,Center:TKraftVector3;
+    OriginalCenter,Center:TKraftPosition;
     Stack:TStack;
     AABBTree:TKraftDynamicAABBTree;
     Node:PKraftDynamicAABBTreeNode;
@@ -68710,10 +69954,10 @@ begin
  case aShape.fShapeType of
   kstSphere:begin
    // Use more optimized sphere vs other-shape-types collision detection in this case, even if the MPR-based variant would work too, but maybe a bit slower.
-   OriginalCenter:=TKraftVector3(Pointer(@aShape.fWorldTransform[3,0])^);
+   OriginalCenter:={$ifdef KraftDoublePositions}PositionFromVector3(TKraftVector3(Pointer(@aShape.fWorldTransform[3,0])^)){$else}TKraftVector3(Pointer(@aShape.fWorldTransform[3,0])^){$endif};
    Center:=OriginalCenter;
    result:=PushSphere(Center,TKraftShapeSphere(aShape).fRadius,aCollisionGroups,aTryIterations,aOnPushShapeContactHook,aKraftOnPushShapeFilterHook,aShape);
-   aSeperation:=Vector3Sub(Center,OriginalCenter);
+   aSeperation:={$ifdef KraftDoublePositions}Vector3SubPosition(Center,OriginalCenter){$else}Vector3Sub(Center,OriginalCenter){$endif};
   end;
   kstSignedDistanceField:begin
    // Signed distance field shype type isn't supported for PushShape, since it's not a convex shape.
@@ -68728,8 +69972,8 @@ begin
   else begin
    Stack.Initialize;
    try
-    OriginalCenter:=TKraftVector3(Pointer(@aShape.fWorldTransform[3,0])^);
-    Sphere.Center:=OriginalCenter;
+    OriginalCenter:={$ifdef KraftDoublePositions}PositionFromVector3(TKraftVector3(Pointer(@aShape.fWorldTransform[3,0])^)){$else}TKraftVector3(Pointer(@aShape.fWorldTransform[3,0])^){$endif};
+    Sphere.Center:={$ifdef KraftDoublePositions}Vector3FromPosition(OriginalCenter){$else}OriginalCenter{$endif};
     Sphere.Radius:=SphereFromAABB(aShape.fWorldAABB).Radius;
     aSeperation.x:=0;
     aSeperation.y:=0;
@@ -68744,7 +69988,7 @@ begin
      TransformA[3,0]:=TransformA[3,0]+aSeperation.x;
      TransformA[3,1]:=TransformA[3,1]+aSeperation.y;
      TransformA[3,2]:=TransformA[3,2]+aSeperation.z;
-     Sphere.Center:=Vector3Add(OriginalCenter,aSeperation);
+     Sphere.Center:=Vector3Add({$ifdef KraftDoublePositions}Vector3FromPosition(OriginalCenter){$else}OriginalCenter{$endif},aSeperation);
      AABB.Min.x:=Sphere.Center.x-Sphere.Radius;
      AABB.Min.y:=Sphere.Center.y-Sphere.Radius;
      AABB.Min.z:=Sphere.Center.z-Sphere.Radius;
@@ -68866,6 +70110,22 @@ function TKraft.CollideShape(const aShape:TKraftShape;
                              const aOnCollideShapeContactHook:TKraftOnCollideShapeContactHook=nil;
                              const aOnCollideShapeFilterHook:TKraftOnCollideShapeFilterHook=nil):boolean;
 var Hit:Boolean;
+{$ifdef KraftDoublePositions}
+    CollideBase:TKraftPosition;
+ // Base-relative world transform for the query maths (see CollideBase). Shapes with a body use the precise double
+ // sweep center; free shapes (the query shape, a synthesized triangle) keep their single transform but have the
+ // base subtracted so every shape of the pair is expressed relative to the same base, avoiding the catastrophic
+ // cancellation of a plain B-A of two large single translations far from the origin.
+ function CollideRelativeTransform(const aRelativeShape:TKraftShape):TKraftMatrix4x4;
+ begin
+  if assigned(aRelativeShape.fRigidBody) then begin
+   result:=ShapeBaseRelativeWorldTransform(aRelativeShape,CollideBase);
+  end else begin
+   result:=aRelativeShape.fWorldTransform;
+   PKraftVector3(pointer(@result[3,0]))^.xyz:=Vector3SubPosition(PositionFromVector3(PKraftVector3(pointer(@result[3,0]))^),CollideBase).xyz;
+  end;
+ end;
+{$endif}
  procedure AddContact(const aWithShape:TKraftShape;
                       const aWithShapeMeshIndex:TKraftInt32;
                       const aWithShapeTriangleIndex:TKraftInt32;
@@ -68885,8 +70145,8 @@ var Hit:Boolean;
   Contact^.ShapeA:=aShape;
   Contact^.ShapeB:=aWithShape;
   Contact^.ShapeBTriangleIndex:=aWithShapeTriangleIndex;
-  Contact^.PositionA:=aPositionA;
-  Contact^.PositionB:=aPositionB;
+  Contact^.PositionA:={$ifdef KraftDoublePositions}PositionAddVector3(CollideBase,aPositionA){$else}aPositionA{$endif};
+  Contact^.PositionB:={$ifdef KraftDoublePositions}PositionAddVector3(CollideBase,aPositionB){$else}aPositionB{$endif};
   Contact^.Normal:=aNormal;
   Contact^.PenetrationDepth:=aPenetrationDepth;
   if (not assigned(aOnCollideShapeContactHook)) or aOnCollideShapeContactHook(Contact^) then begin
@@ -69003,8 +70263,13 @@ var Hit:Boolean;
  var Distance:TKraftScalar;
      CenterA,CenterB:TKraftVector3;
  begin
+{$ifdef KraftDoublePositions}
+  CenterA:=Vector3TermMatrixMul(aShapeA.fLocalCentroid,CollideRelativeTransform(aShapeA));
+  CenterB:=Vector3TermMatrixMul(aShapeB.fLocalCentroid,CollideRelativeTransform(aShapeB));
+{$else}
   CenterA:=Vector3TermMatrixMul(aShapeA.fLocalCentroid,aShapeA.fWorldTransform);
   CenterB:=Vector3TermMatrixMul(aShapeB.fLocalCentroid,aShapeB.fWorldTransform);
+{$endif}
   Distance:=Vector3Length(Vector3Sub(CenterB,CenterA));
   if Distance<(aShapeA.fRadius+aShapeB.fRadius) then begin
    AddImplicitContact(aWithShape,-1,-1,CenterA,CenterB,aShapeA.fRadius,aShapeB.fRadius,aShapeA<>aShape);
@@ -69015,8 +70280,13 @@ var Hit:Boolean;
      CenterA,CenterB,Position,GeometryDirection:TKraftVector3;
  begin
   GeometryDirection:=Vector3(PKraftRawVector3(pointer(@aShapeB.fWorldTransform[1,0]))^);
+{$ifdef KraftDoublePositions}
+  CenterA:=Vector3TermMatrixMul(aShapeA.fLocalCentroid,CollideRelativeTransform(aShapeA));
+  CenterB:=Vector3TermMatrixMul(aShapeB.fLocalCentroid,CollideRelativeTransform(aShapeB));
+{$else}
   CenterA:=Vector3TermMatrixMul(aShapeA.fLocalCentroid,aShapeA.fWorldTransform);
   CenterB:=Vector3TermMatrixMul(aShapeB.fLocalCentroid,aShapeB.fWorldTransform);
+{$endif}
   Alpha:=(GeometryDirection.x*(CenterA.x-CenterB.x))+(GeometryDirection.y*(Centera.y-CenterB.y))+(GeometryDirection.z*(CenterA.z-CenterB.z));
   HalfLength:=aShapeB.fHeight*0.5;
   if Alpha>HalfLength then begin
@@ -69036,8 +70306,13 @@ var Hit:Boolean;
      Center,SphereRelativePosition,ClosestPoint,Normal:TKraftVector3;
      Axis,AxisSign,BestFaceIndex:TKraftInt32;
  begin
+{$ifdef KraftDoublePositions}
+  Center:=Vector3TermMatrixMul(aShapeA.fLocalCentroid,CollideRelativeTransform(aShapeA));
+  SphereRelativePosition:=Vector3TermMatrixMulInverted(Center,CollideRelativeTransform(aShapeB));
+{$else}
   Center:=Vector3TermMatrixMul(aShapeA.fLocalCentroid,aShapeA.fWorldTransform);
   SphereRelativePosition:=Vector3TermMatrixMulInverted(Center,aShapeB.fWorldTransform);
+{$endif}
   ClosestPoint.x:=Min(Max(SphereRelativePosition.x,-aShapeB.fExtents.x),aShapeB.fExtents.x);
   ClosestPoint.y:=Min(Max(SphereRelativePosition.y,-aShapeB.fExtents.y),aShapeB.fExtents.y);
   ClosestPoint.z:=Min(Max(SphereRelativePosition.z,-aShapeB.fExtents.z),aShapeB.fExtents.z);
@@ -69113,19 +70388,24 @@ var Hit:Boolean;
    end;
    if BestFaceIndex<>0 then begin
    end;
-   AddFaceBContact(aWithShape,-1,-1,Normal,Center,Vector3TermMatrixMul(ClosestPoint,aShapeB.fWorldTransform),aShapeA.fRadius,0.0,aShapeA<>aShape);
+   AddFaceBContact(aWithShape,-1,-1,Normal,Center,Vector3TermMatrixMul(ClosestPoint,{$ifdef KraftDoublePositions}CollideRelativeTransform(aShapeB){$else}aShapeB.fWorldTransform{$endif}),aShapeA.fRadius,0.0,aShapeA<>aShape);
   end;
  end;
  procedure CollideSphereWithPlane(const aWithShape:TKraftShape;const aShapeA:TKraftShapeSphere;const aShapeB:TKraftShapePlane);
  var Distance:TKraftScalar;
      Center,SphereCenter,Normal:TKraftVector3;
  begin
+{$ifdef KraftDoublePositions}
+  Center:=Vector3TermMatrixMul(aShapeA.fLocalCentroid,CollideRelativeTransform(aShapeA));
+  SphereCenter:=Vector3TermMatrixMulInverted(Center,CollideRelativeTransform(aShapeB));
+{$else}
   Center:=Vector3TermMatrixMul(aShapeA.fLocalCentroid,aShapeA.fWorldTransform);
   SphereCenter:=Vector3TermMatrixMulInverted(Center,aShapeB.fWorldTransform);
+{$endif}
   Distance:=PlaneVectorDistance(aShapeB.fPlane,SphereCenter);
   if Distance<=aShapeA.fRadius then begin
    Normal:=aShapeB.fPlane.Normal;
-   AddFaceBContact(aWithShape,-1,-1,Normal,Center,Vector3TermMatrixMul(Vector3Sub(SphereCenter,Vector3ScalarMul(Normal,Distance)),aShapeB.fWorldTransform),aShapeA.fRadius,0.0,aShapeA<>aShape);
+   AddFaceBContact(aWithShape,-1,-1,Normal,Center,Vector3TermMatrixMul(Vector3Sub(SphereCenter,Vector3ScalarMul(Normal,Distance)),{$ifdef KraftDoublePositions}CollideRelativeTransform(aShapeB){$else}aShapeB.fWorldTransform{$endif}),aShapeA.fRadius,0.0,aShapeA<>aShape);
   end;
  end;
  procedure CollideSphereWithTriangle(const aWithShape:TKraftShape;const aShapeA:TKraftShapeSphere;const aShapeB:TKraftShapeTriangle);
@@ -69139,8 +70419,13 @@ var Hit:Boolean;
   v[0]:=@aShapeB.fConvexHull.fVertices[0].Position;
   v[1]:=@aShapeB.fConvexHull.fVertices[1].Position;
   v[2]:=@aShapeB.fConvexHull.fVertices[2].Position;
+{$ifdef KraftDoublePositions}
+  Center:=Vector3TermMatrixMul(aShapeA.fLocalCentroid,CollideRelativeTransform(aShapeA));
+  SphereCenter:=Vector3TermMatrixMulInverted(Center,CollideRelativeTransform(aShapeB));
+{$else}
   Center:=Vector3TermMatrixMul(aShapeA.fLocalCentroid,aShapeA.fWorldTransform);
   SphereCenter:=Vector3TermMatrixMulInverted(Center,aShapeB.fWorldTransform);
+{$endif}
   Radius:=aShapeA.fRadius;
   RadiusWithThreshold:=Radius+EPSILON;
   Normal:=Vector3SafeNorm(Vector3Cross(Vector3Sub(v[1]^,v[0]^),Vector3Sub(v[2]^,v[0]^)));
@@ -69176,12 +70461,12 @@ var Hit:Boolean;
    if DistanceSqr<ContactRadiusSqr then begin
     if DistanceSqr>EPSILON then begin
      if IsEdge then begin
-      AddImplicitNormalContact(aWithShape,-1,-1,Vector3Neg(Vector3Norm(ContactToCenter)),Center,Vector3TermMatrixMul(ContactPointOnTriangle,aShapeB.fWorldTransform),aShapeA.fRadius,0.0,aShapeA<>aShape);
+      AddImplicitNormalContact(aWithShape,-1,-1,Vector3Neg(Vector3Norm(ContactToCenter)),Center,Vector3TermMatrixMul(ContactPointOnTriangle,{$ifdef KraftDoublePositions}CollideRelativeTransform(aShapeB){$else}aShapeB.fWorldTransform{$endif}),aShapeA.fRadius,0.0,aShapeA<>aShape);
      end else begin
-      AddImplicitContact(aWithShape,-1,-1,Center,Vector3TermMatrixMul(ContactPointOnTriangle,aShapeB.fWorldTransform),aShapeA.fRadius,0.0,aShapeA<>aShape);
+      AddImplicitContact(aWithShape,-1,-1,Center,Vector3TermMatrixMul(ContactPointOnTriangle,{$ifdef KraftDoublePositions}CollideRelativeTransform(aShapeB){$else}aShapeB.fWorldTransform{$endif}),aShapeA.fRadius,0.0,aShapeA<>aShape);
      end;
     end else begin
-     AddFaceBContact(aWithShape,-1,-1,Normal,Center,Vector3TermMatrixMul(ContactPointOnTriangle,aShapeB.fWorldTransform),aShapeA.fRadius,0.0,aShapeA<>aShape);
+     AddFaceBContact(aWithShape,-1,-1,Normal,Center,Vector3TermMatrixMul(ContactPointOnTriangle,{$ifdef KraftDoublePositions}CollideRelativeTransform(aShapeB){$else}aShapeB.fWorldTransform{$endif}),aShapeA.fRadius,0.0,aShapeA<>aShape);
     end;
    end;
   end;
@@ -69193,8 +70478,8 @@ var Hit:Boolean;
      SegmentA,SegmentB:TKraftSegment;
  begin
 
-  CenterA:=Vector3TermMatrixMul(aShapeA.fLocalCenterOfMass,aShapeA.fWorldTransform);
-  CenterB:=Vector3TermMatrixMul(aShapeB.fLocalCenterOfMass,aShapeB.fWorldTransform);
+  CenterA:=Vector3TermMatrixMul(aShapeA.fLocalCenterOfMass,{$ifdef KraftDoublePositions}CollideRelativeTransform(aShapeA){$else}aShapeA.fWorldTransform{$endif});
+  CenterB:=Vector3TermMatrixMul(aShapeB.fLocalCenterOfMass,{$ifdef KraftDoublePositions}CollideRelativeTransform(aShapeB){$else}aShapeB.fWorldTransform{$endif});
 
 {$ifdef SIMD}
   GeometryDirectionA:=Vector3(PKraftRawVector3(pointer(@aShapeA.fWorldTransform[1,0]))^);
@@ -69263,9 +70548,9 @@ var Hit:Boolean;
      PenetrationDepth:TKraftScalar;
  begin
   if ((aShape.fShapeType=kstSignedDistanceField) or (aWithShape.fShapeType=kstSignedDistanceField)) and
-     SignedDistanceFieldPenetration(aShape,aWithShape,aShape.fWorldTransform,aWithShape.fWorldTransform,PositionA,PositionB,Normal,PenetrationDepth) then begin
+     SignedDistanceFieldPenetration(aShape,aWithShape,{$ifdef KraftDoublePositions}CollideRelativeTransform(aShape),CollideRelativeTransform(aWithShape){$else}aShape.fWorldTransform,aWithShape.fWorldTransform{$endif},PositionA,PositionB,Normal,PenetrationDepth) then begin
    AddContact(aWithShape,-1,-1,PositionA,PositionB,Normal,PenetrationDepth);
-  end else if MPRPenetration(aShape,aWithShape,aShape.fWorldTransform,aWithShape.fWorldTransform,PositionA,PositionB,Normal,PenetrationDepth) then begin
+  end else if MPRPenetration(aShape,aWithShape,{$ifdef KraftDoublePositions}CollideRelativeTransform(aShape),CollideRelativeTransform(aWithShape){$else}aShape.fWorldTransform,aWithShape.fWorldTransform{$endif},PositionA,PositionB,Normal,PenetrationDepth) then begin
    AddContact(aWithShape,-1,-1,PositionA,PositionB,Normal,PenetrationDepth);
   end;
  end;
@@ -69322,7 +70607,7 @@ var Hit:Boolean;
      Triangle:PKraftMeshTriangle;
      Vertices:array[0..2] of PKraftVector3;
  begin
-  SphereCenter:=Vector3TermMatrixMulInverted(TKraftVector3(Pointer(@aShape.fWorldTransform[3,0])^),aWithShape.fWorldTransform);
+  SphereCenter:=Vector3TermMatrixMulInverted({$ifdef KraftDoublePositions}Vector3SubPosition(PositionFromVector3(TKraftVector3(Pointer(@aShape.fWorldTransform[3,0])^)),CollideBase),CollideRelativeTransform(aWithShape){$else}TKraftVector3(Pointer(@aShape.fWorldTransform[3,0])^),aWithShape.fWorldTransform{$endif});
   Radius:=TKraftShapeCapsule(aShape).fRadius;
   RadiusWithThreshold:=Radius+EPSILON;
   Mesh:=aWithShape.fMeshes[aWithShapeMeshIndex];
@@ -69359,7 +70644,7 @@ var Hit:Boolean;
    ContactToCenter:=Vector3Sub(SphereCenter,ContactPoint);
    DistanceSqr:=Vector3LengthSquared(ContactToCenter);
    if DistanceSqr<ContactRadiusSqr then begin
-    ContactPoint:=Vector3TermMatrixMul(ContactPoint,aWithShape.fWorldTransform);
+    ContactPoint:=Vector3TermMatrixMul(ContactPoint,{$ifdef KraftDoublePositions}CollideRelativeTransform(aWithShape){$else}aWithShape.fWorldTransform{$endif});
     if DistanceSqr>EPSILON then begin
      Normal:=Vector3SafeNorm(Vector3TermMatrixMulBasis(ContactToCenter,aWithShape.fWorldTransform));
      AddContact(aWithShape,
@@ -69402,7 +70687,7 @@ var Hit:Boolean;
 
   end else begin
 
-   CapsuleCenter:=Vector3TermMatrixMul(aShape.fLocalCentroid,aShape.fWorldTransform);
+   CapsuleCenter:=Vector3TermMatrixMul(aShape.fLocalCentroid,{$ifdef KraftDoublePositions}CollideRelativeTransform(aShape){$else}aShape.fWorldTransform{$endif});
 
    CapsuleGeometryDirection:=Vector3(PKraftRawVector3(pointer(@aShape.fWorldTransform[1,0]))^);
 
@@ -69428,9 +70713,9 @@ var Hit:Boolean;
 
    Mesh:=TKraftShapeMesh(aWithShape).fMeshes[aWithShapeMeshIndex];
 
-   TriangleP0:=Vector3TermMatrixMul(Mesh.fVertices[Mesh.fTriangles[aWithShapeTriangleIndex].Vertices[0]],aWithShape.fWorldTransform);
-   TriangleP1:=Vector3TermMatrixMul(Mesh.fVertices[Mesh.fTriangles[aWithShapeTriangleIndex].Vertices[1]],aWithShape.fWorldTransform);
-   TriangleP2:=Vector3TermMatrixMul(Mesh.fVertices[Mesh.fTriangles[aWithShapeTriangleIndex].Vertices[2]],aWithShape.fWorldTransform);
+   TriangleP0:=Vector3TermMatrixMul(Mesh.fVertices[Mesh.fTriangles[aWithShapeTriangleIndex].Vertices[0]],{$ifdef KraftDoublePositions}CollideRelativeTransform(aWithShape){$else}aWithShape.fWorldTransform{$endif});
+   TriangleP1:=Vector3TermMatrixMul(Mesh.fVertices[Mesh.fTriangles[aWithShapeTriangleIndex].Vertices[1]],{$ifdef KraftDoublePositions}CollideRelativeTransform(aWithShape){$else}aWithShape.fWorldTransform{$endif});
+   TriangleP2:=Vector3TermMatrixMul(Mesh.fVertices[Mesh.fTriangles[aWithShapeTriangleIndex].Vertices[2]],{$ifdef KraftDoublePositions}CollideRelativeTransform(aWithShape){$else}aWithShape.fWorldTransform{$endif});
 
    TriangleNormal:=Vector3Norm(Vector3Cross(Vector3Sub(TriangleP1,TriangleP0),Vector3Sub(TriangleP2,TriangleP0)));
 
@@ -69558,7 +70843,7 @@ var Hit:Boolean;
   end;
 
  end;
-{var Index,Count:TKraftInt32;
+(*var Index,Count:TKraftInt32;
      Radius,HalfLength,SquaredDistance,SquaredRadius,d:TKraftScalar;
      Center,GeometryDirection,HalfAxis,pa,pb,Normal:TKraftVector3;
      Segment:TKraftSegment;
@@ -69567,7 +70852,7 @@ var Hit:Boolean;
      Mesh:TKraftMesh;
  begin
 
-  Center:=Vector3TermMatrixMulInverted(Vector3TermMatrixMul(aShape.fLocalCentroid,aShape.fWorldTransform),aWithShape.fWorldTransform);
+  Center:=Vector3TermMatrixMulInverted(Vector3TermMatrixMul(aShape.fLocalCentroid,{$ifdef KraftDoublePositions}CollideRelativeTransform(aShape){$else}aShape.fWorldTransform{$endif}),{$ifdef KraftDoublePositions}CollideRelativeTransform(aWithShape){$else}aWithShape.fWorldTransform{$endif});
 
   GeometryDirection:=Vector3TermMatrixMulTransposedBasis(Vector3(PKraftRawVector3(pointer(@aShape.fWorldTransform[1,0]))^),aWithShape.fWorldTransform);
 
@@ -69608,8 +70893,8 @@ var Hit:Boolean;
     AddFaceBContact(aWithShape,
                     aWithShapeTriangleIndex,
                     Normal,
-                    Vector3TermMatrixMul(pa,aWithShape.fWorldTransform),
-                    Vector3TermMatrixMul(pb,aWithShape.fWorldTransform),
+                    Vector3TermMatrixMul(pa,{$ifdef KraftDoublePositions}CollideRelativeTransform(aWithShape){$else}aWithShape.fWorldTransform{$endif}),
+                    Vector3TermMatrixMul(pb,{$ifdef KraftDoublePositions}CollideRelativeTransform(aWithShape){$else}aWithShape.fWorldTransform{$endif}),
                     Radius,
                     0.0,
                     false);
@@ -69635,8 +70920,8 @@ var Hit:Boolean;
 //  Normal:=Vector3TermMatrixMulBasis(Normal,ShapeB.fWorldTransform);
     AddContact(aWithShape,
                aWithShapeTriangleIndex,
-               Vector3Avg(Vector3TermMatrixMul(pa,aWithShape.fWorldTransform),
-                          Vector3TermMatrixMul(pb,aWithShape.fWorldTransform)),
+               Vector3Avg(Vector3TermMatrixMul(pa,{$ifdef KraftDoublePositions}CollideRelativeTransform(aWithShape){$else}aWithShape.fWorldTransform{$endif}),
+                          Vector3TermMatrixMul(pb,{$ifdef KraftDoublePositions}CollideRelativeTransform(aWithShape){$else}aWithShape.fWorldTransform{$endif})),
                 Normal,
                     Radius,
                     0.0,
@@ -69645,7 +70930,7 @@ var Hit:Boolean;
 
   end;
 
- end;//}
+ end;*)
  procedure CollideSphereWithMesh(const aWithShape:TKraftShapeMesh);
  const ModuloThree:array[0..5] of TKraftInt32=(0,1,2,0,1,2);
  var i,SkipListNodeIndex,MeshSkipListNodeIndex,TriangleIndex:TKraftInt32;
@@ -69660,7 +70945,7 @@ var Hit:Boolean;
      AABB:TKraftAABB;
      Vertices:array[0..2] of PKraftVector3;
  begin
-  SphereCenter:=Vector3TermMatrixMulInverted(TKraftVector3(Pointer(@aShape.fWorldTransform[3,0])^),aWithShape.fWorldTransform);
+  SphereCenter:=Vector3TermMatrixMulInverted({$ifdef KraftDoublePositions}Vector3SubPosition(PositionFromVector3(TKraftVector3(Pointer(@aShape.fWorldTransform[3,0])^)),CollideBase),CollideRelativeTransform(aWithShape){$else}TKraftVector3(Pointer(@aShape.fWorldTransform[3,0])^),aWithShape.fWorldTransform{$endif});
   Radius:=TKraftShapeSphere(aShape).Radius;
   RadiusWithThreshold:=Radius+0.1;
   AABB.Min.x:=SphereCenter.x-RadiusWithThreshold;
@@ -69722,7 +71007,7 @@ var Hit:Boolean;
           ContactToCenter:=Vector3Sub(SphereCenter,ContactPoint);
           DistanceSqr:=Vector3LengthSquared(ContactToCenter);
           if DistanceSqr<ContactRadiusSqr then begin
-           ContactPoint:=Vector3TermMatrixMul(ContactPoint,aWithShape.fWorldTransform);
+           ContactPoint:=Vector3TermMatrixMul(ContactPoint,{$ifdef KraftDoublePositions}CollideRelativeTransform(aWithShape){$else}aWithShape.fWorldTransform{$endif});
            if DistanceSqr>EPSILON then begin
             Normal:=Vector3SafeNorm(Vector3TermMatrixMulBasis(ContactToCenter,aWithShape.fWorldTransform));
             AddContact(aWithShape,
@@ -69897,6 +71182,16 @@ var AABBTreeIndex,NodeID:TKraftInt32;
 begin
  Hit:=false;
  aCountContacts:=0;
+{$ifdef KraftDoublePositions}
+ // Base for the base-relative query maths: the queried shape's double world center when it belongs to a body,
+ // else its single world position (then the query is limited to single precision, which is unavoidable without a
+ // double transform for the free query shape). All contact points are reported base-relative and re-based below.
+ if assigned(aShape.fRigidBody) then begin
+  CollideBase:=aShape.fRigidBody.fSweep.c;
+ end else begin
+  CollideBase:=PositionFromVector3(PKraftVector3(pointer(@aShape.fWorldTransform[3,0]))^);
+ end;
+{$endif}
  Stack.Initialize;
  try
   for AABBTreeIndex:=0 to 3 do begin
@@ -69943,15 +71238,15 @@ end;
 
 function TKraft.SolveShapeCollisionContacts(const aContacts:TKraftShapeCollisionContacts;
                                             const aCountContacts:TKraftInt32;
-                                            var aPosition:TKraftVector3;
+                                            var aPosition:TKraftPosition;
                                             var aVelocity:TKraftVector3;
                                             const aCountPositionIterations:TKraftInt32;
                                             const aCountVelocityIterations:TKraftInt32):Boolean;
 var ContactIndex,Count,IterationIndex:TKraftInt32;
     Contact:PKraftShapeCollisionContact;
     CombinedPenetrationVector,CombinedNormal,
-    TargetPosition,OriginalPosition,
     TargetVelocity,OriginalVelocity,NormalizedOriginalVelocity,VelocityNormal:TKraftVector3;
+    TargetPosition,OriginalPosition:TKraftPosition;
     OriginalVelocityLength,Dot,Len:TKraftScalar;
     OK:boolean;
 begin
@@ -69968,10 +71263,14 @@ begin
     OK:=false;
     for ContactIndex:=0 to aCountContacts-1 do begin
      Contact:=@aContacts[ContactIndex];
-     TargetPosition:=Vector3Add(OriginalPosition,Vector3ScalarMul(Contact^.Normal,Contact^.PenetrationDepth));
-     Dot:=Vector3Dot(Contact^.Normal,Vector3Sub(aPosition,TargetPosition));
+     TargetPosition:={$ifdef KraftDoublePositions}PositionAddVector3(OriginalPosition,Vector3ScalarMul(Contact^.Normal,Contact^.PenetrationDepth)){$else}Vector3Add(OriginalPosition,Vector3ScalarMul(Contact^.Normal,Contact^.PenetrationDepth)){$endif};
+     Dot:=Vector3Dot(Contact^.Normal,{$ifdef KraftDoublePositions}Vector3SubPosition(aPosition,TargetPosition){$else}Vector3Sub(aPosition,TargetPosition){$endif});
      if Dot<0.0 then begin
+{$ifdef KraftDoublePositions}
+      aPosition:=PositionAddVector3(aPosition,Vector3Neg(Vector3ScalarMul(Contact^.Normal,Dot)));
+{$else}
       Vector3DirectSub(aPosition,Vector3ScalarMul(Contact^.Normal,Dot));
+{$endif}
       OK:=true;
      end;
     end;
@@ -69991,7 +71290,11 @@ begin
    end;
    Len:=Vector3LengthNormalize(CombinedPenetrationVector);
    if Len>0.0 then begin
+{$ifdef KraftDoublePositions}
+    aPosition:=PositionAddVector3(aPosition,Vector3ScalarMul(CombinedPenetrationVector,(Len/aCountContacts)+1e-5));
+{$else}
     Vector3DirectAdd(aPosition,Vector3ScalarMul(CombinedPenetrationVector,(Len/aCountContacts)+1e-5));
+{$endif}
     result:=true;
    end;
 
@@ -70044,6 +71347,23 @@ begin
  end;
 
 end;
+
+{$ifdef KraftDoublePositions}
+function TKraft.FastCheckIntersection(const aAABB:TKraftPositionAABB;const aCollisionGroups:TKraftRigidBodyCollisionGroups):Boolean;
+begin
+ result:=FastCheckIntersection(AABBFromPositionAABB(aAABB),aCollisionGroups);
+end;
+
+function TKraft.IntersectionQuery(const aAABB:TKraftPositionAABB;var aArray:TKraftShapeDynamicArray;var aCount:TKraftSizeInt):Boolean;
+begin
+ result:=IntersectionQuery(AABBFromPositionAABB(aAABB),aArray,aCount);
+end;
+
+function TKraft.ContainQuery(const aAABB:TKraftPositionAABB;var aArray:TKraftShapeDynamicArray;var aCount:TKraftSizeInt):Boolean;
+begin
+ result:=ContainQuery(AABBFromPositionAABB(aAABB),aArray,aCount);
+end;
+{$endif}
 
 function TKraft.FastCheckIntersection(const aAABB:TKraftAABB;const aCollisionGroups:TKraftRigidBodyCollisionGroups):Boolean;
 var Index:TKraftSizeInt;
@@ -70190,7 +71510,7 @@ begin
  end;
 end;
 
-function TKraft.ContainQuery(const aPoint:TKraftVector3;var aArray:TKraftShapeDynamicArray;var aCount:TKraftSizeInt):Boolean;
+function TKraft.ContainQuery(const aPoint:TKraftPosition;var aArray:TKraftShapeDynamicArray;var aCount:TKraftSizeInt):Boolean;
 var TemporaryCount,CombinedCount,Index:TKraftSizeInt;
     TemporaryArray,CombinedArray:TKraftPointerDynamicArray;
     DynamicAABBTree:TKraftDynamicAABBTree;
@@ -70248,7 +71568,7 @@ begin
  end;
 end;
 
-function TKraft.FindClosest(const aPoint:TKraftVector3):TKraftShape;
+function TKraft.FindClosest(const aPoint:TKraftPosition):TKraftShape;
 var Index:TKraftSizeInt;
     DynamicAABBTree:TKraftDynamicAABBTree;
     TemporaryShape:TKraftShape;
@@ -70274,7 +71594,7 @@ begin
   if assigned(DynamicAABBTree) and (DynamicAABBTree.fRoot>=0) then begin
    TemporaryShape:=DynamicAABBTree.FindClosest(aPoint);
    if assigned(TemporaryShape) then begin
-    Distance:=ClosestPointToAABB(TemporaryShape.fWorldAABB,aPoint,nil);
+    Distance:=ClosestPointToAABB(TemporaryShape.fWorldAABB,{$ifdef KraftDoublePositions}Vector3FromPosition(aPoint){$else}aPoint{$endif},nil);
     if Distance<ClosestDistance then begin
      ClosestDistance:=Distance;
      result:=TemporaryShape;
@@ -70284,7 +71604,7 @@ begin
  end;
 end;
 
-function TKraft.LookupClosest(const aPoint:TKraftVector3;var aArray:TKraftShapeDynamicArray;var aCount:TKraftSizeInt;aGetDistance:TKraftDynamicAABBTreeGetDistance=nil;const aMaxCount:TKraftSizeInt=1;aMaxDistance:TKraftScalar=-1.0):boolean;
+function TKraft.LookupClosest(const aPoint:TKraftPosition;var aArray:TKraftShapeDynamicArray;var aCount:TKraftSizeInt;aGetDistance:TKraftDynamicAABBTreeGetDistance=nil;const aMaxCount:TKraftSizeInt=1;aMaxDistance:TKraftScalar=-1.0):boolean;
 var TemporaryCount,CombinedCount,Index:TKraftSizeInt;
     TemporaryArray,CombinedArray:TKraftPointerDynamicArray;
     DynamicAABBTree:TKraftDynamicAABBTree;
@@ -70339,7 +71659,7 @@ begin
   if CombinedCount>1 then begin
    Index:=0;
    while (Index+1)<CombinedCount do begin
-    if ClosestPointToAABB(TKraftShape(CombinedArray[Index]).fWorldAABB,aPoint,nil)>ClosestPointToAABB(TKraftShape(CombinedArray[Index+1]).fWorldAABB,aPoint,nil) then begin
+    if ClosestPointToAABB(TKraftShape(CombinedArray[Index]).fWorldAABB,{$ifdef KraftDoublePositions}Vector3FromPosition(aPoint){$else}aPoint{$endif},nil)>ClosestPointToAABB(TKraftShape(CombinedArray[Index+1]).fWorldAABB,{$ifdef KraftDoublePositions}Vector3FromPosition(aPoint){$else}aPoint{$endif},nil) then begin
      Temporary:=CombinedArray[Index];
      CombinedArray[Index]:=CombinedArray[Index+1];
      CombinedArray[Index+1]:=Temporary;
