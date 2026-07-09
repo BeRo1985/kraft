@@ -520,7 +520,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
                       ksfRayCastable,
                       ksfSphereCastable,
                       ksfShapeCastable,
-                      ksfPointTestable);
+                      ksfPointTestable,
+                      ksfSuppressConvexInternalEdges, // Opt-in: also drop ghost contacts on convex internal mesh edges; default off keeps convex-edge contacts (only flat coplanar internal edges get dropped)
+                      ksfDisableSpeculativeMeshContacts); // Reserved for a future feature (no effect yet): disable speculative hull-vs-mesh-triangle contacts to reduce ghost collisions
      PKraftShapeFlag=^TKraftShapeFlag;
 
      TKraftShapeFlags=set of TKraftShapeFlag;
@@ -44337,8 +44339,12 @@ begin
    continue;
   end;
 
-  // Boundary and concave edges are real contact edges and always keep their contact.
-  if (MeshTriangle^.EdgeConvexity[BestEdgeIndex]<>1) and (MeshTriangle^.EdgeConvexity[BestEdgeIndex]<>3) then begin
+  // Boundary and concave edges are real contact edges and always keep their contact; by default convex edges
+  // keep theirs too and only flat coplanar edges are dropped here, unless the mesh shape opts into convex
+  // suppression via ksfSuppressConvexInternalEdges (dropping a convex-edge contact can let a fast body tunnel
+  // through the edge at its time of impact).
+  if (MeshTriangle^.EdgeConvexity[BestEdgeIndex]<>3) and
+     ((not (ksfSuppressConvexInternalEdges in MeshShape.fFlags)) or (MeshTriangle^.EdgeConvexity[BestEdgeIndex]<>1)) then begin
    continue;
   end;
 
