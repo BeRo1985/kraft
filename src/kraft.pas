@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-07-11-01-50-0000                       *
+ *                        Version 2026-07-11-01-58-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -41474,9 +41474,9 @@ var OldManifoldCountContacts:TKraftInt32;
        // with the tight generic tolerance it collapses to a single end contact and tips between its ends forever.
        ParallelFaceTolerance=0.05;
  var FaceIndex,VertexIndex,OtherVertexIndex,PointIndex,MaxFaceIndex,MaxEdgeIndex,EdgeIndex:TKraftInt32;
-     CapsuleRadius,Distance,MaxFaceSeparation,MaxEdgeSeparation,Separation,L:TKraftScalar;
+     CapsuleRadius,Distance,MaxFaceSeparation,MaxEdgeSeparation,Separation{$ifdef KraftGaussMapEdgeAxis},cba,dba{$else},L{$endif}:TKraftScalar;
      CapsulePosition,CapsuleAxis,CapsulePointStart,CapsulePointEnd,Normal,FaceNormal,{MaxFaceSeparateAxis,}
-     MaxEdgeSeparateAxis,CenterB,Ea,Eb,Ea_x_Eb:TKraftVector3;
+     MaxEdgeSeparateAxis,Ea{$ifndef KraftGaussMapEdgeAxis},CenterB,Eb,Ea_x_Eb{$endif}:TKraftVector3;
      OK:boolean;
      Face:PKraftConvexHullFace;
      Edge:PKraftConvexHullEdge;
@@ -41643,14 +41643,29 @@ var OldManifoldCountContacts:TKraftInt32;
    MaxEdgeSeparation:=-MAX_SCALAR;
    MaxEdgeSeparateAxis:=Vector3Origin;
    Ea:=Vector3Sub(CapsulePointEnd,CapsulePointStart);
+{$ifndef KraftGaussMapEdgeAxis}
    CenterB:=ShapeB.fLocalCenterOfMass;
+{$endif}
    for EdgeIndex:=0 to ShapeB.fConvexHull.fCountEdges-1 do begin
     Edge:=@ShapeB.fConvexHull.fEdges[EdgeIndex];
     if (Vector3Dot(Ea,ShapeB.fConvexHull.fFaces[Edge^.Faces[0]].Plane.Normal)*Vector3Dot(Ea,ShapeB.fConvexHull.fFaces[Edge^.Faces[1]].Plane.Normal))<0.0 then begin
 
+     // Build search direction
+{$ifdef KraftGaussMapEdgeAxis}
+     // The capsule axis is an isolated edge (a circle through the origin on the Gauss map), so the isolated
+     // Minkowski test above is already a plane test; cba/dba are the signed distances of the capsule axis to
+     // each hull face normal and have opposite signs, so cba-dba never vanishes. The axis lands between the
+     // two hull face normals and thus points hull -> capsule by construction, which is this routine's normal
+     // convention (oriented outward from the hull), so no center-based orientation is needed.
+     cba:=Vector3Dot(ShapeB.fConvexHull.fFaces[Edge^.Faces[0]].Plane.Normal,Ea);
+     dba:=Vector3Dot(ShapeB.fConvexHull.fFaces[Edge^.Faces[1]].Plane.Normal,Ea);
+     if Max(sqr(cba),sqr(dba))<(sqr(Tolerance)*Vector3LengthSquared(Ea)) then begin
+      continue;
+     end;
+     Normal:=Vector3Norm(Vector3Lerp(ShapeB.fConvexHull.fFaces[Edge^.Faces[0]].Plane.Normal,ShapeB.fConvexHull.fFaces[Edge^.Faces[1]].Plane.Normal,cba/(cba-dba)));
+{$else}
      Eb:=Vector3Sub(Vector3ScalarMul(ShapeB.fConvexHull.fVertices[Edge^.Vertices[1]].Position,ShapeB.fScale),Vector3ScalarMul(ShapeB.fConvexHull.fVertices[Edge^.Vertices[0]].Position,ShapeB.fScale));
 
-     // Build search direction
      Ea_x_Eb:=Vector3Cross(Ea,Eb);
 
      // Skip near parallel edges: |Ea x Eb| = sin(alpha) * |Ea| * |Eb|
@@ -41659,11 +41674,12 @@ var OldManifoldCountContacts:TKraftInt32;
       continue;
      end;
 
-     // Assure consistent normal orientation (here: HullA -> HullB)
+     // Assure consistent normal orientation (here: hull -> capsule, outward from the hull)
      Normal:=Vector3ScalarMul(Ea_x_Eb,1.0/L);
      if Vector3Dot(Normal,Vector3Sub(Vector3ScalarMul(ShapeB.fConvexHull.fVertices[Edge^.Vertices[0]].Position,ShapeB.fScale),CenterB))<0.0 then begin
       Normal:=Vector3Neg(Normal);
      end;
+{$endif}
 
      Separation:=Vector3Dot(Normal,Vector3Sub(CapsulePointStart,Vector3ScalarMul(ShapeB.fConvexHull.fVertices[Edge^.Vertices[0]].Position,ShapeB.fScale)))-CapsuleRadius;
      if Separation>0.0 then begin
