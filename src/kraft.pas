@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-07-10-21-16-0000                       *
+ *                        Version 2026-07-11-01-50-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -159,6 +159,13 @@ unit kraft;
 {-$define UseMoreCollisionGroups}
 
 {$define UseTriangleMeshFullPerturbation}
+
+// Edge-edge SAT axis via Gauss-map arc intersection: derives the edge-pair separating axis by intersecting
+// the two adjacent-face-normal arcs on the Gauss map instead of taking the cross product of the two edges and
+// orienting it against the hull center. This avoids the cross product and, more importantly, the center-based
+// orientation whose sign flickers when the axis is nearly parallel to a triangle face normal. Undefine to fall
+// back to the classic cross-product axis with center-based orientation.
+{$define KraftGaussMapEdgeAxis}
 
 {$define KraftConstraintGraphColoring}
 
@@ -41847,13 +41854,15 @@ var OldManifoldCountContacts:TKraftInt32;
   end;
   function TestEarlyEdgeDirection(const HullA,HullB:TKraftShapeConvexHull;var EdgeQuery:TKraftContactEdgeQuery):boolean;
   var EdgeA,EdgeB:PKraftConvexHullEdge;
-      L:TKraftScalar;
-      CenterA,Pa,Qa,Ea,Ua,Va,Pb,Qb,Eb,Ub,Vb,Ea_x_Eb,Normal:TKraftVector3;
+      {$ifdef KraftGaussMapEdgeAxis}cba,dba{$else}L{$endif}:TKraftScalar;
+      {$ifndef KraftGaussMapEdgeAxis}CenterA,Ea_x_Eb,{$endif}Pa,Qa,Ea,Ua,Va,Pb,Qb,Eb,Ub,Vb,Normal:TKraftVector3;
       Transform:TKraftMatrix4x4;
   begin
    result:=false;
    Transform:=Matrix4x4TermMulSimpleInverted({$ifdef KraftDoublePositions}ShapeWorldTransform(HullA),ShapeWorldTransform(HullB){$else}HullA.fWorldTransform,HullB.fWorldTransform{$endif});
+{$ifndef KraftGaussMapEdgeAxis}
    CenterA:=HullA.GetCenter(Transform);
+{$endif}
    EdgeA:=@HullA.fConvexHull.fEdges[EdgeQuery.IndexA];
    Pa:=Vector3TermMatrixMulWithScale(HullA.fConvexHull.fVertices[EdgeA^.Vertices[0]].Position,Transform,HullA.fScale);
    Qa:=Vector3TermMatrixMulWithScale(HullA.fConvexHull.fVertices[EdgeA^.Vertices[1]].Position,Transform,HullA.fScale);
@@ -41868,6 +41877,21 @@ var OldManifoldCountContacts:TKraftInt32;
    Vb:=HullB.fConvexHull.fFaces[EdgeB^.Faces[1]].Plane.Normal;
    if IsMinkowskiFace(Ua,Va,Vector3Neg(Ea),Vector3Neg(Ub),Vector3Neg(Vb),Vector3Neg(Eb)) then begin
     // Build search direction
+{$ifdef KraftGaussMapEdgeAxis}
+    // Edge-pair axis = intersection of edge B's two adjacent-face-normal arcs on the Gauss map (see
+    // QueryEdgeDirections). Opposite signs are guaranteed by the Minkowski test, so cba-dba never vanishes.
+    cba:=Vector3Dot(Ub,Ea);
+    dba:=Vector3Dot(Vb,Ea);
+
+    // Skip near parallel edges at the noise floor
+    if Max(sqr(cba),sqr(dba))<(sqr(kTolerance)*Vector3LengthSquared(Ea)) then begin
+     result:=false;
+     exit;
+    end;
+
+    // Axis points HullB -> HullA by construction; negate for KRAFT's HullA -> HullB convention.
+    Normal:=Vector3Neg(Vector3Norm(Vector3Lerp(Ub,Vb,cba/(cba-dba))));
+{$else}
     Ea_x_Eb:=Vector3Cross(Ea,Eb);
 
     // Skip near parallel edges: |Ea x Eb| = sin(alpha) * |Ea| * |Eb|
@@ -41882,6 +41906,7 @@ var OldManifoldCountContacts:TKraftInt32;
     if Vector3Dot(Normal,Vector3Sub(Pa,CenterA))<0.0 then begin
      Normal:=Vector3Neg(Normal);
     end;
+{$endif}
 
     // s = Dot(Normal, Pb) - d = Dot(Normal, Pb) - Dot(Normal, Pa) = Dot(Normal, Pb - Pa)
     EdgeQuery.Separation:=Vector3Dot(Normal,Vector3Sub(Pb,Pa));
@@ -41918,8 +41943,8 @@ var OldManifoldCountContacts:TKraftInt32;
   procedure QueryEdgeDirections(const HullA,HullB:TKraftShapeConvexHull;out OutEdgeQuery:TKraftContactEdgeQuery);
   var EdgeA,EdgeB:PKraftConvexHullEdge;
       IndexA,IndexB,MaxIndexA,MaxIndexB:TKraftInt32;
-      MaxSeparation,Separation,L:TKraftScalar;
-      CenterA,Pa,Qa,Ea,Ua,Va,Pb,Qb,Eb,Ub,Vb,Ea_x_Eb,Normal,MaxNormal:TKraftVector3;
+      MaxSeparation,Separation{$ifdef KraftGaussMapEdgeAxis},cba,dba{$else},L{$endif}:TKraftScalar;
+      {$ifndef KraftGaussMapEdgeAxis}CenterA,Ea_x_Eb,{$endif}Pa,Qa,Ea,Ua,Va,Pb,Qb,Eb,Ub,Vb,Normal,MaxNormal:TKraftVector3;
       Transform:TKraftMatrix4x4;
       First:boolean;
   begin
@@ -41928,7 +41953,9 @@ var OldManifoldCountContacts:TKraftInt32;
    MaxSeparation:=-MAX_SCALAR;
    MaxNormal:=Vector3Origin;
    Transform:=Matrix4x4TermMulSimpleInverted({$ifdef KraftDoublePositions}ShapeWorldTransform(HullA),ShapeWorldTransform(HullB){$else}HullA.fWorldTransform,HullB.fWorldTransform{$endif});
+{$ifndef KraftGaussMapEdgeAxis}
    CenterA:=HullA.GetCenter(Transform);
+{$endif}
    First:=true;
    for IndexA:=0 to HullA.fConvexHull.fCountEdges-1 do begin
     EdgeA:=@HullA.fConvexHull.fEdges[IndexA];
@@ -41946,6 +41973,22 @@ var OldManifoldCountContacts:TKraftInt32;
      Vb:=HullB.fConvexHull.fFaces[EdgeB^.Faces[1]].Plane.Normal;
      if IsMinkowskiFace(Ua,Va,Vector3Neg(Ea),Vector3Neg(Ub),Vector3Neg(Vb),Vector3Neg(Eb)) then begin
       // Build search direction
+{$ifdef KraftGaussMapEdgeAxis}
+      // Edge-pair axis = intersection of edge B's two adjacent-face-normal arcs on the Gauss map.
+      // cba/dba are the signed distances of edge A to the plane of each B face normal (opposite signs
+      // are guaranteed by the Minkowski test, so cba-dba never vanishes).
+      cba:=Vector3Dot(Ub,Ea);
+      dba:=Vector3Dot(Vb,Ea);
+
+      // Skip near parallel edges at the noise floor
+      if Max(sqr(cba),sqr(dba))<(sqr(kTolerance)*Vector3LengthSquared(Ea)) then begin
+       continue;
+      end;
+
+      // The axis lands between the two B face normals, so it already points HullB -> HullA by
+      // construction; negate for KRAFT's HullA -> HullB convention. No center-based orientation needed.
+      Normal:=Vector3Neg(Vector3Norm(Vector3Lerp(Ub,Vb,cba/(cba-dba))));
+{$else}
       Ea_x_Eb:=Vector3Cross(Ea,Eb);
 
       // Skip near parallel edges: |Ea x Eb| = sin(alpha) * |Ea| * |Eb|
@@ -41959,6 +42002,7 @@ var OldManifoldCountContacts:TKraftInt32;
       if Vector3Dot(Normal,Vector3Sub(Pa,CenterA))<0.0 then begin
        Normal:=Vector3Neg(Normal);
       end;
+{$endif}
 
       // s = Dot(Normal, Pb) - d = Dot(Normal, Pb) - Dot(Normal, Pa) = Dot(Normal, Pb - Pa)
       Separation:=Vector3Dot(Normal,Vector3Sub(Pb,Pa));
