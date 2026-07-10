@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-07-07-18-28-0000                       *
+ *                        Version 2026-07-10-21-16-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -521,7 +521,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
                       ksfSphereCastable,
                       ksfShapeCastable,
                       ksfPointTestable,
-                      ksfSuppressConvexInternalEdges, // Opt-in: also drop ghost contacts on convex internal mesh edges; default off keeps convex-edge contacts (only flat coplanar internal edges get dropped)
+                      ksfSuppressConvexInternalEdges,     // Opt-in: also drop ghost contacts on convex internal mesh edges; default off keeps convex-edge contacts (only flat coplanar internal edges get dropped)
                       ksfDisableSpeculativeMeshContacts); // Reserved for a future feature (no effect yet): disable speculative hull-vs-mesh-triangle contacts to reduce ghost collisions
      PKraftShapeFlag=^TKraftShapeFlag;
 
@@ -4763,7 +4763,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        // Configures one translational degree of freedom along a frame axis (0=x, 1=y, 2=z=twist axis); the
        // limits only apply in the limited mode, and a positive limit frequency makes them soft limits with
        // their own spring/damper instead of hard stops.
-       procedure SetLinearAxisMode(const aAxisIndex:longint;const aMode:TKraft6DOFAxisMode;const aLowerLimit:TKraftScalar=0.0;const aUpperLimit:TKraftScalar=0.0;const aLimitFrequencyHz:TKraftScalar=0.0;const aLimitDampingRatio:TKraftScalar=1.0);
+       procedure SetLinearAxisMode(const aAxisIndex:TKraftInt32;const aMode:TKraft6DOFAxisMode;const aLowerLimit:TKraftScalar=0.0;const aUpperLimit:TKraftScalar=0.0;const aLimitFrequencyHz:TKraftScalar=0.0;const aLimitDampingRatio:TKraftScalar=1.0);
        procedure InitializeConstraintsAndWarmStart(const Island:TKraftIsland;const TimeStep:TKraftTimeStep); override;
        procedure SolveVelocityConstraint(const Island:TKraftIsland;const TimeStep:TKraftTimeStep); override;
        function SolvePositionConstraint(const Island:TKraftIsland;const TimeStep:TKraftTimeStep):boolean; override;
@@ -56302,7 +56302,7 @@ end;
 
 procedure TKraftConstraintJoint6DOF.BuildFrames(const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const AWorldAnchorPoint,AWorldTwistAxis,AWorldSwingReferenceAxis:TKraftVector3;const ACollideConnected:boolean);
 var AxisX,AxisY,AxisZ:TKraftVector3;
-    AxisIndex:longint;
+    AxisIndex:TKraftInt32;
     FrameMatrix:TKraftMatrix3x3;
     FrameOrientation:TKraftQuaternion;
 begin
@@ -56435,7 +56435,7 @@ begin
  inherited Destroy;
 end;
 
-procedure TKraftConstraintJoint6DOF.SetLinearAxisMode(const aAxisIndex:longint;const aMode:TKraft6DOFAxisMode;const aLowerLimit:TKraftScalar=0.0;const aUpperLimit:TKraftScalar=0.0;const aLimitFrequencyHz:TKraftScalar=0.0;const aLimitDampingRatio:TKraftScalar=1.0);
+procedure TKraftConstraintJoint6DOF.SetLinearAxisMode(const aAxisIndex:TKraftInt32;const aMode:TKraft6DOFAxisMode;const aLowerLimit:TKraftScalar=0.0;const aUpperLimit:TKraftScalar=0.0;const aLimitFrequencyHz:TKraftScalar=0.0;const aLimitDampingRatio:TKraftScalar=1.0);
 begin
  if (aAxisIndex>=0) and (aAxisIndex<=2) then begin
   fLinearModes[aAxisIndex]:=aMode;
@@ -56462,7 +56462,7 @@ var QuatA,QuatB,RelQ,TwistQ,SwingQ,DriveDeltaQ:TKraftQuaternion;
     VecX,VecY,InvSumX,InvSumY,rA,rB,d,dPlusRA:TKraftVector3;
     TwistDot,RawTwistAngle,AngleDifference,SwingLength,InverseTwistMass,InverseSwingMass,
     SwingDirectionX,SwingDirectionY,EllipseDenominator,EffectiveConeHalfAngle,InverseLinearMass:TKraftScalar;
-    AxisIndex:longint;
+    AxisIndex:TKraftInt32;
 begin
 
  // Current frame orientations (frame z axis = twist axis).
@@ -56619,7 +56619,7 @@ var vA,wA,vB,wB:PKraftVector3;
     Cdot,Solution,OldImpulse,DeltaImpulse,LinearP:TKraftVector3;
     TargetComponents:array[0..2] of TKraftScalar;
     MaximalImpulse,LengthSquared,CdotAxis,Lambda,OldScalar:TKraftScalar;
-    AxisIndex:longint;
+    AxisIndex:TKraftInt32;
 begin
 
  vA:=@fSolverVelocities[0]^.LinearVelocity;
@@ -56712,7 +56712,7 @@ var cA,vA,wA,cB,vB,wB:PKraftVector3;
     MassMatrix:TKraftMatrix3x3;
     TwistP,ConeP,SwingLockP,AngularImpulse,LinearP:TKraftVector3;
     OldLimitStateFlag:boolean;
-    AxisIndex:longint;
+    AxisIndex:TKraftInt32;
 begin
 
  fIslandIndices[0]:=fRigidBodies[0].fIslandIndices[Island.fIslandIndex];
@@ -57005,7 +57005,7 @@ procedure TKraftConstraintJoint6DOF.SolveVelocityConstraint(const Island:TKraftI
 var vA,wA,vB,wB:PKraftVector3;
     vpA,vpB,Jv,Impulse,LimitP,AngularImpulse,wRel,LinearP:TKraftVector3;
     InverseDT,CdotLimit,C,BiasLimit,LambdaLimit,Old,CdotX,CdotY,RhsX,RhsY,Det,InverseDet,SolutionX,SolutionY,LambdaX,LambdaY,Cdot,Lambda:TKraftScalar;
-    AxisIndex:longint;
+    AxisIndex:TKraftInt32;
 begin
 
  vA:=@fSolverVelocities[0]^.LinearVelocity;
@@ -57231,7 +57231,7 @@ var cA,cB:PKraftVector3;
     InverseMassOfBodies,C,LimitLambda:TKraftScalar;
     SkewSymmetricMatrices:array[0..1] of TKraftMatrix3x3;
     MassMatrix:TKraftMatrix3x3;
-    AxisIndex:longint;
+    AxisIndex:TKraftInt32;
 begin
 
  if fPhysics.fConstraintPositionCorrectionMode=kpcmNonLinearGaussSeidel then begin
@@ -57424,7 +57424,7 @@ end;
 procedure TKraftConstraintJoint6DOF.PrepareSubStep(const Island:TKraftIsland;const TimeStep:TKraftTimeStep);
 var qA,qB:TKraftQuaternion;
     h,Hertz,Omega,A1,A2,A3:TKraftScalar;
-    AxisIndex:longint;
+    AxisIndex:TKraftInt32;
 begin
 
  // Bind the joint to its two bodies' solver slots, exactly like the classic prepare does.
@@ -57579,7 +57579,7 @@ var vA,wA,vB,wB:PKraftVector3;
     qA,qB:TKraftQuaternion;
     rA,rB,TwistP,ConeP,SwingLockP,AngularImpulse,LinearP:TKraftVector3;
     LinearImpulseSum:TKraftScalar;
-    AxisIndex:longint;
+    AxisIndex:TKraftInt32;
 begin
 
  if not fPhysics.fWarmStarting then begin
@@ -57659,7 +57659,7 @@ var cA,cB,vA,wA,vB,wB:PKraftVector3;
     SkewSymmetricMatrices:array[0..1] of TKraftMatrix3x3;
     MassMatrix:TKraftMatrix3x3;
     InverseMassOfBodies,MassScale,ImpulseScale,InverseSubDT,CdotLimit,C,LambdaLimit,Old,CdotX,CdotY,RhsX,RhsY,Det,InverseDet,SolutionX,SolutionY,OldX,OldY,DeltaX,DeltaY,CdotTwist,Lambda:TKraftScalar;
-    AxisIndex:longint;
+    AxisIndex:TKraftInt32;
 begin
 
  cA:=@fSolverPositions[0]^.Position;
@@ -57994,7 +57994,7 @@ begin
 end;
 
 function TKraftConstraintJoint6DOF.GetReactionForce(const InverseDeltaTime:TKraftScalar):TKraftVector3;
-var AxisIndex:longint;
+var AxisIndex:TKraftInt32;
 begin
  if fAllLinearLocked then begin
   result:=Vector3ScalarMul(fAccumulatedImpulseTranslation,InverseDeltaTime);
