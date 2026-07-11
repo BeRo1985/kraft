@@ -22,7 +22,8 @@ Kraft Physics Engine has the following features:
 - Discrete collision detection
 - Optional additional continuous collision detection with Motion Clamping or with Box2D-style time of impact sub stepping, either with Bilateral Advancement or Conservative Advancement.  
 - Optional additional support for speculative contacts as faster and more inaccurate fake continuous collision detection mode.
-- Full one-shot contact manifold collision shapes (spheres, capsules, convex hulls, boxes, planes, signed distance fields (highly experimental WIP), and for static geometries also triangle meshes) based on combinations of for-warm-start-simplex-caching-able GJK, Gauss-Map optimized Clipping-SAT and implicit collision algorithms.
+- Full one-shot contact manifold collision shapes (spheres, capsules, convex hulls, boxes, planes, signed distance fields, and for static geometries also triangle meshes) based on combinations of for-warm-start-simplex-caching-able GJK, Gauss-Map optimized Clipping-SAT and implicit collision algorithms.
+- Signed distance field collision shapes: user-implementable implicit surfaces (analytic or heightfield-like, where the local origin may even lie outside the solid), with a dedicated sampling narrow phase (point-feature shapes sample their features against the field, signed distance field bodies sample surface-projected pseudo features against planes and other fields) producing full one-shot manifolds with warm-start-stable per-sample feature ids, plus sphere-tracing ray and sphere casts
 - Optional MPR-based (Minkowski Portal Refinement) incremental persistent contact manifold work mode (see TKraft.PersistentContactManifold boolean), but its usage isn't recommended, because the full one-shot contact manifold work mode is faster, more robust and more tested. It is implemented only as comparison reference (for example for debugging purposes), and for more reasons against incremental persistent contact manifold real usage, see http://media.steampowered.com/apps/valve/2015/DirkGregorius_Contacts.pdf .
 - Multiple collision shapes per rigid body without the need for a compound shape
 - Broadphase collision detection with a dynamic AABB tree
@@ -73,7 +74,7 @@ Most features are switchable at runtime through properties, but a few are gated 
 
 ## Sandbox
 
-The sandbox subdirectory contains a demo application with many test scenes, among them a joint gallery which shows every joint type in action, two ragdoll scenes (one built from ball sockets and hinges, one built entirely from the 6-DOF joint), vehicles, stacking tests and signed distance field terrains, although the signed distance field test scene is disabled by default in the list, since it is highly experimental and not yet fully working.
+The sandbox subdirectory contains a demo application with many test scenes, among them a joint gallery which shows every joint type in action, two ragdoll scenes (one built from ball sockets and hinges, one built entirely from the 6-DOF joint), vehicles, stacking tests and two signed distance field scenes (a dynamic rounded-box signed distance field body dropping onto a plane, and a sphere rolling on a signed distance field heightfield terrain).
 
 ## Documentation
 
