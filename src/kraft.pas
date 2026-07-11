@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-07-11-06-27-0000                       *
+ *                        Version 2026-07-11-09-53-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -345,6 +345,10 @@ const EPSILON={$ifdef KraftUseDouble}1e-14{$else}1e-5{$endif}; // actually {$ifd
       MPRMaximumIterations=128;
 
       MPRSweepCastMaximumIterations=32;
+
+      ShapeCastMaximumIterations=64;
+
+      ShapeCastTolerance=1e-4;
 
       GJKTolerance=1e-4;
 
@@ -5781,6 +5785,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftOnSphereCastFilterHook=TKraftOnCastFilterHook;
 
+     TKraftOnShapeCastFilterHook=TKraftOnCastFilterHook;
+
      TKraftDebugDrawLine=procedure(const aP0,aP1:TKraftVector3;const aColor:TKraftVector4) of object;
 
      TKraft=class(TPersistent)
@@ -6177,6 +6183,15 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        function SphereCast(const aSource:TKraftPosition;const aRadius:TKraftScalar;const aTarget:TKraftPosition;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint:TKraftPosition;out aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook=nil;const aCastProfilerData:PKraftCastProfilerData=nil):boolean; overload;
 
        function SphereCast(const aSource:TKraftPosition;const aRadius:TKraftScalar;const aTarget:TKraftPosition;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint:TKraftPosition;out aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook=nil;const aCastProfilerData:PKraftCastProfilerData=nil):boolean; overload;
+
+       // Casts a shape from its current world transform linearly along a normalized direction through the
+       // world and returns the first hit (nearest time of impact, hit point on the hit shape and its outward
+       // surface normal there). Conservative advancement over GJK surface distances, so it works uniformly
+       // for every castable shape type against every world shape type, including triangle meshes (per
+       // triangle) and signed distance fields on either side; only whole meshes can't be cast themselves.
+       // aMaxTime is the cast length along the direction. An initial overlap reports a hit at time zero with
+       // the penetration normal and the deepest point on the hit shape.
+       function ShapeCast(const aShape:TKraftShape;const aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aWithShape:TKraftShape;out aTime:TKraftScalar;out aPoint:TKraftPosition;out aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnShapeCastFilterHook:TKraftOnShapeCastFilterHook=nil;const aCastProfilerData:PKraftCastProfilerData=nil):boolean;
 
        function PushSphere(var aCenter:TKraftPosition;const aRadius:TKraftScalar;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aTryIterations:TKraftInt32=4;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook=nil;const aKraftOnPushShapeFilterHook:TKraftOnPushShapeFilterHook=nil;const aAvoidShape:TKraftShape=nil):boolean;
 
@@ -35351,7 +35366,7 @@ begin
   inc(fRigidBody.fShapeCount);
  end;
 
- fFlags:=[ksfCollision,ksfMass,ksfRayCastable,ksfSphereCastable,ksfPointTestable];
+ fFlags:=[ksfCollision,ksfMass,ksfRayCastable,ksfSphereCastable,ksfShapeCastable,ksfPointTestable];
 
  fIsMesh:=false;
 
@@ -69541,6 +69556,376 @@ begin
  if result then begin
   aTime:=aTime/Len;
  end;
+end;
+
+function TKraft.ShapeCast(const aShape:TKraftShape;const aDirection:TKraftVector3;const aMaxTime:TKraftScalar;out aWithShape:TKraftShape;out aTime:TKraftScalar;out aPoint:TKraftPosition;out aNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aOnShapeCastFilterHook:TKraftOnShapeCastFilterHook;const aCastProfilerData:PKraftCastProfilerData):boolean;
+type TStack=TKraftDynamicFastNonRTTIStack<TKraftInt32>;
+var AABBTreeIndex,NodeID:TKraftInt32;
+    AABBTree:TKraftDynamicAABBTree;
+    Stack:TStack;
+    Node:PKraftDynamicAABBTreeNode;
+    CurrentShape:TKraftShape;
+    CastStartTransform,WithTransform:TKraftMatrix4x4;
+    CastSphere:TKraftSphere;
+    InvDirection,HitPoint,HitNormal:TKraftVector3;
+    NodeTime,ChildTime0,ChildTime1,HitTime:TKraftScalar;
+    ChildHit0,ChildHit1,Hit:boolean;
+    CandidatePoint:TKraftPosition;
+    LocalCountTotalTopLevelAccelerationStructureNodes:TKraftInt32;
+    LocalCountCheckedTopLevelAccelerationStructureNodes:TKraftInt32;
+    LocalCountCheckedTopLevelAccelerationStructureLeafs:TKraftInt32;
+{$ifdef KraftDoublePositions}
+    CastBase:TKraftPosition;
+{$endif}
+ function CastTransformAt(const aTimeAlong:TKraftScalar):TKraftMatrix4x4;
+ begin
+  result:=CastStartTransform;
+  result[3,0]:=result[3,0]+(aDirection.x*aTimeAlong);
+  result[3,1]:=result[3,1]+(aDirection.y*aTimeAlong);
+  result[3,2]:=result[3,2]+(aDirection.z*aTimeAlong);
+ end;
+ function CastAgainstConvex(const aAgainstShape:TKraftShape;const aAgainstTransform:TKraftMatrix4x4;const aTimeLimit:TKraftScalar;out aHitTime:TKraftScalar;out aHitPoint,aHitNormal:TKraftVector3):boolean;
+ // Conservative advancement along the cast direction: the GJK surface distance is a lower bound of the free
+ // travel, for convex pairs sharpened by the closing speed along the current separation normal. Pairs with a
+ // signed distance field involved advance by the plain distance instead (sphere tracing along the path),
+ // since the closing speed argument only holds for convex geometry.
+ var Iteration:TKraftInt32;
+     CurrentTime,Distance,ClosingSpeed,PenetrationDepth:TKraftScalar;
+     PositionA,PositionB,PenetrationNormal,LastNormal:TKraftVector3;
+     GJK:TKraftGJK;
+     GJKCachedSimplex:TKraftGJKCachedSimplex;
+     Transforms:array[0..1] of TKraftMatrix4x4;
+     SignedDistanceFieldInvolved,Overlapping,PenetrationOK,HasLastNormal:boolean;
+ begin
+
+  result:=false;
+
+  HasLastNormal:=false;
+  LastNormal:=Vector3Origin;
+
+  SignedDistanceFieldInvolved:=(aShape.fShapeType=kstSignedDistanceField) or (aAgainstShape.fShapeType=kstSignedDistanceField);
+
+  GJKCachedSimplex.Count:=0;
+
+  GJK.CachedSimplex:=@GJKCachedSimplex;
+  GJK.Simplex.Count:=0;
+  GJK.Shapes[0]:=aShape;
+  GJK.Shapes[1]:=aAgainstShape;
+  GJK.Transforms[0]:=@Transforms[0];
+  GJK.Transforms[1]:=@Transforms[1];
+  GJK.UseRadii:=true;
+
+  Transforms[1]:=aAgainstTransform;
+
+  CurrentTime:=0.0;
+
+  for Iteration:=1 to ShapeCastMaximumIterations do begin
+
+   Transforms[0]:=CastTransformAt(CurrentTime);
+
+   Overlapping:=not (GJK.Run and not GJK.Failed);
+
+   Distance:=GJK.Distance;
+
+   if not Overlapping then begin
+    if (Iteration=1) and SignedDistanceFieldInvolved and
+       SignedDistanceFieldPenetration(aShape,aAgainstShape,Transforms[0],Transforms[1],PositionA,PositionB,PenetrationNormal,PenetrationDepth) then begin
+     // The signed distance field closest points can report a positive distance even in an overlapping
+     // configuration, so the initial overlap has to be checked explicitly here
+     aHitTime:=0.0;
+     aHitPoint:=PositionB;
+     aHitNormal:=PenetrationNormal;
+     result:=true;
+     exit;
+    end;
+    if Distance<ShapeCastTolerance then begin
+     if Iteration=1 then begin
+      // Touching or overlapping right at the start, report over the penetration path for a robust normal
+      Overlapping:=true;
+     end else begin
+      aHitTime:=CurrentTime;
+      aHitPoint:=GJK.ClosestPoints[1];
+      // The closest point difference degenerates numerically at touching distance, so the separation
+      // normal of the previous iteration (where the gap was still clearly open) is the robust choice
+      if HasLastNormal then begin
+       aHitNormal:=LastNormal;
+      end else if Vector3LengthSquared(GJK.Normal)>EPSILON then begin
+       aHitNormal:=GJK.Normal;
+      end else begin
+       aHitNormal:=Vector3Neg(aDirection);
+      end;
+      result:=true;
+      exit;
+     end;
+    end;
+   end;
+
+   if Overlapping then begin
+    if SignedDistanceFieldInvolved then begin
+     PenetrationOK:=SignedDistanceFieldPenetration(aShape,aAgainstShape,Transforms[0],Transforms[1],PositionA,PositionB,PenetrationNormal,PenetrationDepth);
+    end else begin
+     PenetrationOK:=MPRPenetration(aShape,aAgainstShape,Transforms[0],Transforms[1],PositionA,PositionB,PenetrationNormal,PenetrationDepth);
+    end;
+    aHitTime:=CurrentTime;
+    if PenetrationOK then begin
+     aHitPoint:=PositionB;
+     aHitNormal:=PenetrationNormal;
+    end else if Vector3LengthSquared(GJK.Normal)>EPSILON then begin
+     aHitPoint:=GJK.ClosestPoints[1];
+     aHitNormal:=GJK.Normal;
+    end else begin
+     aHitPoint:=Vector3(Transforms[0][3,0],Transforms[0][3,1],Transforms[0][3,2]);
+     aHitNormal:=Vector3Neg(aDirection);
+    end;
+    result:=true;
+    exit;
+   end;
+
+   if Vector3LengthSquared(GJK.Normal)>EPSILON then begin
+    LastNormal:=GJK.Normal;
+    HasLastNormal:=true;
+   end;
+
+   if SignedDistanceFieldInvolved then begin
+    ClosingSpeed:=1.0;
+   end else begin
+    ClosingSpeed:=-Vector3Dot(aDirection,GJK.Normal);
+    if ClosingSpeed<EPSILON then begin
+     // The distance along the separation normal can't decrease anymore for a convex pair, so no hit
+     exit;
+    end;
+   end;
+
+   CurrentTime:=CurrentTime+(Distance/ClosingSpeed);
+   if CurrentTime>aTimeLimit then begin
+    exit;
+   end;
+
+  end;
+
+ end;
+ function CastAgainstMesh(const aAgainstShape:TKraftShapeMesh;const aAgainstTransform:TKraftMatrix4x4;const aTimeLimit:TKraftScalar;out aHitTime:TKraftScalar;out aHitPoint,aHitNormal:TKraftVector3):boolean;
+ const Margin=0.1;
+ var SkipListNodeIndex,MeshSkipListNodeIndex,TriangleIndex:TKraftInt32;
+     MeshIndex:TKraftPtrInt;
+     Mesh:TKraftMesh;
+     SkipListNode:PKraftDynamicAABBTreeSkipListNode;
+     MeshSkipListNode:PKraftMeshSkipListNode;
+     Triangle:PKraftMeshTriangle;
+     ShapeTriangle:TKraftShapeTriangle;
+     RelativeTransform:TKraftMatrix4x4;
+     SweptAABB:TKraftAABB;
+     DirectionInMesh:TKraftVector3;
+     BestTime,TriangleTime:TKraftScalar;
+     TrianglePoint,TriangleNormal:TKraftVector3;
+ begin
+
+  result:=false;
+
+  BestTime:=aTimeLimit;
+
+  // Swept query volume in mesh local space: the cast shape's bounds at the start, stretched along the cast
+  // direction over the whole cast length
+  RelativeTransform:=Matrix4x4TermMulInverted(CastStartTransform,aAgainstTransform);
+  SweptAABB:=AABBHomogenTransform(aShape.fShapeAABB,RelativeTransform);
+  DirectionInMesh:=Vector3TermMatrixMulTransposedBasis(aDirection,aAgainstTransform);
+  if DirectionInMesh.x<0.0 then begin
+   SweptAABB.Min.x:=SweptAABB.Min.x+(DirectionInMesh.x*aTimeLimit);
+  end else begin
+   SweptAABB.Max.x:=SweptAABB.Max.x+(DirectionInMesh.x*aTimeLimit);
+  end;
+  if DirectionInMesh.y<0.0 then begin
+   SweptAABB.Min.y:=SweptAABB.Min.y+(DirectionInMesh.y*aTimeLimit);
+  end else begin
+   SweptAABB.Max.y:=SweptAABB.Max.y+(DirectionInMesh.y*aTimeLimit);
+  end;
+  if DirectionInMesh.z<0.0 then begin
+   SweptAABB.Min.z:=SweptAABB.Min.z+(DirectionInMesh.z*aTimeLimit);
+  end else begin
+   SweptAABB.Max.z:=SweptAABB.Max.z+(DirectionInMesh.z*aTimeLimit);
+  end;
+  SweptAABB.Min:=Vector3Sub(SweptAABB.Min,Vector3(Margin,Margin,Margin));
+  SweptAABB.Max:=Vector3Add(SweptAABB.Max,Vector3(Margin,Margin,Margin));
+
+  ShapeTriangle:=TKraftShapeTriangle(fTriangleShapes[0]);
+  ShapeTriangle.fWorldTransform:=aAgainstTransform;
+
+  SkipListNodeIndex:=0;
+  while SkipListNodeIndex<aAgainstShape.fCountSkipListNodes do begin
+   SkipListNode:=@aAgainstShape.fSkipListNodes[SkipListNodeIndex];
+   if AABBIntersect(SkipListNode^.AABB,SweptAABB) then begin
+    MeshIndex:=TKraftPtrInt(TKraftPtrUInt(SkipListNode^.UserData))-1;
+    if MeshIndex>=0 then begin
+     Mesh:=aAgainstShape.fMeshes[MeshIndex];
+     MeshSkipListNodeIndex:=0;
+     while MeshSkipListNodeIndex<Mesh.fCountSkipListNodes do begin
+      MeshSkipListNode:=@Mesh.fSkipListNodes[MeshSkipListNodeIndex];
+      if AABBIntersect(MeshSkipListNode^.AABB,SweptAABB) then begin
+       if MeshSkipListNode^.CountTriangles>0 then begin
+        for TriangleIndex:=MeshSkipListNode^.FirstTriangleIndex to MeshSkipListNode^.FirstTriangleIndex+(MeshSkipListNode^.CountTriangles-1) do begin
+         Triangle:=@Mesh.fTriangles[TriangleIndex];
+         if AABBIntersect(Triangle^.AABB,SweptAABB) then begin
+          ShapeTriangle.fConvexHull.fVertices[0].Position:=Vector3ScalarMul(Mesh.fVertices[Triangle^.Vertices[0]],aAgainstShape.fScale);
+          ShapeTriangle.fConvexHull.fVertices[1].Position:=Vector3ScalarMul(Mesh.fVertices[Triangle^.Vertices[1]],aAgainstShape.fScale);
+          ShapeTriangle.fConvexHull.fVertices[2].Position:=Vector3ScalarMul(Mesh.fVertices[Triangle^.Vertices[2]],aAgainstShape.fScale);
+          ShapeTriangle.UpdateData;
+          if CastAgainstConvex(ShapeTriangle,aAgainstTransform,BestTime,TriangleTime,TrianglePoint,TriangleNormal) and
+             ((not result) or (TriangleTime<BestTime)) then begin
+           result:=true;
+           BestTime:=TriangleTime;
+           aHitTime:=TriangleTime;
+           aHitPoint:=TrianglePoint;
+           aHitNormal:=TriangleNormal;
+          end;
+         end;
+        end;
+       end;
+       inc(MeshSkipListNodeIndex);
+      end else begin
+       MeshSkipListNodeIndex:=MeshSkipListNode^.SkipToNodeIndex;
+      end;
+     end;
+    end;
+    inc(SkipListNodeIndex);
+   end else begin
+    SkipListNodeIndex:=SkipListNode^.SkipToNodeIndex;
+   end;
+  end;
+
+ end;
+begin
+
+ result:=false;
+
+ aTime:=aMaxTime;
+
+ if aShape.fShapeType=kstMesh then begin
+  // Meshes are not castable, since they are no convex shapes and have no closest point function
+  raise EKraftShapeTypeNotSupported.Create('Mesh shape type isn''t supported as the cast shape for ShapeCast');
+ end;
+
+{$ifdef KraftDoublePositions}
+ // The cast math runs base-relative to the cast shape's world position, so it stays precise far from the
+ // origin; the reported hit point is offset back at the end. The broadphase tests run against the single
+ // precision AABB trees, like in the other cast queries.
+ if assigned(aShape.fRigidBody) then begin
+  CastBase:=aShape.fRigidBody.fSweep.c;
+ end else begin
+  CastBase:=PositionFromVector3(PKraftVector3(pointer(@aShape.fWorldTransform[3,0]))^);
+ end;
+ CastStartTransform:=ShapeBaseRelativeWorldTransform(aShape,CastBase);
+{$else}
+ CastStartTransform:=aShape.fWorldTransform;
+{$endif}
+
+ // The cast shape's world bounding sphere serves as the conservative broadphase probe
+ CastSphere:=SphereFromAABB(aShape.fWorldAABB);
+
+ InvDirection:=Vector3Div(Vector3All,aDirection);
+
+ Stack.Initialize;
+ try
+  if assigned(aCastProfilerData) then begin
+   FillChar(aCastProfilerData^,SizeOf(TKraftCastProfilerData),#0);
+  end;
+  LocalCountTotalTopLevelAccelerationStructureNodes:=0;
+  LocalCountCheckedTopLevelAccelerationStructureNodes:=0;
+  LocalCountCheckedTopLevelAccelerationStructureLeafs:=0;
+  for AABBTreeIndex:=0 to 3 do begin
+   case AABBTreeIndex of
+    0:begin
+     AABBTree:=fStaticAABBTree;
+    end;
+    1:begin
+     AABBTree:=fSleepingAABBTree;
+    end;
+    2:begin
+     AABBTree:=fDynamicAABBTree;
+    end;
+    else begin
+     AABBTree:=fKinematicAABBTree;
+    end;
+   end;
+   if assigned(AABBTree) and (AABBTree.fRoot>=0) then begin
+    inc(LocalCountTotalTopLevelAccelerationStructureNodes,AABBTree.fNodeCount);
+    Stack.Clear;
+    Stack.Push(AABBTree.fRoot);
+    while Stack.Pop(NodeID) do begin
+     while NodeID>=0 do begin
+      Node:=@AABBTree.fNodes[NodeID];
+      if SphereCastAABBIntersectionOpt(CastSphere.Center,CastSphere.Radius,InvDirection,Node^.AABB,NodeTime) and (NodeTime<=aTime) then begin
+       inc(LocalCountCheckedTopLevelAccelerationStructureNodes);
+       if Node^.Children[0]<0 then begin
+        inc(LocalCountCheckedTopLevelAccelerationStructureLeafs);
+        CurrentShape:=Node^.UserData;
+        if assigned(CurrentShape) and
+           (CurrentShape<>aShape) and
+           (ksfShapeCastable in CurrentShape.fFlags) and
+           (assigned(CurrentShape.fRigidBody) and
+            (CurrentShape.fRigidBody<>aShape.fRigidBody) and
+            ((CurrentShape.fRigidBody.fCollisionGroups*aCollisionGroups)<>[])) then begin
+{$ifdef KraftDoublePositions}
+         WithTransform:=ShapeBaseRelativeWorldTransform(CurrentShape,CastBase);
+{$else}
+         WithTransform:=CurrentShape.fWorldTransform;
+{$endif}
+         if CurrentShape.fShapeType=kstMesh then begin
+          Hit:=CastAgainstMesh(TKraftShapeMesh(CurrentShape),WithTransform,aTime,HitTime,HitPoint,HitNormal);
+         end else begin
+          Hit:=CastAgainstConvex(CurrentShape,WithTransform,aTime,HitTime,HitPoint,HitNormal);
+         end;
+         if Hit then begin
+{$ifdef KraftDoublePositions}
+          CandidatePoint:=PositionAddVector3(CastBase,HitPoint);
+{$else}
+          CandidatePoint:=HitPoint;
+{$endif}
+          if (assigned(aOnShapeCastFilterHook) and aOnShapeCastFilterHook(CandidatePoint,HitNormal,HitTime,CurrentShape)) or not assigned(aOnShapeCastFilterHook) then begin
+           if (result and (HitTime<aTime)) or not result then begin
+            result:=true;
+            aTime:=HitTime;
+            aPoint:=CandidatePoint;
+            aNormal:=HitNormal;
+            aWithShape:=CurrentShape;
+           end;
+          end;
+         end;
+        end;
+       end else begin
+        ChildHit0:=SphereCastAABBIntersectionOpt(CastSphere.Center,CastSphere.Radius,InvDirection,AABBTree.fNodes[Node^.Children[0]].AABB,ChildTime0) and (ChildTime0<=aTime);
+        ChildHit1:=SphereCastAABBIntersectionOpt(CastSphere.Center,CastSphere.Radius,InvDirection,AABBTree.fNodes[Node^.Children[1]].AABB,ChildTime1) and (ChildTime1<=aTime);
+        if ChildHit0 and ChildHit1 then begin
+         if ChildTime0<=ChildTime1 then begin
+          Stack.Push(Node^.Children[1]);
+          NodeID:=Node^.Children[0];
+         end else begin
+          Stack.Push(Node^.Children[0]);
+          NodeID:=Node^.Children[1];
+         end;
+         continue;
+        end else if ChildHit0 then begin
+         NodeID:=Node^.Children[0];
+         continue;
+        end else if ChildHit1 then begin
+         NodeID:=Node^.Children[1];
+         continue;
+        end;
+       end;
+      end;
+      break;
+     end;
+    end;
+   end;
+  end;
+  if assigned(aCastProfilerData) then begin
+   inc(aCastProfilerData^.CountTotalTopLevelAccelerationStructureNodes,LocalCountTotalTopLevelAccelerationStructureNodes);
+   inc(aCastProfilerData^.CountCheckedTopLevelAccelerationStructureNodes,LocalCountCheckedTopLevelAccelerationStructureNodes);
+   inc(aCastProfilerData^.CountCheckedTopLevelAccelerationStructureLeafs,LocalCountCheckedTopLevelAccelerationStructureLeafs);
+  end;
+ finally
+  Stack.Finalize;
+ end;
+
 end;
 
 function TKraft.PushSphere(var aCenter:TKraftPosition;const aRadius:TKraftScalar;const aCollisionGroups:TKraftRigidBodyCollisionGroups;const aTryIterations:TKraftInt32;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook;const aKraftOnPushShapeFilterHook:TKraftOnPushShapeFilterHook;const aAvoidShape:TKraftShape):boolean;

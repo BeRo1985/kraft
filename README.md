@@ -42,6 +42,7 @@ Kraft Physics Engine has the following features:
 - Ready-to-use vehicle add-on units (KraftArcadeCarPhysics and KraftRayCastVehicle)
 - Collision filtering with groups
 - Ray casting and sphere casting (ray "with" spherical thickness)
+- Shape casting: linear sweeps of a whole shape (sphere, capsule, box, convex hull, plane, triangle and even signed distance field shapes) with its full orientation through the world with first-hit time of impact, hit point and surface normal, working uniformly against every shape type including triangle meshes and signed distance fields, via conservative advancement over GJK surface distances, with initial-overlap reporting at time zero
 - Sleeping of inactive rigid bodies
 - Island-based multithreading, and optionally (compile-time define KraftConstraintGraphColoring) a persistent constraint-graph-coloring parallel solver architecture with a lock-free block-claiming solver stage pipeline, runtime-switchable between island-granular and colored parallelization
 - Optional wide (four-lane SoA) TGS soft contact solver with hand-written x86-64 SSE assembler kernels (warm start, velocity solve and restitution), bit-identical to the scalar path, with a pure Pascal fallback for other CPUs and for double precision
