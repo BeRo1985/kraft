@@ -4,41 +4,14 @@ unit UnitDemoSceneSphereOnSDFTerrain;
 
 interface
 
-uses {$ifdef DebugDraw}
-      {$ifdef fpc}
-       GL,
-       GLext,
-      {$else}
-       OpenGL,
-      {$endif}
-     {$endif}
-     Math,
+uses Math,
      Kraft,
      UnitDemoScene;
 
-type { TTerrainSignedDistanceField }
-     TTerrainSignedDistanceField=class(TKraftSignedDistanceField)
-      private
-       fSize:TKraftScalar;
-       fHeight:TKraftScalar;
-       fResolution:Int32;
-       fHalfSize:Double;
-       fScale:Double;
-       fInverseScale:Double;
-       fData:TKraftScalarArray;
-      public
-       constructor Create(const APhysics:TKraft;const aSize,aHeight:TKraftScalar;const aResolution:Int32); reintroduce;
-       destructor Destroy; override;
-       function GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar; override;
-{$ifdef DebugDraw}
-       procedure Draw(const WorldTransform,CameraMatrix:TKraftMatrix4x4); override;
-{$endif}
-     end;
-
-     TDemoSceneSphereOnSDFTerrain=class(TDemoScene)
+type TDemoSceneSphereOnSDFTerrain=class(TDemoScene)
       public
        RigidBodyFloor:TKraftRigidBody;
-       TerrainSignedDistanceField:TTerrainSignedDistanceField;
+       TerrainSignedDistanceField:TKraftSignedDistanceFieldTerrain;
        ShapeTerrain:TKraftShapeSignedDistanceField;
        RigidBodySphere:TKraftRigidBody;
        ShapeSphere:TKraftShapeSphere;
@@ -51,159 +24,27 @@ implementation
 
 uses UnitFormMain;
 
-{ TTerrainSignedDistanceField }
-
-constructor TTerrainSignedDistanceField.Create(const APhysics:TKraft;const aSize,aHeight:TKraftScalar;const aResolution:Int32);
-var AABB:TKraftAABB;
-    x,y:Int32;
-    k1,k2:TKraftScalar;
-begin
-
- fSize:=aSize;
- fHeight:=aHeight;
- fResolution:=aResolution;
-
- fHalfSize:=fSize*0.5;
-
- fScale:=fResolution/fSize;
- fInverseScale:=fSize/fResolution;
-
- fData:=nil;
- SetLength(fData,fResolution*fResolution);
-
- for y:=0 to fResolution-1 do begin
-  for x:=0 to fResolution-1 do begin
-   k1:=sin(x*pi*4/fResolution)*2;
-   k2:=cos(y*pi*4/fResolution)*2;
-   fData[(y*fResolution)+x]:=(Min(Max(((((cos(x*pi*k1/fResolution)*sin(y*pi*k2/fResolution)))+(k1*0.5)-(k2*0.5)))*64,-64),32)/64.0)*fHeight;
-  end;
- end;
-
- AABB.Min:=Vector3(-fHalfSize,-fHeight,-fHalfSize);
- AABB.Max:=Vector3(fHalfSize,fHeight,fHalfSize);
- inherited Create(APhysics,true,@AABB);
-
-end;
-
-destructor TTerrainSignedDistanceField.Destroy;
-begin
- fData:=nil;
- inherited Destroy;
-end;
-
-function TTerrainSignedDistanceField.GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
-var dx,dy:Double;
-    ix,iy,nx,ny:Int32;
-    fx,fy:Single;
-begin
- dx:=(Position.x+fHalfSize)*fScale;
- dy:=(Position.z+fHalfSize)*fScale;
- if dx<=0.0 then begin
-  dx:=0.0;
- end else if dx>=fResolution then begin
-  dx:=fResolution;
- end;
- if dy<=0.0 then begin
-  dy:=0.0;
- end else if dy>=fResolution then begin
-  dy:=fResolution;
- end;
- ix:=trunc(dx);
- iy:=trunc(dy);
- if ix>=(fResolution-1) then begin
-  ix:=fResolution-2;
- end;
- if iy>=(fResolution-1) then begin
-  iy:=fResolution-2;
- end;
- fx:=dx-ix;
- fy:=dy-iy;
- nx:=ix+1;
- ny:=iy+1;
- if nx>=fResolution then begin
-  nx:=fResolution-1;
- end;
- if ny>=fResolution then begin
-  ny:=fResolution-1;
- end;
- result:=Position.y-((((fData[(iy*fResolution)+ix]*(1.0-fx))+(fData[(iy*fResolution)+nx]*fx))*(1.0-fy))+
-                     (((fData[(ny*fResolution)+ix]*(1.0-fx))+(fData[(ny*fResolution)+nx]*fx))*fy));
-end;
-
-{$ifdef DebugDraw}
-procedure TTerrainSignedDistanceField.Draw(const WorldTransform,CameraMatrix:TKraftMatrix4x4);
-var ix,iy,nx,ny:Int32;
-    v0,v1,v2,v3,n:TKraftVector3;
-    ModelViewMatrix:TKraftMatrix4x4;
-begin
- glPushMatrix;
- glMatrixMode(GL_MODELVIEW);
- ModelViewMatrix:=Matrix4x4TermMul(WorldTransform,CameraMatrix);
-{$ifdef KraftUseDouble}
- glLoadMatrixd(pointer(@ModelViewMatrix));
-{$else}
- glLoadMatrixf(pointer(@ModelViewMatrix));
-{$endif}
-
- if DrawDisplayList=0 then begin
-  DrawDisplayList:=glGenLists(1);
-  glNewList(DrawDisplayList,GL_COMPILE);
-  glBegin(GL_TRIANGLES);
-  for iy:=0 to fResolution-2 do begin
-   ny:=iy+1;
-   if ny>=fResolution then begin
-    ny:=fResolution-1;
-   end;
-   for ix:=0 to fResolution-2 do begin
-    nx:=ix+1;
-    if nx>=fResolution then begin
-     nx:=fResolution-1;
-    end;
-    v0.x:=(ix*fInverseScale)-fHalfSize;
-    v0.y:=fData[(iy*fResolution)+ix];
-    v0.z:=(iy*fInverseScale)-fHalfSize;
-    v1.x:=(nx*fInverseScale)-fHalfSize;
-    v1.y:=fData[(iy*fResolution)+nx];
-    v1.z:=(iy*fInverseScale)-fHalfSize;
-    v2.x:=(nx*fInverseScale)-fHalfSize;
-    v2.y:=fData[(ny*fResolution)+nx];
-    v2.z:=(ny*fInverseScale)-fHalfSize;
-    v3.x:=(ix*fInverseScale)-fHalfSize;
-    v3.y:=fData[(ny*fResolution)+ix];
-    v3.z:=(ny*fInverseScale)-fHalfSize;
-    n:=Vector3Norm(Vector3Cross(Vector3Sub(v2,v0),Vector3Sub(v1,v0)));
-    glNormal3f(n.x,n.y,n.z);
-    glVertex3f(v0.x,v0.y,v0.z);
-    glVertex3f(v2.x,v2.y,v2.z);
-    glVertex3f(v1.x,v1.y,v1.z);
-    n:=Vector3Norm(Vector3Cross(Vector3Sub(v3,v0),Vector3Sub(v2,v0)));
-    glNormal3f(n.x,n.y,n.z);
-    glVertex3f(v0.x,v0.y,v0.z);
-    glVertex3f(v3.x,v3.y,v3.z);
-    glVertex3f(v2.x,v2.y,v2.z);
-   end;
-  end;
-  glEnd;
-
-  glEndList;
- end;
-
- if DrawDisplayList<>0 then begin
-  glCallList(DrawDisplayList);
- end;
-
- glPopMatrix;
-end;
-{$endif}
-
 constructor TDemoSceneSphereOnSDFTerrain.Create(const AKraftPhysics:TKraft);
+const Resolution=128;
+      Size=512.0;
+      Height=16.0;
+var x,z:Int32;
+    k1,k2:TKraftScalar;
 begin
  inherited Create(AKraftPhysics);
 
  RigidBodyFloor:=TKraftRigidBody.Create(KraftPhysics);
  RigidBodyFloor.SetRigidBodyType(krbtSTATIC);
- TerrainSignedDistanceField:=TTerrainSignedDistanceField.Create(KraftPhysics,512,16,128);
+ TerrainSignedDistanceField:=TKraftSignedDistanceFieldTerrain.Create(KraftPhysics,Resolution,Resolution,Size,Size);
  SignedDistanceFieldGarbageCollector.Add(TerrainSignedDistanceField);
+ for z:=0 to Resolution-1 do begin
+  for x:=0 to Resolution-1 do begin
+   k1:=sin(x*pi*4/Resolution)*2;
+   k2:=cos(z*pi*4/Resolution)*2;
+   TerrainSignedDistanceField.Heights[x,z]:=(Min(Max(((((cos(x*pi*k1/Resolution)*sin(z*pi*k2/Resolution)))+(k1*0.5)-(k2*0.5)))*64,-64),32)/64.0)*Height;
+  end;
+ end;
+ TerrainSignedDistanceField.UpdateData;
  TerrainSignedDistanceField.Finish;
  ShapeTerrain:=TKraftShapeSignedDistanceField.Create(KraftPhysics,RigidBodyFloor,TerrainSignedDistanceField);
  ShapeTerrain.Restitution:=0.3;

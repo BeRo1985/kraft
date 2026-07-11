@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-07-11-09-53-0000                       *
+ *                        Version 2026-07-11-10-55-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -2192,6 +2192,11 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        function AddNormal(const aNormal:TKraftVector3;const aUnique:boolean=false):TKraftInt32;
 
        function AddTriangle(const AVertexIndex0,AVertexIndex1,AVertexIndex2:TKraftInt32;const ANormalIndex0:TKraftInt32=-1;const ANormalIndex1:TKraftInt32=-1;ANormalIndex2:TKraftInt32=-1):TKraftInt32;
+       // Adds a centered regular height field grid (aCountX times aCountZ samples over aSizeX times aSizeZ
+       // in the local x/z plane, row major with x as the inner axis) as triangles, for when exact triangle
+       // terrain collision with the mesh pipeline is wanted; the signed distance field based
+       // TKraftSignedDistanceFieldTerrain is the memory friendlier alternative without internal mesh edges
+       procedure AddHeightField(const aHeights:TKraftScalarArray;const aCountX,aCountZ:TKraftInt32;const aSizeX,aSizeZ:TKraftScalar);
 
        procedure Load(const AVertices:PKraftVector3;const ACountVertices:TKraftInt32;const ANormals:PKraftVector3;const ACountNormals:TKraftInt32;const AVertexIndices,ANormalIndices:pointer;const ACountIndices:TKraftInt32); overload;
        procedure Load(const ASourceData:pointer;const ASourceSize:TKraftInt32); overload;
@@ -2349,6 +2354,58 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      end;
 
      TKraftSignedDistanceFields=array of TKraftSignedDistanceField;
+
+     { TKraftSignedDistanceFieldTerrain }
+     // Built-in height field terrain as a signed distance field: a centered regular grid of height samples
+     // over the local x/z plane, bilinearly interpolated, with the solid below the height surface. The
+     // distance is scaled by a conservative Lipschitz bound over the terrain slope, so that sphere tracing
+     // (ray casts, sphere casts and shape casts) stays correct even on steep terrain (a plain y minus height
+     // difference oversteps there), and the gradient comes analytically from the bilinear patch. As a
+     // continuous surface it has no internal mesh edges, so bodies can't snag on tessellation seams like on
+     // a triangle mesh terrain. Fill the heights (constructor pointer or the Heights property), then call
+     // UpdateData (implicit when constructed with data) and Finish.
+     TKraftSignedDistanceFieldTerrain=class(TKraftSignedDistanceField)
+      private
+       fCountX:TKraftInt32;
+       fCountZ:TKraftInt32;
+       fSizeX:TKraftScalar;
+       fSizeZ:TKraftScalar;
+       fBottomMargin:TKraftScalar;
+       fHalfSizeX:TKraftScalar;
+       fHalfSizeZ:TKraftScalar;
+       fCellSizeX:TKraftScalar;
+       fCellSizeZ:TKraftScalar;
+       fInverseCellSizeX:TKraftScalar;
+       fInverseCellSizeZ:TKraftScalar;
+       fMinimumHeight:TKraftScalar;
+       fMaximumHeight:TKraftScalar;
+       fDistanceScale:TKraftScalar;
+       fHeights:TKraftScalarArray;
+       function GetHeight(const aX,aZ:TKraftInt32):TKraftScalar;
+       procedure SetHeight(const aX,aZ:TKraftInt32;const aValue:TKraftScalar);
+       procedure SampleHeightGradient(const aX,aZ:TKraftScalar;out aHeight,aGradientX,aGradientZ:TKraftScalar);
+      public
+       constructor Create(const aPhysics:TKraft;const aCountX,aCountZ:TKraftInt32;const aSizeX,aSizeZ:TKraftScalar;const aHeights:PKraftScalar=nil;const aBottomMargin:TKraftScalar=1.0;const aIsForStaticRigidBodies:Boolean=true); reintroduce;
+       destructor Destroy; override;
+       // Recomputes the height bounds, the Lipschitz distance scale and the AABB; call it after mutating
+       // heights over the Heights property and before Finish
+       procedure UpdateData;
+       function GetTerrainHeight(const aX,aZ:TKraftScalar):TKraftScalar;
+       function GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar; override;
+       function GetLocalSignedDistanceNormalizedGradient(const Position:TKraftVector3):TKraftVector3; override;
+       function GetLocalSignedDistanceNormal(const Position:TKraftVector3):TKraftVector3; override;
+       function GetLocalClosestPointTo(const Position:TKraftVector3):TKraftVector3; override;
+{$ifdef DebugDraw}
+       procedure Draw(const WorldTransform,CameraMatrix:TKraftMatrix4x4); override;
+{$endif}
+       property CountX:TKraftInt32 read fCountX;
+       property CountZ:TKraftInt32 read fCountZ;
+       property SizeX:TKraftScalar read fSizeX;
+       property SizeZ:TKraftScalar read fSizeZ;
+       property MinimumHeight:TKraftScalar read fMinimumHeight;
+       property MaximumHeight:TKraftScalar read fMaximumHeight;
+       property Heights[const aX,aZ:TKraftInt32]:TKraftScalar read GetHeight write SetHeight;
+     end;
 
      PKraftContactPair=^TKraftContactPair;
 
@@ -31911,6 +31968,50 @@ begin
  end;
 end;
 
+procedure TKraftMesh.AddHeightField(const aHeights:TKraftScalarArray;const aCountX,aCountZ:TKraftInt32;const aSizeX,aSizeZ:TKraftScalar);
+var IndexX,IndexZ,CountX,CountZ:TKraftInt32;
+    HalfSizeX,HalfSizeZ,CellSizeX,CellSizeZ,Height:TKraftScalar;
+    VertexIndices:array of TKraftInt32;
+begin
+
+ CountX:=Max(2,aCountX);
+ CountZ:=Max(2,aCountZ);
+
+ HalfSizeX:=aSizeX*0.5;
+ HalfSizeZ:=aSizeZ*0.5;
+
+ CellSizeX:=aSizeX/(CountX-1);
+ CellSizeZ:=aSizeZ/(CountZ-1);
+
+ VertexIndices:=nil;
+ try
+
+  SetLength(VertexIndices,CountX*CountZ);
+
+  for IndexZ:=0 to CountZ-1 do begin
+   for IndexX:=0 to CountX-1 do begin
+    if ((IndexZ*CountX)+IndexX)<length(aHeights) then begin
+     Height:=aHeights[(IndexZ*CountX)+IndexX];
+    end else begin
+     Height:=0.0;
+    end;
+    VertexIndices[(IndexZ*CountX)+IndexX]:=AddVertex(Vector3((IndexX*CellSizeX)-HalfSizeX,Height,(IndexZ*CellSizeZ)-HalfSizeZ),false);
+   end;
+  end;
+
+  for IndexZ:=0 to CountZ-2 do begin
+   for IndexX:=0 to CountX-2 do begin
+    AddTriangle(VertexIndices[(IndexZ*CountX)+IndexX],VertexIndices[((IndexZ+1)*CountX)+IndexX],VertexIndices[(IndexZ*CountX)+IndexX+1]);
+    AddTriangle(VertexIndices[(IndexZ*CountX)+IndexX+1],VertexIndices[((IndexZ+1)*CountX)+IndexX],VertexIndices[((IndexZ+1)*CountX)+IndexX+1]);
+   end;
+  end;
+
+ finally
+  VertexIndices:=nil;
+ end;
+
+end;
+
 procedure TKraftMesh.Load(const AVertices:PKraftVector3;const ACountVertices:TKraftInt32;const ANormals:PKraftVector3;const ACountNormals:TKraftInt32;const AVertexIndices,ANormalIndices:pointer;const ACountIndices:TKraftInt32);
 var i:TKraftInt32;
     Triangle:PKraftMeshTriangle;
@@ -35329,6 +35430,225 @@ begin
 
  if fDrawDisplayList<>0 then begin
   glCallList(fDrawDisplayList);
+ end;
+
+ glPopMatrix;
+end;
+{$endif}
+{$endif}
+
+{ TKraftSignedDistanceFieldTerrain }
+
+constructor TKraftSignedDistanceFieldTerrain.Create(const aPhysics:TKraft;const aCountX,aCountZ:TKraftInt32;const aSizeX,aSizeZ:TKraftScalar;const aHeights:PKraftScalar;const aBottomMargin:TKraftScalar;const aIsForStaticRigidBodies:Boolean);
+var Index:TKraftInt32;
+begin
+
+ inherited Create(aPhysics,aIsForStaticRigidBodies,nil);
+
+ fCountX:=Max(2,aCountX);
+ fCountZ:=Max(2,aCountZ);
+
+ fSizeX:=aSizeX;
+ fSizeZ:=aSizeZ;
+
+ fBottomMargin:=aBottomMargin;
+
+ fHalfSizeX:=fSizeX*0.5;
+ fHalfSizeZ:=fSizeZ*0.5;
+
+ fCellSizeX:=fSizeX/(fCountX-1);
+ fCellSizeZ:=fSizeZ/(fCountZ-1);
+
+ fInverseCellSizeX:=1.0/fCellSizeX;
+ fInverseCellSizeZ:=1.0/fCellSizeZ;
+
+ fHeights:=nil;
+ SetLength(fHeights,fCountX*fCountZ);
+
+ if assigned(aHeights) then begin
+  for Index:=0 to (fCountX*fCountZ)-1 do begin
+   fHeights[Index]:=PKraftScalars(pointer(aHeights))^[Index];
+  end;
+  UpdateData;
+ end else begin
+  for Index:=0 to (fCountX*fCountZ)-1 do begin
+   fHeights[Index]:=0.0;
+  end;
+  fMinimumHeight:=0.0;
+  fMaximumHeight:=0.0;
+  fDistanceScale:=1.0;
+ end;
+
+end;
+
+destructor TKraftSignedDistanceFieldTerrain.Destroy;
+begin
+ fHeights:=nil;
+ inherited Destroy;
+end;
+
+function TKraftSignedDistanceFieldTerrain.GetHeight(const aX,aZ:TKraftInt32):TKraftScalar;
+begin
+ result:=fHeights[(Min(Max(aZ,0),fCountZ-1)*fCountX)+Min(Max(aX,0),fCountX-1)];
+end;
+
+procedure TKraftSignedDistanceFieldTerrain.SetHeight(const aX,aZ:TKraftInt32;const aValue:TKraftScalar);
+begin
+ fHeights[(Min(Max(aZ,0),fCountZ-1)*fCountX)+Min(Max(aX,0),fCountX-1)]:=aValue;
+end;
+
+procedure TKraftSignedDistanceFieldTerrain.UpdateData;
+var IndexX,IndexZ,RowOffset:TKraftInt32;
+    h00,h10,h01,h11,GradientX,GradientZ,MaximumSlopeSquared,SlopeSquared:TKraftScalar;
+begin
+
+ // Height bounds
+ fMinimumHeight:=fHeights[0];
+ fMaximumHeight:=fHeights[0];
+ for IndexX:=1 to (fCountX*fCountZ)-1 do begin
+  if fHeights[IndexX]<fMinimumHeight then begin
+   fMinimumHeight:=fHeights[IndexX];
+  end;
+  if fHeights[IndexX]>fMaximumHeight then begin
+   fMaximumHeight:=fHeights[IndexX];
+  end;
+ end;
+
+ // Conservative Lipschitz bound over the terrain slope: the plain height difference y-h(x,z) is no real
+ // distance on sloped terrain (its gradient magnitude is sqrt(1+slope^2)), so the distance gets scaled by
+ // the inverse of that bound, which makes it exact on planar patches and a safe lower bound everywhere,
+ // which is exactly what sphere tracing and conservative advancement need
+ MaximumSlopeSquared:=0.0;
+ for IndexZ:=0 to fCountZ-2 do begin
+  RowOffset:=IndexZ*fCountX;
+  for IndexX:=0 to fCountX-2 do begin
+   h00:=fHeights[RowOffset+IndexX];
+   h10:=fHeights[RowOffset+IndexX+1];
+   h01:=fHeights[RowOffset+fCountX+IndexX];
+   h11:=fHeights[RowOffset+fCountX+IndexX+1];
+   GradientX:=Max(abs(h10-h00),abs(h11-h01))*fInverseCellSizeX;
+   GradientZ:=Max(abs(h01-h00),abs(h11-h10))*fInverseCellSizeZ;
+   SlopeSquared:=sqr(GradientX)+sqr(GradientZ);
+   if SlopeSquared>MaximumSlopeSquared then begin
+    MaximumSlopeSquared:=SlopeSquared;
+   end;
+  end;
+ end;
+ fDistanceScale:=1.0/sqrt(1.0+MaximumSlopeSquared);
+
+ fAABB.Min:=Vector3(-fHalfSizeX,fMinimumHeight-fBottomMargin,-fHalfSizeZ);
+ fAABB.Max:=Vector3(fHalfSizeX,fMaximumHeight,fHalfSizeZ);
+
+end;
+
+procedure TKraftSignedDistanceFieldTerrain.SampleHeightGradient(const aX,aZ:TKraftScalar;out aHeight,aGradientX,aGradientZ:TKraftScalar);
+var GridX,GridZ:TKraftScalar;
+    IndexX,IndexZ,RowOffset:TKraftInt32;
+    FractionX,FractionZ,h00,h10,h01,h11:TKraftScalar;
+begin
+ GridX:=Min(Max((aX+fHalfSizeX)*fInverseCellSizeX,0.0),fCountX-1);
+ GridZ:=Min(Max((aZ+fHalfSizeZ)*fInverseCellSizeZ,0.0),fCountZ-1);
+ IndexX:=Min(trunc(GridX),fCountX-2);
+ IndexZ:=Min(trunc(GridZ),fCountZ-2);
+ FractionX:=GridX-IndexX;
+ FractionZ:=GridZ-IndexZ;
+ RowOffset:=IndexZ*fCountX;
+ h00:=fHeights[RowOffset+IndexX];
+ h10:=fHeights[RowOffset+IndexX+1];
+ h01:=fHeights[RowOffset+fCountX+IndexX];
+ h11:=fHeights[RowOffset+fCountX+IndexX+1];
+ aHeight:=(((h00*(1.0-FractionX))+(h10*FractionX))*(1.0-FractionZ))+
+          (((h01*(1.0-FractionX))+(h11*FractionX))*FractionZ);
+ aGradientX:=(((h10-h00)*(1.0-FractionZ))+((h11-h01)*FractionZ))*fInverseCellSizeX;
+ aGradientZ:=(((h01-h00)*(1.0-FractionX))+((h11-h10)*FractionX))*fInverseCellSizeZ;
+end;
+
+function TKraftSignedDistanceFieldTerrain.GetTerrainHeight(const aX,aZ:TKraftScalar):TKraftScalar;
+var GradientX,GradientZ:TKraftScalar;
+begin
+ SampleHeightGradient(aX,aZ,result,GradientX,GradientZ);
+end;
+
+function TKraftSignedDistanceFieldTerrain.GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
+var Height,GradientX,GradientZ:TKraftScalar;
+begin
+ SampleHeightGradient(Position.x,Position.z,Height,GradientX,GradientZ);
+ result:=(Position.y-Height)*fDistanceScale;
+end;
+
+function TKraftSignedDistanceFieldTerrain.GetLocalSignedDistanceNormalizedGradient(const Position:TKraftVector3):TKraftVector3;
+var Height,GradientX,GradientZ:TKraftScalar;
+begin
+ SampleHeightGradient(Position.x,Position.z,Height,GradientX,GradientZ);
+ result:=Vector3Norm(Vector3(-GradientX,1.0,-GradientZ));
+end;
+
+function TKraftSignedDistanceFieldTerrain.GetLocalSignedDistanceNormal(const Position:TKraftVector3):TKraftVector3;
+var Height,GradientX,GradientZ:TKraftScalar;
+begin
+ SampleHeightGradient(Position.x,Position.z,Height,GradientX,GradientZ);
+ result:=Vector3Norm(Vector3(-GradientX,1.0,-GradientZ));
+end;
+
+function TKraftSignedDistanceFieldTerrain.GetLocalClosestPointTo(const Position:TKraftVector3):TKraftVector3;
+var Height,GradientX,GradientZ,Distance:TKraftScalar;
+    Normal:TKraftVector3;
+begin
+ // Distance along the analytic patch normal, exact on planar patches thanks to the Lipschitz scaling
+ SampleHeightGradient(Position.x,Position.z,Height,GradientX,GradientZ);
+ Normal:=Vector3Norm(Vector3(-GradientX,1.0,-GradientZ));
+ Distance:=(Position.y-Height)*fDistanceScale;
+ result:=Vector3Sub(Position,Vector3ScalarMul(Normal,Distance));
+end;
+
+{$ifdef DebugDraw}
+procedure TKraftSignedDistanceFieldTerrain.Draw(const WorldTransform,CameraMatrix:TKraftMatrix4x4);
+{$ifdef NoOpenGL}
+begin
+end;
+{$else}
+var IndexX,IndexZ,RowOffset:TKraftInt32;
+    v0,v1,v2,v3,n:TKraftVector3;
+    ModelViewMatrix:TKraftMatrix4x4;
+begin
+ glPushMatrix;
+ glMatrixMode(GL_MODELVIEW);
+ ModelViewMatrix:=Matrix4x4TermMul(WorldTransform,CameraMatrix);
+{$ifdef KraftUseDouble}
+ glLoadMatrixd(pointer(@ModelViewMatrix));
+{$else}
+ glLoadMatrixf(pointer(@ModelViewMatrix));
+{$endif}
+
+ if DrawDisplayList=0 then begin
+  DrawDisplayList:=glGenLists(1);
+  glNewList(DrawDisplayList,GL_COMPILE);
+  glBegin(GL_TRIANGLES);
+  for IndexZ:=0 to fCountZ-2 do begin
+   RowOffset:=IndexZ*fCountX;
+   for IndexX:=0 to fCountX-2 do begin
+    v0:=Vector3((IndexX*fCellSizeX)-fHalfSizeX,fHeights[RowOffset+IndexX],(IndexZ*fCellSizeZ)-fHalfSizeZ);
+    v1:=Vector3(((IndexX+1)*fCellSizeX)-fHalfSizeX,fHeights[RowOffset+IndexX+1],(IndexZ*fCellSizeZ)-fHalfSizeZ);
+    v2:=Vector3(((IndexX+1)*fCellSizeX)-fHalfSizeX,fHeights[RowOffset+fCountX+IndexX+1],((IndexZ+1)*fCellSizeZ)-fHalfSizeZ);
+    v3:=Vector3((IndexX*fCellSizeX)-fHalfSizeX,fHeights[RowOffset+fCountX+IndexX],((IndexZ+1)*fCellSizeZ)-fHalfSizeZ);
+    n:=Vector3Norm(Vector3Cross(Vector3Sub(v2,v0),Vector3Sub(v1,v0)));
+    glNormal3f(n.x,n.y,n.z);
+    glVertex3f(v0.x,v0.y,v0.z);
+    glVertex3f(v2.x,v2.y,v2.z);
+    glVertex3f(v1.x,v1.y,v1.z);
+    n:=Vector3Norm(Vector3Cross(Vector3Sub(v3,v0),Vector3Sub(v2,v0)));
+    glNormal3f(n.x,n.y,n.z);
+    glVertex3f(v0.x,v0.y,v0.z);
+    glVertex3f(v3.x,v3.y,v3.z);
+    glVertex3f(v2.x,v2.y,v2.z);
+   end;
+  end;
+  glEnd;
+  glEndList;
+ end;
+
+ if DrawDisplayList<>0 then begin
+  glCallList(DrawDisplayList);
  end;
 
  glPopMatrix;
