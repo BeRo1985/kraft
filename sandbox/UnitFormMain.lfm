@@ -3,7 +3,7 @@ object FormMain: TFormMain
   Height = 726
   Top = -8
   Width = 1009
-  Caption = 'Kraft physics engine sandbox - Copyright (C) 2015-2023, Benjamin ''BeRo'' Rosseaux'
+  Caption = 'Kraft physics engine sandbox - Copyright (C) 2015-2026, Benjamin ''BeRo'' Rosseaux'
   ClientHeight = 726
   ClientWidth = 1009
   Color = clBtnFace
