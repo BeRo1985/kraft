@@ -6135,9 +6135,6 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        procedure SolveContinuousMotionClamping(const aTimeStep:TKraftTimeStep);
 
-       // Don't use, because WIP
-       function PushShape(const aShape:TKraftShape;out aSeperation:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aTryIterations:TKraftInt32=4;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook=nil;const aKraftOnPushShapeFilterHook:TKraftOnPushShapeFilterHook=nil;const aSingleDeepest:Boolean=false):boolean;
-
       protected
 
        property IsSolving:boolean read fIsSolving;
@@ -6182,6 +6179,11 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        function SphereCast(const aSource:TKraftPosition;const aRadius:TKraftScalar;const aTarget:TKraftPosition;out aShape:TKraftShape;out aTime:TKraftScalar;out aPoint:TKraftPosition;out aNormal,aSurfaceNormal:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aOnSphereCastFilterHook:TKraftOnSphereCastFilterHook=nil;const aCastProfilerData:PKraftCastProfilerData=nil):boolean; overload;
 
        function PushSphere(var aCenter:TKraftPosition;const aRadius:TKraftScalar;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aTryIterations:TKraftInt32=4;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook=nil;const aKraftOnPushShapeFilterHook:TKraftOnPushShapeFilterHook=nil;const aAvoidShape:TKraftShape=nil):boolean;
+
+       // Iterative depenetration of a convex shape (spheres delegate to PushSphere) out of the world geometry
+       // including meshes and signed distance fields; pushed mesh and signed distance field shapes themselves
+       // are not supported, since they are not convex
+       function PushShape(const aShape:TKraftShape;out aSeperation:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aTryIterations:TKraftInt32=4;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook=nil;const aKraftOnPushShapeFilterHook:TKraftOnPushShapeFilterHook=nil;const aSingleDeepest:Boolean=false):boolean;
 
        function CollideShape(const aShape:TKraftShape;
                              var aContacts:TKraftShapeCollisionContacts;
@@ -70086,12 +70088,24 @@ var Sphere:TKraftSphere;
  procedure CollideConvex(const aWithShape:TKraftShape);
  var PositionA,PositionB,Normal:TKraftVector3;
      PenetrationDepth:TKraftScalar;
+     Penetrating:boolean;
  begin
+  // Signed distance fields have no support mapping for MPR, so they go through the dedicated signed
+  // distance field penetration (which returns the same convention: normal = push direction of aShape)
+  if aWithShape.fShapeType=kstSignedDistanceField then begin
 {$ifdef KraftDoublePositions}
-  if MPRPenetration(aShape,aWithShape,PushRelativeTransformA,PushWithShapeTransform(aWithShape),PositionA,PositionB,Normal,PenetrationDepth) then begin
+   Penetrating:=SignedDistanceFieldPenetration(aShape,aWithShape,PushRelativeTransformA,PushWithShapeTransform(aWithShape),PositionA,PositionB,Normal,PenetrationDepth);
 {$else}
-  if MPRPenetration(aShape,aWithShape,TransformA,aWithShape.fWorldTransform,PositionA,PositionB,Normal,PenetrationDepth) then begin
+   Penetrating:=SignedDistanceFieldPenetration(aShape,aWithShape,TransformA,aWithShape.fWorldTransform,PositionA,PositionB,Normal,PenetrationDepth);
 {$endif}
+  end else begin
+{$ifdef KraftDoublePositions}
+   Penetrating:=MPRPenetration(aShape,aWithShape,PushRelativeTransformA,PushWithShapeTransform(aWithShape),PositionA,PositionB,Normal,PenetrationDepth);
+{$else}
+   Penetrating:=MPRPenetration(aShape,aWithShape,TransformA,aWithShape.fWorldTransform,PositionA,PositionB,Normal,PenetrationDepth);
+{$endif}
+  end;
+  if Penetrating then begin
    if aSingleDeepest then begin
     if (Count=0) or (BestPenetrationDepth<=PenetrationDepth) then begin
      Count:=1;
@@ -70144,7 +70158,6 @@ var Sphere:TKraftSphere;
 {$ifdef SIMD}
   AABB.Max.w:=0.0;
 {$endif}
-  RadiusWithThreshold:=Radius+EPSILON;
 {$ifdef KraftDoublePositions}
   RelativeTransform:=Matrix4x4TermMulInverted(PushRelativeTransformA,PushWithShapeTransform(aWithShape));
 {$else}
@@ -70239,9 +70252,10 @@ begin
   else begin
    Stack.Initialize;
    try
-    OriginalCenter:={$ifdef KraftDoublePositions}PositionFromVector3(TKraftVector3(Pointer(@aShape.fWorldTransform[3,0])^)){$else}TKraftVector3(Pointer(@aShape.fWorldTransform[3,0])^){$endif};
-    Sphere.Center:={$ifdef KraftDoublePositions}Vector3FromPosition(OriginalCenter){$else}OriginalCenter{$endif};
-    Sphere.Radius:=SphereFromAABB(aShape.fWorldAABB).Radius;
+    // The query sphere is the shape's world AABB bounding sphere; its center doesn't have to coincide with
+    // the transform origin (offset local transforms), so take both center and radius from the AABB
+    Sphere:=SphereFromAABB(aShape.fWorldAABB);
+    OriginalCenter:={$ifdef KraftDoublePositions}PositionFromVector3(Sphere.Center){$else}Sphere.Center{$endif};
     aSeperation.x:=0;
     aSeperation.y:=0;
     aSeperation.z:=0;
@@ -70303,10 +70317,7 @@ begin
               ((not assigned(aKraftOnPushShapeFilterHook)) or
                aKraftOnPushShapeFilterHook(CurrentShape)) then begin
             case CurrentShape.fShapeType of
-             kstSignedDistanceField:begin
-              // Ignore
-             end;
-             kstSphere,kstCapsule,kstConvexHull,kstBox,kstPlane,kstTriangle:begin
+             kstSignedDistanceField,kstSphere,kstCapsule,kstConvexHull,kstBox,kstPlane,kstTriangle:begin
               CollideConvex(CurrentShape);
              end;
              kstMesh:begin
