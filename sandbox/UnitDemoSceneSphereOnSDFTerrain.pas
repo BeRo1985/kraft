@@ -16,8 +16,8 @@ uses {$ifdef DebugDraw}
      Kraft,
      UnitDemoScene;
 
-type { TKraftShapeSignedDistanceFieldTerrain }
-     TKraftShapeSignedDistanceFieldTerrain=class(TKraftShapeSignedDistanceField)
+type { TTerrainSignedDistanceField }
+     TTerrainSignedDistanceField=class(TKraftSignedDistanceField)
       private
        fSize:TKraftScalar;
        fHeight:TKraftScalar;
@@ -26,22 +26,20 @@ type { TKraftShapeSignedDistanceFieldTerrain }
        fScale:Double;
        fInverseScale:Double;
        fData:TKraftScalarArray;
-       fGradientData:TKraftScalarArray;
       public
-       constructor Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody;const aSize,aHeight:TKraftScalar;const aResolution:Int32); reintroduce;
+       constructor Create(const APhysics:TKraft;const aSize,aHeight:TKraftScalar;const aResolution:Int32); reintroduce;
        destructor Destroy; override;
        function GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar; override;
-//     function GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3; override;
-       function GetLocalClosestPointTo(const Position:TKraftVector3):TKraftVector3; override;
 {$ifdef DebugDraw}
-       procedure Draw(const CameraMatrix:TKraftMatrix4x4); override;
+       procedure Draw(const WorldTransform,CameraMatrix:TKraftMatrix4x4); override;
 {$endif}
      end;
 
      TDemoSceneSphereOnSDFTerrain=class(TDemoScene)
       public
        RigidBodyFloor:TKraftRigidBody;
-       ShapeSignedDistanceFieldTerrain:TKraftShapeSignedDistanceFieldTerrain;
+       TerrainSignedDistanceField:TTerrainSignedDistanceField;
+       ShapeTerrain:TKraftShapeSignedDistanceField;
        RigidBodySphere:TKraftRigidBody;
        ShapeSphere:TKraftShapeSphere;
        constructor Create(const AKraftPhysics:TKraft); override;
@@ -53,9 +51,9 @@ implementation
 
 uses UnitFormMain;
 
-{ TKraftShapeSignedDistanceFieldTerrain }
+{ TTerrainSignedDistanceField }
 
-constructor TKraftShapeSignedDistanceFieldTerrain.Create(const APhysics:TKraft;const ARigidBody:TKraftRigidBody;const aSize,aHeight:TKraftScalar;const aResolution:Int32);
+constructor TTerrainSignedDistanceField.Create(const APhysics:TKraft;const aSize,aHeight:TKraftScalar;const aResolution:Int32);
 var AABB:TKraftAABB;
     x,y:Int32;
     k1,k2:TKraftScalar;
@@ -73,31 +71,27 @@ begin
  fData:=nil;
  SetLength(fData,fResolution*fResolution);
 
- fGradientData:=nil;
- SetLength(fGradientData,fResolution*fResolution);
-
  for y:=0 to fResolution-1 do begin
   for x:=0 to fResolution-1 do begin
    k1:=sin(x*pi*4/fResolution)*2;
    k2:=cos(y*pi*4/fResolution)*2;
-   fData[(y*fResolution)+x]:=-10.0;//(Min(Max(((((cos(x*pi*k1/fResolution)*sin(y*pi*k2/fResolution)))+(k1*0.5)-(k2*0.5)))*64,-64),32)/64.0)*fHeight;
+   fData[(y*fResolution)+x]:=(Min(Max(((((cos(x*pi*k1/fResolution)*sin(y*pi*k2/fResolution)))+(k1*0.5)-(k2*0.5)))*64,-64),32)/64.0)*fHeight;
   end;
  end;
 
- AABB.Min:=Vector3(-fSize,-fHeight,-fSize);
- AABB.Max:=Vector3(fSize,fHeight,fSize);
- inherited Create(APhysics,ARigidBody,@AABB);
+ AABB.Min:=Vector3(-fHalfSize,-fHeight,-fHalfSize);
+ AABB.Max:=Vector3(fHalfSize,fHeight,fHalfSize);
+ inherited Create(APhysics,true,@AABB);
 
 end;
 
-destructor TKraftShapeSignedDistanceFieldTerrain.Destroy;
+destructor TTerrainSignedDistanceField.Destroy;
 begin
  fData:=nil;
- fGradientData:=nil;
  inherited Destroy;
 end;
 
-function TKraftShapeSignedDistanceFieldTerrain.GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
+function TTerrainSignedDistanceField.GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
 var dx,dy:Double;
     ix,iy,nx,ny:Int32;
     fx,fy:Single;
@@ -136,102 +130,16 @@ begin
                      (((fData[(ny*fResolution)+ix]*(1.0-fx))+(fData[(ny*fResolution)+nx]*fx))*fy));
 end;
 
-(*function TKraftShapeSignedDistanceFieldTerrain.GetLocalSignedDistanceGradient(const Position:TKraftVector3):TKraftVector3;
-var dx,dy:Double;
-    ix,iy,nx,ny:Int32;
-    fx,fy:Single;
-begin
- dx:=(Position.x+fHalfSize)*fScale;
- dy:=(Position.z+fHalfSize)*fScale;
- if dx<=0.0 then begin
-  dx:=0.0;
- end else if dx>=fResolution then begin
-  dx:=fResolution;
- end;
- if dy<=0.0 then begin
-  dy:=0.0;
- end else if dy>=fResolution then begin
-  dy:=fResolution;
- end;
- ix:=trunc(dx);
- iy:=trunc(dy);
- if ix>=(fResolution-1) then begin
-  ix:=fResolution-2;
- end;
- if iy>=(fResolution-1) then begin
-  iy:=fResolution-2;
- end;
- fx:=dx-ix;
- fy:=dy-iy;
- nx:=ix+1;
- ny:=iy+1;
- if nx>=fResolution then begin
-  nx:=fResolution-1;
- end;
- if ny>=fResolution then begin
-  ny:=fResolution-1;
- end;
- result:=Vector3Norm(Vector3(1.0,
-                             (fData[(iy*fResolution)+ix]*Data[(iy*fResolution)+nx]*fx))*(1.0-fy))+
-                                         (((fData[(ny*fResolution)+ix]*(1.0-fx))+(fData[(ny*fResolution)+nx]*fx))*fy)),
-                             1.0)));
-{result:=Vector3Norm(Vector3(Position.X-((dx*fInverseScale)-fHalfSize),
-                             Position.Y-((((fData[(iy*fResolution)+ix]*(1.0-fx))+(fData[(iy*fResolution)+nx]*fx))*(1.0-fy))+
-                                         (((fData[(ny*fResolution)+ix]*(1.0-fx))+(fData[(ny*fResolution)+nx]*fx))*fy)),
-                             Position.Z-((dy*fInverseScale)-fHalfSize)));}
-end;         *)
-
-function TKraftShapeSignedDistanceFieldTerrain.GetLocalClosestPointTo(const Position:TKraftVector3):TKraftVector3;
-var dx,dy:Double;
-    ix,iy,nx,ny:Int32;
-    fx,fy:Single;
-begin
- dx:=(Position.x+fHalfSize)*fScale;
- dy:=(Position.z+fHalfSize)*fScale;
- if dx<=0.0 then begin
-  dx:=0.0;
- end else if dx>=fResolution then begin
-  dx:=fResolution;
- end;
- if dy<=0.0 then begin
-  dy:=0.0;
- end else if dy>=fResolution then begin
-  dy:=fResolution;
- end;
- ix:=trunc(dx);
- iy:=trunc(dy);
- if ix>=(fResolution-1) then begin
-  ix:=fResolution-2;
- end;
- if iy>=(fResolution-1) then begin
-  iy:=fResolution-2;
- end;
- fx:=dx-ix;
- fy:=dy-iy;
- nx:=ix+1;
- ny:=iy+1;
- if nx>=fResolution then begin
-  nx:=fResolution-1;
- end;
- if ny>=fResolution then begin
-  ny:=fResolution-1;
- end;
- result:=Vector3((dx*fInverseScale)-fHalfSize,
-                 ((((fData[(iy*fResolution)+ix]*(1.0-fx))+(fData[(iy*fResolution)+nx]*fx))*(1.0-fy))+
-                  (((fData[(ny*fResolution)+ix]*(1.0-fx))+(fData[(ny*fResolution)+nx]*fx))*fy)),
-                 (dy*fInverseScale)-fHalfSize);
-end;
-
 {$ifdef DebugDraw}
-procedure TKraftShapeSignedDistanceFieldTerrain.Draw(const CameraMatrix:TKraftMatrix4x4);
+procedure TTerrainSignedDistanceField.Draw(const WorldTransform,CameraMatrix:TKraftMatrix4x4);
 var ix,iy,nx,ny:Int32;
     v0,v1,v2,v3,n:TKraftVector3;
     ModelViewMatrix:TKraftMatrix4x4;
 begin
  glPushMatrix;
  glMatrixMode(GL_MODELVIEW);
- ModelViewMatrix:=Matrix4x4TermMul(InterpolatedWorldTransform,CameraMatrix);
-{$ifdef UseDouble}
+ ModelViewMatrix:=Matrix4x4TermMul(WorldTransform,CameraMatrix);
+{$ifdef KraftUseDouble}
  glLoadMatrixd(pointer(@ModelViewMatrix));
 {$else}
  glLoadMatrixf(pointer(@ModelViewMatrix));
@@ -288,17 +196,20 @@ begin
 end;
 {$endif}
 
-constructor TDemoSceneSphereOnSDFTerrain.Create(const AKraftPhysics:TKraft); 
+constructor TDemoSceneSphereOnSDFTerrain.Create(const AKraftPhysics:TKraft);
 begin
  inherited Create(AKraftPhysics);
 
  RigidBodyFloor:=TKraftRigidBody.Create(KraftPhysics);
  RigidBodyFloor.SetRigidBodyType(krbtSTATIC);
- ShapeSignedDistanceFieldTerrain:=TKraftShapeSignedDistanceFieldTerrain.Create(KraftPhysics,RigidBodyFloor,512,16,128);
- ShapeSignedDistanceFieldTerrain.Restitution:=0.3;
- ShapeSignedDistanceFieldTerrain.Density:=100.0;
+ TerrainSignedDistanceField:=TTerrainSignedDistanceField.Create(KraftPhysics,512,16,128);
+ SignedDistanceFieldGarbageCollector.Add(TerrainSignedDistanceField);
+ TerrainSignedDistanceField.Finish;
+ ShapeTerrain:=TKraftShapeSignedDistanceField.Create(KraftPhysics,RigidBodyFloor,TerrainSignedDistanceField);
+ ShapeTerrain.Restitution:=0.3;
+ ShapeTerrain.Density:=100.0;
  RigidBodyFloor.Finish;
- RigidBodyFloor.SetWorldTransformation(Matrix4x4Translate(64.0,14.0,0.0));
+ RigidBodyFloor.SetWorldTransformation(Matrix4x4Translate(0.0,0.0,0.0));
  RigidBodyFloor.CollisionGroups:=[0];
 
  RigidBodySphere:=TKraftRigidBody.Create(KraftPhysics);
@@ -307,7 +218,7 @@ begin
  ShapeSphere.Restitution:=0.3;
  ShapeSphere.Density:=1.0;
  RigidBodySphere.Finish;
- RigidBodySphere.SetWorldTransformation(Matrix4x4Translate(0.0,8.0,0.0));
+ RigidBodySphere.SetWorldTransformation(Matrix4x4Translate(0.0,24.0,0.0));
  RigidBodySphere.CollisionGroups:=[0];
 
 end;
@@ -322,5 +233,5 @@ begin
 end;
 
 initialization
-//RegisterDemoScene('Sphere on SDF terrain',TDemoSceneSphereOnSDFTerrain);
+ RegisterDemoScene('Sphere on SDF terrain',TDemoSceneSphereOnSDFTerrain);
 end.
