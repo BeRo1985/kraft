@@ -22125,6 +22125,10 @@ begin
  if (Shapes[0].fShapeType=kstSignedDistanceField) or
     (Shapes[1].fShapeType=kstSignedDistanceField) then begin
 
+  // No simplex features exist for signed distance fields, so make that visible to consumers which read
+  // the simplex after the run (for example the bilateral advancement time of impact separation function)
+  Simplex.Count:=0;
+
   result:=SignedDistanceFieldClosestPoints(Shapes[0],Shapes[1],Transforms[0]^,Transforms[1]^,ClosestPoints[0],ClosestPoints[1],ClosestPoint,uAB,vAB);
 
   if result then begin
@@ -22132,21 +22136,11 @@ begin
    // Get the normal direction
    Normal:=Vector3Sub(ClosestPoints[0],ClosestPoints[1]);
 
-   // Normalize normal direction to a normalized normal vector, and get the distance at the same time
+   // Normalize normal direction to a normalized normal vector, and get the distance at the same time. The
+   // closest points come from the signed distance projections and lie on the real surfaces already (the
+   // feature radii of spheres and capsules are part of their signed distance), so unlike the simplex path
+   // the feature radii must not be applied here again, independently of UseRadii.
    Distance:=Vector3LengthNormalize(Normal);
-
-   // Apply the radius stuff, if requested and needed
-   if UseRadii then begin
-    if (Distance>(Shapes[0].fFeatureRadius+Shapes[1].fFeatureRadius)) and (Distance>EPSILON) then begin
-     Distance:=Distance-(Shapes[0].fFeatureRadius+Shapes[1].fFeatureRadius);
-     ClosestPoints[0]:=Vector3Sub(ClosestPoints[0],Vector3ScalarMul(Normal,Shapes[0].fFeatureRadius));
-     ClosestPoints[1]:=Vector3Add(ClosestPoints[1],Vector3ScalarMul(Normal,Shapes[1].fFeatureRadius));
-    end else begin
-     Distance:=0.0;
-     ClosestPoints[0]:=ClosestPoint;
-     ClosestPoints[1]:=ClosestPoint;
-    end;
-   end;
 
   end else begin
 
@@ -24253,7 +24247,30 @@ end;
 function TKraftDynamicAABBTree.MoveProxy(aNodeID:TKraftInt32;const aAABB:TKraftAABB;const aDisplacement,aBoundsExpansion:TKraftVector3;const aShouldRotate:boolean):boolean;
 var Node,ParentNode:PKraftDynamicAABBTreeNode;
     ParentIndex:TKraftInt32;
+    SweptAABB:TKraftAABB;
 begin
+
+ // The stored fat AABB must still cover the upcoming displacement path, not just the current tight AABB:
+ // a fast body otherwise coasts inside its old fat AABB for a few steps while the predicted corridor never
+ // reaches a thin obstacle before the body has already passed it, so the broadphase pair would never exist
+ // and every continuous collision mode would stay blind. For slow bodies the reinsertion cadence stays
+ // practically the same, since the one-step displacement is small against the AABB extension margin.
+ SweptAABB:=aAABB;
+ if aDisplacement.x<0.0 then begin
+  SweptAABB.Min.x:=SweptAABB.Min.x+aDisplacement.x;
+ end else begin
+  SweptAABB.Max.x:=SweptAABB.Max.x+aDisplacement.x;
+ end;
+ if aDisplacement.y<0.0 then begin
+  SweptAABB.Min.y:=SweptAABB.Min.y+aDisplacement.y;
+ end else begin
+  SweptAABB.Max.y:=SweptAABB.Max.y+aDisplacement.y;
+ end;
+ if aDisplacement.z<0.0 then begin
+  SweptAABB.Min.z:=SweptAABB.Min.z+aDisplacement.z;
+ end else begin
+  SweptAABB.Max.z:=SweptAABB.Max.z+aDisplacement.z;
+ end;
 
 {$ifdef KraftPasMPThreadSafeBVH}
  TPasMPMultipleReaderSingleWriterSpinLock.AcquireRead(fMultipleReaderSingleWriterLockState);
@@ -24261,7 +24278,7 @@ begin
 
  Node:=@fNodes^[aNodeID];
 
- result:=not AABBContains(Node^.AABB,aAABB);
+ result:=not AABBContains(Node^.AABB,SweptAABB);
 
  if result then begin
 
@@ -37324,8 +37341,8 @@ end;
 function TKraftShapeBox.GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
 var q:TKraftVector3;
 begin
- q:=Vector3Abs(Vector3Sub(Position,Extents));
- result:=Vector3Length(Vector3(Max(0.0,q.x),Max(0.0,q.y),Max(0.0,q.z)))*Min(0.0,Max(q.x,Max(q.y,q.z)));
+ q:=Vector3Sub(Vector3Abs(Position),Extents);
+ result:=Vector3Length(Vector3(Max(0.0,q.x),Max(0.0,q.y),Max(0.0,q.z)))+Min(0.0,Max(q.x,Max(q.y,q.z)));
 end;
 
 function TKraftShapeBox.GetLocalSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar;
@@ -37338,40 +37355,43 @@ begin
                        Min(Max(Position.y,-Extents.y),Extents.y),
                        Min(Max(Position.z,-Extents.z),Extents.z));
 
- if (abs(Position.x)<Extents.x) or (abs(Position.y)<Extents.y) or (abs(Position.z)<Extents.z) then begin
+ if (abs(Position.x)<Extents.x) and (abs(Position.y)<Extents.y) and (abs(Position.z)<Extents.z) then begin
 
   // Inside box
 
+  // Nearest face wins: the distances to the six faces are all positive inside, the minus faces measure
+  // Position+Extents (the old code compared against Position-Extents, which is negative inside, and picked
+  // the maximum, which selected the farthest face instead of the nearest one)
   Distance:=Extents.x-Position.x;
   BestDistance:=Distance;
   Axis:=1;
 
-  Distance:=Position.x-Extents.x;
-  if BestDistance<Distance then begin
+  Distance:=Position.x+Extents.x;
+  if Distance<BestDistance then begin
    BestDistance:=Distance;
    Axis:=-1;
   end;
 
   Distance:=Extents.y-Position.y;
-  if BestDistance<Distance then begin
+  if Distance<BestDistance then begin
    BestDistance:=Distance;
    Axis:=2;
   end;
 
-  Distance:=Position.y-Extents.y;
-  if BestDistance<Distance then begin
+  Distance:=Position.y+Extents.y;
+  if Distance<BestDistance then begin
    BestDistance:=Distance;
    Axis:=-2;
   end;
 
   Distance:=Extents.z-Position.z;
-  if BestDistance<Distance then begin
+  if Distance<BestDistance then begin
    BestDistance:=Distance;
    Axis:=3;
   end;
 
-  Distance:=Position.z-Extents.z;
-  if BestDistance<Distance then begin
+  Distance:=Position.z+Extents.z;
+  if Distance<BestDistance then begin
    BestDistance:=Distance;
    Axis:=-3;
   end;
@@ -37416,40 +37436,43 @@ begin
                        Min(Max(Position.y,-Extents.y),Extents.y),
                        Min(Max(Position.z,-Extents.z),Extents.z));
 
- if (abs(Position.x)<Extents.x) or (abs(Position.y)<Extents.y) or (abs(Position.z)<Extents.z) then begin
+ if (abs(Position.x)<Extents.x) and (abs(Position.y)<Extents.y) and (abs(Position.z)<Extents.z) then begin
 
   // Inside box
 
+  // Nearest face wins: the distances to the six faces are all positive inside, the minus faces measure
+  // Position+Extents (the old code compared against Position-Extents, which is negative inside, and picked
+  // the maximum, which selected the farthest face instead of the nearest one)
   Distance:=Extents.x-Position.x;
   BestDistance:=Distance;
   Axis:=1;
 
-  Distance:=Position.x-Extents.x;
-  if BestDistance<Distance then begin
+  Distance:=Position.x+Extents.x;
+  if Distance<BestDistance then begin
    BestDistance:=Distance;
    Axis:=-1;
   end;
 
   Distance:=Extents.y-Position.y;
-  if BestDistance<Distance then begin
+  if Distance<BestDistance then begin
    BestDistance:=Distance;
    Axis:=2;
   end;
 
-  Distance:=Position.y-Extents.y;
-  if BestDistance<Distance then begin
+  Distance:=Position.y+Extents.y;
+  if Distance<BestDistance then begin
    BestDistance:=Distance;
    Axis:=-2;
   end;
 
   Distance:=Extents.z-Position.z;
-  if BestDistance<Distance then begin
+  if Distance<BestDistance then begin
    BestDistance:=Distance;
    Axis:=3;
   end;
 
-  Distance:=Position.z-Extents.z;
-  if BestDistance<Distance then begin
+  Distance:=Position.z+Extents.z;
+  if Distance<BestDistance then begin
    BestDistance:=Distance;
    Axis:=-3;
   end;
@@ -37490,40 +37513,43 @@ begin
                        Min(Max(Position.y,-Extents.y),Extents.y),
                        Min(Max(Position.z,-Extents.z),Extents.z));
 
- if (abs(Position.x)<Extents.x) or (abs(Position.y)<Extents.y) or (abs(Position.z)<Extents.z) then begin
+ if (abs(Position.x)<Extents.x) and (abs(Position.y)<Extents.y) and (abs(Position.z)<Extents.z) then begin
 
   // Inside box
 
+  // Nearest face wins: the distances to the six faces are all positive inside, the minus faces measure
+  // Position+Extents (the old code compared against Position-Extents, which is negative inside, and picked
+  // the maximum, which selected the farthest face instead of the nearest one)
   Distance:=Extents.x-Position.x;
   BestDistance:=Distance;
   Axis:=1;
 
-  Distance:=Position.x-Extents.x;
-  if BestDistance<Distance then begin
+  Distance:=Position.x+Extents.x;
+  if Distance<BestDistance then begin
    BestDistance:=Distance;
    Axis:=-1;
   end;
 
   Distance:=Extents.y-Position.y;
-  if BestDistance<Distance then begin
+  if Distance<BestDistance then begin
    BestDistance:=Distance;
    Axis:=2;
   end;
 
-  Distance:=Position.y-Extents.y;
-  if BestDistance<Distance then begin
+  Distance:=Position.y+Extents.y;
+  if Distance<BestDistance then begin
    BestDistance:=Distance;
    Axis:=-2;
   end;
 
   Distance:=Extents.z-Position.z;
-  if BestDistance<Distance then begin
+  if Distance<BestDistance then begin
    BestDistance:=Distance;
    Axis:=3;
   end;
 
-  Distance:=Position.z-Extents.z;
-  if BestDistance<Distance then begin
+  Distance:=Position.z+Extents.z;
+  if Distance<BestDistance then begin
    BestDistance:=Distance;
    Axis:=-3;
   end;
@@ -37563,40 +37589,43 @@ begin
                  Min(Max(Position.y,-Extents.y),Extents.y),
                  Min(Max(Position.z,-Extents.z),Extents.z));
 
- if (abs(Position.x)<Extents.x) or (abs(Position.y)<Extents.y) or (abs(Position.z)<Extents.z) then begin
+ if (abs(Position.x)<Extents.x) and (abs(Position.y)<Extents.y) and (abs(Position.z)<Extents.z) then begin
 
   // Inside box
 
+  // Nearest face wins: the distances to the six faces are all positive inside, the minus faces measure
+  // Position+Extents (the old code compared against Position-Extents, which is negative inside, and picked
+  // the maximum, which selected the farthest face instead of the nearest one)
   Distance:=Extents.x-Position.x;
   BestDistance:=Distance;
   Axis:=1;
 
-  Distance:=Position.x-Extents.x;
-  if BestDistance<Distance then begin
+  Distance:=Position.x+Extents.x;
+  if Distance<BestDistance then begin
    BestDistance:=Distance;
    Axis:=-1;
   end;
 
   Distance:=Extents.y-Position.y;
-  if BestDistance<Distance then begin
+  if Distance<BestDistance then begin
    BestDistance:=Distance;
    Axis:=2;
   end;
 
-  Distance:=Position.y-Extents.y;
-  if BestDistance<Distance then begin
+  Distance:=Position.y+Extents.y;
+  if Distance<BestDistance then begin
    BestDistance:=Distance;
    Axis:=-2;
   end;
 
   Distance:=Extents.z-Position.z;
-  if BestDistance<Distance then begin
+  if Distance<BestDistance then begin
    BestDistance:=Distance;
    Axis:=3;
   end;
 
-  Distance:=Position.z-Extents.z;
-  if BestDistance<Distance then begin
+  Distance:=Position.z+Extents.z;
+  if Distance<BestDistance then begin
    BestDistance:=Distance;
    Axis:=-3;
   end;
@@ -42745,6 +42774,20 @@ var OldManifoldCountContacts:TKraftInt32;
     for VertexIndex:=0 to ConvexHull.fCountVertices-1 do begin
      AddSample(Vector3TermMatrixMul(Vector3ScalarMul(ConvexHull.fVertices[VertexIndex].Position,Scale),OtherTransform),0.0,CreateFeatureID(SampleKindVertex,TKraftUInt32(VertexIndex)));
     end;
+    // Fallback: when no hull vertex touches the field, sample the field's pseudo features against the hull
+    // (over its local plane distance function) instead, since the hull's own vertices can lie far away from
+    // the touching region when the field body rests on the interior of a large face (a small field body on a
+    // huge floor box would otherwise get no contacts at all). Only as a fallback, since in deep overlap of
+    // thin geometry the mixed contact sets of both directions can pull against each other.
+    if ContactManager.fCountTemporaryContacts[ThreadIndex]=0 then begin
+     TargetShape:=OtherShape;
+     TargetTransform:=OtherTransform;
+     SourceIsShapesZero:=not OtherIsShapesZero;
+     AddFieldFeatureSamples(SDFShape,SDFTransform,64);
+     TargetShape:=SDFShape;
+     TargetTransform:=SDFTransform;
+     SourceIsShapesZero:=OtherIsShapesZero;
+    end;
     if (ContactManager.fCountTemporaryContacts[ThreadIndex]>0) and (ConvexHull.fCountFaces>0) then begin
      // The pressing face is the one which is the most antiparallel to the field gradient at the deepest vertex
      BestFaceIndex:=-1;
@@ -43068,7 +43111,10 @@ var OldManifoldCountContacts:TKraftInt32;
       GJK.Transforms[0]:=@ShapeA.fWorldTransform;
       GJK.Transforms[1]:=@ShapeB.fWorldTransform;
 {$endif}
-      GJK.UseRadii:=false;
+      // With radii, so that the speculative separation is the real surface distance; the core distance
+      // (without the feature radii) used to let a sphere sink in radius-deep before the discrete contact
+      // took over, which could still tunnel through obstacles thinner than the feature radius
+      GJK.UseRadii:=true;
       GJK.Run;
       if (GJK.Distance>0.0) and (GJK.Distance<(VelocityLength+EPSILON)) and not GJK.Failed then begin
        if MPRSweepTest(ShapeA,ShapeB,Sweeps[0],Sweeps[1]) then begin
@@ -58625,6 +58671,12 @@ begin
 
  DispatchIndependentStage(InitializeConstraintsRange,fCountContacts);
 
+ // Exactly once and also when the island has no regular contacts at all: an island can consist of nothing
+ // but speculative contact pairs (a lone fast body approaching something), and the range dispatch above
+ // then never runs, which used to leave the speculative states uninitialized and the speculative solve
+ // without any effect (the range tail also re-initialized them once per dispatched range before)
+ InitializeSpeculativeContacts;
+
 end;
 
 procedure TKraftSolver.InitializeConstraintsRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
@@ -58771,8 +58823,6 @@ begin
   end;
 
  end;
-
- InitializeSpeculativeContacts;
 
 end;
 
@@ -65061,6 +65111,12 @@ var Iteration,Index:TKraftInt32;
 {$endif}
 begin
 
+{$ifdef KraftConstraintGraphColoring}
+ // The solver stages index the contact solve order permutation, so it has to be built for the transient
+ // time of impact islands too, exactly like TKraftIsland.Solve does for the regular islands
+ BuildSolveOrders;
+{$endif}
+
  fSolver.Store;
 
 {$ifdef KraftDoublePositions}
@@ -65081,6 +65137,10 @@ begin
   SolverPosition^.Position:=RigidBody.fSweep.c;
 {$endif}
   SolverPosition^.Orientation:=RigidBody.fSweep.q;
+  // The linear factors have to be filled for the transient time of impact islands too (the regular solve
+  // paths fill them in their own body store loops); a stale zero factor here nullified every impulse of the
+  // time of impact mini solve, so the body kept its full velocity and tunneled right after the clamping
+  fSolver.fLinearFactors[Index]:=RigidBody.fLinearFactor;
  end;
 
  fSolver.Initialize(aTimeStep);
@@ -67911,12 +67971,19 @@ end;
 
 function TKraft.GetTimeOfImpact(const aShapeA:TKraftShape;const aSweepA:TKraftSweep;const aShapeB:TKraftShape;const aShapeBMeshIndex,aShapeBTriangleIndex:TKraftInt32;const aSweepB:TKraftSweep;const aTimeStep:TKraftTimeStep;const aThreadIndex:TKraftInt32;var aBeta:TKraftScalar):boolean;
 begin
- case fTimeOfImpactAlgorithm of
-  ktoiaConservativeAdvancement:begin
-   result:=GetConservativeAdvancementTimeOfImpact(aShapeA,aSweepA,aShapeB,aShapeBMeshIndex,aShapeBTriangleIndex,aSweepB,aTimeStep,aThreadIndex,aBeta);
-  end;
-  else {ktoiaBilateralAdvancement:}begin
-   result:=GetBilateralAdvancementTimeOfImpact(aShapeA,aSweepA,aShapeB,aShapeBMeshIndex,aShapeBTriangleIndex,aSweepB,aTimeStep,aThreadIndex,aBeta);
+ if (aShapeA.fShapeType=kstSignedDistanceField) or (aShapeB.fShapeType=kstSignedDistanceField) then begin
+  // Signed distance fields have no polytope features for the bilateral advancement separation function
+  // (the GJK signed distance field path computes closest points without a simplex), so pairs with a signed
+  // distance field always take the conservative advancement path, which only needs distances and normals
+  result:=GetConservativeAdvancementTimeOfImpact(aShapeA,aSweepA,aShapeB,aShapeBMeshIndex,aShapeBTriangleIndex,aSweepB,aTimeStep,aThreadIndex,aBeta);
+ end else begin
+  case fTimeOfImpactAlgorithm of
+   ktoiaConservativeAdvancement:begin
+    result:=GetConservativeAdvancementTimeOfImpact(aShapeA,aSweepA,aShapeB,aShapeBMeshIndex,aShapeBTriangleIndex,aSweepB,aTimeStep,aThreadIndex,aBeta);
+   end;
+   else {ktoiaBilateralAdvancement:}begin
+    result:=GetBilateralAdvancementTimeOfImpact(aShapeA,aSweepA,aShapeB,aShapeBMeshIndex,aShapeBTriangleIndex,aSweepB,aTimeStep,aThreadIndex,aBeta);
+   end;
   end;
  end;
 end;
