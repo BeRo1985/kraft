@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-07-11-10-55-0000                       *
+ *                        Version 2026-07-11-11-29-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -2358,12 +2358,14 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      { TKraftSignedDistanceFieldTerrain }
      // Built-in height field terrain as a signed distance field: a centered regular grid of height samples
      // over the local x/z plane, bilinearly interpolated, with the solid below the height surface. The
-     // distance is scaled by a conservative Lipschitz bound over the terrain slope, so that sphere tracing
-     // (ray casts, sphere casts and shape casts) stays correct even on steep terrain (a plain y minus height
-     // difference oversteps there), and the gradient comes analytically from the bilinear patch. As a
-     // continuous surface it has no internal mesh edges, so bodies can't snag on tessellation seams like on
-     // a triangle mesh terrain. Fill the heights (constructor pointer or the Heights property), then call
-     // UpdateData (implicit when constructed with data) and Finish.
+     // distance is the vertical height difference divided by the local patch gradient magnitude, which makes
+     // it exact against the local tangent plane (a plain y minus height difference overestimates on slopes),
+     // and the gradient comes analytically from the bilinear patch. Ray casts and sphere casts don't sphere
+     // trace over that distance (it is no global lower bound around slope changes), they walk the grid cells
+     // along the ray instead and cast against the two triangles of each crossed cell, which is exact and
+     // visits only the crossed cells. As a continuous surface it has no internal mesh edges, so bodies can't
+     // snag on tessellation seams like on a triangle mesh terrain. Fill the heights (constructor pointer or
+     // the Heights property), then call UpdateData (implicit when constructed with data) and Finish.
      TKraftSignedDistanceFieldTerrain=class(TKraftSignedDistanceField)
       private
        fCountX:TKraftInt32;
@@ -2379,22 +2381,24 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fInverseCellSizeZ:TKraftScalar;
        fMinimumHeight:TKraftScalar;
        fMaximumHeight:TKraftScalar;
-       fDistanceScale:TKraftScalar;
        fHeights:TKraftScalarArray;
        function GetHeight(const aX,aZ:TKraftInt32):TKraftScalar;
        procedure SetHeight(const aX,aZ:TKraftInt32;const aValue:TKraftScalar);
        procedure SampleHeightGradient(const aX,aZ:TKraftScalar;out aHeight,aGradientX,aGradientZ:TKraftScalar);
+       procedure GetCellTriangles(const aCellX,aCellZ:TKraftInt32;out aVertex00,aVertex10,aVertex01,aVertex11:TKraftVector3);
       public
        constructor Create(const aPhysics:TKraft;const aCountX,aCountZ:TKraftInt32;const aSizeX,aSizeZ:TKraftScalar;const aHeights:PKraftScalar=nil;const aBottomMargin:TKraftScalar=1.0;const aIsForStaticRigidBodies:Boolean=true); reintroduce;
        destructor Destroy; override;
-       // Recomputes the height bounds, the Lipschitz distance scale and the AABB; call it after mutating
-       // heights over the Heights property and before Finish
+       // Recomputes the height bounds and the AABB; call it after mutating heights over the Heights
+       // property and before Finish
        procedure UpdateData;
        function GetTerrainHeight(const aX,aZ:TKraftScalar):TKraftScalar;
        function GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar; override;
        function GetLocalSignedDistanceNormalizedGradient(const Position:TKraftVector3):TKraftVector3; override;
        function GetLocalSignedDistanceNormal(const Position:TKraftVector3):TKraftVector3; override;
        function GetLocalClosestPointTo(const Position:TKraftVector3):TKraftVector3; override;
+       function RayCast(var RayCastData:TKraftRayCastData;const Transform:TKraftMatrix4x4):boolean; override;
+       function SphereCast(var SphereCastData:TKraftSphereCastData;const Transform:TKraftMatrix4x4):boolean; override;
 {$ifdef DebugDraw}
        procedure Draw(const WorldTransform,CameraMatrix:TKraftMatrix4x4); override;
 {$endif}
@@ -35476,7 +35480,6 @@ begin
   end;
   fMinimumHeight:=0.0;
   fMaximumHeight:=0.0;
-  fDistanceScale:=1.0;
  end;
 
 end;
@@ -35498,43 +35501,20 @@ begin
 end;
 
 procedure TKraftSignedDistanceFieldTerrain.UpdateData;
-var IndexX,IndexZ,RowOffset:TKraftInt32;
-    h00,h10,h01,h11,GradientX,GradientZ,MaximumSlopeSquared,SlopeSquared:TKraftScalar;
+var Index:TKraftInt32;
 begin
 
  // Height bounds
  fMinimumHeight:=fHeights[0];
  fMaximumHeight:=fHeights[0];
- for IndexX:=1 to (fCountX*fCountZ)-1 do begin
-  if fHeights[IndexX]<fMinimumHeight then begin
-   fMinimumHeight:=fHeights[IndexX];
+ for Index:=1 to (fCountX*fCountZ)-1 do begin
+  if fHeights[Index]<fMinimumHeight then begin
+   fMinimumHeight:=fHeights[Index];
   end;
-  if fHeights[IndexX]>fMaximumHeight then begin
-   fMaximumHeight:=fHeights[IndexX];
-  end;
- end;
-
- // Conservative Lipschitz bound over the terrain slope: the plain height difference y-h(x,z) is no real
- // distance on sloped terrain (its gradient magnitude is sqrt(1+slope^2)), so the distance gets scaled by
- // the inverse of that bound, which makes it exact on planar patches and a safe lower bound everywhere,
- // which is exactly what sphere tracing and conservative advancement need
- MaximumSlopeSquared:=0.0;
- for IndexZ:=0 to fCountZ-2 do begin
-  RowOffset:=IndexZ*fCountX;
-  for IndexX:=0 to fCountX-2 do begin
-   h00:=fHeights[RowOffset+IndexX];
-   h10:=fHeights[RowOffset+IndexX+1];
-   h01:=fHeights[RowOffset+fCountX+IndexX];
-   h11:=fHeights[RowOffset+fCountX+IndexX+1];
-   GradientX:=Max(abs(h10-h00),abs(h11-h01))*fInverseCellSizeX;
-   GradientZ:=Max(abs(h01-h00),abs(h11-h10))*fInverseCellSizeZ;
-   SlopeSquared:=sqr(GradientX)+sqr(GradientZ);
-   if SlopeSquared>MaximumSlopeSquared then begin
-    MaximumSlopeSquared:=SlopeSquared;
-   end;
+  if fHeights[Index]>fMaximumHeight then begin
+   fMaximumHeight:=fHeights[Index];
   end;
  end;
- fDistanceScale:=1.0/sqrt(1.0+MaximumSlopeSquared);
 
  fAABB.Min:=Vector3(-fHalfSizeX,fMinimumHeight-fBottomMargin,-fHalfSizeZ);
  fAABB.Max:=Vector3(fHalfSizeX,fMaximumHeight,fHalfSizeZ);
@@ -35563,6 +35543,24 @@ begin
  aGradientZ:=(((h01-h00)*(1.0-FractionX))+((h11-h10)*FractionX))*fInverseCellSizeZ;
 end;
 
+procedure TKraftSignedDistanceFieldTerrain.GetCellTriangles(const aCellX,aCellZ:TKraftInt32;out aVertex00,aVertex10,aVertex01,aVertex11:TKraftVector3);
+var RowOffset:TKraftInt32;
+    X0,X1,Z0,Z1:TKraftScalar;
+begin
+ // The two triangles of a cell are (aVertex00,aVertex01,aVertex10) and (aVertex10,aVertex01,aVertex11),
+ // both wound with an upwards facing normal, with the same diagonal split as TKraftMesh.AddHeightField
+ // and the debug draw use
+ X0:=(aCellX*fCellSizeX)-fHalfSizeX;
+ X1:=X0+fCellSizeX;
+ Z0:=(aCellZ*fCellSizeZ)-fHalfSizeZ;
+ Z1:=Z0+fCellSizeZ;
+ RowOffset:=aCellZ*fCountX;
+ aVertex00:=Vector3(X0,fHeights[RowOffset+aCellX],Z0);
+ aVertex10:=Vector3(X1,fHeights[RowOffset+aCellX+1],Z0);
+ aVertex01:=Vector3(X0,fHeights[RowOffset+fCountX+aCellX],Z1);
+ aVertex11:=Vector3(X1,fHeights[RowOffset+fCountX+aCellX+1],Z1);
+end;
+
 function TKraftSignedDistanceFieldTerrain.GetTerrainHeight(const aX,aZ:TKraftScalar):TKraftScalar;
 var GradientX,GradientZ:TKraftScalar;
 begin
@@ -35572,8 +35570,11 @@ end;
 function TKraftSignedDistanceFieldTerrain.GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
 var Height,GradientX,GradientZ:TKraftScalar;
 begin
+ // The vertical height difference divided by the gradient magnitude of the height difference field is the
+ // exact distance to the local tangent plane of the patch, so contacts, pushes and conservative advancement
+ // see a real distance near the surface (a plain height difference would let bodies float on slopes)
  SampleHeightGradient(Position.x,Position.z,Height,GradientX,GradientZ);
- result:=(Position.y-Height)*fDistanceScale;
+ result:=(Position.y-Height)/sqrt(1.0+(sqr(GradientX)+sqr(GradientZ)));
 end;
 
 function TKraftSignedDistanceFieldTerrain.GetLocalSignedDistanceNormalizedGradient(const Position:TKraftVector3):TKraftVector3;
@@ -35594,11 +35595,450 @@ function TKraftSignedDistanceFieldTerrain.GetLocalClosestPointTo(const Position:
 var Height,GradientX,GradientZ,Distance:TKraftScalar;
     Normal:TKraftVector3;
 begin
- // Distance along the analytic patch normal, exact on planar patches thanks to the Lipschitz scaling
+ // Distance along the analytic patch normal, exact against the local tangent plane
  SampleHeightGradient(Position.x,Position.z,Height,GradientX,GradientZ);
  Normal:=Vector3Norm(Vector3(-GradientX,1.0,-GradientZ));
- Distance:=(Position.y-Height)*fDistanceScale;
+ Distance:=(Position.y-Height)/sqrt(1.0+(sqr(GradientX)+sqr(GradientZ)));
  result:=Vector3Sub(Position,Vector3ScalarMul(Normal,Distance));
+end;
+
+function TKraftSignedDistanceFieldTerrain.RayCast(var RayCastData:TKraftRayCastData;const Transform:TKraftMatrix4x4):boolean;
+var CellX,CellZ,StepX,StepZ:TKraftInt32;
+    TimeMin,TimeMax,SlabTime0,SlabTime1,SlabTimeSwap,TimeMaxX,TimeMaxZ,TimeDeltaX,TimeDeltaZ,
+    BestTime,HitTime,GridX,GridZ,CellBoundary,Height,GradientX,GradientZ,u,v,w:TKraftScalar;
+    Origin,Direction,Current,Vertex00,Vertex10,Vertex01,Vertex11{$ifdef KraftDoublePositions},LocalPoint{$endif}:TKraftVector3;
+    HasHit:boolean;
+begin
+
+ result:=false;
+
+ // As in the base class: under KraftDoublePositions the caller passes Transform base-relative to
+ // RayCastData.Origin, so the ray starts at the frame origin and the hit point is offset back by
+ // RayCastData.Origin at the very end
+ Origin:=Vector3TermMatrixMulInverted({$ifdef KraftDoublePositions}Vector3Origin{$else}RayCastData.Origin{$endif},Transform);
+ Direction:=Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,Transform);
+
+ if Vector3LengthSquared(Direction)<=EPSILON then begin
+  exit;
+ end;
+
+ // Clip the ray against the terrain AABB (guarded slab test, so axis-parallel rays can't divide by zero)
+ TimeMin:=0.0;
+ TimeMax:=RayCastData.MaxTime;
+ if abs(Direction.x)>1e-20 then begin
+  SlabTime0:=(fAABB.Min.x-Origin.x)/Direction.x;
+  SlabTime1:=(fAABB.Max.x-Origin.x)/Direction.x;
+  if SlabTime0>SlabTime1 then begin
+   SlabTimeSwap:=SlabTime0;
+   SlabTime0:=SlabTime1;
+   SlabTime1:=SlabTimeSwap;
+  end;
+  if SlabTime0>TimeMin then begin
+   TimeMin:=SlabTime0;
+  end;
+  if SlabTime1<TimeMax then begin
+   TimeMax:=SlabTime1;
+  end;
+ end else begin
+  if (Origin.x<fAABB.Min.x) or (Origin.x>fAABB.Max.x) then begin
+   exit;
+  end;
+ end;
+ if abs(Direction.y)>1e-20 then begin
+  SlabTime0:=(fAABB.Min.y-Origin.y)/Direction.y;
+  SlabTime1:=(fAABB.Max.y-Origin.y)/Direction.y;
+  if SlabTime0>SlabTime1 then begin
+   SlabTimeSwap:=SlabTime0;
+   SlabTime0:=SlabTime1;
+   SlabTime1:=SlabTimeSwap;
+  end;
+  if SlabTime0>TimeMin then begin
+   TimeMin:=SlabTime0;
+  end;
+  if SlabTime1<TimeMax then begin
+   TimeMax:=SlabTime1;
+  end;
+ end else begin
+  if (Origin.y<fAABB.Min.y) or (Origin.y>fAABB.Max.y) then begin
+   exit;
+  end;
+ end;
+ if abs(Direction.z)>1e-20 then begin
+  SlabTime0:=(fAABB.Min.z-Origin.z)/Direction.z;
+  SlabTime1:=(fAABB.Max.z-Origin.z)/Direction.z;
+  if SlabTime0>SlabTime1 then begin
+   SlabTimeSwap:=SlabTime0;
+   SlabTime0:=SlabTime1;
+   SlabTime1:=SlabTimeSwap;
+  end;
+  if SlabTime0>TimeMin then begin
+   TimeMin:=SlabTime0;
+  end;
+  if SlabTime1<TimeMax then begin
+   TimeMax:=SlabTime1;
+  end;
+ end else begin
+  if (Origin.z<fAABB.Min.z) or (Origin.z>fAABB.Max.z) then begin
+   exit;
+  end;
+ end;
+ if TimeMin>TimeMax then begin
+  exit;
+ end;
+
+ Current:=Vector3Add(Origin,Vector3ScalarMul(Direction,TimeMin));
+
+ SampleHeightGradient(Current.x,Current.z,Height,GradientX,GradientZ);
+ if (Current.y-Height)<EPSILON then begin
+
+  // A ray that already starts in the solid below the height surface hits immediately at the clip entry
+  HasHit:=true;
+  BestTime:=TimeMin;
+
+ end else begin
+
+  // Walk the grid cells along the ground track of the ray with a 2D DDA and cast against the two
+  // triangles of each crossed cell, which is exact even on steep terrain (sphere tracing over the
+  // signed distance could overstep around slope changes there) and visits only the crossed cells
+  HasHit:=false;
+  BestTime:=RayCastData.MaxTime;
+
+  GridX:=(Current.x+fHalfSizeX)*fInverseCellSizeX;
+  GridZ:=(Current.z+fHalfSizeZ)*fInverseCellSizeZ;
+  CellX:=Min(Max(trunc(GridX),0),fCountX-2);
+  CellZ:=Min(Max(trunc(GridZ),0),fCountZ-2);
+
+  if Direction.x>1e-20 then begin
+   StepX:=1;
+   CellBoundary:=((CellX+1)*fCellSizeX)-fHalfSizeX;
+   TimeMaxX:=TimeMin+((CellBoundary-Current.x)/Direction.x);
+   TimeDeltaX:=fCellSizeX/Direction.x;
+  end else if Direction.x<-1e-20 then begin
+   StepX:=-1;
+   CellBoundary:=(CellX*fCellSizeX)-fHalfSizeX;
+   TimeMaxX:=TimeMin+((CellBoundary-Current.x)/Direction.x);
+   TimeDeltaX:=-(fCellSizeX/Direction.x);
+  end else begin
+   StepX:=0;
+   TimeMaxX:=1e18;
+   TimeDeltaX:=0.0;
+  end;
+  if Direction.z>1e-20 then begin
+   StepZ:=1;
+   CellBoundary:=((CellZ+1)*fCellSizeZ)-fHalfSizeZ;
+   TimeMaxZ:=TimeMin+((CellBoundary-Current.z)/Direction.z);
+   TimeDeltaZ:=fCellSizeZ/Direction.z;
+  end else if Direction.z<-1e-20 then begin
+   StepZ:=-1;
+   CellBoundary:=(CellZ*fCellSizeZ)-fHalfSizeZ;
+   TimeMaxZ:=TimeMin+((CellBoundary-Current.z)/Direction.z);
+   TimeDeltaZ:=-(fCellSizeZ/Direction.z);
+  end else begin
+   StepZ:=0;
+   TimeMaxZ:=1e18;
+   TimeDeltaZ:=0.0;
+  end;
+
+  repeat
+   GetCellTriangles(CellX,CellZ,Vertex00,Vertex10,Vertex01,Vertex11);
+   if RayIntersectTriangle(Origin,Direction,Vertex00,Vertex01,Vertex10,HitTime,u,v,w) and
+      ((HitTime>=0.0) and (HitTime<=BestTime)) then begin
+    BestTime:=HitTime;
+    HasHit:=true;
+   end;
+   if RayIntersectTriangle(Origin,Direction,Vertex10,Vertex01,Vertex11,HitTime,u,v,w) and
+      ((HitTime>=0.0) and (HitTime<=BestTime)) then begin
+    BestTime:=HitTime;
+    HasHit:=true;
+   end;
+   if HasHit or (Min(TimeMaxX,TimeMaxZ)>TimeMax) then begin
+    break;
+   end;
+   if TimeMaxX<TimeMaxZ then begin
+    inc(CellX,StepX);
+    if (CellX<0) or (CellX>(fCountX-2)) then begin
+     break;
+    end;
+    TimeMaxX:=TimeMaxX+TimeDeltaX;
+   end else begin
+    inc(CellZ,StepZ);
+    if (CellZ<0) or (CellZ>(fCountZ-2)) then begin
+     break;
+    end;
+    TimeMaxZ:=TimeMaxZ+TimeDeltaZ;
+   end;
+  until false;
+
+ end;
+
+ if HasHit then begin
+  Current:=Vector3Add(Origin,Vector3ScalarMul(Direction,BestTime));
+  SampleHeightGradient(Current.x,Current.z,Height,GradientX,GradientZ);
+  RayCastData.TimeOfImpact:=BestTime;
+{$ifdef KraftDoublePositions}
+  LocalPoint:=Current;
+  Vector3MatrixMul(LocalPoint,Transform);
+  RayCastData.Point:=PositionAddVector3(RayCastData.Origin,LocalPoint);
+{$else}
+  RayCastData.Point:=Current;
+  Vector3MatrixMul(RayCastData.Point,Transform);
+{$endif}
+  RayCastData.Normal:=Vector3Norm(Vector3(-GradientX,1.0,-GradientZ));
+  Vector3MatrixMulBasis(RayCastData.Normal,Transform);
+  Vector3Normalize(RayCastData.Normal);
+  RayCastData.SurfaceNormal:=RayCastData.Normal;
+  result:=true;
+ end;
+
+end;
+
+function TKraftSignedDistanceFieldTerrain.SphereCast(var SphereCastData:TKraftSphereCastData;const Transform:TKraftMatrix4x4):boolean;
+var CellX,CellZ,StepX,StepZ,CorridorRadiusX,CorridorRadiusZ,CorridorIndex,CorridorIndex2:TKraftInt32;
+    DirectionLength,Radius,MaxDistance,TimeMin,TimeMax,SlabTime0,SlabTime1,SlabTimeSwap,
+    TimeMaxX,TimeMaxZ,TimeDeltaX,TimeDeltaZ,BestDistance,StopMargin,GridX,GridZ,CellBoundary,
+    Height,GradientX,GradientZ,CenterDistance,BoundsEpsilon:TKraftScalar;
+    Origin,Direction,Current,BestNormal{$ifdef KraftDoublePositions},LocalPoint{$endif}:TKraftVector3;
+    BoundsAABB:TKraftAABB;
+    HasHit:boolean;
+ procedure TestCell(const aCellX,aCellZ:TKraftInt32);
+ var Vertex00,Vertex10,Vertex01,Vertex11,TriangleNormal,HitNormal:TKraftVector3;
+     HitDistance:TKraftScalar;
+ begin
+  if ((aCellX>=0) and (aCellX<=(fCountX-2))) and ((aCellZ>=0) and (aCellZ<=(fCountZ-2))) then begin
+   GetCellTriangles(aCellX,aCellZ,Vertex00,Vertex10,Vertex01,Vertex11);
+   TriangleNormal:=Vector3Norm(Vector3Cross(Vector3Sub(Vertex01,Vertex00),Vector3Sub(Vertex10,Vertex00)));
+   if SphereCastTriangle(Origin,Radius,Direction,Vertex00,Vertex01,Vertex10,TriangleNormal,false,HitNormal,HitDistance) and
+      ((HitDistance>=0.0) and (HitDistance<=BestDistance)) then begin
+    BestDistance:=HitDistance;
+    BestNormal:=HitNormal;
+    HasHit:=true;
+   end;
+   TriangleNormal:=Vector3Norm(Vector3Cross(Vector3Sub(Vertex01,Vertex10),Vector3Sub(Vertex11,Vertex10)));
+   if SphereCastTriangle(Origin,Radius,Direction,Vertex10,Vertex01,Vertex11,TriangleNormal,false,HitNormal,HitDistance) and
+      ((HitDistance>=0.0) and (HitDistance<=BestDistance)) then begin
+    BestDistance:=HitDistance;
+    BestNormal:=HitNormal;
+    HasHit:=true;
+   end;
+  end;
+ end;
+begin
+
+ result:=false;
+
+ // As in the base class: under KraftDoublePositions the caller passes Transform base-relative to
+ // SphereCastData.Origin, so the cast starts at the frame origin and the hit point is offset back by
+ // the origin at the end
+ Origin:=Vector3TermMatrixMulInverted({$ifdef KraftDoublePositions}Vector3Origin{$else}SphereCastData.Origin{$endif},Transform);
+ Direction:=Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,Transform);
+
+ DirectionLength:=Vector3Length(Direction);
+ if DirectionLength<=EPSILON then begin
+  exit;
+ end;
+
+ // Work in world distance units on a normalized direction (the triangle sphere casts need that) and
+ // convert back into the caller time parameterization at the very end
+ Direction:=Vector3ScalarMul(Direction,1.0/DirectionLength);
+ MaxDistance:=SphereCastData.MaxTime*DirectionLength;
+
+ Radius:=SphereCastData.Radius;
+
+ // The sphere center traces against the terrain bounds enlarged by the sphere radius
+ BoundsEpsilon:=(1e-4*(1.0+fMaxAxisLength))+Radius;
+ BoundsAABB.Min:=Vector3Sub(fAABB.Min,Vector3(BoundsEpsilon,BoundsEpsilon,BoundsEpsilon));
+ BoundsAABB.Max:=Vector3Add(fAABB.Max,Vector3(BoundsEpsilon,BoundsEpsilon,BoundsEpsilon));
+
+ // Clip the cast against the enlarged bounds (guarded slab test, so axis-parallel casts can't divide by zero)
+ TimeMin:=0.0;
+ TimeMax:=MaxDistance;
+ if abs(Direction.x)>1e-20 then begin
+  SlabTime0:=(BoundsAABB.Min.x-Origin.x)/Direction.x;
+  SlabTime1:=(BoundsAABB.Max.x-Origin.x)/Direction.x;
+  if SlabTime0>SlabTime1 then begin
+   SlabTimeSwap:=SlabTime0;
+   SlabTime0:=SlabTime1;
+   SlabTime1:=SlabTimeSwap;
+  end;
+  if SlabTime0>TimeMin then begin
+   TimeMin:=SlabTime0;
+  end;
+  if SlabTime1<TimeMax then begin
+   TimeMax:=SlabTime1;
+  end;
+ end else begin
+  if (Origin.x<BoundsAABB.Min.x) or (Origin.x>BoundsAABB.Max.x) then begin
+   exit;
+  end;
+ end;
+ if abs(Direction.y)>1e-20 then begin
+  SlabTime0:=(BoundsAABB.Min.y-Origin.y)/Direction.y;
+  SlabTime1:=(BoundsAABB.Max.y-Origin.y)/Direction.y;
+  if SlabTime0>SlabTime1 then begin
+   SlabTimeSwap:=SlabTime0;
+   SlabTime0:=SlabTime1;
+   SlabTime1:=SlabTimeSwap;
+  end;
+  if SlabTime0>TimeMin then begin
+   TimeMin:=SlabTime0;
+  end;
+  if SlabTime1<TimeMax then begin
+   TimeMax:=SlabTime1;
+  end;
+ end else begin
+  if (Origin.y<BoundsAABB.Min.y) or (Origin.y>BoundsAABB.Max.y) then begin
+   exit;
+  end;
+ end;
+ if abs(Direction.z)>1e-20 then begin
+  SlabTime0:=(BoundsAABB.Min.z-Origin.z)/Direction.z;
+  SlabTime1:=(BoundsAABB.Max.z-Origin.z)/Direction.z;
+  if SlabTime0>SlabTime1 then begin
+   SlabTimeSwap:=SlabTime0;
+   SlabTime0:=SlabTime1;
+   SlabTime1:=SlabTimeSwap;
+  end;
+  if SlabTime0>TimeMin then begin
+   TimeMin:=SlabTime0;
+  end;
+  if SlabTime1<TimeMax then begin
+   TimeMax:=SlabTime1;
+  end;
+ end else begin
+  if (Origin.z<BoundsAABB.Min.z) or (Origin.z>BoundsAABB.Max.z) then begin
+   exit;
+  end;
+ end;
+ if TimeMin>TimeMax then begin
+  exit;
+ end;
+
+ Current:=Vector3Add(Origin,Vector3ScalarMul(Direction,TimeMin));
+
+ // A sphere that already overlaps the terrain at the clip entry hits immediately there
+ CenterDistance:=GetLocalSignedDistance(Current);
+ if (CenterDistance-Radius)<EPSILON then begin
+  SphereCastData.TimeOfImpact:=TimeMin/DirectionLength;
+  SampleHeightGradient(Current.x,Current.z,Height,GradientX,GradientZ);
+  SphereCastData.Normal:=Vector3Norm(Vector3(-GradientX,1.0,-GradientZ));
+  // Project the sphere center onto the terrain surface for the hit point
+{$ifdef KraftDoublePositions}
+  LocalPoint:=Vector3Sub(Current,Vector3ScalarMul(SphereCastData.Normal,CenterDistance));
+  Vector3MatrixMul(LocalPoint,Transform);
+  SphereCastData.Point:=PositionAddVector3(SphereCastData.Origin,LocalPoint);
+{$else}
+  SphereCastData.Point:=Vector3Sub(Current,Vector3ScalarMul(SphereCastData.Normal,CenterDistance));
+  Vector3MatrixMul(SphereCastData.Point,Transform);
+{$endif}
+  Vector3MatrixMulBasis(SphereCastData.Normal,Transform);
+  Vector3Normalize(SphereCastData.Normal);
+  SphereCastData.SurfaceNormal:=SphereCastData.Normal;
+  result:=true;
+  exit;
+ end;
+
+ HasHit:=false;
+ BestDistance:=MaxDistance;
+
+ // Walk the grid cells along the ground track of the cast with a 2D DDA and sphere cast against the
+ // triangles of a cell corridor around it, wide enough for the sphere radius; only the fresh frontier
+ // strip of the corridor gets tested per step, so no cell gets tested twice
+ CorridorRadiusX:=1+trunc(Radius*fInverseCellSizeX);
+ CorridorRadiusZ:=1+trunc(Radius*fInverseCellSizeZ);
+
+ // The corridor may reach laterally outside the grid (TestCell skips those cells), so the walk runs on
+ // unclamped cell coordinates here, with a floor also for negative positions
+ GridX:=(Current.x+fHalfSizeX)*fInverseCellSizeX;
+ GridZ:=(Current.z+fHalfSizeZ)*fInverseCellSizeZ;
+ CellX:=trunc(GridX);
+ if GridX<CellX then begin
+  dec(CellX);
+ end;
+ CellZ:=trunc(GridZ);
+ if GridZ<CellZ then begin
+  dec(CellZ);
+ end;
+
+ if Direction.x>1e-20 then begin
+  StepX:=1;
+  CellBoundary:=((CellX+1)*fCellSizeX)-fHalfSizeX;
+  TimeMaxX:=TimeMin+((CellBoundary-Current.x)/Direction.x);
+  TimeDeltaX:=fCellSizeX/Direction.x;
+ end else if Direction.x<-1e-20 then begin
+  StepX:=-1;
+  CellBoundary:=(CellX*fCellSizeX)-fHalfSizeX;
+  TimeMaxX:=TimeMin+((CellBoundary-Current.x)/Direction.x);
+  TimeDeltaX:=-(fCellSizeX/Direction.x);
+ end else begin
+  StepX:=0;
+  TimeMaxX:=1e18;
+  TimeDeltaX:=0.0;
+ end;
+ if Direction.z>1e-20 then begin
+  StepZ:=1;
+  CellBoundary:=((CellZ+1)*fCellSizeZ)-fHalfSizeZ;
+  TimeMaxZ:=TimeMin+((CellBoundary-Current.z)/Direction.z);
+  TimeDeltaZ:=fCellSizeZ/Direction.z;
+ end else if Direction.z<-1e-20 then begin
+  StepZ:=-1;
+  CellBoundary:=(CellZ*fCellSizeZ)-fHalfSizeZ;
+  TimeMaxZ:=TimeMin+((CellBoundary-Current.z)/Direction.z);
+  TimeDeltaZ:=-(fCellSizeZ/Direction.z);
+ end else begin
+  StepZ:=0;
+  TimeMaxZ:=1e18;
+  TimeDeltaZ:=0.0;
+ end;
+
+ // The initial corridor block around the entry cell
+ for CorridorIndex:=CellZ-CorridorRadiusZ to CellZ+CorridorRadiusZ do begin
+  for CorridorIndex2:=CellX-CorridorRadiusX to CellX+CorridorRadiusX do begin
+   TestCell(CorridorIndex2,CorridorIndex);
+  end;
+ end;
+
+ // Once a hit exists, cells further along the walk than the hit distance plus this margin can't beat it
+ // anymore (the corridor is at most the radius plus two cells wide in every direction)
+ StopMargin:=(2.0*Radius)+(2.0*(fCellSizeX+fCellSizeZ));
+
+ repeat
+  if (Min(TimeMaxX,TimeMaxZ)>TimeMax) or (HasHit and (Min(TimeMaxX,TimeMaxZ)>(BestDistance+StopMargin))) then begin
+   break;
+  end;
+  if TimeMaxX<TimeMaxZ then begin
+   inc(CellX,StepX);
+   TimeMaxX:=TimeMaxX+TimeDeltaX;
+   for CorridorIndex:=CellZ-CorridorRadiusZ to CellZ+CorridorRadiusZ do begin
+    TestCell(CellX+(StepX*CorridorRadiusX),CorridorIndex);
+   end;
+  end else begin
+   inc(CellZ,StepZ);
+   TimeMaxZ:=TimeMaxZ+TimeDeltaZ;
+   for CorridorIndex:=CellX-CorridorRadiusX to CellX+CorridorRadiusX do begin
+    TestCell(CorridorIndex,CellZ+(StepZ*CorridorRadiusZ));
+   end;
+  end;
+ until false;
+
+ if HasHit then begin
+  SphereCastData.TimeOfImpact:=BestDistance/DirectionLength;
+  Current:=Vector3Add(Origin,Vector3ScalarMul(Direction,BestDistance));
+  // The contact point sits radius deep from the sphere center against the hit normal
+{$ifdef KraftDoublePositions}
+  LocalPoint:=Vector3Sub(Current,Vector3ScalarMul(BestNormal,Radius));
+  Vector3MatrixMul(LocalPoint,Transform);
+  SphereCastData.Point:=PositionAddVector3(SphereCastData.Origin,LocalPoint);
+{$else}
+  SphereCastData.Point:=Vector3Sub(Current,Vector3ScalarMul(BestNormal,Radius));
+  Vector3MatrixMul(SphereCastData.Point,Transform);
+{$endif}
+  SphereCastData.Normal:=BestNormal;
+  Vector3MatrixMulBasis(SphereCastData.Normal,Transform);
+  Vector3Normalize(SphereCastData.Normal);
+  SphereCastData.SurfaceNormal:=SphereCastData.Normal;
+  result:=true;
+ end;
+
 end;
 
 {$ifdef DebugDraw}
