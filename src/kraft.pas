@@ -169,6 +169,9 @@ unit kraft;
  {$define KraftGaussMapEdgeAxis}
 {$endif}
 
+// Experimental!
+{-$define KraftSideAwareHulls}
+
 {$define KraftConstraintGraphColoring}
 
 // x86-64 SSE assembler variants of the wide (four lane SoA) contact solver kernels, active only for single
@@ -2729,9 +2732,11 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      TKraftShapeConvexHull=class(TKraftShape)
       private
        fConvexHull:TKraftConvexHull;
+{$ifdef KraftSideAwareHulls}
        fDoubleSided:boolean; // True for solid hulls and double sided surfaces, which orient the degenerate edge-edge SAT axis (two
                              // antiparallel adjacent faces) outward via the hull center. False only for a single sided flat surface (a
                              // triangle from a non double sided mesh, whose front is Face[0]), which keeps that axis on the front side.
+{$endif}
       public
        constructor Create(const aPhysics:TKraft;const ARigidBody:TKraftRigidBody;const AConvexHull:TKraftConvexHull); reintroduce; overload;
        destructor Destroy; override;
@@ -37631,7 +37636,9 @@ begin
 
  fShapeType:=kstConvexHull;
 
+{$ifdef KraftSideAwareHulls}
  fDoubleSided:=true;
+{$endif}
 
  fFeatureRadius:=0.0;
 
@@ -42533,10 +42540,12 @@ var OldManifoldCountContacts:TKraftInt32;
 
       Normal:=Vector3ScalarMul(Normal,1.0/L);
 
+{$ifdef KraftSideAwareHulls}
       if (not ShapeB.fDoubleSided) and (Vector3Dot(ShapeB.fConvexHull.fFaces[Edge^.Faces[0]].Plane.Normal,Vector3Sub(CapsulePointStart,Vector3ScalarMul(ShapeB.fConvexHull.fVertices[Edge^.Vertices[0]].Position,ShapeB.fScale)))<0.0) then begin
        // Single sided surface: the capsule is behind the front face, so there is no contact here.
        continue;
       end;
+{$endif}
 
       if Vector3Dot(Normal,Vector3Sub(CapsulePointStart,Vector3ScalarMul(ShapeB.fConvexHull.fVertices[Edge^.Vertices[0]].Position,ShapeB.fScale)))<0.0 then begin
        Normal:=Vector3Neg(Normal);
@@ -42562,10 +42571,12 @@ var OldManifoldCountContacts:TKraftInt32;
 
      Normal:=Vector3ScalarDiv(Ea_x_Eb,L);
 
+{$ifdef KraftSideAwareHulls}
      if (not ShapeB.fDoubleSided) and (Vector3Dot(ShapeB.fConvexHull.fFaces[Edge^.Faces[0]].Plane.Normal,Vector3Sub(CapsulePointStart,Vector3ScalarMul(ShapeB.fConvexHull.fVertices[Edge^.Vertices[0]].Position,ShapeB.fScale)))<0.0) then begin
       // Single sided surface: the capsule is behind the front face, so there is no contact here.
       continue;
      end;
+{$endif}
 
      // Assure consistent normal orientation (here: hull -> capsule, outward from the hull)
      if Vector3Dot(Normal,Vector3Sub(Vector3ScalarMul(ShapeB.fConvexHull.fVertices[Edge^.Vertices[0]].Position,ShapeB.fScale),CenterB))<0.0 then begin
@@ -42841,19 +42852,21 @@ var OldManifoldCountContacts:TKraftInt32;
 
      Normal:=Vector3ScalarMul(Normal,1.0/L);
 
-     if HullB.fDoubleSided then begin
+{$ifdef KraftSideAwareHulls}if HullB.fDoubleSided then{$endif}begin
 
       // Double sided: orient outward from HullA, matching the classic cross-product path.
       if Vector3Dot(Normal,Vector3Sub(Pa,CenterA))<0.0 then begin
        Normal:=Vector3Neg(Normal);
       end;
 
+{$ifdef KraftSideAwareHulls}
      end else begin
 
       // Single sided surface: keep the axis on the front (Face[0] = Ub) side only.
       if Vector3Dot(Normal,Ub)>0.0 then begin
        Normal:=Vector3Neg(Normal);
       end;
+{$endif}
 
      end;
 
@@ -42879,19 +42892,21 @@ var OldManifoldCountContacts:TKraftInt32;
 
     // Assure consistent normal orientation (here: HullA -> HullB)
 
-    if HullB.fDoubleSided then begin
+    {$ifdef KraftSideAwareHulls}if HullB.fDoubleSided then{$endif}begin
 
      // Double sided: orient outward from HullA, matching the classic cross-product path.
      if Vector3Dot(Normal,Vector3Sub(Pa,CenterA))<0.0 then begin
       Normal:=Vector3Neg(Normal);
      end;
 
+{$ifdef KraftSideAwareHulls}
     end else begin
 
      // Single sided surface: keep the axis on the front (Face[0] = Ub) side only.
      if Vector3Dot(Normal,Ub)>0.0 then begin
       Normal:=Vector3Neg(Normal);
      end;
+{$endif}
 
     end;
 
@@ -43023,19 +43038,22 @@ var OldManifoldCountContacts:TKraftInt32;
 
        Normal:=Vector3ScalarMul(Normal,1.0/L);
 
-       if HullB.fDoubleSided then begin
+       {$ifdef KraftSideAwareHulls}if HullB.fDoubleSided then{$endif}begin
 
         // Double sided: orient outward from HullA, matching the classic cross-product path.
         if Vector3Dot(Normal,Vector3Sub(Pa,CenterA))<0.0 then begin
          Normal:=Vector3Neg(Normal);
         end;
 
+{$ifdef KraftSideAwareHulls}
        end else begin
 
         // Single sided surface: keep the axis on the front (Face[0] = Ub) side only.
         if Vector3Dot(Normal,Ub)>0.0 then begin
          Normal:=Vector3Neg(Normal);
         end;
+
+{$endif}
 
        end;
 
@@ -43061,19 +43079,22 @@ var OldManifoldCountContacts:TKraftInt32;
 
       // Assure consistent normal orientation (here: HullA -> HullB)
 
-      if HullB.fDoubleSided then begin
+      {$ifdef KraftSideAwareHulls}if HullB.fDoubleSided then{$endif}begin
 
        // Double sided: orient outward from HullA, matching the classic cross-product path.
        if Vector3Dot(Normal,Vector3Sub(Pa,CenterA))<0.0 then begin
         Normal:=Vector3Neg(Normal);
        end;
 
+{$ifdef KraftSideAwareHulls}
       end else begin
 
        // Single sided surface: keep the axis on the front (Face[0] = Ub) side only.
        if Vector3Dot(Normal,Ub)>0.0 then begin
         Normal:=Vector3Neg(Normal);
        end;
+
+{$endif}
 
       end;
 
@@ -44421,9 +44442,11 @@ begin
    ShapeTriangle.fConvexHull.fVertices[0].Position:=Vector3ScalarMul(Mesh.fVertices[MeshTriangle^.Vertices[0]],MeshShape.fScale);
    ShapeTriangle.fConvexHull.fVertices[1].Position:=Vector3ScalarMul(Mesh.fVertices[MeshTriangle^.Vertices[1]],MeshShape.fScale);
    ShapeTriangle.fConvexHull.fVertices[2].Position:=Vector3ScalarMul(Mesh.fVertices[MeshTriangle^.Vertices[2]],MeshShape.fScale);
+{$ifdef KraftSideAwareHulls}
    // A single sided mesh only collides on its front (Face[0]); this steers the degenerate edge-edge axis onto
    // that side. A double sided mesh keeps the center-based two-sided orientation.
    ShapeTriangle.fDoubleSided:=Mesh.fDoubleSided;
+{$endif}
    ShapeTriangle.UpdateData;
   end else begin
    exit;
