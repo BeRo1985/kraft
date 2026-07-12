@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-07-11-11-29-0000                       *
+ *                        Version 2026-07-12-17-31-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -165,7 +165,9 @@ unit kraft;
 // orienting it against the hull center. This avoids the cross product and, more importantly, the center-based
 // orientation whose sign flickers when the axis is nearly parallel to a triangle face normal. Undefine to fall
 // back to the classic cross-product axis with center-based orientation.
-{$define KraftGaussMapEdgeAxis}
+{$ifndef KraftNoGaussMapEdgeAxis}
+ {$define KraftGaussMapEdgeAxis}
+{$endif}
 
 {$define KraftConstraintGraphColoring}
 
@@ -2727,6 +2729,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      TKraftShapeConvexHull=class(TKraftShape)
       private
        fConvexHull:TKraftConvexHull;
+       fDoubleSided:boolean; // True for solid hulls and double sided surfaces, which orient the degenerate edge-edge SAT axis (two
+                             // antiparallel adjacent faces) outward via the hull center. False only for a single sided flat surface (a
+                             // triangle from a non double sided mesh, whose front is Face[0]), which keeps that axis on the front side.
       public
        constructor Create(const aPhysics:TKraft;const ARigidBody:TKraftRigidBody;const AConvexHull:TKraftConvexHull); reintroduce; overload;
        destructor Destroy; override;
@@ -2748,6 +2753,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure Draw(const CameraMatrix:TKraftMatrix4x4); override;
 {$endif}
        property ConvexHull:TKraftConvexHull read fConvexHull;
+//     property DoubleSided:boolean read fDoubleSided write fDoubleSided;
      end;
 
      TKraftShapeConvexHulls=array of TKraftShapeConvexHull;
@@ -6676,6 +6682,7 @@ function Vector3Avg({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:T
 function Vector3Avg({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2,v3:TKraftVector3):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
 function Vector3Avg({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} va:PKraftVector3s;Count:TKraftInt32):TKraftVector3; overload; {$ifdef caninline}inline;{$endif}
 function Vector3ScalarMul({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3;const s:TKraftScalar):TKraftVector3; {$if defined(caninline) and not defined(SIMDASM)}inline;{$ifend} {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
+function Vector3ScalarDiv({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3;const s:TKraftScalar):TKraftVector3; {$if defined(caninline) and not defined(SIMDASM)}inline;{$ifend} {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function Vector3Dot({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3):TKraftScalar; {$if defined(caninline) and not defined(SIMDASM)}inline;{$ifend} {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function Vector3Cos({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3):TKraftScalar; {$ifdef caninline}inline;{$endif}
 function Vector3Project({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Vector,OnNormal:TKraftVector3):TKraftVector3; {$ifdef caninline}inline;{$endif}
@@ -6684,6 +6691,8 @@ function Vector3Cross({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2
 function Vector3Neg({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3):TKraftVector3;  {$if defined(caninline) and not defined(SIMDASM)}inline;{$ifend} {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 procedure Vector3Scale(var v:TKraftVector3;const sx,sy,sz:TKraftScalar); overload; {$if defined(caninline) and not defined(SIMDASM)}inline;{$ifend} {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 procedure Vector3Scale(var v:TKraftVector3;const s:TKraftScalar); overload; {$if defined(caninline) and not defined(SIMDASM)}inline;{$ifend} {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
+procedure Vector3InverseScale(var v:TKraftVector3;const sx,sy,sz:TKraftScalar); overload; {$if defined(caninline) and not defined(SIMDASM)}inline;{$ifend} {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
+procedure Vector3InverseScale(var v:TKraftVector3;const s:TKraftScalar); overload; {$if defined(caninline) and not defined(SIMDASM)}inline;{$ifend} {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function Vector3Mul({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3):TKraftVector3; {$if defined(caninline) and not defined(SIMDASM)}inline;{$ifend} {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function Vector3Div({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3):TKraftVector3; {$if defined(caninline) and not defined(SIMDASM)}inline;{$ifend} {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
 function Vector3Length({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3):TKraftScalar; {$if defined(caninline) and not defined(SIMDASM)}inline;{$ifend} {$if defined(fpc) and defined(SIMDASM) and defined(cpuamd64) and not defined(Windows)}ms_abi_default;{$ifend}
@@ -7897,6 +7906,28 @@ begin
 end;
 {$ifend}
 
+function Vector3ScalarDiv({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v:TKraftVector3;const s:TKraftScalar):TKraftVector3; {$if defined(SIMD) and defined(SIMDASM) and defined(fpc) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
+asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
+ movups xmm0,dqword ptr [v]
+ movss xmm1,dword ptr [s]
+ shufps xmm1,xmm1,$00
+ divps xmm0,xmm1
+ movups dqword ptr [result],xmm0
+end;
+{$else}
+begin
+ result.x:=v.x/s;
+ result.y:=v.y/s;
+ result.z:=v.z/s;
+{$ifdef SIMD}
+ result.w:=0.0;
+{$endif}
+end;
+{$ifend}
+
 function Vector3Dot({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} v1,v2:TKraftVector3):TKraftScalar; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
 {$if defined(SIMD) and defined(cpu386_)}
 asm
@@ -8138,6 +8169,54 @@ begin
  v.x:=v.x*s;
  v.y:=v.y*s;
  v.z:=v.z*s;
+{$ifdef SIMD}
+ v.w:=0.0;
+{$endif}
+end;
+{$ifend}
+
+procedure Vector3InverseScale(var v:TKraftVector3;const sx,sy,sz:TKraftScalar); overload; {$if defined(SIMD) and defined(SIMDASM) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
+asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
+ movss xmm0,dword ptr [v+0]
+ movss xmm1,dword ptr [v+4]
+ movss xmm2,dword ptr [v+8]
+ divss xmm0,dword ptr [sx]
+ divss xmm1,dword ptr [sy]
+ divss xmm2,dword ptr [sz]
+ movss dword ptr [v+0],xmm0
+ movss dword ptr [v+4],xmm1
+ movss dword ptr [v+8],xmm2
+end;
+{$else}
+begin
+ v.x:=v.x/sx;
+ v.y:=v.y/sy;
+ v.z:=v.z/sz;
+{$ifdef SIMD}
+ v.w:=0.0;
+{$endif}
+end;
+{$ifend}
+
+procedure Vector3InverseScale(var v:TKraftVector3;const s:TKraftScalar); overload; {$if defined(SIMD) and defined(SIMDASM) and defined(fpc) and (defined(cpu386) or defined(cpuamd64))}assembler; {$if defined(fpc) and defined(cpuamd64)}nostackframe;{$ifend}
+asm
+{$if defined(cpuamd64) and not defined(fpc)}
+ .noframe
+{$ifend}
+ movups xmm0,dqword ptr [v]
+ movss xmm1,dword ptr [s]
+ shufps xmm1,xmm1,$00
+ divps xmm0,xmm1
+ movups dqword ptr [v],xmm0
+end;
+{$else}
+begin
+ v.x:=v.x/s;
+ v.y:=v.y/s;
+ v.z:=v.z/s;
 {$ifdef SIMD}
  v.w:=0.0;
 {$endif}
@@ -37552,6 +37631,8 @@ begin
 
  fShapeType:=kstConvexHull;
 
+ fDoubleSided:=true;
+
  fFeatureRadius:=0.0;
 
 //fLocalCentroid:=fConvexHull.fMassData.Center;
@@ -42237,9 +42318,10 @@ var OldManifoldCountContacts:TKraftInt32;
        // with the tight generic tolerance it collapses to a single end contact and tips between its ends forever.
        ParallelFaceTolerance=0.05;
  var FaceIndex,VertexIndex,OtherVertexIndex,PointIndex,MaxFaceIndex,MaxEdgeIndex,EdgeIndex:TKraftInt32;
-     CapsuleRadius,Distance,MaxFaceSeparation,MaxEdgeSeparation,Separation{$ifdef KraftGaussMapEdgeAxis},cba,dba{$else},L{$endif}:TKraftScalar;
+     CapsuleRadius,Distance,MaxFaceSeparation,MaxEdgeSeparation,Separation,
+     L{$ifdef KraftGaussMapEdgeAxis},cba,dba{$endif}:TKraftScalar;
      CapsulePosition,CapsuleAxis,CapsulePointStart,CapsulePointEnd,Normal,FaceNormal,{MaxFaceSeparateAxis,}
-     MaxEdgeSeparateAxis,Ea{$ifndef KraftGaussMapEdgeAxis},CenterB,Eb,Ea_x_Eb{$endif}:TKraftVector3;
+     MaxEdgeSeparateAxis,Ea,Eb{$ifndef KraftGaussMapEdgeAxis},CenterB,Ea_x_Eb{$endif}:TKraftVector3;
      OK:boolean;
      Face:PKraftConvexHullFace;
      Edge:PKraftConvexHullEdge;
@@ -42414,18 +42496,58 @@ var OldManifoldCountContacts:TKraftInt32;
     if (Vector3Dot(Ea,ShapeB.fConvexHull.fFaces[Edge^.Faces[0]].Plane.Normal)*Vector3Dot(Ea,ShapeB.fConvexHull.fFaces[Edge^.Faces[1]].Plane.Normal))<0.0 then begin
 
      // Build search direction
+
 {$ifdef KraftGaussMapEdgeAxis}
+
      // The capsule axis is an isolated edge (a circle through the origin on the Gauss map), so the isolated
      // Minkowski test above is already a plane test; cba/dba are the signed distances of the capsule axis to
      // each hull face normal and have opposite signs, so cba-dba never vanishes. The axis lands between the
      // two hull face normals and thus points hull -> capsule by construction, which is this routine's normal
      // convention (oriented outward from the hull), so no center-based orientation is needed.
      cba:=Vector3Dot(ShapeB.fConvexHull.fFaces[Edge^.Faces[0]].Plane.Normal,Ea);
+
      dba:=Vector3Dot(ShapeB.fConvexHull.fFaces[Edge^.Faces[1]].Plane.Normal,Ea);
+
      if Max(sqr(cba),sqr(dba))<(sqr(Tolerance)*Vector3LengthSquared(Ea)) then begin
       continue;
      end;
-     Normal:=Vector3Norm(Vector3Lerp(ShapeB.fConvexHull.fFaces[Edge^.Faces[0]].Plane.Normal,ShapeB.fConvexHull.fFaces[Edge^.Faces[1]].Plane.Normal,cba/(cba-dba)));
+
+     Normal:=Vector3Lerp(ShapeB.fConvexHull.fFaces[Edge^.Faces[0]].Plane.Normal,ShapeB.fConvexHull.fFaces[Edge^.Faces[1]].Plane.Normal,cba/(cba-dba));
+
+     L:=Vector3LengthSquared(Normal);
+     if L<sqr(Tolerance) then begin
+
+      // The hull edge's two adjacent faces are antiparallel (a flat plate such as a mesh triangle), so the arc
+      // reconstruction collapses to zero. Fall back to the cross-product axis and orient it toward the capsule
+      // (the flat hull's center is in-plane and cannot orient it).
+
+      Eb:=Vector3Sub(Vector3ScalarMul(ShapeB.fConvexHull.fVertices[Edge^.Vertices[1]].Position,ShapeB.fScale),Vector3ScalarMul(ShapeB.fConvexHull.fVertices[Edge^.Vertices[0]].Position,ShapeB.fScale));
+
+      Normal:=Vector3Cross(Ea,Eb);
+
+      L:=Vector3Length(Normal);
+
+      if L<(sqrt(Vector3LengthSquared(Ea)*Vector3LengthSquared(Eb))*Tolerance) then begin
+       continue;
+      end;
+
+      Normal:=Vector3ScalarMul(Normal,1.0/L);
+
+      if (not ShapeB.fDoubleSided) and (Vector3Dot(ShapeB.fConvexHull.fFaces[Edge^.Faces[0]].Plane.Normal,Vector3Sub(CapsulePointStart,Vector3ScalarMul(ShapeB.fConvexHull.fVertices[Edge^.Vertices[0]].Position,ShapeB.fScale)))<0.0) then begin
+       // Single sided surface: the capsule is behind the front face, so there is no contact here.
+       continue;
+      end;
+
+      if Vector3Dot(Normal,Vector3Sub(CapsulePointStart,Vector3ScalarMul(ShapeB.fConvexHull.fVertices[Edge^.Vertices[0]].Position,ShapeB.fScale)))<0.0 then begin
+       Normal:=Vector3Neg(Normal);
+      end;
+
+     end else begin
+
+      Vector3InverseScale(Normal,sqrt(L));
+
+     end;
+
 {$else}
      Eb:=Vector3Sub(Vector3ScalarMul(ShapeB.fConvexHull.fVertices[Edge^.Vertices[1]].Position,ShapeB.fScale),Vector3ScalarMul(ShapeB.fConvexHull.fVertices[Edge^.Vertices[0]].Position,ShapeB.fScale));
 
@@ -42633,33 +42755,55 @@ var OldManifoldCountContacts:TKraftInt32;
   end;
   function TestEarlyEdgeDirection(const HullA,HullB:TKraftShapeConvexHull;var EdgeQuery:TKraftContactEdgeQuery):boolean;
   var EdgeA,EdgeB:PKraftConvexHullEdge;
-      {$ifdef KraftGaussMapEdgeAxis}cba,dba{$else}L{$endif}:TKraftScalar;
-      {$ifndef KraftGaussMapEdgeAxis}CenterA,Ea_x_Eb,{$endif}Pa,Qa,Ea,Ua,Va,Pb,Qb,Eb,Ub,Vb,Normal:TKraftVector3;
+      L{$ifdef KraftGaussMapEdgeAxis},cba,dba{$endif}:TKraftScalar;
+      CenterA,{$ifndef KraftGaussMapEdgeAxis}Ea_x_Eb,{$endif}Pa,Qa,Ea,Ua,Va,Pb,Qb,Eb,Ub,Vb,Normal:TKraftVector3;
       Transform:TKraftMatrix4x4;
   begin
+
    result:=false;
+
    Transform:=Matrix4x4TermMulSimpleInverted({$ifdef KraftDoublePositions}ShapeWorldTransform(HullA),ShapeWorldTransform(HullB){$else}HullA.fWorldTransform,HullB.fWorldTransform{$endif});
-{$ifndef KraftGaussMapEdgeAxis}
+
+   // Orients the cross-product edge axis outward from HullA (the classic path, and the degenerate-axis
+   // fallback of the Gauss-map path when the two adjacent B face normals are antiparallel).
+
    CenterA:=HullA.GetCenter(Transform);
-{$endif}
+
    EdgeA:=@HullA.fConvexHull.fEdges[EdgeQuery.IndexA];
+
    Pa:=Vector3TermMatrixMulWithScale(HullA.fConvexHull.fVertices[EdgeA^.Vertices[0]].Position,Transform,HullA.fScale);
+
    Qa:=Vector3TermMatrixMulWithScale(HullA.fConvexHull.fVertices[EdgeA^.Vertices[1]].Position,Transform,HullA.fScale);
+
    Ea:=Vector3Sub(Qa,Pa);
+
    Ua:=Vector3Norm(Vector3TermMatrixMulBasis(HullA.fConvexHull.fFaces[EdgeA^.Faces[0]].Plane.Normal,Transform));
+
    Va:=Vector3Norm(Vector3TermMatrixMulBasis(HullA.fConvexHull.fFaces[EdgeA^.Faces[1]].Plane.Normal,Transform));
+
    EdgeB:=@HullB.fConvexHull.fEdges[EdgeQuery.IndexB];
+
    Pb:=Vector3ScalarMul(HullB.fConvexHull.fVertices[EdgeB^.Vertices[0]].Position,HullB.fScale);
+
    Qb:=Vector3ScalarMul(HullB.fConvexHull.fVertices[EdgeB^.Vertices[1]].Position,HullB.fScale);
+
    Eb:=Vector3Sub(Qb,Pb);
+
    Ub:=HullB.fConvexHull.fFaces[EdgeB^.Faces[0]].Plane.Normal;
+
    Vb:=HullB.fConvexHull.fFaces[EdgeB^.Faces[1]].Plane.Normal;
+
    if IsMinkowskiFace(Ua,Va,Vector3Neg(Ea),Vector3Neg(Ub),Vector3Neg(Vb),Vector3Neg(Eb)) then begin
+
     // Build search direction
+
 {$ifdef KraftGaussMapEdgeAxis}
+
     // Edge-pair axis = intersection of edge B's two adjacent-face-normal arcs on the Gauss map (see
     // QueryEdgeDirections). Opposite signs are guaranteed by the Minkowski test, so cba-dba never vanishes.
+
     cba:=Vector3Dot(Ub,Ea);
+
     dba:=Vector3Dot(Vb,Ea);
 
     // Skip near parallel edges at the noise floor
@@ -42668,9 +42812,52 @@ var OldManifoldCountContacts:TKraftInt32;
      exit;
     end;
 
-    // Axis points HullB -> HullA by construction; negate for KRAFT's HullA -> HullB convention.
-    Normal:=Vector3Neg(Vector3Norm(Vector3Lerp(Ub,Vb,cba/(cba-dba))));
+    Normal:=Vector3Lerp(Ub,Vb,cba/(cba-dba));
+
+    L:=Vector3LengthSquared(Normal);
+
+    if L<sqr(kTolerance) then begin
+
+     // The two B face normals are antiparallel (a flat plate such as a mesh triangle, or a razor edge), so
+     // their span cannot express the edge-pair axis and the arc reconstruction collapses to zero. Fall back
+     // to the cross-product axis, which stays well conditioned here, and orient it explicitly.
+
+     Normal:=Vector3Cross(Ea,Eb);
+
+     L:=Vector3Length(Normal);
+
+     if L<(sqrt(Vector3LengthSquared(Ea)*Vector3LengthSquared(Eb))*kTolerance) then begin
+      result:=false;
+      exit;
+     end;
+
+     Normal:=Vector3ScalarMul(Normal,1.0/L);
+
+     if HullB.fDoubleSided then begin
+
+      // Double sided: orient outward from HullA, matching the classic cross-product path.
+      if Vector3Dot(Normal,Vector3Sub(Pa,CenterA))<0.0 then begin
+       Normal:=Vector3Neg(Normal);
+      end;
+
+     end else begin
+
+      // Single sided surface: keep the axis on the front (Face[0] = Ub) side only.
+      if Vector3Dot(Normal,Ub)>0.0 then begin
+       Normal:=Vector3Neg(Normal);
+      end;
+
+     end;
+
+    end else begin
+
+     // The axis lands between the two B face normals, so it already points HullB -> HullA by construction;
+     // negate for KRAFT's HullA -> HullB convention.
+     Normal:=Vector3Neg(Vector3ScalarDiv(Normal,sqrt(L)));
+    end;
+
 {$else}
+
     Ea_x_Eb:=Vector3Cross(Ea,Eb);
 
     // Skip near parallel edges: |Ea x Eb| = sin(alpha) * |Ea| * |Eb|
@@ -42685,6 +42872,7 @@ var OldManifoldCountContacts:TKraftInt32;
     if Vector3Dot(Normal,Vector3Sub(Pa,CenterA))<0.0 then begin
      Normal:=Vector3Neg(Normal);
     end;
+
 {$endif}
 
     // s = Dot(Normal, Pb) - d = Dot(Normal, Pb) - Dot(Normal, Pa) = Dot(Normal, Pb - Pa)
@@ -42695,6 +42883,7 @@ var OldManifoldCountContacts:TKraftInt32;
     end;
 
    end;
+
   end;
   procedure QueryFaceDirections(const HullA,HullB:TKraftShapeConvexHull;out OutFaceQuery:TKraftContactFaceQuery);
   var MaxIndex,Index:TKraftInt32;
@@ -42722,41 +42911,69 @@ var OldManifoldCountContacts:TKraftInt32;
   procedure QueryEdgeDirections(const HullA,HullB:TKraftShapeConvexHull;out OutEdgeQuery:TKraftContactEdgeQuery);
   var EdgeA,EdgeB:PKraftConvexHullEdge;
       IndexA,IndexB,MaxIndexA,MaxIndexB:TKraftInt32;
-      MaxSeparation,Separation{$ifdef KraftGaussMapEdgeAxis},cba,dba{$else},L{$endif}:TKraftScalar;
-      {$ifndef KraftGaussMapEdgeAxis}CenterA,Ea_x_Eb,{$endif}Pa,Qa,Ea,Ua,Va,Pb,Qb,Eb,Ub,Vb,Normal,MaxNormal:TKraftVector3;
+      MaxSeparation,Separation,L{$ifdef KraftGaussMapEdgeAxis},cba,dba{$endif}:TKraftScalar;
+      CenterA,{$ifndef KraftGaussMapEdgeAxis}Ea_x_Eb,{$endif}Pa,Qa,Ea,Ua,Va,Pb,Qb,Eb,Ub,Vb,Normal,MaxNormal:TKraftVector3;
       Transform:TKraftMatrix4x4;
       First:boolean;
   begin
+
    MaxIndexA:=-1;
+
    MaxIndexB:=-1;
+
    MaxSeparation:=-MAX_SCALAR;
+
    MaxNormal:=Vector3Origin;
+
    Transform:=Matrix4x4TermMulSimpleInverted({$ifdef KraftDoublePositions}ShapeWorldTransform(HullA),ShapeWorldTransform(HullB){$else}HullA.fWorldTransform,HullB.fWorldTransform{$endif});
-{$ifndef KraftGaussMapEdgeAxis}
+
+   // Orients the cross-product edge axis outward from HullA (the classic path, and the degenerate-axis
+   // fallback of the Gauss-map path when the two adjacent B face normals are antiparallel).
+
    CenterA:=HullA.GetCenter(Transform);
-{$endif}
+
    First:=true;
+
    for IndexA:=0 to HullA.fConvexHull.fCountEdges-1 do begin
+
     EdgeA:=@HullA.fConvexHull.fEdges[IndexA];
+
     Pa:=Vector3TermMatrixMulWithScale(HullA.fConvexHull.fVertices[EdgeA^.Vertices[0]].Position,Transform,HullA.fScale);
+
     Qa:=Vector3TermMatrixMulWithScale(HullA.fConvexHull.fVertices[EdgeA^.Vertices[1]].Position,Transform,HullA.fScale);
+
     Ea:=Vector3Sub(Qa,Pa);
+
     Ua:=Vector3Norm(Vector3TermMatrixMulBasis(HullA.fConvexHull.fFaces[EdgeA^.Faces[0]].Plane.Normal,Transform));
+
     Va:=Vector3Norm(Vector3TermMatrixMulBasis(HullA.fConvexHull.fFaces[EdgeA^.Faces[1]].Plane.Normal,Transform));
+
     for IndexB:=0 to HullB.fConvexHull.fCountEdges-1 do begin
+
      EdgeB:=@HullB.fConvexHull.fEdges[IndexB];
+
      Pb:=Vector3ScalarMul(HullB.fConvexHull.fVertices[EdgeB^.Vertices[0]].Position,HullB.fScale);
+
      Qb:=Vector3ScalarMul(HullB.fConvexHull.fVertices[EdgeB^.Vertices[1]].Position,HullB.fScale);
+
      Eb:=Vector3Sub(Qb,Pb);
+
      Ub:=HullB.fConvexHull.fFaces[EdgeB^.Faces[0]].Plane.Normal;
+
      Vb:=HullB.fConvexHull.fFaces[EdgeB^.Faces[1]].Plane.Normal;
+
      if IsMinkowskiFace(Ua,Va,Vector3Neg(Ea),Vector3Neg(Ub),Vector3Neg(Vb),Vector3Neg(Eb)) then begin
+
       // Build search direction
+
 {$ifdef KraftGaussMapEdgeAxis}
+
       // Edge-pair axis = intersection of edge B's two adjacent-face-normal arcs on the Gauss map.
       // cba/dba are the signed distances of edge A to the plane of each B face normal (opposite signs
       // are guaranteed by the Minkowski test, so cba-dba never vanishes).
+
       cba:=Vector3Dot(Ub,Ea);
+
       dba:=Vector3Dot(Vb,Ea);
 
       // Skip near parallel edges at the noise floor
@@ -42764,10 +42981,52 @@ var OldManifoldCountContacts:TKraftInt32;
        continue;
       end;
 
-      // The axis lands between the two B face normals, so it already points HullB -> HullA by
-      // construction; negate for KRAFT's HullA -> HullB convention. No center-based orientation needed.
-      Normal:=Vector3Neg(Vector3Norm(Vector3Lerp(Ub,Vb,cba/(cba-dba))));
+      Normal:=Vector3Lerp(Ub,Vb,cba/(cba-dba));
+
+      L:=Vector3LengthSquared(Normal);
+
+      if L<sqr(kTolerance) then begin
+
+       // The two B face normals are antiparallel (a flat plate such as a mesh triangle, or a razor edge), so
+       // their span cannot express the edge-pair axis and the arc reconstruction collapses to zero. Fall back
+       // to the cross-product axis, which stays well conditioned here, and orient it explicitly.
+
+       Normal:=Vector3Cross(Ea,Eb);
+
+       L:=Vector3Length(Normal);
+
+       if L<(sqrt(Vector3LengthSquared(Ea)*Vector3LengthSquared(Eb))*kTolerance) then begin
+        continue;
+       end;
+
+       Normal:=Vector3ScalarMul(Normal,1.0/L);
+
+       if HullB.fDoubleSided then begin
+
+        // Double sided: orient outward from HullA, matching the classic cross-product path.
+        if Vector3Dot(Normal,Vector3Sub(Pa,CenterA))<0.0 then begin
+         Normal:=Vector3Neg(Normal);
+        end;
+
+       end else begin
+
+        // Single sided surface: keep the axis on the front (Face[0] = Ub) side only.
+        if Vector3Dot(Normal,Ub)>0.0 then begin
+         Normal:=Vector3Neg(Normal);
+        end;
+
+       end;
+
+      end else begin
+
+       // The axis lands between the two B face normals, so it already points HullB -> HullA by construction;
+       // negate for KRAFT's HullA -> HullB convention.
+       Normal:=Vector3Neg(Vector3ScalarDiv(Normal,sqrt(L)));
+
+      end;
+
 {$else}
+
       Ea_x_Eb:=Vector3Cross(Ea,Eb);
 
       // Skip near parallel edges: |Ea x Eb| = sin(alpha) * |Ea| * |Eb|
@@ -42781,6 +43040,7 @@ var OldManifoldCountContacts:TKraftInt32;
       if Vector3Dot(Normal,Vector3Sub(Pa,CenterA))<0.0 then begin
        Normal:=Vector3Neg(Normal);
       end;
+
 {$endif}
 
       // s = Dot(Normal, Pb) - d = Dot(Normal, Pb) - Dot(Normal, Pa) = Dot(Normal, Pb - Pa)
@@ -42797,12 +43057,16 @@ var OldManifoldCountContacts:TKraftInt32;
       end;
 
      end;
+
     end;
+
    end;
+
    OutEdgeQuery.IndexA:=MaxIndexA;
    OutEdgeQuery.IndexB:=MaxIndexB;
    OutEdgeQuery.Separation:=MaxSeparation;
    OutEdgeQuery.Normal:=MaxNormal;
+
   end;
   function GetEdgeContact(var CA,CB:TKraftVector3;const PA,QA,PB,QB:TKraftVector3):boolean;
   var DA,DB,r:TKraftVector3;
@@ -44121,6 +44385,9 @@ begin
    ShapeTriangle.fConvexHull.fVertices[0].Position:=Vector3ScalarMul(Mesh.fVertices[MeshTriangle^.Vertices[0]],MeshShape.fScale);
    ShapeTriangle.fConvexHull.fVertices[1].Position:=Vector3ScalarMul(Mesh.fVertices[MeshTriangle^.Vertices[1]],MeshShape.fScale);
    ShapeTriangle.fConvexHull.fVertices[2].Position:=Vector3ScalarMul(Mesh.fVertices[MeshTriangle^.Vertices[2]],MeshShape.fScale);
+   // A single sided mesh only collides on its front (Face[0]); this steers the degenerate edge-edge axis onto
+   // that side. A double sided mesh keeps the center-based two-sided orientation.
+   ShapeTriangle.fDoubleSided:=Mesh.fDoubleSided;
    ShapeTriangle.UpdateData;
   end else begin
    exit;
