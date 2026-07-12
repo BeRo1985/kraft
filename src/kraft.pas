@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-07-12-17-31-0000                       *
+ *                        Version 2026-07-12-17-48-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -42549,6 +42549,7 @@ var OldManifoldCountContacts:TKraftInt32;
      end;
 
 {$else}
+
      Eb:=Vector3Sub(Vector3ScalarMul(ShapeB.fConvexHull.fVertices[Edge^.Vertices[1]].Position,ShapeB.fScale),Vector3ScalarMul(ShapeB.fConvexHull.fVertices[Edge^.Vertices[0]].Position,ShapeB.fScale));
 
      Ea_x_Eb:=Vector3Cross(Ea,Eb);
@@ -42559,11 +42560,18 @@ var OldManifoldCountContacts:TKraftInt32;
       continue;
      end;
 
+     Normal:=Vector3ScalarDiv(Ea_x_Eb,L);
+
+     if (not ShapeB.fDoubleSided) and (Vector3Dot(ShapeB.fConvexHull.fFaces[Edge^.Faces[0]].Plane.Normal,Vector3Sub(CapsulePointStart,Vector3ScalarMul(ShapeB.fConvexHull.fVertices[Edge^.Vertices[0]].Position,ShapeB.fScale)))<0.0) then begin
+      // Single sided surface: the capsule is behind the front face, so there is no contact here.
+      continue;
+     end;
+
      // Assure consistent normal orientation (here: hull -> capsule, outward from the hull)
-     Normal:=Vector3ScalarMul(Ea_x_Eb,1.0/L);
      if Vector3Dot(Normal,Vector3Sub(Vector3ScalarMul(ShapeB.fConvexHull.fVertices[Edge^.Vertices[0]].Position,ShapeB.fScale),CenterB))<0.0 then begin
       Normal:=Vector3Neg(Normal);
      end;
+
 {$endif}
 
      Separation:=Vector3Dot(Normal,Vector3Sub(CapsulePointStart,Vector3ScalarMul(ShapeB.fConvexHull.fVertices[Edge^.Vertices[0]].Position,ShapeB.fScale)))-CapsuleRadius;
@@ -42867,10 +42875,24 @@ var OldManifoldCountContacts:TKraftInt32;
      exit;
     end;
 
+    Normal:=Vector3ScalarDiv(Ea_x_Eb,L);
+
     // Assure consistent normal orientation (here: HullA -> HullB)
-    Normal:=Vector3ScalarMul(Ea_x_Eb,1.0/L);
-    if Vector3Dot(Normal,Vector3Sub(Pa,CenterA))<0.0 then begin
-     Normal:=Vector3Neg(Normal);
+
+    if HullB.fDoubleSided then begin
+
+     // Double sided: orient outward from HullA, matching the classic cross-product path.
+     if Vector3Dot(Normal,Vector3Sub(Pa,CenterA))<0.0 then begin
+      Normal:=Vector3Neg(Normal);
+     end;
+
+    end else begin
+
+     // Single sided surface: keep the axis on the front (Face[0] = Ub) side only.
+     if Vector3Dot(Normal,Ub)>0.0 then begin
+      Normal:=Vector3Neg(Normal);
+     end;
+
     end;
 
 {$endif}
@@ -43035,10 +43057,24 @@ var OldManifoldCountContacts:TKraftInt32;
        continue;
       end;
 
+      Normal:=Vector3ScalarDiv(Ea_x_Eb,L);
+
       // Assure consistent normal orientation (here: HullA -> HullB)
-      Normal:=Vector3ScalarMul(Ea_x_Eb,1.0/L);
-      if Vector3Dot(Normal,Vector3Sub(Pa,CenterA))<0.0 then begin
-       Normal:=Vector3Neg(Normal);
+
+      if HullB.fDoubleSided then begin
+
+       // Double sided: orient outward from HullA, matching the classic cross-product path.
+       if Vector3Dot(Normal,Vector3Sub(Pa,CenterA))<0.0 then begin
+        Normal:=Vector3Neg(Normal);
+       end;
+
+      end else begin
+
+       // Single sided surface: keep the axis on the front (Face[0] = Ub) side only.
+       if Vector3Dot(Normal,Ub)>0.0 then begin
+        Normal:=Vector3Neg(Normal);
+       end;
+
       end;
 
 {$endif}
