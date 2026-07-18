@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-07-12-18-26-0000                       *
+ *                        Version 2026-07-18-14-49-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -20413,6 +20413,20 @@ begin
 
 end;
 
+function MPRTriangleSeedDisplacement(const aShape:TKraftShape):TKraftScalar;
+// Half the circumradius of a triangle shape in its effectively scaled size, computed from the base-space
+// vertices (fShapeSphere would work for mesh-synthesized triangles but holds the scaled-AABB sphere for
+// standalone ones, so the vertices are the only domain-safe source).
+var Triangle:TKraftShapeTriangle;
+    Centroid:TKraftVector3;
+begin
+ Triangle:=TKraftShapeTriangle(aShape);
+ Centroid:=Vector3Avg(Triangle.fConvexHull.fVertices[0].Position,Triangle.fConvexHull.fVertices[1].Position,Triangle.fConvexHull.fVertices[2].Position);
+ result:=sqrt(Max(Max(Vector3DistSquared(Centroid,Triangle.fConvexHull.fVertices[0].Position),
+                      Vector3DistSquared(Centroid,Triangle.fConvexHull.fVertices[1].Position)),
+                      Vector3DistSquared(Centroid,Triangle.fConvexHull.fVertices[2].Position)))*(aShape.fScale*0.5);
+end;
+
 function MPRPenetration(const aShapeA,aShapeB:TKraftShape;const aTransformA,aTransformB:TKraftMatrix4x4;out aPositionA,aPositionB,aNormal:TKraftVector3;out aPenetrationDepth:TKraftScalar):boolean;
 const EPSILON=1e-6;
 var Phase1Iteration,Phase2Iterations:TKraftInt32;
@@ -20429,6 +20443,23 @@ begin
  v0a:=aShapeA.GetCenter(aTransformA);
  v0b:=aShapeB.GetCenter(aTransformB);
  v0:=Vector3Sub(v0b,v0a);
+
+ // A triangle is flat: its centroid seed lies exactly on the facet plane, so when the other shape center is
+ // also nearly coplanar, the seed ray runs almost tangentially and the portal can resolve sideways or onto
+ // the far side of the facet. Displacing the triangle seed onto the side of the facet facing away from the
+ // other shape center keeps the seed ray entering the Minkowski difference through the facing surface, so
+ // the portal resolves towards it. The displacement is proportional to the triangle size, since an absolute
+ // epsilon drowns in the degenerate facet-normal support ties of large triangles.
+ if aShapeA.fShapeType=kstTriangle then begin
+  n:=Vector3SafeNorm(Vector3TermMatrixMulBasis(TKraftShapeTriangle(aShapeA).fConvexHull.fFaces[0].Plane.Normal,aTransformA));
+  v0a:=Vector3Sub(v0a,Vector3ScalarMul(n,SignNonZero(Vector3Dot(n,v0))*MPRTriangleSeedDisplacement(aShapeA)));
+  v0:=Vector3Sub(v0b,v0a);
+ end;
+ if aShapeB.fShapeType=kstTriangle then begin
+  n:=Vector3SafeNorm(Vector3TermMatrixMulBasis(TKraftShapeTriangle(aShapeB).fConvexHull.fFaces[0].Plane.Normal,aTransformB));
+  v0b:=Vector3Sub(v0b,Vector3ScalarMul(n,SignNonZero(-Vector3Dot(n,v0))*MPRTriangleSeedDisplacement(aShapeB)));
+  v0:=Vector3Sub(v0b,v0a);
+ end;
 
  if Vector3LengthSquared(v0)<1e-5 then begin
   v0.x:=1e-5;
@@ -20624,6 +20655,16 @@ begin
 
 end;
 
+function MPRIndirectTriangleSeedDisplacement(const aTriangle:PKraftIndirectTriangle):TKraftScalar;
+// Half the circumradius of an indirect triangle (its points already carry any shape scale baked in).
+var Centroid:TKraftVector3;
+begin
+ Centroid:=Vector3Avg(aTriangle^.Points[0]^,aTriangle^.Points[1]^,aTriangle^.Points[2]^);
+ result:=sqrt(Max(Max(Vector3DistSquared(Centroid,aTriangle^.Points[0]^),
+                      Vector3DistSquared(Centroid,aTriangle^.Points[1]^)),
+                      Vector3DistSquared(Centroid,aTriangle^.Points[2]^)))*0.5;
+end;
+
 function MPRIndirectTrianglePenetration(const aShapeA:PKraftIndirectTriangle;const aShapeB:TKraftShape;const aTransformA,aTransformB:TKraftMatrix4x4;out aPositionA,aPositionB,aNormal:TKraftVector3;out aPenetrationDepth:TKraftScalar):boolean;
 const EPSILON=1e-6;
 var Phase1Iteration,Phase2Iterations:TKraftInt32;
@@ -20639,6 +20680,14 @@ begin
 
  v0a:=MPRIndirectTriangleGetCenter(aShapeA,aTransformA);
  v0b:=aShapeB.GetCenter(aTransformB);
+ v0:=Vector3Sub(v0b,v0a);
+
+ // A triangle is flat: its centroid seed lies exactly on the facet plane, so when the other shape center is
+ // also nearly coplanar, the seed ray runs almost tangentially and the portal can resolve sideways. The
+ // triangle seed is displaced onto the side of the facet facing away from the other shape center, exactly
+ // like the triangle shape treatment in MPRPenetration, so the portal resolves towards the facing surface.
+ n:=Vector3SafeNorm(Vector3TermMatrixMulBasis(aShapeA^.Normal^,aTransformA));
+ v0a:=Vector3Sub(v0a,Vector3ScalarMul(n,SignNonZero(Vector3Dot(n,v0))*MPRIndirectTriangleSeedDisplacement(aShapeA)));
  v0:=Vector3Sub(v0b,v0a);
 
  if Vector3LengthSquared(v0)<1e-5 then begin
@@ -21856,7 +21905,9 @@ var SDFShape,OtherShape:TKraftShape;
  begin
   result:=false;
   PlaneNormalWorld:=Vector3SafeNorm(Vector3TermMatrixMulBasis(aPlaneShape.fPlane.Normal,OtherTransform));
-  PlanePointWorld:=Vector3TermMatrixMul(Vector3ScalarMul(aPlaneShape.fPlane.Normal,-aPlaneShape.fPlane.Distance),OtherTransform);
+  // The plane stays base-space; fold the shape scale into the Hesse surface offset Dot(N,x)=-Distance*Scale so the
+  // signed distance field is pushed onto the effective scaled plane.
+  PlanePointWorld:=Vector3TermMatrixMul(Vector3ScalarMul(aPlaneShape.fPlane.Normal,(-aPlaneShape.fPlane.Distance)*aPlaneShape.fScale),OtherTransform);
   LocalPlaneNormal:=Vector3SafeNorm(Vector3TermMatrixMulTransposedBasis(PlaneNormalWorld,SDFTransform));
   LocalPlanePoint:=Vector3TermMatrixMulInverted(PlanePointWorld,SDFTransform);
   // Seed at the corner of the signed distance field bounds which lies deepest below the plane
@@ -38887,8 +38938,10 @@ begin
  fKinematicAABBTreeProxy:=-1;
  fPlane:=APlane;
  GetPlaneSpace(fPlane.Normal,p,q);
- fPlaneCenter:=Vector3ScalarMul(fPlane.Normal,fPlane.Distance-(PlaneSize*0.5));
- b:=Vector3ScalarMul(fPlane.Normal,fPlane.Distance);
+ // Build the display/collision hull on the Hesse collision surface Dot(N,x)=-Distance, matching PlaneVectorDistance
+ // and every ConvexHull face plane, so the generic hull SAT/MPR path and the analytic sphere-vs-plane path agree.
+ fPlaneCenter:=Vector3ScalarMul(fPlane.Normal,(-fPlane.Distance)-(PlaneSize*0.5));
+ b:=Vector3ScalarMul(fPlane.Normal,-fPlane.Distance);
  fPlaneVertices[0]:=Vector3Add(b,Vector3Add(Vector3ScalarMul(p,PlaneSize),Vector3ScalarMul(q,PlaneSize)));
  fPlaneVertices[1]:=Vector3Add(b,Vector3Add(Vector3ScalarMul(p,PlaneSize),Vector3ScalarMul(q,-PlaneSize)));
  fPlaneVertices[2]:=Vector3Add(b,Vector3Add(Vector3ScalarMul(p,-PlaneSize),Vector3ScalarMul(q,-PlaneSize)));
@@ -38922,7 +38975,8 @@ end;
 procedure TKraftShapePlane.UpdateShapeAABB;
 var b:TKraftVector3;
 begin
- b:=Vector3ScalarMul(fPlane.Normal,fPlane.Distance-PlaneSize);
+ // The backside extent point sits one PlaneSize below the Hesse collision surface Dot(N,x)=-Distance, matching the hull.
+ b:=Vector3ScalarMul(fPlane.Normal,(-fPlane.Distance)-PlaneSize);
  fShapeAABB.Min.x:=Min(Min(Min(Min(fPlaneVertices[0].x,fPlaneVertices[1].x),fPlaneVertices[2].x),fPlaneVertices[3].x),b.x)-0.1;
  fShapeAABB.Min.y:=Min(Min(Min(Min(fPlaneVertices[0].y,fPlaneVertices[1].y),fPlaneVertices[2].y),fPlaneVertices[3].y),b.y)-0.1;
  fShapeAABB.Min.z:=Min(Min(Min(Min(fPlaneVertices[0].z,fPlaneVertices[1].z),fPlaneVertices[2].z),fPlaneVertices[3].z),b.z)-0.1;
@@ -38935,6 +38989,9 @@ begin
 {$ifdef SIMD}
  fShapeAABB.Max.w:=0.0;
 {$endif}
+ // Uniform geometric scale: the plane hull/vertices stay base-space, so the shape AABB is scaled to cover the effective plane.
+ fShapeAABB.Min:=Vector3ScalarMul(fShapeAABB.Min,fScale);
+ fShapeAABB.Max:=Vector3ScalarMul(fShapeAABB.Max,fScale);
 end;
 
 procedure TKraftShapePlane.CalculateMassData;
@@ -38943,13 +39000,15 @@ end;
 
 function TKraftShapePlane.GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
 begin
- result:=PlaneVectorDistance(Plane,Position);
+ // The plane stays base-space; fold the shape scale into the Hesse distance so the effective surface sits at
+ // Dot(N,x)=-Distance*Scale, matching the analytic sphere-vs-plane path and the signed distance field sampling path.
+ result:=PlaneVectorDistanceWithScale(Plane,Position,fScale);
 end;
 
 function TKraftShapePlane.GetLocalSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar;
 begin
  Direction:=Plane.Normal;
- result:=PlaneVectorDistance(Plane,Position);
+ result:=PlaneVectorDistanceWithScale(Plane,Position,fScale);
 end;
 
 function TKraftShapePlane.GetLocalSignedDistanceNormalizedGradient(const Position:TKraftVector3):TKraftVector3;
@@ -38972,7 +39031,8 @@ end;
 
 function TKraftShapePlane.GetLocalClosestPointTo(const Position:TKraftVector3):TKraftVector3;
 begin
- result:=Vector3Sub(Position,Vector3ScalarMul(Plane.Normal,PlaneVectorDistance(Plane,Position)));
+ // Project onto the scaled Hesse surface (Dot(N,x)=-Distance*Scale), so the closest point lands on the effective plane.
+ result:=Vector3Sub(Position,Vector3ScalarMul(Plane.Normal,PlaneVectorDistanceWithScale(Plane,Position,fScale)));
 end;
 
 function TKraftShapePlane.GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3;
@@ -38990,16 +39050,18 @@ begin
    BestIndex:=Index;
   end;
  end;
- result:=fPlaneVertices[BestIndex];
+ // The plane vertices are base-space; the argmax dot comparisons are scale-invariant, only the returned support
+ // point and the slab retreat scale with the shape.
+ result:=Vector3ScalarMul(fPlaneVertices[BestIndex],fScale);
  if Vector3Dot(fPlane.Normal,Normal)<0.0 then begin
-  result:=Vector3Sub(result,Vector3ScalarMul(fPlane.Normal,PlaneSize));
+  result:=Vector3Sub(result,Vector3ScalarMul(fPlane.Normal,PlaneSize*fScale));
  end;
 end;
 
 function TKraftShapePlane.GetLocalFeatureSupportVertex(const Index:TKraftInt32):TKraftVector3;
 begin
  if (Index>=0) and (Index<4) then begin
-  result:=fPlaneVertices[Index];
+  result:=Vector3ScalarMul(fPlaneVertices[Index],fScale);
  end else begin
   result:=Vector3Origin;
  end;
@@ -39057,7 +39119,8 @@ begin
   if Vector3LengthSquared(Direction)>EPSILON then begin
    Time:=-Vector3Dot(fPlane.Normal,Direction);
    if abs(Time)>EPSILON then begin
-    Time:=PlaneVectorDistance(fPlane,Origin)/Time;
+    // The plane distance stays base-space; folding the scale places the effective (scaled) plane surface. Bit-exact at s=1.
+    Time:=PlaneVectorDistanceWithScale(fPlane,Origin,fScale)/Time;
     if Time>=0.0 then begin
      if Time<RayCastData.MaxTime then begin
       RayCastData.TimeOfImpact:=Time;
@@ -39098,7 +39161,8 @@ begin
   Origin:=Vector3TermMatrixMulInverted(SphereCastData.Origin,fWorldTransform);
   Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,fWorldTransform));
 {$endif}
-  Distance:=PlaneVectorDistance(fPlane,Origin);
+  // The plane distance stays base-space; folding the scale places the effective (scaled) plane surface. Bit-exact at s=1.
+  Distance:=PlaneVectorDistanceWithScale(fPlane,Origin,fScale);
   if Distance<SphereCastData.Radius then begin
    SphereCastData.TimeOfImpact:=0.0;
 {$ifdef KraftDoublePositions}
@@ -39150,7 +39214,8 @@ begin
   Origin:=Vector3TermMatrixMulInverted(SphereCastData.Origin,fWorldTransform);
   Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,fWorldTransform));
 {$endif}
-  Distance:=PlaneVectorDistance(fPlane,Origin);
+  // The plane distance stays base-space; folding the scale places the effective (scaled) plane surface. Bit-exact at s=1.
+  Distance:=PlaneVectorDistanceWithScale(fPlane,Origin,fScale);
   Normal:=fPlane.Normal;
   if Distance<0.0 then begin
    Distance:=-Distance;
@@ -39213,7 +39278,8 @@ begin
 
   GetPlaneSpace(fPlane.Normal,p,q);
 
-  b:=Vector3ScalarMul(fPlane.Normal,fPlane.Distance);
+  // Draw on the Hesse collision surface Dot(N,x)=-Distance, matching the hull/collision geometry.
+  b:=Vector3ScalarMul(fPlane.Normal,-fPlane.Distance);
   PlaneVertices[0]:=Vector3Add(b,Vector3Add(Vector3ScalarMul(p,PlaneSize),Vector3ScalarMul(q,PlaneSize)));
   PlaneVertices[1]:=Vector3Add(b,Vector3Add(Vector3ScalarMul(p,PlaneSize),Vector3ScalarMul(q,-PlaneSize)));
   PlaneVertices[2]:=Vector3Add(b,Vector3Add(Vector3ScalarMul(p,-PlaneSize),Vector3ScalarMul(q,-PlaneSize)));
@@ -39388,15 +39454,17 @@ procedure TKraftShapeTriangle.UpdateShapeAABB;
 var Vertices:PPKraftConvexHullVertices;
 begin
  Vertices:=@fConvexHull.fVertices[0];
- fShapeAABB.Min.x:=Min(Min(Vertices^[0].Position.x,Vertices^[1].Position.x),Vertices^[2].Position.x)-0.1;
- fShapeAABB.Min.y:=Min(Min(Vertices^[0].Position.y,Vertices^[1].Position.y),Vertices^[2].Position.y)-0.1;
- fShapeAABB.Min.z:=Min(Min(Vertices^[0].Position.z,Vertices^[1].Position.z),Vertices^[2].Position.z)-0.1;
+ // The triangle vertices live in unscaled base space; fold the shape scale into the extents so the AABB covers the
+ // scaled triangle (the fattening margin stays literal). Bit-exact at s=1 for mesh-synthesized triangles.
+ fShapeAABB.Min.x:=(Min(Min(Vertices^[0].Position.x,Vertices^[1].Position.x),Vertices^[2].Position.x)*fScale)-0.1;
+ fShapeAABB.Min.y:=(Min(Min(Vertices^[0].Position.y,Vertices^[1].Position.y),Vertices^[2].Position.y)*fScale)-0.1;
+ fShapeAABB.Min.z:=(Min(Min(Vertices^[0].Position.z,Vertices^[1].Position.z),Vertices^[2].Position.z)*fScale)-0.1;
 {$ifdef SIMD}
  fShapeAABB.Min.w:=0.0;
 {$endif}
- fShapeAABB.Max.x:=Max(Max(Vertices^[0].Position.x,Vertices^[1].Position.x),Vertices^[2].Position.x)+0.1;
- fShapeAABB.Max.y:=Max(Max(Vertices^[0].Position.y,Vertices^[1].Position.y),Vertices^[2].Position.y)+0.1;
- fShapeAABB.Max.z:=Max(Max(Vertices^[0].Position.z,Vertices^[1].Position.z),Vertices^[2].Position.z)+0.1;
+ fShapeAABB.Max.x:=(Max(Max(Vertices^[0].Position.x,Vertices^[1].Position.x),Vertices^[2].Position.x)*fScale)+0.1;
+ fShapeAABB.Max.y:=(Max(Max(Vertices^[0].Position.y,Vertices^[1].Position.y),Vertices^[2].Position.y)*fScale)+0.1;
+ fShapeAABB.Max.z:=(Max(Max(Vertices^[0].Position.z,Vertices^[1].Position.z),Vertices^[2].Position.z)*fScale)+0.1;
 {$ifdef SIMD}
  fShapeAABB.Max.w:=0.0;
 {$endif}
@@ -39432,26 +39500,30 @@ begin
 end;
 
 function TKraftShapeTriangle.GetLocalSignedDistance(const aPosition:TKraftVector3):TKraftScalar;
+var ScaledPosition:TKraftVector3;
 begin
- result:=(sqrt(SquaredDistanceFromPointToTriangle(aPosition,
-                                                  fConvexHull.fVertices[0].Position,
-                                                  fConvexHull.fVertices[1].Position,
-                                                  fConvexHull.fVertices[2].Position)){-(2.0*Physics.fLinearSlop)})*
-          SignNonZero(PlaneVectorDistance(fConvexHull.fFaces[0].Plane,aPosition));
+ // The triangle vertices live in unscaled base space: query in base coords, scale the distance out (bit-exact at s=1).
+ ScaledPosition:=Vector3ScalarMul(aPosition,fInverseScale);
+ result:=((sqrt(SquaredDistanceFromPointToTriangle(ScaledPosition,
+                                                   fConvexHull.fVertices[0].Position,
+                                                   fConvexHull.fVertices[1].Position,
+                                                   fConvexHull.fVertices[2].Position)){-(2.0*Physics.fLinearSlop)})*
+          SignNonZero(PlaneVectorDistance(fConvexHull.fFaces[0].Plane,ScaledPosition)))*fScale;
 end;
 
 function TKraftShapeTriangle.GetLocalSignedDistanceAndDirection(const aPosition:TKraftVector3;out aDirection:TKraftVector3):TKraftScalar;
-var ClosestPoint:TKraftVector3;
+var ClosestPoint,ScaledPosition:TKraftVector3;
     SignDirection:TKraftScalar;
 begin
+ ScaledPosition:=Vector3ScalarMul(aPosition,fInverseScale);
  if SIMDTriangleClosestPointTo(fConvexHull.fVertices[0].Position,
                                fConvexHull.fVertices[1].Position,
                                fConvexHull.fVertices[2].Position,
-                               aPosition,
+                               ScaledPosition,
                                ClosestPoint) then begin
-  SignDirection:=SignNonZero(PlaneVectorDistance(fConvexHull.fFaces[0].Plane,aPosition));
-  aDirection:=Vector3ScalarMul(Vector3Sub(aPosition,ClosestPoint),SignDirection);
-  result:=(Vector3LengthNormalize(aDirection){-(2.0*Physics.fLinearSlop)})*SignDirection;
+  SignDirection:=SignNonZero(PlaneVectorDistance(fConvexHull.fFaces[0].Plane,ScaledPosition));
+  aDirection:=Vector3ScalarMul(Vector3Sub(ScaledPosition,ClosestPoint),SignDirection);
+  result:=((Vector3LengthNormalize(aDirection){-(2.0*Physics.fLinearSlop)})*SignDirection)*fScale;
  end else begin
   aDirection:=Vector3Origin;
   result:=MAX_SCALAR;
@@ -39459,38 +39531,46 @@ begin
 end;
 
 function TKraftShapeTriangle.GetLocalSignedDistanceNormalizedGradient(const aPosition:TKraftVector3):TKraftVector3;
+var ScaledPosition:TKraftVector3;
 begin
+ ScaledPosition:=Vector3ScalarMul(aPosition,fInverseScale);
  if SIMDTriangleClosestPointTo(fConvexHull.fVertices[0].Position,
                                fConvexHull.fVertices[1].Position,
                                fConvexHull.fVertices[2].Position,
-                               aPosition,
+                               ScaledPosition,
                                result) then begin
-  result:=Vector3Norm(Vector3Sub(aPosition,result));
+  result:=Vector3Norm(Vector3Sub(ScaledPosition,result));
  end else begin
   result:=Vector3(MAX_SCALAR,MAX_SCALAR,MAX_SCALAR);
  end;
 end;
 
 function TKraftShapeTriangle.GetLocalSignedDistanceNormal(const aPosition:TKraftVector3):TKraftVector3;
+var ScaledPosition:TKraftVector3;
 begin
+ ScaledPosition:=Vector3ScalarMul(aPosition,fInverseScale);
  if SIMDTriangleClosestPointTo(fConvexHull.fVertices[0].Position,
                                fConvexHull.fVertices[1].Position,
                                fConvexHull.fVertices[2].Position,
-                               aPosition,
+                               ScaledPosition,
                                result) then begin
-  result:=Vector3ScalarMul(fConvexHull.fFaces[0].Plane.Normal,SignNonZero(PlaneVectorDistance(fConvexHull.fFaces[0].Plane,aPosition)));
+  result:=Vector3ScalarMul(fConvexHull.fFaces[0].Plane.Normal,SignNonZero(PlaneVectorDistance(fConvexHull.fFaces[0].Plane,ScaledPosition)));
  end else begin
   result:=Vector3Origin;
  end;
 end;
 
 function TKraftShapeTriangle.GetLocalClosestPointTo(const aPosition:TKraftVector3):TKraftVector3;
+var ScaledPosition:TKraftVector3;
 begin
- if not SIMDTriangleClosestPointTo(fConvexHull.fVertices[0].Position,
-                                   fConvexHull.fVertices[1].Position,
-                                   fConvexHull.fVertices[2].Position,
-                                   aPosition,
-                                   result) then begin
+ ScaledPosition:=Vector3ScalarMul(aPosition,fInverseScale);
+ if SIMDTriangleClosestPointTo(fConvexHull.fVertices[0].Position,
+                               fConvexHull.fVertices[1].Position,
+                               fConvexHull.fVertices[2].Position,
+                               ScaledPosition,
+                               result) then begin
+  result:=Vector3ScalarMul(result,fScale);
+ end else begin
   result:=Vector3Origin;
  end;
 end;
@@ -39519,13 +39599,14 @@ begin
    i:=1;
   end;
  end;
- result:=Vertices^[i].Position;
+ // The vertices are base-space; the dot comparisons above are scale-invariant, only the returned support point scales.
+ result:=Vector3ScalarMul(Vertices^[i].Position,fScale);
 end;
 
 function TKraftShapeTriangle.GetLocalFeatureSupportVertex(const aIndex:TKraftInt32):TKraftVector3;
 begin
  if (aIndex>=0) and (aIndex<3) then begin
-  result:=fConvexHull.fVertices[aIndex].Position;
+  result:=Vector3ScalarMul(fConvexHull.fVertices[aIndex].Position,fScale);
  end else begin
   result:=Vector3Origin;
  end;
@@ -39558,13 +39639,19 @@ end;
 
 function TKraftShapeTriangle.GetCenter(const aTransform:TKraftMatrix4x4):TKraftVector3;
 begin
- result:=Vector3TermMatrixMul(fShapeSphere.Center,aTransform);
+ // The triangle vertices are base-space, so the vertex centroid is folded with the shape scale (pattern of
+ // TKraftShapeConvexHull.GetCenter and MPRIndirectTriangleGetCenter). fShapeSphere can't be used here:
+ // TKraftShape.Finish rebuilds it from the already scaled shape AABB, so its center would double-apply the
+ // scale and is an AABB middle rather than a point on the triangle, which as MPR interior seed can end up
+ // nearly coplanar with a query shape center and let the portal resolve sideways.
+ result:=Vector3TermMatrixMulWithScale(Vector3Avg(fConvexHull.fVertices[0].Position,fConvexHull.fVertices[1].Position,fConvexHull.fVertices[2].Position),aTransform,fScale);
 end;
 
 function TKraftShapeTriangle.TestPoint(const aPoint:TKraftPosition):boolean;
 begin
  if ksfPointTestable in fFlags then begin
-  result:=PlaneVectorDistance(fConvexHull.fFaces[0].Plane,Vector3TermMatrixMulInverted({$ifdef KraftDoublePositions}Vector3Origin,ShapeBaseRelativeWorldTransform(self,aPoint){$else}aPoint,fWorldTransform{$endif}))<=0.0;
+  // The face plane is base-space; fold the shape scale into the distance so the sign matches the scaled facet.
+  result:=PlaneVectorDistanceWithScale(fConvexHull.fFaces[0].Plane,Vector3TermMatrixMulInverted({$ifdef KraftDoublePositions}Vector3Origin,ShapeBaseRelativeWorldTransform(self,aPoint){$else}aPoint,fWorldTransform{$endif}),fScale)<=0.0;
  end else begin
   result:=false;
  end;
@@ -39580,40 +39667,42 @@ var Origin,Direction{$ifdef KraftDoublePositions},LocalWorldPoint,CastOrigin{$en
 begin
  result:=false;
  if ksfRayCastable in fFlags then begin
+  // Triangle geometry is base-space; cast in base coords (origin/scale, max time/scale) and rescale the impact
+  // distance/point by scale on exit. Direction and normal are scale-invariant. Bit-exact at fScale=1.
 {$ifdef KraftDoublePositions}
   CastTransform:=ShapeBaseRelativeWorldTransform(self,aRayCastData.Origin);
   CastOrigin:=Vector3Origin;
-  Origin:=Vector3TermMatrixMulInverted(CastOrigin,CastTransform);
+  Origin:=Vector3ScalarMul(Vector3TermMatrixMulInverted(CastOrigin,CastTransform),fInverseScale);
   Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(aRayCastData.Direction,CastTransform));
 {$else}
-  Origin:=Vector3TermMatrixMulInverted(aRayCastData.Origin,fWorldTransform);
+  Origin:=Vector3ScalarMul(Vector3TermMatrixMulInverted(aRayCastData.Origin,fWorldTransform),fInverseScale);
   Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(aRayCastData.Direction,fWorldTransform));
 {$endif}
   if Vector3LengthSquared(Direction)>EPSILON then begin
    Vertices:=@fConvexHull.fVertices[0];
    if RayIntersectTriangle(Origin,Direction,Vertices^[0].Position,Vertices^[1].Position,Vertices^[2].Position,Time,u,v,w) then begin
-    if (Time>=0.0) and (Time<=aRayCastData.MaxTime) then begin
-     aRayCastData.TimeOfImpact:=Time;
+    if (Time>=0.0) and (Time<=(aRayCastData.MaxTime*fInverseScale)) then begin
+     aRayCastData.TimeOfImpact:=Time*fScale;
 {$ifdef KraftDoublePositions}
-     LocalWorldPoint:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),CastTransform);
+     LocalWorldPoint:=Vector3TermMatrixMulWithScale(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),CastTransform,fScale);
      aRayCastData.Point:=PositionAddVector3(aRayCastData.Origin,LocalWorldPoint);
      aRayCastData.Normal:=Vector3TermMatrixMulBasis(Vector3NormEx(Vector3Cross(Vector3Sub(Vertices^[1].Position,Vertices^[0].Position),Vector3Sub(Vertices^[2].Position,Vertices^[0].Position))),CastTransform);
 {$else}
-     aRayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
+     aRayCastData.Point:=Vector3TermMatrixMulWithScale(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform,fScale);
      aRayCastData.Normal:=Vector3TermMatrixMulBasis(Vector3NormEx(Vector3Cross(Vector3Sub(Vertices^[1].Position,Vertices^[0].Position),Vector3Sub(Vertices^[2].Position,Vertices^[0].Position))),fWorldTransform);
 {$endif}
      aRayCastData.SurfaceNormal:=aRayCastData.Normal;
      result:=true;
     end;
    end else if RayIntersectTriangle(Origin,Direction,Vertices^[2].Position,Vertices^[1].Position,Vertices^[0].Position,Time,u,v,w) then begin
-    if (Time>=0.0) and (Time<=aRayCastData.MaxTime) then begin
-     aRayCastData.TimeOfImpact:=Time;
+    if (Time>=0.0) and (Time<=(aRayCastData.MaxTime*fInverseScale)) then begin
+     aRayCastData.TimeOfImpact:=Time*fScale;
 {$ifdef KraftDoublePositions}
-     LocalWorldPoint:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),CastTransform);
+     LocalWorldPoint:=Vector3TermMatrixMulWithScale(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),CastTransform,fScale);
      aRayCastData.Point:=PositionAddVector3(aRayCastData.Origin,LocalWorldPoint);
      aRayCastData.Normal:=Vector3TermMatrixMulBasis(Vector3NormEx(Vector3Cross(Vector3Sub(Vertices^[1].Position,Vertices^[2].Position),Vector3Sub(Vertices^[0].Position,Vertices^[2].Position))),CastTransform);
 {$else}
-     aRayCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
+     aRayCastData.Point:=Vector3TermMatrixMulWithScale(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform,fScale);
      aRayCastData.Normal:=Vector3TermMatrixMulBasis(Vector3NormEx(Vector3Cross(Vector3Sub(Vertices^[1].Position,Vertices^[2].Position),Vector3Sub(Vertices^[0].Position,Vertices^[2].Position))),fWorldTransform);
 {$endif}
      aRayCastData.SurfaceNormal:=aRayCastData.Normal;
@@ -39634,19 +39723,21 @@ var Origin,Direction,Normal{$ifdef KraftDoublePositions},LocalWorldPoint,CastOri
 begin
  result:=false;
  if ksfSphereCastable in fFlags then begin
+  // Triangle geometry is base-space; cast in base coords (origin/radius/max time all divided into base space) and
+  // rescale the impact distance/point by scale on exit. Direction and normal are scale-invariant. Bit-exact at fScale=1.
 {$ifdef KraftDoublePositions}
   CastTransform:=ShapeBaseRelativeWorldTransform(self,aSphereCastData.Origin);
   CastOrigin:=Vector3Origin;
-  Origin:=Vector3TermMatrixMulInverted(CastOrigin,CastTransform);
+  Origin:=Vector3ScalarMul(Vector3TermMatrixMulInverted(CastOrigin,CastTransform),fInverseScale);
   Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(aSphereCastData.Direction,CastTransform));
 {$else}
-  Origin:=Vector3TermMatrixMulInverted(aSphereCastData.Origin,fWorldTransform);
+  Origin:=Vector3ScalarMul(Vector3TermMatrixMulInverted(aSphereCastData.Origin,fWorldTransform),fInverseScale);
   Direction:=Vector3NormEx(Vector3TermMatrixMulTransposedBasis(aSphereCastData.Direction,fWorldTransform));
 {$endif}
   if Vector3LengthSquared(Direction)>EPSILON then begin
    Vertices:=@fConvexHull.fVertices[0];
    if SphereCastTriangle(Origin,
-                         aSphereCastData.Radius,
+                         aSphereCastData.Radius*fInverseScale,
                          Direction,
                          Vertices^[0].Position,
                          Vertices^[1].Position,
@@ -39655,10 +39746,10 @@ begin
                          true,
                          Normal,
                          Time) then begin
-    if (Time>=0.0) and (Time<=aSphereCastData.MaxTime) then begin
-     aSphereCastData.TimeOfImpact:=Time;
+    if (Time>=0.0) and (Time<=(aSphereCastData.MaxTime*fInverseScale)) then begin
+     aSphereCastData.TimeOfImpact:=Time*fScale;
 {$ifdef KraftDoublePositions}
-     LocalWorldPoint:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),CastTransform);
+     LocalWorldPoint:=Vector3TermMatrixMulWithScale(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),CastTransform,fScale);
      aSphereCastData.Point:=PositionAddVector3(aSphereCastData.Origin,LocalWorldPoint);
      aSphereCastData.Normal:=Vector3TermMatrixMulBasis(Normal,CastTransform);
      if Vector3Dot(fShapeConvexHull.fFaces[0].Plane.Normal,Direction)>=0 then begin
@@ -39667,7 +39758,7 @@ begin
       aSphereCastData.SurfaceNormal:=Vector3TermMatrixMulBasis(fShapeConvexHull.fFaces[0].Plane.Normal,CastTransform);
      end;
 {$else}
-     aSphereCastData.Point:=Vector3TermMatrixMul(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform);
+     aSphereCastData.Point:=Vector3TermMatrixMulWithScale(Vector3Add(Origin,Vector3ScalarMul(Direction,Time)),fWorldTransform,fScale);
      aSphereCastData.Normal:=Vector3TermMatrixMulBasis(Normal,fWorldTransform);
      if Vector3Dot(fShapeConvexHull.fFaces[0].Plane.Normal,Direction)>=0 then begin
       aSphereCastData.SurfaceNormal:=Vector3TermMatrixMulBasis(Vector3Neg(fShapeConvexHull.fFaces[0].Plane.Normal),fWorldTransform);
@@ -41253,9 +41344,13 @@ end;
 procedure TKraftShapeSignedDistanceField.UpdateShapeAABB;
 begin
  fShapeAABB:=fSignedDistanceField.fAABB;
+ // Uniform geometric scale: the shared field stays base-space, so the shape AABB is scaled to cover the effective field.
+ fShapeAABB.Min:=Vector3ScalarMul(fShapeAABB.Min,fScale);
+ fShapeAABB.Max:=Vector3ScalarMul(fShapeAABB.Max,fScale);
 end;
 
 procedure TKraftShapeSignedDistanceField.CalculateMassData;
+var ScaleCubed,InertiaScale:TKraftScalar;
 begin
 
  fMassData:=fSignedDistanceField.fMassData;
@@ -41277,41 +41372,64 @@ begin
 
  end;
 
+ // Uniform geometric scale: the shared field stays base-space; volume/mass ~ s^3, center ~ s,
+ // inertia (about the origin) ~ s^5. Bit-exact at s=1; the static placeholder inertia is left untouched.
+ if fScale<>1.0 then begin
+  ScaleCubed:=(fScale*fScale)*fScale;
+  fMassData.Volume:=fMassData.Volume*ScaleCubed;
+  if fForcedMass<=EPSILON then begin
+   fMassData.Mass:=fMassData.Mass*ScaleCubed;
+  end;
+  if fRigidBody.fRigidBodyType<>krbtStatic then begin
+   fMassData.Center:=Vector3ScalarMul(fMassData.Center,fScale);
+   InertiaScale:=ScaleCubed*(fScale*fScale);
+   fMassData.Inertia[0,0]:=fMassData.Inertia[0,0]*InertiaScale;
+   fMassData.Inertia[0,1]:=fMassData.Inertia[0,1]*InertiaScale;
+   fMassData.Inertia[0,2]:=fMassData.Inertia[0,2]*InertiaScale;
+   fMassData.Inertia[1,0]:=fMassData.Inertia[1,0]*InertiaScale;
+   fMassData.Inertia[1,1]:=fMassData.Inertia[1,1]*InertiaScale;
+   fMassData.Inertia[1,2]:=fMassData.Inertia[1,2]*InertiaScale;
+   fMassData.Inertia[2,0]:=fMassData.Inertia[2,0]*InertiaScale;
+   fMassData.Inertia[2,1]:=fMassData.Inertia[2,1]*InertiaScale;
+   fMassData.Inertia[2,2]:=fMassData.Inertia[2,2]*InertiaScale;
+  end;
+ end;
+
 end;
 
 function TKraftShapeSignedDistanceField.GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
 begin
- result:=fSignedDistanceField.GetLocalSignedDistance(Position);
+ result:=fSignedDistanceField.GetLocalSignedDistance(Vector3ScalarMul(Position,fInverseScale))*fScale;
 end;
 
 function TKraftShapeSignedDistanceField.GetLocalSignedDistanceAndDirection(const Position:TKraftVector3;out Direction:TKraftVector3):TKraftScalar;
 begin
- result:=fSignedDistanceField.GetLocalSignedDistanceAndDirection(Position,Direction);
+ result:=fSignedDistanceField.GetLocalSignedDistanceAndDirection(Vector3ScalarMul(Position,fInverseScale),Direction)*fScale;
 end;
 
 function TKraftShapeSignedDistanceField.GetLocalSignedDistanceNormalizedGradient(const Position:TKraftVector3):TKraftVector3;
 begin
- result:=fSignedDistanceField.GetLocalSignedDistanceNormalizedGradient(Position);
+ result:=fSignedDistanceField.GetLocalSignedDistanceNormalizedGradient(Vector3ScalarMul(Position,fInverseScale));
 end;
 
 function TKraftShapeSignedDistanceField.GetLocalSignedDistanceNormal(const Position:TKraftVector3):TKraftVector3;
 begin
- result:=fSignedDistanceField.GetLocalSignedDistanceNormal(Position);
+ result:=fSignedDistanceField.GetLocalSignedDistanceNormal(Vector3ScalarMul(Position,fInverseScale));
 end;
 
 function TKraftShapeSignedDistanceField.GetLocalClosestPointTo(const Position:TKraftVector3):TKraftVector3;
 begin
- result:=fSignedDistanceField.GetLocalClosestPointTo(Position);
+ result:=Vector3ScalarMul(fSignedDistanceField.GetLocalClosestPointTo(Vector3ScalarMul(Position,fInverseScale)),fScale);
 end;
 
 function TKraftShapeSignedDistanceField.GetLocalFullSupport(const Direction:TKraftVector3):TKraftVector3;
 begin
- result:=fSignedDistanceField.GetLocalFullSupport(Direction);
+ result:=Vector3ScalarMul(fSignedDistanceField.GetLocalFullSupport(Direction),fScale);
 end;
 
 function TKraftShapeSignedDistanceField.GetLocalFeatureSupportVertex(const Index:TKraftInt32):TKraftVector3;
 begin
- result:=fSignedDistanceField.GetLocalFeatureSupportVertex(Index);
+ result:=Vector3ScalarMul(fSignedDistanceField.GetLocalFeatureSupportVertex(Index),fScale);
 end;
 
 function TKraftShapeSignedDistanceField.GetLocalFeatureSupportIndex(const Direction:TKraftVector3):TKraftInt32;
@@ -41321,31 +41439,123 @@ end;
 
 function TKraftShapeSignedDistanceField.GetCenter(const Transform:TKraftMatrix4x4):TKraftVector3;
 begin
- result:=fSignedDistanceField.GetCenter(Transform);
+ // The field stays base-space, so its local AABB center (the origin need not lie inside the solid) is scaled out.
+ result:=Vector3TermMatrixMulWithScale(Vector3Avg(fSignedDistanceField.fAABB.Min,fSignedDistanceField.fAABB.Max),Transform,fScale);
 end;
 
 function TKraftShapeSignedDistanceField.TestPoint(const p:TKraftPosition):boolean;
 begin
  if ksfPointTestable in fFlags then begin
-  result:=fSignedDistanceField.TestPoint(Vector3TermMatrixMulInverted({$ifdef KraftDoublePositions}Vector3Origin,ShapeBaseRelativeWorldTransform(self,p){$else}p,fWorldTransform{$endif}));
+  result:=fSignedDistanceField.TestPoint(Vector3ScalarMul(Vector3TermMatrixMulInverted({$ifdef KraftDoublePositions}Vector3Origin,ShapeBaseRelativeWorldTransform(self,p){$else}p,fWorldTransform{$endif}),fInverseScale));
  end else begin
   result:=false;
  end;
 end;
 
 function TKraftShapeSignedDistanceField.RayCast(var RayCastData:TKraftRayCastData):boolean;
+var LocalCastData:TKraftRayCastData;
+    LocalOrigin,LocalDirection:TKraftVector3;
+{$ifdef KraftDoublePositions}
+    CastTransform:TKraftMatrix4x4;
+    LocalWorldPoint:TKraftVector3;
+{$endif}
 begin
  if ksfRayCastable in fFlags then begin
-  result:=fSignedDistanceField.RayCast(RayCastData,{$ifdef KraftDoublePositions}ShapeBaseRelativeWorldTransform(self,RayCastData.Origin){$else}fWorldTransform{$endif});
+  if fScale<>1.0 then begin
+   // The field and its inner ray march live in unscaled base space: bring the ray there (origin and max time
+   // divided by scale, direction just rotated so it stays unit length for the sphere tracing), run the inner
+   // cast against an identity-basis frame and rescale the impact distance/point by scale on exit.
+{$ifdef KraftDoublePositions}
+   CastTransform:=ShapeBaseRelativeWorldTransform(self,RayCastData.Origin);
+   LocalOrigin:=Vector3ScalarMul(Vector3TermMatrixMulInverted(Vector3Origin,CastTransform),fInverseScale);
+   LocalDirection:=Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,CastTransform);
+{$else}
+   LocalOrigin:=Vector3ScalarMul(Vector3TermMatrixMulInverted(RayCastData.Origin,fWorldTransform),fInverseScale);
+   LocalDirection:=Vector3TermMatrixMulTransposedBasis(RayCastData.Direction,fWorldTransform);
+{$endif}
+   LocalCastData:=RayCastData;
+   LocalCastData.Direction:=LocalDirection;
+   LocalCastData.MaxTime:=RayCastData.MaxTime*fInverseScale;
+{$ifdef KraftDoublePositions}
+   // Under KraftDoublePositions the inner cast reads the ray start solely from the transform (as the position
+   // of the frame origin), so a pure translation encodes the base-space start while keeping an identity basis.
+   result:=fSignedDistanceField.RayCast(LocalCastData,Matrix4x4Translate(Vector3Neg(LocalOrigin)));
+{$else}
+   LocalCastData.Origin:=LocalOrigin;
+   result:=fSignedDistanceField.RayCast(LocalCastData,Matrix4x4Identity);
+{$endif}
+   if result then begin
+    // The identity-basis frame leaves the reported normal in base space; the hit point is rebuilt on the ray.
+    RayCastData.TimeOfImpact:=LocalCastData.TimeOfImpact*fScale;
+{$ifdef KraftDoublePositions}
+    LocalWorldPoint:=Vector3TermMatrixMulWithScale(Vector3Add(LocalOrigin,Vector3ScalarMul(LocalDirection,LocalCastData.TimeOfImpact)),CastTransform,fScale);
+    RayCastData.Point:=PositionAddVector3(RayCastData.Origin,LocalWorldPoint);
+    RayCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(LocalCastData.Normal,CastTransform));
+{$else}
+    RayCastData.Point:=Vector3TermMatrixMulWithScale(Vector3Add(LocalOrigin,Vector3ScalarMul(LocalDirection,LocalCastData.TimeOfImpact)),fWorldTransform,fScale);
+    RayCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(LocalCastData.Normal,fWorldTransform));
+{$endif}
+    RayCastData.SurfaceNormal:=RayCastData.Normal;
+   end;
+  end else begin
+   result:=fSignedDistanceField.RayCast(RayCastData,{$ifdef KraftDoublePositions}ShapeBaseRelativeWorldTransform(self,RayCastData.Origin){$else}fWorldTransform{$endif});
+  end;
  end else begin
   result:=false;
  end;
 end;
 
 function TKraftShapeSignedDistanceField.SphereCast(var SphereCastData:TKraftSphereCastData):boolean;
+var LocalCastData:TKraftSphereCastData;
+    LocalOrigin,LocalDirection,CurrentBase,SurfaceBase:TKraftVector3;
+{$ifdef KraftDoublePositions}
+    CastTransform:TKraftMatrix4x4;
+    LocalWorldPoint:TKraftVector3;
+{$endif}
 begin
  if ksfSphereCastable in fFlags then begin
-  result:=fSignedDistanceField.SphereCast(SphereCastData,{$ifdef KraftDoublePositions}ShapeBaseRelativeWorldTransform(self,SphereCastData.Origin){$else}fWorldTransform{$endif});
+  if fScale<>1.0 then begin
+   // Analogous to RayCast: cast in unscaled base space (origin, radius and max time divided by scale, the
+   // direction just rotated), then rescale the impact distance and the surface hit point by scale on exit.
+{$ifdef KraftDoublePositions}
+   CastTransform:=ShapeBaseRelativeWorldTransform(self,SphereCastData.Origin);
+   LocalOrigin:=Vector3ScalarMul(Vector3TermMatrixMulInverted(Vector3Origin,CastTransform),fInverseScale);
+   LocalDirection:=Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,CastTransform);
+{$else}
+   LocalOrigin:=Vector3ScalarMul(Vector3TermMatrixMulInverted(SphereCastData.Origin,fWorldTransform),fInverseScale);
+   LocalDirection:=Vector3TermMatrixMulTransposedBasis(SphereCastData.Direction,fWorldTransform);
+{$endif}
+   LocalCastData:=SphereCastData;
+   LocalCastData.Direction:=LocalDirection;
+   LocalCastData.Radius:=SphereCastData.Radius*fInverseScale;
+   LocalCastData.MaxTime:=SphereCastData.MaxTime*fInverseScale;
+{$ifdef KraftDoublePositions}
+   // Under KraftDoublePositions the inner cast reads the cast start solely from the transform (as the position
+   // of the frame origin), so a pure translation encodes the base-space start while keeping an identity basis.
+   result:=fSignedDistanceField.SphereCast(LocalCastData,Matrix4x4Translate(Vector3Neg(LocalOrigin)));
+{$else}
+   LocalCastData.Origin:=LocalOrigin;
+   result:=fSignedDistanceField.SphereCast(LocalCastData,Matrix4x4Identity);
+{$endif}
+   if result then begin
+    SphereCastData.TimeOfImpact:=LocalCastData.TimeOfImpact*fScale;
+    // The identity-basis frame leaves the reported normal in base space; project the base-space sphere center
+    // onto the field surface for the hit point, exactly like the inner cast does.
+    CurrentBase:=Vector3Add(LocalOrigin,Vector3ScalarMul(LocalDirection,LocalCastData.TimeOfImpact));
+    SurfaceBase:=Vector3Sub(CurrentBase,Vector3ScalarMul(LocalCastData.Normal,fSignedDistanceField.GetLocalSignedDistance(CurrentBase)));
+{$ifdef KraftDoublePositions}
+    LocalWorldPoint:=Vector3TermMatrixMulWithScale(SurfaceBase,CastTransform,fScale);
+    SphereCastData.Point:=PositionAddVector3(SphereCastData.Origin,LocalWorldPoint);
+    SphereCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(LocalCastData.Normal,CastTransform));
+{$else}
+    SphereCastData.Point:=Vector3TermMatrixMulWithScale(SurfaceBase,fWorldTransform,fScale);
+    SphereCastData.Normal:=Vector3NormEx(Vector3TermMatrixMulBasis(LocalCastData.Normal,fWorldTransform));
+{$endif}
+    SphereCastData.SurfaceNormal:=SphereCastData.Normal;
+   end;
+  end else begin
+   result:=fSignedDistanceField.SphereCast(SphereCastData,{$ifdef KraftDoublePositions}ShapeBaseRelativeWorldTransform(self,SphereCastData.Origin){$else}fWorldTransform{$endif});
+  end;
  end else begin
   result:=false;
  end;
@@ -42162,7 +42372,7 @@ var OldManifoldCountContacts:TKraftInt32;
   Center:=Vector3TermMatrixMul(ShapeA.fLocalCentroid,ShapeA.fWorldTransform);
   SphereCenter:=Vector3TermMatrixMulInverted(Center,ShapeB.fWorldTransform);
 {$endif}
-  Distance:=PlaneVectorDistance(ShapeB.fPlane,SphereCenter);
+  Distance:=PlaneVectorDistanceWithScale(ShapeB.fPlane,SphereCenter,ShapeB.fScale);
   if Distance<=ShapeA.fRadius then begin
    Normal:=ShapeB.fPlane.Normal;
    AddFaceBContact(Normal,Center,Vector3TermMatrixMul(Vector3Sub(SphereCenter,Vector3ScalarMul(Normal,Distance)),{$ifdef KraftDoublePositions}WorldTransformB{$else}ShapeB.fWorldTransform{$endif}),ShapeA.fRadius,0.0,CreateFeatureID(0),false);
@@ -42175,13 +42385,24 @@ var OldManifoldCountContacts:TKraftInt32;
      Center,SphereCenter,Normal,P0ToCenter,ContactPointOnTriangle,NearestOnEdge,ContactToCenter:TKraftVector3;
      IsInsideContactPlane,HasContact,IsEdge:boolean;
      v:array[0..2] of PKraftVector3;
+     ScaledVertices:array[0..2] of TKraftVector3;
 {$ifdef KraftDoublePositions}
      WorldTransformA,WorldTransformB:TKraftMatrix4x4;
 {$endif}
  begin
-  v[0]:=@ShapeB.fConvexHull.fVertices[0].Position;
-  v[1]:=@ShapeB.fConvexHull.fVertices[1].Position;
-  v[2]:=@ShapeB.fConvexHull.fVertices[2].Position;
+  // Only synthesize scaled triangle vertex copies when the shape is actually scaled; otherwise reference the base vertices directly.
+  if ShapeB.fScale<>1.0 then begin
+   ScaledVertices[0]:=Vector3ScalarMul(ShapeB.fConvexHull.fVertices[0].Position,ShapeB.fScale);
+   ScaledVertices[1]:=Vector3ScalarMul(ShapeB.fConvexHull.fVertices[1].Position,ShapeB.fScale);
+   ScaledVertices[2]:=Vector3ScalarMul(ShapeB.fConvexHull.fVertices[2].Position,ShapeB.fScale);
+   v[0]:=@ScaledVertices[0];
+   v[1]:=@ScaledVertices[1];
+   v[2]:=@ScaledVertices[2];
+  end else begin
+   v[0]:=@ShapeB.fConvexHull.fVertices[0].Position;
+   v[1]:=@ShapeB.fConvexHull.fVertices[1].Position;
+   v[2]:=@ShapeB.fConvexHull.fVertices[2].Position;
+  end;
 {$ifdef KraftDoublePositions}
   WorldTransformA:=ShapeWorldTransform(ShapeA);
   WorldTransformB:=ShapeWorldTransform(ShapeB);
@@ -71117,7 +71338,7 @@ var Hit:boolean;
   SphereCenter:=Vector3TermMatrixMulInverted(Sphere.Center,{$ifdef KraftDoublePositions}RelativeTransform{$else}aWithShape.fWorldTransform{$endif});
   for FaceIndex:=0 to aWithShape.fConvexHull.fCountFaces-1 do begin
    Face:=@aWithShape.fConvexHull.fFaces[FaceIndex];
-   Distance:=PlaneVectorDistance(Face^.Plane,SphereCenter);
+   Distance:=PlaneVectorDistanceWithScale(Face^.Plane,SphereCenter,aWithShape.fScale);
    if Distance>0.0 then begin
     // sphere aCenter is not inside in the convex hull . . .
     if Distance<Sphere.Radius then begin
@@ -71125,10 +71346,10 @@ var Hit:boolean;
      if Face^.CountVertices>0 then begin
       InsidePolygon:=true;
       n:=Face^.Plane.Normal;
-      b:=aWithShape.fConvexHull.fVertices[Face^.Vertices[Face^.CountVertices-1]].Position;
+      b:=Vector3ScalarMul(aWithShape.fConvexHull.fVertices[Face^.Vertices[Face^.CountVertices-1]].Position,aWithShape.fScale);
       for VertexIndex:=0 to Face^.CountVertices-1 do begin
        a:=b;
-       b:=aWithShape.fConvexHull.fVertices[Face^.Vertices[VertexIndex]].Position;
+       b:=Vector3ScalarMul(aWithShape.fConvexHull.fVertices[Face^.Vertices[VertexIndex]].Position,aWithShape.fScale);
        ab:=Vector3Sub(b,a);
        ap:=Vector3Sub(SphereCenter,a);
        v:=Vector3Cross(ab,n);
@@ -71177,7 +71398,7 @@ var Hit:boolean;
   if InsideSphere and (ClosestFaceIndex>=0) then begin
    // the sphere aCenter is inside the convex hull . . .
    Face:=@aWithShape.fConvexHull.fFaces[ClosestFaceIndex];
-   Distance:=PlaneVectorDistance(Face^.Plane,SphereCenter);
+   Distance:=PlaneVectorDistanceWithScale(Face^.Plane,SphereCenter,aWithShape.fScale);
    Normal:=Vector3SafeNorm(Vector3TermMatrixMulBasis(Face^.Plane.Normal,{$ifdef KraftDoublePositions}RelativeTransform{$else}aWithShape.fWorldTransform{$endif}));
    SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Normal,Sphere.Radius-Distance));
    inc(Count);
@@ -71288,7 +71509,7 @@ var Hit:boolean;
   RelativeTransform:=ShapeBaseRelativeWorldTransform(aWithShape,aCenter);
 {$endif}
   SphereCenter:=Vector3TermMatrixMulInverted(Sphere.Center,{$ifdef KraftDoublePositions}RelativeTransform{$else}aWithShape.fWorldTransform{$endif});
-  Distance:=PlaneVectorDistance(aWithShape.fPlane,SphereCenter);
+  Distance:=PlaneVectorDistanceWithScale(aWithShape.fPlane,SphereCenter,aWithShape.fScale);
   if Distance<=Sphere.Radius then begin
    SumMinimumTranslationVector:=Vector3Sub(SumMinimumTranslationVector,Vector3ScalarMul(Vector3SafeNorm(Vector3TermMatrixMulBasis(aWithShape.fPlane.Normal,{$ifdef KraftDoublePositions}RelativeTransform{$else}aWithShape.fWorldTransform{$endif})),Distance-Sphere.Radius));
    inc(Count);
@@ -71305,14 +71526,25 @@ var Hit:boolean;
      SphereCenter,Normal,P0ToCenter,ContactPoint,NearestOnEdge,ContactToCenter:TKraftVector3;
      IsInsideContactPlane,HasContact:boolean;
      v:array[0..2] of PKraftVector3;
+     ScaledVertices:array[0..2] of TKraftVector3;
      RelativeTransform:TKraftMatrix4x4;
  begin
 {$ifdef KraftDoublePositions}
   RelativeTransform:=ShapeBaseRelativeWorldTransform(aWithShape,aCenter);
 {$endif}
-  v[0]:=@aWithShape.fConvexHull.fVertices[0].Position;
-  v[1]:=@aWithShape.fConvexHull.fVertices[1].Position;
-  v[2]:=@aWithShape.fConvexHull.fVertices[2].Position;
+  // Only synthesize scaled triangle vertex copies when the shape is actually scaled; otherwise reference the base vertices directly.
+  if aWithShape.fScale<>1.0 then begin
+   ScaledVertices[0]:=Vector3ScalarMul(aWithShape.fConvexHull.fVertices[0].Position,aWithShape.fScale);
+   ScaledVertices[1]:=Vector3ScalarMul(aWithShape.fConvexHull.fVertices[1].Position,aWithShape.fScale);
+   ScaledVertices[2]:=Vector3ScalarMul(aWithShape.fConvexHull.fVertices[2].Position,aWithShape.fScale);
+   v[0]:=@ScaledVertices[0];
+   v[1]:=@ScaledVertices[1];
+   v[2]:=@ScaledVertices[2];
+  end else begin
+   v[0]:=@aWithShape.fConvexHull.fVertices[0].Position;
+   v[1]:=@aWithShape.fConvexHull.fVertices[1].Position;
+   v[2]:=@aWithShape.fConvexHull.fVertices[2].Position;
+  end;
   SphereCenter:=Vector3TermMatrixMulInverted(Sphere.Center,{$ifdef KraftDoublePositions}RelativeTransform{$else}aWithShape.fWorldTransform{$endif});
   Radius:=Sphere.Radius;
   RadiusWithThreshold:=Radius+EPSILON;
@@ -71363,7 +71595,7 @@ var Hit:boolean;
  var i,SkipListNodeIndex,MeshSkipListNodeIndex,TriangleIndex:TKraftInt32;
      MeshIndex:TKraftPtrInt;
      Radius,RadiusWithThreshold,DistanceFromPlane,ContactRadiusSqr,DistanceSqr:TKraftScalar;
-     SphereCenter,Normal,P0ToCenter,ContactPoint,NearestOnEdge,ContactToCenter:TKraftVector3;
+     SphereCenter,BaseSphereCenter,Normal,P0ToCenter,ContactPoint,NearestOnEdge,ContactToCenter:TKraftVector3;
      IsInsideContactPlane,HasContact:boolean;
      SkipListNode:PKraftDynamicAABBTreeSkipListNode;
      MeshSkipListNode:PKraftMeshSkipListNode;
@@ -71371,6 +71603,8 @@ var Hit:boolean;
      Triangle:PKraftMeshTriangle;
      AABB:TKraftAABB;
      Vertices:array[0..2] of PKraftVector3;
+     ScaledVertices:array[0..2] of TKraftVector3;
+     Scaled:boolean;
      WasHit:boolean;
      RelativeTransform:TKraftMatrix4x4;
  begin
@@ -71380,20 +71614,24 @@ var Hit:boolean;
   WasHit:=false;
   SphereCenter:=Vector3TermMatrixMulInverted(Sphere.Center,{$ifdef KraftDoublePositions}RelativeTransform{$else}aWithShape.fWorldTransform{$endif});
   Radius:=Sphere.Radius;
-  RadiusWithThreshold:=Radius+0.1;
-  AABB.Min.x:=SphereCenter.x-RadiusWithThreshold;
-  AABB.Min.y:=SphereCenter.y-RadiusWithThreshold;
-  AABB.Min.z:=SphereCenter.z-RadiusWithThreshold;
+  // The mesh BVH (SkipListNode AABBs) lives in the unscaled base space, so the search AABB is divided into that base space.
+  BaseSphereCenter:=Vector3ScalarMul(SphereCenter,aWithShape.fInverseScale);
+  RadiusWithThreshold:=(Radius+0.1)*aWithShape.fInverseScale;
+  AABB.Min.x:=BaseSphereCenter.x-RadiusWithThreshold;
+  AABB.Min.y:=BaseSphereCenter.y-RadiusWithThreshold;
+  AABB.Min.z:=BaseSphereCenter.z-RadiusWithThreshold;
 {$ifdef SIMD}
   AABB.Min.w:=0.0;
 {$endif}
-  AABB.Max.x:=SphereCenter.x+RadiusWithThreshold;
-  AABB.Max.y:=SphereCenter.y+RadiusWithThreshold;
-  AABB.Max.z:=SphereCenter.z+RadiusWithThreshold;
+  AABB.Max.x:=BaseSphereCenter.x+RadiusWithThreshold;
+  AABB.Max.y:=BaseSphereCenter.y+RadiusWithThreshold;
+  AABB.Max.z:=BaseSphereCenter.z+RadiusWithThreshold;
 {$ifdef SIMD}
   AABB.Max.w:=0.0;
 {$endif}
   RadiusWithThreshold:=Radius+EPSILON;
+  // Only synthesize scaled triangle vertex copies when the shape is actually scaled; otherwise reference the base vertices directly.
+  Scaled:=aWithShape.fScale<>1.0;
   SkipListNodeIndex:=0;
   while SkipListNodeIndex<TKraftShapeMesh(aWithShape).fCountSkipListNodes do begin
    SkipListNode:=@TKraftShapeMesh(aWithShape).fSkipListNodes[SkipListNodeIndex];
@@ -71408,9 +71646,18 @@ var Hit:boolean;
        if MeshSkipListNode^.CountTriangles>0 then begin
         for TriangleIndex:=MeshSkipListNode^.FirstTriangleIndex to MeshSkipListNode^.FirstTriangleIndex+(MeshSkipListNode^.CountTriangles-1) do begin
          Triangle:=@Mesh.fTriangles[TriangleIndex];
-         Vertices[0]:=@Mesh.fVertices[Triangle^.Vertices[0]];
-         Vertices[1]:=@Mesh.fVertices[Triangle^.Vertices[1]];
-         Vertices[2]:=@Mesh.fVertices[Triangle^.Vertices[2]];
+         if Scaled then begin
+          ScaledVertices[0]:=Vector3ScalarMul(Mesh.fVertices[Triangle^.Vertices[0]],aWithShape.fScale);
+          ScaledVertices[1]:=Vector3ScalarMul(Mesh.fVertices[Triangle^.Vertices[1]],aWithShape.fScale);
+          ScaledVertices[2]:=Vector3ScalarMul(Mesh.fVertices[Triangle^.Vertices[2]],aWithShape.fScale);
+          Vertices[0]:=@ScaledVertices[0];
+          Vertices[1]:=@ScaledVertices[1];
+          Vertices[2]:=@ScaledVertices[2];
+         end else begin
+          Vertices[0]:=@Mesh.fVertices[Triangle^.Vertices[0]];
+          Vertices[1]:=@Mesh.fVertices[Triangle^.Vertices[1]];
+          Vertices[2]:=@Mesh.fVertices[Triangle^.Vertices[2]];
+         end;
          Normal:=Vector3SafeNorm(Vector3Cross(Vector3Sub(Vertices[1]^,Vertices[0]^),Vector3Sub(Vertices[2]^,Vertices[0]^)));
          P0ToCenter:=Vector3Sub(SphereCenter,Vertices[0]^);
          DistanceFromPlane:=Vector3Dot(P0ToCenter,Normal);
@@ -71665,7 +71912,8 @@ var Sphere:TKraftSphere;
      MeshIndex:TKraftPtrUInt;
      Mesh:TKraftMesh;
      Radius,RadiusWithThreshold:TKraftScalar;
-     SphereCenter:TKraftVector3;
+     SphereCenter,BaseSphereCenter:TKraftVector3;
+     TrianglePoints:array[0..2] of TKraftVector3;
      PositionA,PositionB,Normal:TKraftVector3;
      PenetrationDepth:TKraftScalar;
      SkipListNode:PKraftDynamicAABBTreeSkipListNode;
@@ -71675,6 +71923,7 @@ var Sphere:TKraftSphere;
      RelativeTransform:TKraftMatrix4x4;
      AABB:TKraftAABB;
      WasHit:boolean;
+     Scaled:boolean;
  begin
   WasHit:=false;
 {$ifdef KraftDoublePositions}
@@ -71683,16 +71932,18 @@ var Sphere:TKraftSphere;
   SphereCenter:=Vector3TermMatrixMulInverted(Sphere.Center,aWithShape.fWorldTransform);
 {$endif}
   Radius:=Sphere.Radius;
-  RadiusWithThreshold:=Radius+0.1;
-  AABB.Min.x:=SphereCenter.x-RadiusWithThreshold;
-  AABB.Min.y:=SphereCenter.y-RadiusWithThreshold;
-  AABB.Min.z:=SphereCenter.z-RadiusWithThreshold;
+  // The mesh BVH (SkipListNode AABBs) lives in the unscaled base space, so the search AABB is divided into that base space.
+  BaseSphereCenter:=Vector3ScalarMul(SphereCenter,aWithShape.fInverseScale);
+  RadiusWithThreshold:=(Radius+0.1)*aWithShape.fInverseScale;
+  AABB.Min.x:=BaseSphereCenter.x-RadiusWithThreshold;
+  AABB.Min.y:=BaseSphereCenter.y-RadiusWithThreshold;
+  AABB.Min.z:=BaseSphereCenter.z-RadiusWithThreshold;
 {$ifdef SIMD}
   AABB.Min.w:=0.0;
 {$endif}
-  AABB.Max.x:=SphereCenter.x+RadiusWithThreshold;
-  AABB.Max.y:=SphereCenter.y+RadiusWithThreshold;
-  AABB.Max.z:=SphereCenter.z+RadiusWithThreshold;
+  AABB.Max.x:=BaseSphereCenter.x+RadiusWithThreshold;
+  AABB.Max.y:=BaseSphereCenter.y+RadiusWithThreshold;
+  AABB.Max.z:=BaseSphereCenter.z+RadiusWithThreshold;
 {$ifdef SIMD}
   AABB.Max.w:=0.0;
 {$endif}
@@ -71701,6 +71952,8 @@ var Sphere:TKraftSphere;
 {$else}
   RelativeTransform:=Matrix4x4TermMulInverted(TransformA,aWithShape.fWorldTransform);
 {$endif}
+  // Only synthesize scaled triangle vertex copies when the shape is actually scaled; otherwise reference the base vertices directly.
+  Scaled:=aWithShape.fScale<>1.0;
   SkipListNodeIndex:=0;
   while SkipListNodeIndex<TKraftShapeMesh(aWithShape).fCountSkipListNodes do begin
    SkipListNode:=@TKraftShapeMesh(aWithShape).fSkipListNodes[SkipListNodeIndex];
@@ -71715,9 +71968,18 @@ var Sphere:TKraftSphere;
        if MeshSkipListNode^.CountTriangles>0 then begin
         for TriangleIndex:=MeshSkipListNode^.FirstTriangleIndex to MeshSkipListNode^.FirstTriangleIndex+(MeshSkipListNode^.CountTriangles-1) do begin
          Triangle:=@Mesh.fTriangles[TriangleIndex];
-         IndirectTriangle.Points[0]:=@Mesh.fVertices[Triangle^.Vertices[0]];
-         IndirectTriangle.Points[1]:=@Mesh.fVertices[Triangle^.Vertices[1]];
-         IndirectTriangle.Points[2]:=@Mesh.fVertices[Triangle^.Vertices[2]];
+         if Scaled then begin
+          TrianglePoints[0]:=Vector3ScalarMul(Mesh.fVertices[Triangle^.Vertices[0]],aWithShape.fScale);
+          TrianglePoints[1]:=Vector3ScalarMul(Mesh.fVertices[Triangle^.Vertices[1]],aWithShape.fScale);
+          TrianglePoints[2]:=Vector3ScalarMul(Mesh.fVertices[Triangle^.Vertices[2]],aWithShape.fScale);
+          IndirectTriangle.Points[0]:=@TrianglePoints[0];
+          IndirectTriangle.Points[1]:=@TrianglePoints[1];
+          IndirectTriangle.Points[2]:=@TrianglePoints[2];
+         end else begin
+          IndirectTriangle.Points[0]:=@Mesh.fVertices[Triangle^.Vertices[0]];
+          IndirectTriangle.Points[1]:=@Mesh.fVertices[Triangle^.Vertices[1]];
+          IndirectTriangle.Points[2]:=@Mesh.fVertices[Triangle^.Vertices[2]];
+         end;
          Normal:=Vector3SafeNorm(Vector3Cross(Vector3Sub(IndirectTriangle.Points[1]^,IndirectTriangle.Points[0]^),Vector3Sub(IndirectTriangle.Points[2]^,IndirectTriangle.Points[0]^)));
          IndirectTriangle.Normal:=@Normal;
          if MPRIndirectTrianglePenetration(@IndirectTriangle,
@@ -72218,7 +72480,7 @@ var Hit:Boolean;
   Center:=Vector3TermMatrixMul(aShapeA.fLocalCentroid,aShapeA.fWorldTransform);
   SphereCenter:=Vector3TermMatrixMulInverted(Center,aShapeB.fWorldTransform);
 {$endif}
-  Distance:=PlaneVectorDistance(aShapeB.fPlane,SphereCenter);
+  Distance:=PlaneVectorDistanceWithScale(aShapeB.fPlane,SphereCenter,aShapeB.fScale);
   if Distance<=aShapeA.fRadius then begin
    Normal:=aShapeB.fPlane.Normal;
    AddFaceBContact(aWithShape,-1,-1,Normal,Center,Vector3TermMatrixMul(Vector3Sub(SphereCenter,Vector3ScalarMul(Normal,Distance)),{$ifdef KraftDoublePositions}CollideRelativeTransform(aShapeB){$else}aShapeB.fWorldTransform{$endif}),aShapeA.fRadius,0.0,aShapeA<>aShape);
@@ -72231,10 +72493,21 @@ var Hit:Boolean;
      Center,SphereCenter,Normal,P0ToCenter,ContactPointOnTriangle,NearestOnEdge,ContactToCenter:TKraftVector3;
      IsInsideContactPlane,HasContact,IsEdge:boolean;
      v:array[0..2] of PKraftVector3;
+     ScaledVertices:array[0..2] of TKraftVector3;
  begin
-  v[0]:=@aShapeB.fConvexHull.fVertices[0].Position;
-  v[1]:=@aShapeB.fConvexHull.fVertices[1].Position;
-  v[2]:=@aShapeB.fConvexHull.fVertices[2].Position;
+  // Only synthesize scaled triangle vertex copies when the shape is actually scaled; otherwise reference the base vertices directly.
+  if aShapeB.fScale<>1.0 then begin
+   ScaledVertices[0]:=Vector3ScalarMul(aShapeB.fConvexHull.fVertices[0].Position,aShapeB.fScale);
+   ScaledVertices[1]:=Vector3ScalarMul(aShapeB.fConvexHull.fVertices[1].Position,aShapeB.fScale);
+   ScaledVertices[2]:=Vector3ScalarMul(aShapeB.fConvexHull.fVertices[2].Position,aShapeB.fScale);
+   v[0]:=@ScaledVertices[0];
+   v[1]:=@ScaledVertices[1];
+   v[2]:=@ScaledVertices[2];
+  end else begin
+   v[0]:=@aShapeB.fConvexHull.fVertices[0].Position;
+   v[1]:=@aShapeB.fConvexHull.fVertices[1].Position;
+   v[2]:=@aShapeB.fConvexHull.fVertices[2].Position;
+  end;
 {$ifdef KraftDoublePositions}
   Center:=Vector3TermMatrixMul(aShapeA.fLocalCentroid,CollideRelativeTransform(aShapeA));
   SphereCenter:=Vector3TermMatrixMulInverted(Center,CollideRelativeTransform(aShapeB));
@@ -72422,15 +72695,26 @@ var Hit:Boolean;
      IsInsideContactPlane,HasContact:boolean;
      Triangle:PKraftMeshTriangle;
      Vertices:array[0..2] of PKraftVector3;
+     ScaledVertices:array[0..2] of TKraftVector3;
  begin
   SphereCenter:=Vector3TermMatrixMulInverted({$ifdef KraftDoublePositions}Vector3SubPosition(PositionFromVector3(TKraftVector3(Pointer(@aShape.fWorldTransform[3,0])^)),CollideBase),CollideRelativeTransform(aWithShape){$else}TKraftVector3(Pointer(@aShape.fWorldTransform[3,0])^),aWithShape.fWorldTransform{$endif});
   Radius:=TKraftShapeCapsule(aShape).fRadius;
   RadiusWithThreshold:=Radius+EPSILON;
   Mesh:=aWithShape.fMeshes[aWithShapeMeshIndex];
   Triangle:=@Mesh.fTriangles[aWithShapeTriangleIndex];
-  Vertices[0]:=@Mesh.fVertices[Triangle^.Vertices[0]];
-  Vertices[1]:=@Mesh.fVertices[Triangle^.Vertices[1]];
-  Vertices[2]:=@Mesh.fVertices[Triangle^.Vertices[2]];
+  // Only synthesize scaled triangle vertex copies when the shape is actually scaled; otherwise reference the base vertices directly.
+  if aWithShape.fScale<>1.0 then begin
+   ScaledVertices[0]:=Vector3ScalarMul(Mesh.fVertices[Triangle^.Vertices[0]],aWithShape.fScale);
+   ScaledVertices[1]:=Vector3ScalarMul(Mesh.fVertices[Triangle^.Vertices[1]],aWithShape.fScale);
+   ScaledVertices[2]:=Vector3ScalarMul(Mesh.fVertices[Triangle^.Vertices[2]],aWithShape.fScale);
+   Vertices[0]:=@ScaledVertices[0];
+   Vertices[1]:=@ScaledVertices[1];
+   Vertices[2]:=@ScaledVertices[2];
+  end else begin
+   Vertices[0]:=@Mesh.fVertices[Triangle^.Vertices[0]];
+   Vertices[1]:=@Mesh.fVertices[Triangle^.Vertices[1]];
+   Vertices[2]:=@Mesh.fVertices[Triangle^.Vertices[2]];
+  end;
   Normal:=Vector3SafeNorm(Vector3Cross(Vector3Sub(Vertices[1]^,Vertices[0]^),Vector3Sub(Vertices[2]^,Vertices[0]^)));
   P0ToCenter:=Vector3Sub(SphereCenter,Vertices[0]^);
   DistanceFromPlane:=Vector3Dot(P0ToCenter,Normal);
@@ -72529,9 +72813,16 @@ var Hit:Boolean;
 
    Mesh:=TKraftShapeMesh(aWithShape).fMeshes[aWithShapeMeshIndex];
 
-   TriangleP0:=Vector3TermMatrixMul(Mesh.fVertices[Mesh.fTriangles[aWithShapeTriangleIndex].Vertices[0]],{$ifdef KraftDoublePositions}CollideRelativeTransform(aWithShape){$else}aWithShape.fWorldTransform{$endif});
-   TriangleP1:=Vector3TermMatrixMul(Mesh.fVertices[Mesh.fTriangles[aWithShapeTriangleIndex].Vertices[1]],{$ifdef KraftDoublePositions}CollideRelativeTransform(aWithShape){$else}aWithShape.fWorldTransform{$endif});
-   TriangleP2:=Vector3TermMatrixMul(Mesh.fVertices[Mesh.fTriangles[aWithShapeTriangleIndex].Vertices[2]],{$ifdef KraftDoublePositions}CollideRelativeTransform(aWithShape){$else}aWithShape.fWorldTransform{$endif});
+   // Only fold in the shape scale when the shape is actually scaled; otherwise transform the base vertices directly.
+   if aWithShape.fScale<>1.0 then begin
+    TriangleP0:=Vector3TermMatrixMul(Vector3ScalarMul(Mesh.fVertices[Mesh.fTriangles[aWithShapeTriangleIndex].Vertices[0]],aWithShape.fScale),{$ifdef KraftDoublePositions}CollideRelativeTransform(aWithShape){$else}aWithShape.fWorldTransform{$endif});
+    TriangleP1:=Vector3TermMatrixMul(Vector3ScalarMul(Mesh.fVertices[Mesh.fTriangles[aWithShapeTriangleIndex].Vertices[1]],aWithShape.fScale),{$ifdef KraftDoublePositions}CollideRelativeTransform(aWithShape){$else}aWithShape.fWorldTransform{$endif});
+    TriangleP2:=Vector3TermMatrixMul(Vector3ScalarMul(Mesh.fVertices[Mesh.fTriangles[aWithShapeTriangleIndex].Vertices[2]],aWithShape.fScale),{$ifdef KraftDoublePositions}CollideRelativeTransform(aWithShape){$else}aWithShape.fWorldTransform{$endif});
+   end else begin
+    TriangleP0:=Vector3TermMatrixMul(Mesh.fVertices[Mesh.fTriangles[aWithShapeTriangleIndex].Vertices[0]],{$ifdef KraftDoublePositions}CollideRelativeTransform(aWithShape){$else}aWithShape.fWorldTransform{$endif});
+    TriangleP1:=Vector3TermMatrixMul(Mesh.fVertices[Mesh.fTriangles[aWithShapeTriangleIndex].Vertices[1]],{$ifdef KraftDoublePositions}CollideRelativeTransform(aWithShape){$else}aWithShape.fWorldTransform{$endif});
+    TriangleP2:=Vector3TermMatrixMul(Mesh.fVertices[Mesh.fTriangles[aWithShapeTriangleIndex].Vertices[2]],{$ifdef KraftDoublePositions}CollideRelativeTransform(aWithShape){$else}aWithShape.fWorldTransform{$endif});
+   end;
 
    TriangleNormal:=Vector3Norm(Vector3Cross(Vector3Sub(TriangleP1,TriangleP0),Vector3Sub(TriangleP2,TriangleP0)));
 
@@ -72753,30 +73044,36 @@ var Hit:Boolean;
      MeshIndex:TKraftPtrInt;
      Mesh:TKraftMesh;
      Radius,RadiusWithThreshold,DistanceFromPlane,ContactRadiusSqr,DistanceSqr:TKraftScalar;
-     SphereCenter,Normal,P0ToCenter,ContactPoint,NearestOnEdge,ContactToCenter:TKraftVector3;
+     SphereCenter,BaseSphereCenter,Normal,P0ToCenter,ContactPoint,NearestOnEdge,ContactToCenter:TKraftVector3;
      IsInsideContactPlane,HasContact:boolean;
      SkipListNode:PKraftDynamicAABBTreeSkipListNode;
      MeshSkipListNode:PKraftMeshSkipListNode;
      Triangle:PKraftMeshTriangle;
      AABB:TKraftAABB;
      Vertices:array[0..2] of PKraftVector3;
+     ScaledVertices:array[0..2] of TKraftVector3;
+     Scaled:boolean;
  begin
   SphereCenter:=Vector3TermMatrixMulInverted({$ifdef KraftDoublePositions}Vector3SubPosition(PositionFromVector3(TKraftVector3(Pointer(@aShape.fWorldTransform[3,0])^)),CollideBase),CollideRelativeTransform(aWithShape){$else}TKraftVector3(Pointer(@aShape.fWorldTransform[3,0])^),aWithShape.fWorldTransform{$endif});
   Radius:=TKraftShapeSphere(aShape).Radius;
-  RadiusWithThreshold:=Radius+0.1;
-  AABB.Min.x:=SphereCenter.x-RadiusWithThreshold;
-  AABB.Min.y:=SphereCenter.y-RadiusWithThreshold;
-  AABB.Min.z:=SphereCenter.z-RadiusWithThreshold;
+  // The mesh BVH (SkipListNode AABBs) lives in the unscaled base space, so the search AABB is divided into that base space.
+  BaseSphereCenter:=Vector3ScalarMul(SphereCenter,aWithShape.fInverseScale);
+  RadiusWithThreshold:=(Radius+0.1)*aWithShape.fInverseScale;
+  AABB.Min.x:=BaseSphereCenter.x-RadiusWithThreshold;
+  AABB.Min.y:=BaseSphereCenter.y-RadiusWithThreshold;
+  AABB.Min.z:=BaseSphereCenter.z-RadiusWithThreshold;
 {$ifdef SIMD}
   AABB.Min.w:=0.0;
 {$endif}
-  AABB.Max.x:=SphereCenter.x+RadiusWithThreshold;
-  AABB.Max.y:=SphereCenter.y+RadiusWithThreshold;
-  AABB.Max.z:=SphereCenter.z+RadiusWithThreshold;
+  AABB.Max.x:=BaseSphereCenter.x+RadiusWithThreshold;
+  AABB.Max.y:=BaseSphereCenter.y+RadiusWithThreshold;
+  AABB.Max.z:=BaseSphereCenter.z+RadiusWithThreshold;
 {$ifdef SIMD}
   AABB.Max.w:=0.0;
 {$endif}
   RadiusWithThreshold:=Radius+EPSILON;
+  // Only synthesize scaled triangle vertex copies when the shape is actually scaled; otherwise reference the base vertices directly.
+  Scaled:=aWithShape.fScale<>1.0;
   SkipListNodeIndex:=0;
   while SkipListNodeIndex<TKraftShapeMesh(aWithShape).fCountSkipListNodes do begin
    SkipListNode:=@TKraftShapeMesh(aWithShape).fSkipListNodes[SkipListNodeIndex];
@@ -72791,9 +73088,18 @@ var Hit:Boolean;
        if MeshSkipListNode^.CountTriangles>0 then begin
         for TriangleIndex:=MeshSkipListNode^.FirstTriangleIndex to MeshSkipListNode^.FirstTriangleIndex+(MeshSkipListNode^.CountTriangles-1) do begin
          Triangle:=@Mesh.fTriangles[TriangleIndex];
-         Vertices[0]:=@Mesh.fVertices[Triangle^.Vertices[0]];
-         Vertices[1]:=@Mesh.fVertices[Triangle^.Vertices[1]];
-         Vertices[2]:=@Mesh.fVertices[Triangle^.Vertices[2]];
+         if Scaled then begin
+          ScaledVertices[0]:=Vector3ScalarMul(Mesh.fVertices[Triangle^.Vertices[0]],aWithShape.fScale);
+          ScaledVertices[1]:=Vector3ScalarMul(Mesh.fVertices[Triangle^.Vertices[1]],aWithShape.fScale);
+          ScaledVertices[2]:=Vector3ScalarMul(Mesh.fVertices[Triangle^.Vertices[2]],aWithShape.fScale);
+          Vertices[0]:=@ScaledVertices[0];
+          Vertices[1]:=@ScaledVertices[1];
+          Vertices[2]:=@ScaledVertices[2];
+         end else begin
+          Vertices[0]:=@Mesh.fVertices[Triangle^.Vertices[0]];
+          Vertices[1]:=@Mesh.fVertices[Triangle^.Vertices[1]];
+          Vertices[2]:=@Mesh.fVertices[Triangle^.Vertices[2]];
+         end;
          Normal:=Vector3SafeNorm(Vector3Cross(Vector3Sub(Vertices[1]^,Vertices[0]^),Vector3Sub(Vertices[2]^,Vertices[0]^)));
          P0ToCenter:=Vector3Sub(SphereCenter,Vertices[0]^);
          DistanceFromPlane:=Vector3Dot(P0ToCenter,Normal);
@@ -72867,6 +73173,9 @@ var Hit:Boolean;
      AABB:TKraftAABB;
  begin
   AABB:=AABBHomogenTransform(aShape.fWorldAABB,Matrix4x4TermSimpleInverse(aWithShape.fWorldTransform));
+  // Divide the search AABB into the unscaled base space of the mesh BVH before testing the SkipListNode AABBs.
+  AABB.Min:=Vector3ScalarMul(AABB.Min,aWithShape.fInverseScale);
+  AABB.Max:=Vector3ScalarMul(AABB.Max,aWithShape.fInverseScale);
   SkipListNodeIndex:=0;
   while SkipListNodeIndex<TKraftShapeMesh(aWithShape).fCountSkipListNodes do begin
    SkipListNode:=@TKraftShapeMesh(aWithShape).fSkipListNodes[SkipListNodeIndex];
@@ -72906,6 +73215,9 @@ var Hit:Boolean;
      Triangle:PKraftMeshTriangle;
      IndirectTriangle:TKraftIndirectTriangle;
      RelativeTransform:TKraftMatrix4x4;
+     AABB:TKraftAABB;
+     TrianglePoints:array[0..2] of TKraftVector3;
+     Scaled:boolean;
  begin
   case aShape.fShapeType of
    kstSphere:begin
@@ -72916,23 +73228,38 @@ var Hit:Boolean;
    end;
    kstConvexHull,kstBox,kstPlane,kstTriangle:begin
     RelativeTransform:=Matrix4x4TermMulInverted(aShape.fWorldTransform,aWithShape.fWorldTransform);
+    // The query AABB is brought into the unscaled base space of the mesh BVH: first into the mesh local space, then divided by the shape scale.
+    AABB:=AABBHomogenTransform(aShape.fWorldAABB,Matrix4x4TermSimpleInverse(aWithShape.fWorldTransform));
+    AABB.Min:=Vector3ScalarMul(AABB.Min,aWithShape.fInverseScale);
+    AABB.Max:=Vector3ScalarMul(AABB.Max,aWithShape.fInverseScale);
+    // Only synthesize scaled triangle vertex copies when the shape is actually scaled; otherwise reference the base vertices directly.
+    Scaled:=aWithShape.fScale<>1.0;
     SkipListNodeIndex:=0;
     while SkipListNodeIndex<TKraftShapeMesh(aWithShape).fCountSkipListNodes do begin
      SkipListNode:=@TKraftShapeMesh(aWithShape).fSkipListNodes[SkipListNodeIndex];
-     if AABBIntersect(SkipListNode^.AABB,aShape.fWorldAABB) then begin
+     if AABBIntersect(SkipListNode^.AABB,AABB) then begin
       MeshIndex:=TKraftPtrInt(TKraftPtrUInt(SkipListNode^.UserData))-1;
       if MeshIndex>=0 then begin
        Mesh:=TKraftShapeMesh(aWithShape).fMeshes[MeshIndex];
        MeshSkipListNodeIndex:=0;
        while MeshSkipListNodeIndex<Mesh.fCountSkipListNodes do begin
         MeshSkipListNode:=@Mesh.fSkipListNodes[MeshSkipListNodeIndex];
-        if AABBIntersect(MeshSkipListNode^.AABB,aShape.fWorldAABB) then begin
+        if AABBIntersect(MeshSkipListNode^.AABB,AABB) then begin
          if MeshSkipListNode^.CountTriangles>0 then begin
           for TriangleIndex:=MeshSkipListNode^.FirstTriangleIndex to MeshSkipListNode^.FirstTriangleIndex+(MeshSkipListNode^.CountTriangles-1) do begin
            Triangle:=@Mesh.fTriangles[TriangleIndex];
-           IndirectTriangle.Points[0]:=@Mesh.fVertices[Triangle^.Vertices[0]];
-           IndirectTriangle.Points[1]:=@Mesh.fVertices[Triangle^.Vertices[1]];
-           IndirectTriangle.Points[2]:=@Mesh.fVertices[Triangle^.Vertices[2]];
+           if Scaled then begin
+            TrianglePoints[0]:=Vector3ScalarMul(Mesh.fVertices[Triangle^.Vertices[0]],aWithShape.fScale);
+            TrianglePoints[1]:=Vector3ScalarMul(Mesh.fVertices[Triangle^.Vertices[1]],aWithShape.fScale);
+            TrianglePoints[2]:=Vector3ScalarMul(Mesh.fVertices[Triangle^.Vertices[2]],aWithShape.fScale);
+            IndirectTriangle.Points[0]:=@TrianglePoints[0];
+            IndirectTriangle.Points[1]:=@TrianglePoints[1];
+            IndirectTriangle.Points[2]:=@TrianglePoints[2];
+           end else begin
+            IndirectTriangle.Points[0]:=@Mesh.fVertices[Triangle^.Vertices[0]];
+            IndirectTriangle.Points[1]:=@Mesh.fVertices[Triangle^.Vertices[1]];
+            IndirectTriangle.Points[2]:=@Mesh.fVertices[Triangle^.Vertices[2]];
+           end;
            Normal:=Vector3SafeNorm(Vector3Cross(Vector3Sub(IndirectTriangle.Points[1]^,IndirectTriangle.Points[0]^),Vector3Sub(IndirectTriangle.Points[2]^,IndirectTriangle.Points[0]^)));
            IndirectTriangle.Normal:=@Normal;
            if MPRIndirectTrianglePenetration(@IndirectTriangle,
