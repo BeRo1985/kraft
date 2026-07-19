@@ -15279,7 +15279,7 @@ begin
       f:=(Min(aB,bB)+Max(aA,bA))*0.5;
       TimeB:=(f-bA)/e;
       ClosestPointB:=Vector3Add(SegmentB.Points[0],Vector3ScalarMul(dB,TimeB));
-      SIMDSegmentClosestPointTo(SegmentA,ClosestPointB,TimeB,ClosestPointA);
+      SIMDSegmentClosestPointTo(SegmentA,ClosestPointB,TimeA,ClosestPointA);
       exit;
      end;
     end  else begin
