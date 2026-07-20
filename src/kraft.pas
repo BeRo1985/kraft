@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-07-18-14-49-0000                       *
+ *                        Version 2026-07-20-19-23-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -25794,7 +25794,7 @@ begin
    while Stack.Pop(StackItem) do begin
     Node:=@fNodes[StackItem.NodeID];
     if AABBContains(Node^.AABB,{$ifdef KraftDoublePositions}Vector3FromPosition(aPoint){$else}aPoint{$endif}) then begin
-     if Node^.UserData<>nil then begin
+     if assigned(Node^.UserData) then begin
       if aCount>=length(aArray) then begin
        SetLength(aArray,(aCount+1)+((aCount+1) shr 1));
       end;
@@ -71909,7 +71909,7 @@ var Sphere:TKraftSphere;
  end;
  procedure CollideMesh(const aWithShape:TKraftShapeMesh);
  var SkipListNodeIndex,MeshSkipListNodeIndex,TriangleIndex:TKraftInt32;
-     MeshIndex:TKraftPtrUInt;
+     MeshIndex:TKraftPtrInt;
      Mesh:TKraftMesh;
      Radius,RadiusWithThreshold:TKraftScalar;
      SphereCenter,BaseSphereCenter:TKraftVector3;
