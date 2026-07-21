@@ -6267,9 +6267,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        function PushSphere(var aCenter:TKraftPosition;const aRadius:TKraftScalar;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aTryIterations:TKraftInt32=4;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook=nil;const aKraftOnPushShapeFilterHook:TKraftOnPushShapeFilterHook=nil;const aAvoidShape:TKraftShape=nil):boolean;
 
-       // Iterative depenetration of a convex shape (spheres delegate to PushSphere) out of the world geometry
-       // including meshes and signed distance fields; pushed mesh and signed distance field shapes themselves
-       // are not supported, since they are not convex
+       // Iterative depenetration of a shape (spheres delegate to PushSphere) out of the world geometry including
+       // meshes and signed distance fields; the pushed shape may be convex or a signed distance field, the latter
+       // is resolved against convex, field and mesh world geometry through the signed distance field code paths.
+       // Pushed mesh shapes are not supported, since a mesh is not a single convex volume.
        function PushShape(const aShape:TKraftShape;out aSeperation:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aTryIterations:TKraftInt32=4;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook=nil;const aKraftOnPushShapeFilterHook:TKraftOnPushShapeFilterHook=nil;const aSingleDeepest:Boolean=false):boolean;
 
        function CollideShape(const aShape:TKraftShape;
@@ -22096,6 +22097,145 @@ begin
 
   result:=MutualPenetration;
 
+ end;
+
+end;
+function SignedDistanceFieldIndirectTrianglePenetration(const aSDFShape:TKraftShape;const aTriangle:PKraftIndirectTriangle;const aSDFTransform,aTriangleTransform:TKraftMatrix4x4;out aPositionSDF,aPositionTriangle,aNormal:TKraftVector3;out aPenetrationDepth:TKraftScalar):boolean;
+// Dedicated penetration of a signed distance field against a raw mesh triangle, so that a pushed or queried
+// signed distance field can be resolved against mesh world geometry, which MPR can not do here since it would
+// need a support mapping the field can not provide. The convention follows MPRPenetration and SignedDistance-
+// FieldPenetration: the returned normal is the direction the signed distance field has to be pushed to resolve
+// the penetration, the depth is positive on overlap and aPositionSDF / aPositionTriangle are the deepest
+// surface points on both shapes. Two paths are evaluated and the deeper valid one wins: the deepest triangle
+// vertex sampled against the field (mirrors DeepestVertexPenetration, for a sharp mesh corner poking into the
+// field) and the deepest field surface point below the triangle facet plane found by a tangential surface
+// slide (mirrors PlanePenetration; this is the primary path, since level mesh facets are large and a field
+// usually rests on the interior of a facet with no triangle vertex inside it at all).
+const MaxSlideIterations=24;
+      MaxSurfaceProjectionIterations=4;
+      Epsilon=1e-5;
+      StepEpsilon=1e-4;
+var VertexIndex,BestVertexIndex,Iteration,ProjectionIteration:TKraftInt32;
+    Distance,BestVertexDistance,StepSize,PlaneDistance,TrialPlaneDistance,TangentLength,ProjectedDistance:TKraftScalar;
+    WorldVertices:array[0..2] of TKraftVector3;
+    LocalSDFPoint,LocalGradient,WorldGradient,TriangleNormalWorld,LocalPlaneNormal,LocalPlanePoint:TKraftVector3;
+    CurrentPoint,TrialPoint,Gradient,TangentDirection,PositionSDFWorld,ProjectedWorld:TKraftVector3;
+begin
+
+ result:=false;
+
+ aPositionSDF:=Vector3Origin;
+ aPositionTriangle:=Vector3Origin;
+ aNormal:=Vector3YAxis;
+ aPenetrationDepth:=0.0;
+
+ // Bring the triangle vertices into world space once; the facet normal is derived from them directly instead of
+ // from aTriangle^.Normal, both to stay consistent with the transformed vertices and to avoid aliasing the
+ // caller's normal storage, which usually doubles as the out normal here
+ for VertexIndex:=0 to 2 do begin
+  WorldVertices[VertexIndex]:=Vector3TermMatrixMul(aTriangle^.Points[VertexIndex]^,aTriangleTransform);
+ end;
+
+ // Deepest triangle vertex against the field: a sharp mesh corner poking into the solid
+ BestVertexDistance:=MAX_SCALAR;
+ BestVertexIndex:=-1;
+ for VertexIndex:=0 to 2 do begin
+  Distance:=aSDFShape.GetLocalSignedDistance(Vector3TermMatrixMulInverted(WorldVertices[VertexIndex],aSDFTransform));
+  if BestVertexDistance>Distance then begin
+   BestVertexDistance:=Distance;
+   BestVertexIndex:=VertexIndex;
+  end;
+ end;
+ if (BestVertexIndex>=0) and (BestVertexDistance<0.0) then begin
+  // The field gradient points out of the solid, so the field itself is pushed along the negated gradient to
+  // free the penetrating vertex
+  LocalSDFPoint:=Vector3TermMatrixMulInverted(WorldVertices[BestVertexIndex],aSDFTransform);
+  LocalGradient:=aSDFShape.GetLocalSignedDistanceNormalizedGradient(LocalSDFPoint);
+  WorldGradient:=Vector3SafeNorm(Vector3TermMatrixMulBasis(LocalGradient,aSDFTransform));
+  aNormal:=Vector3Neg(WorldGradient);
+  aPenetrationDepth:=-BestVertexDistance;
+  aPositionSDF:=Vector3TermMatrixMul(Vector3Sub(LocalSDFPoint,Vector3ScalarMul(LocalGradient,BestVertexDistance)),aSDFTransform);
+  aPositionTriangle:=WorldVertices[BestVertexIndex];
+  result:=true;
+ end;
+
+ // Deepest field surface point below the triangle facet plane: the primary resting case, a field sitting on the
+ // interior of a large facet with no triangle vertex inside it
+ TriangleNormalWorld:=Vector3SafeNorm(Vector3Cross(Vector3Sub(WorldVertices[1],WorldVertices[0]),Vector3Sub(WorldVertices[2],WorldVertices[0])));
+ if Vector3LengthSquared(TriangleNormalWorld)>Epsilon then begin
+  LocalPlaneNormal:=Vector3SafeNorm(Vector3TermMatrixMulTransposedBasis(TriangleNormalWorld,aSDFTransform));
+  LocalPlanePoint:=Vector3TermMatrixMulInverted(WorldVertices[0],aSDFTransform);
+  // Seed at the field bounds corner deepest below the facet plane
+  if LocalPlaneNormal.x<0.0 then begin
+   CurrentPoint.x:=aSDFShape.fShapeAABB.Max.x;
+  end else begin
+   CurrentPoint.x:=aSDFShape.fShapeAABB.Min.x;
+  end;
+  if LocalPlaneNormal.y<0.0 then begin
+   CurrentPoint.y:=aSDFShape.fShapeAABB.Max.y;
+  end else begin
+   CurrentPoint.y:=aSDFShape.fShapeAABB.Min.y;
+  end;
+  if LocalPlaneNormal.z<0.0 then begin
+   CurrentPoint.z:=aSDFShape.fShapeAABB.Max.z;
+  end else begin
+   CurrentPoint.z:=aSDFShape.fShapeAABB.Min.z;
+  end;
+{$ifdef SIMD}
+  CurrentPoint.w:=0.0;
+{$endif}
+  // Pull the seed onto the field surface, then slide tangentially towards the deepest point below the plane
+  for ProjectionIteration:=1 to 8 do begin
+   Distance:=aSDFShape.GetLocalSignedDistance(CurrentPoint);
+   if abs(Distance)<Epsilon then begin
+    break;
+   end;
+   CurrentPoint:=Vector3Sub(CurrentPoint,Vector3ScalarMul(aSDFShape.GetLocalSignedDistanceNormalizedGradient(CurrentPoint),Distance));
+  end;
+  StepSize:=Max(Max(aSDFShape.fShapeAABB.Max.x-aSDFShape.fShapeAABB.Min.x,
+                    aSDFShape.fShapeAABB.Max.y-aSDFShape.fShapeAABB.Min.y),
+                    aSDFShape.fShapeAABB.Max.z-aSDFShape.fShapeAABB.Min.z)*0.25;
+  PlaneDistance:=Vector3Dot(LocalPlaneNormal,Vector3Sub(CurrentPoint,LocalPlanePoint));
+  for Iteration:=1 to MaxSlideIterations do begin
+   Gradient:=aSDFShape.GetLocalSignedDistanceNormalizedGradient(CurrentPoint);
+   TangentDirection:=Vector3Sub(Vector3ScalarMul(Gradient,Vector3Dot(Gradient,LocalPlaneNormal)),LocalPlaneNormal);
+   TangentLength:=Vector3Length(TangentDirection);
+   if TangentLength<Epsilon then begin
+    break;
+   end;
+   TrialPoint:=Vector3Add(CurrentPoint,Vector3ScalarMul(TangentDirection,StepSize/TangentLength));
+   for ProjectionIteration:=1 to MaxSurfaceProjectionIterations do begin
+    Distance:=aSDFShape.GetLocalSignedDistance(TrialPoint);
+    if abs(Distance)<Epsilon then begin
+     break;
+    end;
+    TrialPoint:=Vector3Sub(TrialPoint,Vector3ScalarMul(aSDFShape.GetLocalSignedDistanceNormalizedGradient(TrialPoint),Distance));
+   end;
+   TrialPlaneDistance:=Vector3Dot(LocalPlaneNormal,Vector3Sub(TrialPoint,LocalPlanePoint));
+   if TrialPlaneDistance<PlaneDistance then begin
+    CurrentPoint:=TrialPoint;
+    PlaneDistance:=TrialPlaneDistance;
+   end else begin
+    StepSize:=StepSize*0.5;
+    if StepSize<StepEpsilon then begin
+     break;
+    end;
+   end;
+  end;
+  if (PlaneDistance<0.0) and ((not result) or ((-PlaneDistance)>aPenetrationDepth)) then begin
+   PositionSDFWorld:=Vector3TermMatrixMul(CurrentPoint,aSDFTransform);
+   // Accept only when the deepest field point projects onto this triangle, so neighbouring facets of the same
+   // mesh do not each claim the same resting contact through their shared plane
+   ProjectedDistance:=Vector3Dot(TriangleNormalWorld,Vector3Sub(PositionSDFWorld,WorldVertices[0]));
+   ProjectedWorld:=Vector3Sub(PositionSDFWorld,Vector3ScalarMul(TriangleNormalWorld,ProjectedDistance));
+   if PointInTriangle(WorldVertices[0],WorldVertices[1],WorldVertices[2],TriangleNormalWorld,ProjectedWorld) then begin
+    aNormal:=TriangleNormalWorld;
+    aPenetrationDepth:=-PlaneDistance;
+    aPositionSDF:=PositionSDFWorld;
+    aPositionTriangle:=ProjectedWorld;
+    result:=true;
+   end;
+  end;
  end;
 
 end;
@@ -71875,9 +72015,10 @@ var Sphere:TKraftSphere;
      PenetrationDepth:TKraftScalar;
      Penetrating:boolean;
  begin
-  // Signed distance fields have no support mapping for MPR, so they go through the dedicated signed
-  // distance field penetration (which returns the same convention: normal = push direction of aShape)
-  if aWithShape.fShapeType=kstSignedDistanceField then begin
+  // Signed distance fields have no support mapping for MPR, so a pair where either the pushed shape or the
+  // world shape is a signed distance field goes through the dedicated signed distance field penetration (same
+  // convention: normal = push direction of aShape; a field-vs-field pair descends mutually inside it)
+  if (aShape.fShapeType=kstSignedDistanceField) or (aWithShape.fShapeType=kstSignedDistanceField) then begin
 {$ifdef KraftDoublePositions}
    Penetrating:=SignedDistanceFieldPenetration(aShape,aWithShape,PushRelativeTransformA,PushWithShapeTransform(aWithShape),PositionA,PositionB,Normal,PenetrationDepth);
 {$else}
@@ -71923,6 +72064,7 @@ var Sphere:TKraftSphere;
      RelativeTransform:TKraftMatrix4x4;
      AABB:TKraftAABB;
      WasHit:boolean;
+     TrianglePenetrating:boolean;
      Scaled:boolean;
  begin
   WasHit:=false;
@@ -71982,15 +72124,36 @@ var Sphere:TKraftSphere;
          end;
          Normal:=Vector3SafeNorm(Vector3Cross(Vector3Sub(IndirectTriangle.Points[1]^,IndirectTriangle.Points[0]^),Vector3Sub(IndirectTriangle.Points[2]^,IndirectTriangle.Points[0]^)));
          IndirectTriangle.Normal:=@Normal;
-         if MPRIndirectTrianglePenetration(@IndirectTriangle,
-                                           aShape,
-                                           Matrix4x4Identity,
-                                           RelativeTransform,
-                                           PositionA,
-                                           PositionB,
-                                           Normal,
-                                           PenetrationDepth) then begin
-          Normal:=Vector3Neg(Vector3Norm(Vector3TermMatrixMulBasis(Normal,aWithShape.fWorldTransform)));
+         if aShape.fShapeType=kstSignedDistanceField then begin
+          // A pushed signed distance field can not drive MPR against the facet (no support mapping); it samples
+          // against the raw triangle instead, which already yields the field push direction in world space
+          TrianglePenetrating:=SignedDistanceFieldIndirectTrianglePenetration(aShape,
+                                                                              @IndirectTriangle,
+{$ifdef KraftDoublePositions}
+                                                                              PushRelativeTransformA,
+                                                                              PushWithShapeTransform(aWithShape),
+{$else}
+                                                                              TransformA,
+                                                                              aWithShape.fWorldTransform,
+{$endif}
+                                                                              PositionA,
+                                                                              PositionB,
+                                                                              Normal,
+                                                                              PenetrationDepth);
+         end else begin
+          TrianglePenetrating:=MPRIndirectTrianglePenetration(@IndirectTriangle,
+                                                              aShape,
+                                                              Matrix4x4Identity,
+                                                              RelativeTransform,
+                                                              PositionA,
+                                                              PositionB,
+                                                              Normal,
+                                                              PenetrationDepth);
+          if TrianglePenetrating then begin
+           Normal:=Vector3Neg(Vector3Norm(Vector3TermMatrixMulBasis(Normal,aWithShape.fWorldTransform)));
+          end;
+         end;
+         if TrianglePenetrating then begin
           if aSingleDeepest then begin
            if (Count=0) or (BestPenetrationDepth<=PenetrationDepth) then begin
             Count:=1;
@@ -72039,17 +72202,15 @@ begin
    result:=PushSphere(Center,TKraftShapeSphere(aShape).fRadius,aCollisionGroups,aTryIterations,aOnPushShapeContactHook,aKraftOnPushShapeFilterHook,aShape);
    aSeperation:={$ifdef KraftDoublePositions}Vector3SubPosition(Center,OriginalCenter){$else}Vector3Sub(Center,OriginalCenter){$endif};
   end;
-  kstSignedDistanceField:begin
-   // Signed distance field shype type isn't supported for PushShape, since it's not a convex shape.
-   raise EKraftShapeTypeNotSupported.Create('Signed distance field shype type isn''t supported for PushShape');
-   result:=false;
-  end;
   kstMesh:begin
-   // Meshes are also not supported for PushShape, since they are not convex shapes as well.
+   // Meshes are not supported as the pushed shape for PushShape, since a mesh is not a single convex volume.
    raise EKraftShapeTypeNotSupported.Create('Mesh shype type isn''t supported for PushShape');
    result:=false;
   end;
   else begin
+   // Convex shapes and signed distance fields are both depenetrated here; a pushed signed distance field is
+   // resolved against convex, field and mesh world geometry through the signed distance field branches inside
+   // CollideConvex and CollideMesh below.
    Stack.Initialize;
    try
     // The query sphere is the shape's world AABB bounding sphere; its center doesn't have to coincide with
@@ -73226,7 +73387,7 @@ var Hit:Boolean;
    kstCapsule:begin
     CollideCapsuleWithMesh(aWithShape);
    end;
-   kstConvexHull,kstBox,kstPlane,kstTriangle:begin
+   kstConvexHull,kstBox,kstPlane,kstTriangle,kstSignedDistanceField:begin
     RelativeTransform:=Matrix4x4TermMulInverted(aShape.fWorldTransform,aWithShape.fWorldTransform);
     // The query AABB is brought into the unscaled base space of the mesh BVH: first into the mesh local space, then divided by the shape scale.
     AABB:=AABBHomogenTransform(aShape.fWorldAABB,Matrix4x4TermSimpleInverse(aWithShape.fWorldTransform));
@@ -73262,16 +73423,36 @@ var Hit:Boolean;
            end;
            Normal:=Vector3SafeNorm(Vector3Cross(Vector3Sub(IndirectTriangle.Points[1]^,IndirectTriangle.Points[0]^),Vector3Sub(IndirectTriangle.Points[2]^,IndirectTriangle.Points[0]^)));
            IndirectTriangle.Normal:=@Normal;
-           if MPRIndirectTrianglePenetration(@IndirectTriangle,
-                                             aShape,
-                                             Matrix4x4Identity,
-                                             RelativeTransform,
-                                             PositionA,
-                                             PositionB,
-                                             Normal,
-                                             PenetrationDepth) then begin
-            Normal:=Vector3Neg(Vector3Norm(Vector3TermMatrixMulBasis(Normal,aWithShape.fWorldTransform)));
-            AddContact(aWithShape,MeshIndex,TriangleIndex,PositionB,PositionA,Normal,PenetrationDepth);
+           if aShape.fShapeType=kstSignedDistanceField then begin
+            // A queried signed distance field samples against the raw facet instead of driving MPR (no support
+            // mapping); the result is already the field push direction in world space, and the field is ShapeA
+            if SignedDistanceFieldIndirectTrianglePenetration(aShape,
+                                                              @IndirectTriangle,
+{$ifdef KraftDoublePositions}
+                                                              CollideRelativeTransform(aShape),
+                                                              CollideRelativeTransform(aWithShape),
+{$else}
+                                                              aShape.fWorldTransform,
+                                                              aWithShape.fWorldTransform,
+{$endif}
+                                                              PositionA,
+                                                              PositionB,
+                                                              Normal,
+                                                              PenetrationDepth) then begin
+             AddContact(aWithShape,MeshIndex,TriangleIndex,PositionA,PositionB,Normal,PenetrationDepth);
+            end;
+           end else begin
+            if MPRIndirectTrianglePenetration(@IndirectTriangle,
+                                              aShape,
+                                              Matrix4x4Identity,
+                                              RelativeTransform,
+                                              PositionA,
+                                              PositionB,
+                                              Normal,
+                                              PenetrationDepth) then begin
+             Normal:=Vector3Neg(Vector3Norm(Vector3TermMatrixMulBasis(Normal,aWithShape.fWorldTransform)));
+             AddContact(aWithShape,MeshIndex,TriangleIndex,PositionB,PositionA,Normal,PenetrationDepth);
+            end;
            end;
           end;
          end;
