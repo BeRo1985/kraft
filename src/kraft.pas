@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-07-21-03-39-0000                       *
+ *                        Version 2026-07-21-06-39-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -526,7 +526,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
                       kstBox,                  // Internally derived from convex hull
                       kstPlane,                // Internally derived from convex hull
                       kstTriangle,             // Internally derived from convex hull and only for internal usage only at mesh shapes
-                      kstMesh);                // Static only
+                      kstMesh);                // Static and dynamic (mesh versus mesh pairs are decomposed into triangle versus triangle sub pairs)
      PKraftShapeType=^TKraftShapeType;
 
      TKraftShapeFlag=(ksfHasForcedCenterOfMass,
@@ -3048,6 +3048,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftMeshContactPair=class;
 
+     TKraftMeshMeshContactPair=class;
+
      PKraftContactPairContactManifoldMode=^TKraftContactPairContactManifoldMode;
      TKraftContactPairContactManifoldMode=(kcpcmmVelocitySolver,kcpcmmPositionSolver,kcpcmmBaumgarte,kcpcmmTemporalCoherence);
 
@@ -3066,6 +3068,14 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        MeshContactPairGeneration:TKraftUInt64;
        MeshContactPairNextContactPair:PKraftContactPair;
        MeshContactPairPreviousContactPair:PKraftContactPair;
+       // Mesh versus mesh sub pair state, parallel to the mesh contact pair fields above. The existing
+       // ContainerIndex/ElementIndex stay the B side triangle, while these hold the A side triangle; the sub
+       // pair reuses the MeshContactPairNextContactPair/MeshContactPairPreviousContactPair links, since a
+       // triangle pair ever belongs to either a mesh contact pair or a mesh versus mesh contact pair, never both.
+       ShapeAContainerIndex:TKraftInt32;
+       ShapeAElementIndex:TKraftInt32;
+       MeshMeshContactPair:TKraftMeshMeshContactPair;
+       MeshMeshContactPairGeneration:TKraftUInt64;
        RigidBodies:array[0..1] of TKraftRigidBody;
        Edges:array[0..1] of TKraftContactPairEdge;
        Friction:TKraftScalar;
@@ -3185,6 +3195,72 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      end;
 
+     { TKraftMeshMeshContactPair }
+
+     // Whole-mesh-pair bookkeeping for a mesh versus mesh overlap, parallel to TKraftMeshContactPair. It owns a
+     // prediction corridor (the outer mesh's shape AABB brought into the inner mesh's base space) and decomposes
+     // the overlap into per triangle versus triangle sub pairs. The mesh with the smaller triangle count takes
+     // the outer role A, the other one the inner role B; the sub pair triangle indices are stored with B on the
+     // existing ContainerIndex/ElementIndex and A on ShapeAContainerIndex/ShapeAElementIndex of the contact pair.
+     TKraftMeshMeshContactPair=class
+      private
+
+       fContactManager:TKraftContactManager;
+
+       fPrevious:TKraftMeshMeshContactPair;
+       fNext:TKraftMeshMeshContactPair;
+
+       fHashBucket:TKraftInt32;
+       fHashPrevious:TKraftMeshMeshContactPair;
+       fHashNext:TKraftMeshMeshContactPair;
+
+       fFirstContactPair:PKraftContactPair;
+       fLastContactPair:PKraftContactPair;
+
+       fIsOnFreeList:boolean;
+
+       fFlags:TKraftContactFlags;
+
+       fShapeMeshA:TKraftShape;
+       fShapeMeshB:TKraftShape;
+
+       fRigidBodyMeshA:TKraftRigidBody;
+       fRigidBodyMeshB:TKraftRigidBody;
+
+       fMeshAAABBInMeshBLocalSpace:TKraftAABB;
+
+       // The relative-motion stretch of the corridor (in the rigid B local frame, before the B scale division),
+       // reapplied to every outer A triangle AABB inside the dual walk, since a per triangle AABB without the
+       // prediction stretch would miss the sub pairs a fast relative motion needs for speculative contacts and
+       // time of impact
+       fCorridorDisplacement:TKraftVector3;
+       fCorridorBoundsExpansion:TKraftVector3;
+
+       fGeneration:TKraftUInt64;
+
+      public
+
+       constructor Create(const aContactManager:TKraftContactManager);
+       destructor Destroy; override;
+       procedure AddContactPair(const aContactPair:PKraftContactPair); {$ifdef caninline}inline;{$endif}
+       procedure RemoveContactPair(const aContactPair:PKraftContactPair); {$ifdef caninline}inline;{$endif}
+       procedure AddToHashTable; {$ifdef caninline}inline;{$endif}
+       procedure RemoveFromHashTable; {$ifdef caninline}inline;{$endif}
+       procedure MoveToFreeList;
+       procedure MoveFromFreeList;
+       procedure Query;
+       procedure Update;
+
+     end;
+
+     PKraftMeshMeshContactPairHashTableBucket=^TKraftMeshMeshContactPairHashTableBucket;
+     TKraftMeshMeshContactPairHashTableBucket=record
+      First:TKraftMeshMeshContactPair;
+      Last:TKraftMeshMeshContactPair;
+     end;
+
+     TKraftMeshMeshContactPairHashTable=array[0..(1 shl 16)-1] of TKraftMeshMeshContactPairHashTableBucket;
+
      PKraftMeshContactPairHashTableBucket=^TKraftMeshContactPairHashTableBucket;
      TKraftMeshContactPairHashTableBucket=record
       First:TKraftMeshContactPair;
@@ -3252,6 +3328,14 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fCountMeshContactPairs:TKraftInt32;
 
+       fMeshMeshContactPairFirst:TKraftMeshMeshContactPair;
+       fMeshMeshContactPairLast:TKraftMeshMeshContactPair;
+
+       fMeshMeshContactPairFirstFree:TKraftMeshMeshContactPair;
+       fMeshMeshContactPairLastFree:TKraftMeshMeshContactPair;
+
+       fCountMeshMeshContactPairs:TKraftInt32;
+
        fOnContactBegin:TKraftContactManagerOnContactBeginHook;
        fOnContactEnd:TKraftContactManagerOnContactEndHook;
        fOnContactStay:TKraftContactManagerOnContactStayHook;
@@ -3282,6 +3366,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fMeshContactPairHashTable:TKraftMeshContactPairHashTable;
 
+       fMeshMeshContactPairHashTable:TKraftMeshMeshContactPairHashTable;
+
        fFeatureOwnershipClaimedFeatures:TKraftMeshTriangleVerticesHashMap;
        fFeatureOwnershipContactPairs:TPKraftContactPairs;
 
@@ -3293,17 +3379,21 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        constructor Create(const aPhysics:TKraft);
        destructor Destroy; override;
 
-       function HasDuplicateContact(const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const AShapeA,AShapeB:TKraftShape;const AContainerIndex:TKraftInt32=-1;const AElementIndex:TKraftInt32=-1;const AMeshContactPair:TKraftMeshContactPair=nil):boolean;
+       function HasDuplicateContact(const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const AShapeA,AShapeB:TKraftShape;const AContainerIndex:TKraftInt32=-1;const AElementIndex:TKraftInt32=-1;const AShapeAContainerIndex:TKraftInt32=-1;const AShapeAElementIndex:TKraftInt32=-1;const AMeshContactPair:TKraftMeshContactPair=nil;const AMeshMeshContactPair:TKraftMeshMeshContactPair=nil):boolean;
 
-       procedure AddConvexContact(const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const aShapeA,aShapeB:TKraftShape;const aContainerIndex:TKraftInt32=-1;const aElementIndex:TKraftInt32=-1;const aMeshContactPair:TKraftMeshContactPair=nil);
+       procedure AddConvexContact(const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const aShapeA,aShapeB:TKraftShape;const aContainerIndex:TKraftInt32=-1;const aElementIndex:TKraftInt32=-1;const aShapeAContainerIndex:TKraftInt32=-1;const aShapeAElementIndex:TKraftInt32=-1;const aMeshContactPair:TKraftMeshContactPair=nil;const aMeshMeshContactPair:TKraftMeshMeshContactPair=nil);
 
        procedure AddMeshContact(const ARigidBodyConvex,ARigidBodyMesh:TKraftRigidBody;const AShapeConvex,AShapeMesh:TKraftShape);
+
+       procedure AddMeshMeshContact(const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const AShapeMeshA,AShapeMeshB:TKraftShape);
 
        procedure AddContact(const AShapeA,AShapeB:TKraftShape);
 
        procedure RemoveContact(aContactPair:PKraftContactPair);
 
        procedure RemoveMeshContact(AMeshContactPair:TKraftMeshContactPair);
+
+       procedure RemoveMeshMeshContact(AMeshMeshContactPair:TKraftMeshMeshContactPair);
 
        procedure RemoveContactsFromRigidBody(ARigidBody:TKraftRigidBody);
 
@@ -3357,6 +3447,14 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property MeshContactPairLastFree:TKraftMeshContactPair read fMeshContactPairLastFree;
 
        property CountMeshContactPairs:TKraftInt32 read fCountMeshContactPairs;
+
+       property MeshMeshContactPairFirst:TKraftMeshMeshContactPair read fMeshMeshContactPairFirst;
+       property MeshMeshContactPairLast:TKraftMeshMeshContactPair read fMeshMeshContactPairLast;
+
+       property MeshMeshContactPairFirstFree:TKraftMeshMeshContactPair read fMeshMeshContactPairFirstFree;
+       property MeshMeshContactPairLastFree:TKraftMeshMeshContactPair read fMeshMeshContactPairLastFree;
+
+       property CountMeshMeshContactPairs:TKraftInt32 read fCountMeshMeshContactPairs;
 
        // How many contact pairs skipped the narrow phase through contact recycling in the last DoNarrowPhase run
        property CountRecycledContactPairs:TKraftInt32 read fCountRecycledContactPairs;
@@ -6145,6 +6243,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fTriangleShapes:TKraftShapes;
 
+       // Second per-thread scratch triangle shapes: the A side triangle of a mesh versus mesh sub pair, while
+       // fTriangleShapes holds the B side triangle. One TKraftShapeTriangle per thread, same dummy vertices.
+       fSecondTriangleShapes:TKraftShapes;
+
        fJobTimeStep:TKraftTimeStep;
 
        fDebugDrawLine:TKraftDebugDrawLine;
@@ -6195,11 +6297,11 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure ProcessPersistentIslandSplits;
 {$endif}
 
-       function GetConservativeAdvancementTimeOfImpact(const aShapeA:TKraftShape;const aSweepA:TKraftSweep;const aShapeB:TKraftShape;const aShapeBMeshIndex,aShapeBTriangleIndex:TKraftInt32;const aSweepB:TKraftSweep;const aTimeStep:TKraftTimeStep;const aThreadIndex:TKraftInt32;var aBeta:TKraftScalar):boolean;
+       function GetConservativeAdvancementTimeOfImpact(const aShapeA:TKraftShape;const aShapeAMeshIndex,aShapeATriangleIndex:TKraftInt32;const aSweepA:TKraftSweep;const aShapeB:TKraftShape;const aShapeBMeshIndex,aShapeBTriangleIndex:TKraftInt32;const aSweepB:TKraftSweep;const aTimeStep:TKraftTimeStep;const aThreadIndex:TKraftInt32;var aBeta:TKraftScalar):boolean;
 
-       function GetBilateralAdvancementTimeOfImpact(const aShapeA:TKraftShape;const aSweepA:TKraftSweep;const aShapeB:TKraftShape;const aShapeBMeshIndex,aShapeBTriangleIndex:TKraftInt32;const aSweepB:TKraftSweep;const aTimeStep:TKraftTimeStep;const aThreadIndex:TKraftInt32;var aBeta:TKraftScalar):boolean;
+       function GetBilateralAdvancementTimeOfImpact(const aShapeA:TKraftShape;const aShapeAMeshIndex,aShapeATriangleIndex:TKraftInt32;const aSweepA:TKraftSweep;const aShapeB:TKraftShape;const aShapeBMeshIndex,aShapeBTriangleIndex:TKraftInt32;const aSweepB:TKraftSweep;const aTimeStep:TKraftTimeStep;const aThreadIndex:TKraftInt32;var aBeta:TKraftScalar):boolean;
 
-       function GetTimeOfImpact(const aShapeA:TKraftShape;const aSweepA:TKraftSweep;const aShapeB:TKraftShape;const aShapeBMeshIndex,aShapeBTriangleIndex:TKraftInt32;const aSweepB:TKraftSweep;const aTimeStep:TKraftTimeStep;const aThreadIndex:TKraftInt32;var aBeta:TKraftScalar):boolean;
+       function GetTimeOfImpact(const aShapeA:TKraftShape;const aShapeAMeshIndex,aShapeATriangleIndex:TKraftInt32;const aSweepA:TKraftSweep;const aShapeB:TKraftShape;const aShapeBMeshIndex,aShapeBTriangleIndex:TKraftInt32;const aSweepB:TKraftSweep;const aTimeStep:TKraftTimeStep;const aThreadIndex:TKraftInt32;var aBeta:TKraftScalar):boolean;
 
        procedure SetupAndClearActiveRigidBodies;
 
@@ -6217,6 +6319,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        property IsSolving:boolean read fIsSolving;
        property TriangleShapes:TKraftShapes read fTriangleShapes;
+       property SecondTriangleShapes:TKraftShapes read fSecondTriangleShapes;
        property JobTimeStep:TKraftTimeStep read fJobTimeStep;
 
       public
@@ -6268,9 +6371,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        function PushSphere(var aCenter:TKraftPosition;const aRadius:TKraftScalar;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aTryIterations:TKraftInt32=4;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook=nil;const aKraftOnPushShapeFilterHook:TKraftOnPushShapeFilterHook=nil;const aAvoidShape:TKraftShape=nil):boolean;
 
        // Iterative depenetration of a shape (spheres delegate to PushSphere) out of the world geometry including
-       // meshes and signed distance fields; the pushed shape may be convex or a signed distance field, the latter
-       // is resolved against convex, field and mesh world geometry through the signed distance field code paths.
-       // Pushed mesh shapes are not supported, since a mesh is not a single convex volume.
+       // meshes and signed distance fields; the pushed shape may be convex, a signed distance field or a mesh. A
+       // signed distance field is resolved against convex, field and mesh world geometry through the signed distance
+       // field code paths, and a pushed mesh is decomposed into its triangles, each depenetrated against the world
+       // geometry in turn.
        function PushShape(const aShape:TKraftShape;out aSeperation:TKraftVector3;const aCollisionGroups:TKraftRigidBodyCollisionGroups=[low(TKraftRigidBodyCollisionGroup)..high(TKraftRigidBodyCollisionGroup)];const aTryIterations:TKraftInt32=4;const aOnPushShapeContactHook:TKraftOnPushShapeContactHook=nil;const aKraftOnPushShapeFilterHook:TKraftOnPushShapeFilterHook=nil;const aSingleDeepest:Boolean=false):boolean;
 
        function CollideShape(const aShape:TKraftShape;
@@ -17876,6 +17980,15 @@ begin
  end;
 end;
 
+function HashTwoShapesAndFourLongWords(a,b:TKraftShape;c,d,e,f:TKraftUInt32):TKraftUInt32; {$ifdef caninline}inline;{$endif}
+begin
+ if a.fID<b.fID then begin
+  result:=HashTwoLongWords(HashTwoLongWords(HashTwoLongWords(HashTwoLongWords(HashTwoLongWords(HashShape(a),HashShape(b)),c),d),e),f);
+ end else begin
+  result:=HashTwoLongWords(HashTwoLongWords(HashTwoLongWords(HashTwoLongWords(HashTwoLongWords(HashShape(b),HashShape(a)),c),d),e),f);
+ end;
+end;
+
 function AABBStretch(const AABB:TKraftAABB;const Displacement,BoundsExpansion:TKraftVector3):TKraftAABB;
 var d:TKraftVector3;
 begin
@@ -20881,6 +20994,257 @@ begin
 
   until false;
 
+ end;
+
+end;
+
+function TriangleTrianglePenetration(const aVertexA0,aVertexA1,aVertexA2,aVertexB0,aVertexB1,aVertexB2:TKraftVector3;out aNormal:TKraftVector3;out aPenetrationDepth:TKraftScalar;out aFeatureKind:TKraftInt32;out aEdgeIndexA,aEdgeIndexB:TKraftInt32):boolean;
+// Shape free separating axis test between two triangles given by their six world space vertices. It is used by the
+// triangle versus triangle narrow phase and, later, by the shape push and query helpers, so it takes raw vertices
+// and touches no shape objects and no heap. The eleven candidate axes are the two facet normals and the nine
+// edge-edge cross products; degenerate axes are skipped with the same near parallel edge floor as the hull SAT. A
+// positive separation on any axis proves disjointness and returns false. Otherwise the axis of least penetration
+// wins, with the exact face over edge and face B over face A bias of the hull SAT (CollideConvexHullWithConvexHull)
+// so the winner does not flicker between frames. The convention follows MPRPenetration: aNormal is the direction
+// shape A has to be pushed to resolve the penetration (it points from B towards A) and aPenetrationDepth is positive
+// on overlap. aFeatureKind is 0 when triangle A's face is the reference, 1 when triangle B's face is, and 2 for an
+// edge-edge axis; for an edge-edge axis aEdgeIndexA and aEdgeIndexB name the two edges (each 0..2, edge k joins
+// vertices k and (k+1) mod 3), otherwise both are -1.
+const EPSILON=1e-12;              // Absolute floor for a degenerate (zero length) candidate axis.
+      kTolerance=0.005;           // Near parallel skip: |Ea x Eb| = sin(alpha)*|Ea|*|Eb| (as in the hull SAT).
+      RelativeEdgeTolerance=0.90; // Edge axis must clearly beat the face axes (as in the hull SAT).
+      RelativeFaceTolerance=0.98; // Face B must clearly beat face A (as in the hull SAT).
+      AbsoluteTolerance=0.0025;   // LinearSlop*0.5 at the default linear slop of 0.005 (the hull SAT bias offset).
+var VerticesA,VerticesB,EdgesA,EdgesB:array[0..2] of TKraftVector3;
+    CentroidDirection,FaceAxisA,FaceAxisB,EdgeAxis,OrientedAxis,
+    BestFaceNormalA,BestFaceNormalB,BestEdgeNormal:TKraftVector3;
+    FaceSeparationA,FaceSeparationB,EdgeSeparation,Separation:TKraftScalar;
+    EdgeI,EdgeJ,BestEdgeIndexA,BestEdgeIndexB:TKraftInt32;
+    HaveFaceA,HaveFaceB,HaveEdge:boolean;
+ function AxisSeparation(const aAxis:TKraftVector3;out aOrientedAxis:TKraftVector3;out aSeparation:TKraftScalar):boolean;
+ // Projects both triangles onto the normalized axis and returns the signed SAT separation (positive when the two
+ // projected intervals are apart, negative and equal to the penetration when they overlap). The axis is oriented
+ // to point from B to A, the push direction of shape A, before it is returned in aOrientedAxis.
+ var LengthSquared,MinimumA,MaximumA,MinimumB,MaximumB,Value:TKraftScalar;
+     NormalizedAxis:TKraftVector3;
+     Index:TKraftInt32;
+ begin
+  result:=false;
+  LengthSquared:=Vector3LengthSquared(aAxis);
+  if LengthSquared<EPSILON then begin
+   exit;
+  end;
+  NormalizedAxis:=Vector3ScalarMul(aAxis,1.0/sqrt(LengthSquared));
+  if Vector3Dot(NormalizedAxis,CentroidDirection)<0.0 then begin
+   NormalizedAxis:=Vector3Neg(NormalizedAxis);
+  end;
+  MinimumA:=Vector3Dot(NormalizedAxis,VerticesA[0]);
+  MaximumA:=MinimumA;
+  MinimumB:=Vector3Dot(NormalizedAxis,VerticesB[0]);
+  MaximumB:=MinimumB;
+  for Index:=1 to 2 do begin
+   Value:=Vector3Dot(NormalizedAxis,VerticesA[Index]);
+   if Value<MinimumA then begin
+    MinimumA:=Value;
+   end;
+   if Value>MaximumA then begin
+    MaximumA:=Value;
+   end;
+   Value:=Vector3Dot(NormalizedAxis,VerticesB[Index]);
+   if Value<MinimumB then begin
+    MinimumB:=Value;
+   end;
+   if Value>MaximumB then begin
+    MaximumB:=Value;
+   end;
+  end;
+  aOrientedAxis:=NormalizedAxis;
+  aSeparation:=Max(MinimumA,MinimumB)-Min(MaximumA,MaximumB);
+  result:=true;
+ end;
+begin
+
+ result:=false;
+ aNormal:=Vector3Origin;
+ aPenetrationDepth:=0.0;
+ aFeatureKind:=-1;
+ aEdgeIndexA:=-1;
+ aEdgeIndexB:=-1;
+
+ VerticesA[0]:=aVertexA0;
+ VerticesA[1]:=aVertexA1;
+ VerticesA[2]:=aVertexA2;
+ VerticesB[0]:=aVertexB0;
+ VerticesB[1]:=aVertexB1;
+ VerticesB[2]:=aVertexB2;
+
+ EdgesA[0]:=Vector3Sub(VerticesA[1],VerticesA[0]);
+ EdgesA[1]:=Vector3Sub(VerticesA[2],VerticesA[1]);
+ EdgesA[2]:=Vector3Sub(VerticesA[0],VerticesA[2]);
+ EdgesB[0]:=Vector3Sub(VerticesB[1],VerticesB[0]);
+ EdgesB[1]:=Vector3Sub(VerticesB[2],VerticesB[1]);
+ EdgesB[2]:=Vector3Sub(VerticesB[0],VerticesB[2]);
+
+ // Push direction reference: from B's centroid towards A's centroid, so every axis can be oriented from B to A.
+ CentroidDirection:=Vector3Sub(Vector3ScalarMul(Vector3Add(Vector3Add(VerticesA[0],VerticesA[1]),VerticesA[2]),1.0/3.0),
+                               Vector3ScalarMul(Vector3Add(Vector3Add(VerticesB[0],VerticesB[1]),VerticesB[2]),1.0/3.0));
+
+ HaveFaceA:=false;
+ HaveFaceB:=false;
+ HaveEdge:=false;
+ FaceSeparationA:=-MAX_SCALAR;
+ FaceSeparationB:=-MAX_SCALAR;
+ EdgeSeparation:=-MAX_SCALAR;
+ BestEdgeIndexA:=-1;
+ BestEdgeIndexB:=-1;
+ BestFaceNormalA:=Vector3Origin;
+ BestFaceNormalB:=Vector3Origin;
+ BestEdgeNormal:=Vector3Origin;
+
+ // Axis 1: facet normal of triangle A (cross of its two edges sharing vertex 0). Skip a degenerate (collinear)
+ // triangle with the near parallel edge test.
+ FaceAxisA:=Vector3Cross(EdgesA[0],Vector3Neg(EdgesA[2]));
+ if Vector3LengthSquared(FaceAxisA)>=(sqr(kTolerance)*Vector3LengthSquared(EdgesA[0])*Vector3LengthSquared(EdgesA[2])) then begin
+  if AxisSeparation(FaceAxisA,OrientedAxis,Separation) then begin
+   if Separation>0.0 then begin
+    aNormal:=OrientedAxis;
+    exit;
+   end;
+   HaveFaceA:=true;
+   FaceSeparationA:=Separation;
+   BestFaceNormalA:=OrientedAxis;
+  end;
+ end;
+
+ // Axis 2: facet normal of triangle B.
+ FaceAxisB:=Vector3Cross(EdgesB[0],Vector3Neg(EdgesB[2]));
+ if Vector3LengthSquared(FaceAxisB)>=(sqr(kTolerance)*Vector3LengthSquared(EdgesB[0])*Vector3LengthSquared(EdgesB[2])) then begin
+  if AxisSeparation(FaceAxisB,OrientedAxis,Separation) then begin
+   if Separation>0.0 then begin
+    aNormal:=OrientedAxis;
+    exit;
+   end;
+   HaveFaceB:=true;
+   FaceSeparationB:=Separation;
+   BestFaceNormalB:=OrientedAxis;
+  end;
+ end;
+
+ // Axes 3..11: the nine edge-edge cross products, each with the near parallel edge skip of the hull SAT.
+ for EdgeI:=0 to 2 do begin
+  for EdgeJ:=0 to 2 do begin
+   EdgeAxis:=Vector3Cross(EdgesA[EdgeI],EdgesB[EdgeJ]);
+   if Vector3LengthSquared(EdgeAxis)<(sqr(kTolerance)*Vector3LengthSquared(EdgesA[EdgeI])*Vector3LengthSquared(EdgesB[EdgeJ])) then begin
+    continue;
+   end;
+   if AxisSeparation(EdgeAxis,OrientedAxis,Separation) then begin
+    if Separation>0.0 then begin
+     aNormal:=OrientedAxis;
+     exit;
+    end;
+    if (not HaveEdge) or (Separation>EdgeSeparation) then begin
+     HaveEdge:=true;
+     EdgeSeparation:=Separation;
+     BestEdgeNormal:=OrientedAxis;
+     BestEdgeIndexA:=EdgeI;
+     BestEdgeIndexB:=EdgeJ;
+    end;
+   end;
+  end;
+ end;
+
+ // Winner selection with the exact hull SAT bias against axis flickering: an edge axis wins only when it clearly
+ // beats both face axes, and face B wins over face A only when it clearly beats it. All separations are negative on
+ // overlap, so a larger separation is the shallower (better) axis and the winning penetration depth is its negation.
+ if HaveEdge and
+    (EdgeSeparation>((Max(FaceSeparationA,FaceSeparationB)*RelativeEdgeTolerance)+AbsoluteTolerance)) then begin
+  aFeatureKind:=2;
+  aNormal:=BestEdgeNormal;
+  aPenetrationDepth:=-EdgeSeparation;
+  aEdgeIndexA:=BestEdgeIndexA;
+  aEdgeIndexB:=BestEdgeIndexB;
+  result:=true;
+ end else if HaveFaceB and
+             (FaceSeparationB>((FaceSeparationA*RelativeFaceTolerance)+AbsoluteTolerance)) then begin
+  aFeatureKind:=1;
+  aNormal:=BestFaceNormalB;
+  aPenetrationDepth:=-FaceSeparationB;
+  result:=true;
+ end else if HaveFaceA then begin
+  aFeatureKind:=0;
+  aNormal:=BestFaceNormalA;
+  aPenetrationDepth:=-FaceSeparationA;
+  result:=true;
+ end else if HaveFaceB then begin
+  aFeatureKind:=1;
+  aNormal:=BestFaceNormalB;
+  aPenetrationDepth:=-FaceSeparationB;
+  result:=true;
+ end else if HaveEdge then begin
+  aFeatureKind:=2;
+  aNormal:=BestEdgeNormal;
+  aPenetrationDepth:=-EdgeSeparation;
+  aEdgeIndexA:=BestEdgeIndexA;
+  aEdgeIndexB:=BestEdgeIndexB;
+  result:=true;
+ end;
+
+end;
+
+function TriangleTriangleDeepestVertexPenetration(const aVertexA0,aVertexA1,aVertexA2,aVertexB0,aVertexB1,aVertexB2:TKraftVector3;out aNormal:TKraftVector3;out aPenetrationDepth:TKraftScalar):boolean;
+// Deepest-vertex depth between two intersecting world space triangles of closed outward wound meshes. The pure
+// separating axis test above measures how far the two triangle SURFACES overlap, which for two crossing facets of
+// interpenetrating solid meshes is a near zero sliver along an edge cross axis; the volume overlap the shape push
+// and query helpers need is the distance of the deepest vertex of one triangle behind the other triangle's facet
+// plane (inside its prism), exactly the vertex pass of the classic mesh versus mesh contact generation. Both
+// directions are tested and the deeper one wins. The convention follows TriangleTrianglePenetration: aNormal is
+// the direction triangle A has to be pushed to resolve the penetration and aPenetrationDepth is positive. Only
+// meaningful for triangle pairs whose surfaces actually intersect (as proven by the separating axis test), since
+// a vertex behind an unrelated far away facet plane would otherwise fake a penetration.
+var VertexIndex:TKraftInt32;
+    Distance:TKraftScalar;
+    FaceNormalA,FaceNormalB,ProjectedPoint:TKraftVector3;
+    VerticesA,VerticesB:array[0..2] of TKraftVector3;
+begin
+
+ result:=false;
+ aNormal:=Vector3YAxis;
+ aPenetrationDepth:=0.0;
+
+ VerticesA[0]:=aVertexA0;
+ VerticesA[1]:=aVertexA1;
+ VerticesA[2]:=aVertexA2;
+ VerticesB[0]:=aVertexB0;
+ VerticesB[1]:=aVertexB1;
+ VerticesB[2]:=aVertexB2;
+
+ FaceNormalA:=Vector3SafeNorm(Vector3Cross(Vector3Sub(VerticesA[1],VerticesA[0]),Vector3Sub(VerticesA[2],VerticesA[0])));
+ FaceNormalB:=Vector3SafeNorm(Vector3Cross(Vector3Sub(VerticesB[1],VerticesB[0]),Vector3Sub(VerticesB[2],VerticesB[0])));
+
+ // A vertices behind the B facet plane and inside the B prism: A is pushed out along the B facet normal
+ for VertexIndex:=0 to 2 do begin
+  Distance:=Vector3Dot(FaceNormalB,Vector3Sub(VerticesA[VertexIndex],VerticesB[0]));
+  if (Distance<0.0) and ((-Distance)>aPenetrationDepth) then begin
+   ProjectedPoint:=Vector3Sub(VerticesA[VertexIndex],Vector3ScalarMul(FaceNormalB,Distance));
+   if PointInTriangle(VerticesB[0],VerticesB[1],VerticesB[2],FaceNormalB,ProjectedPoint) then begin
+    aNormal:=FaceNormalB;
+    aPenetrationDepth:=-Distance;
+    result:=true;
+   end;
+  end;
+ end;
+
+ // B vertices behind the A facet plane and inside the A prism: A is pushed out along its negated own facet normal
+ for VertexIndex:=0 to 2 do begin
+  Distance:=Vector3Dot(FaceNormalA,Vector3Sub(VerticesB[VertexIndex],VerticesA[0]));
+  if (Distance<0.0) and ((-Distance)>aPenetrationDepth) then begin
+   ProjectedPoint:=Vector3Sub(VerticesB[VertexIndex],Vector3ScalarMul(FaceNormalA,Distance));
+   if PointInTriangle(VerticesA[0],VerticesA[1],VerticesA[2],FaceNormalA,ProjectedPoint) then begin
+    aNormal:=Vector3Neg(FaceNormalA);
+    aPenetrationDepth:=-Distance;
+    result:=true;
+   end;
+  end;
  end;
 
 end;
@@ -41962,6 +42326,7 @@ procedure TKraftContactPair.DetectCollisions(const ContactManager:TKraftContactM
 var OldManifoldCountContacts:TKraftInt32;
     OldContactManifoldType:TKraftContactManifoldType;
     ShapeTriangle:TKraftShapeTriangle;
+    ShapeTriangleA:TKraftShapeTriangle; // A side scratch triangle of a mesh versus mesh sub pair (B side is ShapeTriangle)
 {$ifdef KraftDoublePositions}
     DetectBase:TKraftPosition;
     RecycleWorldTransformA,RecycleWorldTransformB:TKraftMatrix4x4;
@@ -42270,6 +42635,109 @@ var OldManifoldCountContacts:TKraftInt32;
   end;
 
   // Write the clamped normal back into the same shape space it was read from.
+  if IsShapeASpace then begin
+   Manifold.LocalNormal:=Vector3TermMatrixMulTransposedBasis(ClampedWorldNormal,Shapes[0].fWorldTransform);
+  end else begin
+   Manifold.LocalNormal:=Vector3TermMatrixMulTransposedBasis(ClampedWorldNormal,Shapes[1].fWorldTransform);
+  end;
+
+ end;
+ procedure AdjustTriangleContactNormalOnSideA(const aMeshTriangle:PKraftMeshTriangle);
+ // Mirror of AdjustTriangleContactNormal for the A side triangle of a mesh versus mesh sub pair. It smooths the
+ // shared contact normal across the A triangle's internal edges instead of the B triangle's. The manifold stores
+ // the normal in the B side (Shapes[1]) convention, so from the A triangle's own front it points the other way:
+ // the normal is mirrored into A's front hemisphere before the fan clamp (which reorients A's fan onto the passed
+ // normal, exactly as on the B side) and the clamped result is mirrored back into the manifold convention before
+ // it is stored. The A triangle vertices live in the same space as Contact.LocalPoints[0], analogous to the B side.
+ const MaximumRotationCosine=0.8660254; // cos(30 degrees)
+ var ContactIndex,EdgeIndex,BestEdgeIndex:TKraftInt32;
+     HasInternalEdge,IsShapeASpace:boolean;
+     BestDistanceSquared,DistanceSquared,InverseCount:TKraftScalar;
+     WorldNormal,ClampedWorldNormal,AveragePoint,
+     WorldEdgeDirection,WorldFaceNormal,WorldNeighborNormal:TKraftVector3;
+     TriangleVertices:array[0..2] of TKraftVector3;
+ begin
+
+  // Only manifold types carrying an explicit stored normal can be adjusted; kcmtImplicit has none.
+  if (Manifold.CountContacts=0) or (Manifold.ContactManifoldType=kcmtImplicit) then begin
+   exit;
+  end;
+
+  // Nothing to smooth unless at least one shared edge of this triangle is convex or flat.
+  HasInternalEdge:=false;
+  for EdgeIndex:=0 to 2 do begin
+   if (aMeshTriangle^.EdgeConvexity[EdgeIndex]=1) or (aMeshTriangle^.EdgeConvexity[EdgeIndex]=3) then begin
+    HasInternalEdge:=true;
+    break;
+   end;
+  end;
+  if not HasInternalEdge then begin
+   exit;
+  end;
+
+  // Scaled triangle vertices in triangle-local space (same space as Contact.LocalPoints[0]).
+  TriangleVertices[0]:=ShapeTriangleA.fConvexHull.fVertices[0].Position;
+  TriangleVertices[1]:=ShapeTriangleA.fConvexHull.fVertices[1].Position;
+  TriangleVertices[2]:=ShapeTriangleA.fConvexHull.fVertices[2].Position;
+
+  // Representative contact point on the A triangle side of the manifold, used only to select the nearest edge.
+  AveragePoint:=Vector3Origin;
+  for ContactIndex:=0 to Manifold.CountContacts-1 do begin
+   AveragePoint:=Vector3Add(AveragePoint,Manifold.Contacts[ContactIndex].LocalPoints[0]);
+  end;
+  InverseCount:=1.0/Manifold.CountContacts;
+  AveragePoint:=Vector3ScalarMul(AveragePoint,InverseCount);
+
+  // Find the nearest triangle edge to the representative point.
+  BestEdgeIndex:=-1;
+  BestDistanceSquared:=MAX_SCALAR;
+  for EdgeIndex:=0 to 2 do begin
+   DistanceSquared:=SegmentSqrDistance(TriangleVertices[EdgeIndex],TriangleVertices[(EdgeIndex+1) mod 3],AveragePoint);
+   if DistanceSquared<BestDistanceSquared then begin
+    BestDistanceSquared:=DistanceSquared;
+    BestEdgeIndex:=EdgeIndex;
+   end;
+  end;
+
+  // Only clamp against internal convex or flat edges; boundary and concave edges keep their natural normal.
+  if (BestEdgeIndex<0) or
+     ((aMeshTriangle^.EdgeConvexity[BestEdgeIndex]<>1) and (aMeshTriangle^.EdgeConvexity[BestEdgeIndex]<>3)) then begin
+   exit;
+  end;
+
+  // The fan clamp is only valid for contacts that actually lie on the clamping edge (same guard as the B side).
+  if BestDistanceSquared>sqr(2.0*ContactManager.fPhysics.fLinearSlop) then begin
+   exit;
+  end;
+
+  // Read the contact normal in world space from whichever shape space the manifold stores it in.
+  IsShapeASpace:=(Manifold.ContactManifoldType=kcmtFaceA) or (Manifold.ContactManifoldType=kcmtEdges);
+  if IsShapeASpace then begin
+   WorldNormal:=Vector3TermMatrixMulBasis(Manifold.LocalNormal,Shapes[0].fWorldTransform);
+  end else begin
+   WorldNormal:=Vector3TermMatrixMulBasis(Manifold.LocalNormal,Shapes[1].fWorldTransform);
+  end;
+
+  // Mirror the stored (B side convention) normal into the A triangle's own front hemisphere before clamping.
+  WorldNormal:=Vector3Neg(WorldNormal);
+
+  WorldFaceNormal:=Vector3TermMatrixMulBasis(aMeshTriangle^.Plane.Normal,ShapeTriangleA.fWorldTransform);
+  WorldNeighborNormal:=Vector3TermMatrixMulBasis(aMeshTriangle^.EdgeNeighborNormals[BestEdgeIndex],ShapeTriangleA.fWorldTransform);
+  WorldEdgeDirection:=Vector3SafeNorm(Vector3TermMatrixMulBasis(Vector3Sub(TriangleVertices[(BestEdgeIndex+1) mod 3],TriangleVertices[BestEdgeIndex]),ShapeTriangleA.fWorldTransform));
+
+  ClampedWorldNormal:=ClampNormalToEdgeFan(WorldNormal,WorldEdgeDirection,WorldFaceNormal,WorldNeighborNormal);
+
+  if Vector3Dot(ClampedWorldNormal,WorldNormal)>=(1.0-EPSILON) then begin
+   exit; // Unchanged.
+  end;
+
+  // Seam artefacts only tilt the normal by a few degrees; a larger correction is a genuinely different feature.
+  if Vector3Dot(ClampedWorldNormal,WorldNormal)<MaximumRotationCosine then begin
+   exit;
+  end;
+
+  // Mirror the clamped normal back into the manifold's B side convention, then write it into the same shape space.
+  ClampedWorldNormal:=Vector3Neg(ClampedWorldNormal);
   if IsShapeASpace then begin
    Manifold.LocalNormal:=Vector3TermMatrixMulTransposedBasis(ClampedWorldNormal,Shapes[0].fWorldTransform);
   end else begin
@@ -43187,6 +43655,225 @@ var OldManifoldCountContacts:TKraftInt32;
                     false);
    end;
 
+  end;
+
+ end;
+ procedure CollideTriangleWithTriangle(ShapeA,ShapeB:TKraftShapeTriangle);
+ // Dedicated triangle versus triangle narrow phase for mesh versus mesh sub pairs. It runs the shape free SAT
+ // core TriangleTrianglePenetration on the six world space vertices, then, following the clipping and manifold
+ // conventions of CollideConvexHullWithConvexHull, builds a full clipped one shot manifold: a reference face clip
+ // for a face winner (kcmtFaceA when triangle A is the reference, kcmtFaceB when triangle B is), or a single
+ // closest point edge contact for an edge winner (kcmtEdges). The SAT normal points from B to A, the push
+ // direction of shape A, matching the MPR normal convention of this file.
+ var VerticesA,VerticesB,ReferenceVertices,IncidentVertices:array[0..2] of TKraftVector3;
+     Normal,ReferenceNormalWorld,ContactNormalWorld,FrontNormalA,FrontNormalB,ClosestOnA,ClosestOnB:TKraftVector3;
+     PenetrationDepth,EdgePenetration:TKraftScalar;
+     FeatureKind,EdgeIndexA,EdgeIndexB,Index:TKraftInt32;
+     WorldTransformA,WorldTransformB:TKraftMatrix4x4;
+     Contact:PKraftContact;
+  function ClosestPointsOfSegments(const aStartA,aEndA,aStartB,aEndB:TKraftVector3;out aClosestA,aClosestB:TKraftVector3):boolean;
+  // Closest points of two segments (mirror of the GetEdgeContact helper of CollideConvexHullWithConvexHull).
+  var DirectionA,DirectionB,Between:TKraftVector3;
+      a,e,f,c,b,d,ParameterA,ParameterB:TKraftScalar;
+  begin
+   DirectionA:=Vector3Sub(aEndA,aStartA);
+   DirectionB:=Vector3Sub(aEndB,aStartB);
+   Between:=Vector3Sub(aStartA,aStartB);
+   a:=Vector3LengthSquared(DirectionA);
+   e:=Vector3LengthSquared(DirectionB);
+   f:=Vector3Dot(DirectionB,Between);
+   c:=Vector3Dot(DirectionA,Between);
+   b:=Vector3Dot(DirectionA,DirectionB);
+   d:=(a*e)-sqr(b);
+   if (d<>0.0) and (e<>0.0) then begin
+    ParameterA:=Min(Max(((b*f)-(c*e))/d,0.0),1.0);
+    ParameterB:=Min(Max(((b*ParameterA)+f)/e,0.0),1.0);
+    aClosestA:=Vector3Add(aStartA,Vector3ScalarMul(DirectionA,ParameterA));
+    aClosestB:=Vector3Add(aStartB,Vector3ScalarMul(DirectionB,ParameterB));
+    result:=true;
+   end else begin
+    result:=false;
+   end;
+  end;
+  procedure ClipTrianglePair(const aFlip:boolean;const aFeatureKind:TKraftInt32);
+  // Sutherland-Hodgman clip of the incident triangle against the reference triangle's three side planes; the
+  // surviving points below the reference plane become the contacts (mirror of ClipFaceContactPoints). It reads
+  // the ReferenceVertices, IncidentVertices and ReferenceNormalWorld locals the caller set up for this winner.
+  var Contact:PKraftContact;
+      ReferenceVertexIndex,OtherReferenceVertexIndex,IncidentVertexIndex,ClipVertexIndex,IncidentBase,ReferenceBase:TKraftInt32;
+      ClipVertex,PreviousClipVertex,CurrentClipVertex:PKraftClipVertex;
+      PreviousClipVertexDistance,CurrentClipVertexDistance,Distance:TKraftScalar;
+      ClipVertices:array[0..2] of TKraftClipVertexList;
+      ReferenceWorldPlane,ReferenceEdgePlane:TKraftPlane;
+      FeatureID:TKraftContactFeatureID;
+  begin
+
+   // Feature identifier bases: distinct per feature kind and per side so warm starting never matches across kinds.
+   IncidentBase:=(aFeatureKind shl 8) or $10;
+   ReferenceBase:=(aFeatureKind shl 8) or $20;
+
+   ReferenceWorldPlane.Normal:=ReferenceNormalWorld;
+   ReferenceWorldPlane.Distance:=-Vector3Dot(ReferenceNormalWorld,ReferenceVertices[0]);
+
+   // Incident polygon = the three incident triangle vertices, tagged with their own edge identifiers.
+   ClipVertices[0]:=ContactManager.fClipVertexLists[ThreadIndex,0];
+   ClipVertices[0].Clear;
+   for IncidentVertexIndex:=0 to 2 do begin
+    FeatureID.ElementA:=IncidentBase+IncidentVertexIndex;
+    FeatureID.ElementB:=IncidentBase+((IncidentVertexIndex+1) mod 3);
+    ClipVertices[0].Add(IncidentVertices[IncidentVertexIndex],FeatureID);
+   end;
+
+   ClipVertices[1]:=ContactManager.fClipVertexLists[ThreadIndex,1];
+   ClipVertices[1].Clear;
+
+   OtherReferenceVertexIndex:=2;
+   for ReferenceVertexIndex:=0 to 2 do begin
+    if ClipVertices[0].Count>=2 then begin
+     ReferenceEdgePlane.Normal:=Vector3Neg(Vector3NormEx(Vector3Cross(ReferenceWorldPlane.Normal,Vector3Sub(ReferenceVertices[ReferenceVertexIndex],ReferenceVertices[OtherReferenceVertexIndex]))));
+     ReferenceEdgePlane.Distance:=-Vector3Dot(ReferenceEdgePlane.Normal,ReferenceVertices[ReferenceVertexIndex]);
+     PreviousClipVertex:=@ClipVertices[0].Vertices[ClipVertices[0].Count-1];
+     PreviousClipVertexDistance:=PlaneVectorDistance(ReferenceEdgePlane,PreviousClipVertex^.Position);
+     for ClipVertexIndex:=0 to ClipVertices[0].Count-1 do begin
+      CurrentClipVertex:=@ClipVertices[0].Vertices[ClipVertexIndex];
+      CurrentClipVertexDistance:=PlaneVectorDistance(ReferenceEdgePlane,CurrentClipVertex^.Position);
+      if PreviousClipVertexDistance<=0.0 then begin
+       if CurrentClipVertexDistance<=0.0 then begin
+        // Both vertices behind the edge plane => keep CurrentClipVertex.
+        ClipVertices[1].Add(CurrentClipVertex^.Position,CurrentClipVertex^.FeatureID);
+       end else begin
+        // PreviousClipVertex behind, CurrentClipVertex in front => intersection point.
+        FeatureID.ElementA:=CurrentClipVertex^.FeatureID.ElementA;
+        FeatureID.ElementB:=ReferenceBase+ReferenceVertexIndex;
+        ClipVertices[1].Add(Vector3Lerp(PreviousClipVertex^.Position,CurrentClipVertex^.Position,PreviousClipVertexDistance/(PreviousClipVertexDistance-CurrentClipVertexDistance)),FeatureID);
+       end;
+      end else if CurrentClipVertexDistance<=0.0 then begin
+       // CurrentClipVertex behind, PreviousClipVertex in front => intersection point plus CurrentClipVertex.
+       FeatureID.ElementA:=ReferenceBase+ReferenceVertexIndex;
+       FeatureID.ElementB:=CurrentClipVertex^.FeatureID.ElementA;
+       ClipVertices[1].Add(Vector3Lerp(PreviousClipVertex^.Position,CurrentClipVertex^.Position,PreviousClipVertexDistance/(PreviousClipVertexDistance-CurrentClipVertexDistance)),FeatureID);
+       ClipVertices[1].Add(CurrentClipVertex^.Position,CurrentClipVertex^.FeatureID);
+      end;
+      PreviousClipVertex:=CurrentClipVertex;
+      PreviousClipVertexDistance:=CurrentClipVertexDistance;
+     end;
+    end;
+    if ClipVertices[1].Count=0 then begin
+     exit;
+    end else begin
+     ClipVertices[2]:=ClipVertices[0];
+     ClipVertices[0]:=ClipVertices[1];
+     ClipVertices[1]:=ClipVertices[2];
+     ClipVertices[1].Clear;
+     OtherReferenceVertexIndex:=ReferenceVertexIndex;
+    end;
+   end;
+
+   for ClipVertexIndex:=0 to ClipVertices[0].Count-1 do begin
+    ClipVertex:=@ClipVertices[0].Vertices[ClipVertexIndex];
+    Distance:=PlaneVectorDistance(ReferenceWorldPlane,ClipVertex^.Position);
+    if Distance<0.0 then begin
+     if ContactManager.fCountTemporaryContacts[ThreadIndex]<MAX_TEMPORARY_CONTACTS then begin
+      Contact:=@ContactManager.fTemporaryContacts[ThreadIndex,ContactManager.fCountTemporaryContacts[ThreadIndex]];
+      inc(ContactManager.fCountTemporaryContacts[ThreadIndex]);
+      Contact^.Penetration:=Distance;
+      if aFlip then begin
+       // Reference is triangle B (Shapes[1]); the clipped incident point sits on triangle A (Shapes[0]).
+       Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(ClipVertex^.Position,ShapeWorldTransform(Shapes[0]));
+       Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(Vector3Sub(ClipVertex^.Position,Vector3ScalarMul(ReferenceWorldPlane.Normal,Distance)),ShapeWorldTransform(Shapes[1]));
+       Contact^.FeatureID.ElementA:=ClipVertex^.FeatureID.ElementB;
+       Contact^.FeatureID.ElementB:=ClipVertex^.FeatureID.ElementA;
+      end else begin
+       // Reference is triangle A (Shapes[0]); the clipped incident point sits on triangle B (Shapes[1]).
+       Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(Vector3Sub(ClipVertex^.Position,Vector3ScalarMul(ReferenceWorldPlane.Normal,Distance)),ShapeWorldTransform(Shapes[0]));
+       Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(ClipVertex^.Position,ShapeWorldTransform(Shapes[1]));
+       Contact^.FeatureID.ElementA:=ClipVertex^.FeatureID.ElementA;
+       Contact^.FeatureID.ElementB:=ClipVertex^.FeatureID.ElementB;
+      end;
+     end else begin
+      break;
+     end;
+    end;
+   end;
+
+  end;
+ begin
+
+  WorldTransformA:=ShapeWorldTransform(ShapeA);
+  WorldTransformB:=ShapeWorldTransform(ShapeB);
+  for Index:=0 to 2 do begin
+   VerticesA[Index]:=Vector3TermMatrixMul(ShapeA.fConvexHull.fVertices[Index].Position,WorldTransformA);
+   VerticesB[Index]:=Vector3TermMatrixMul(ShapeB.fConvexHull.fVertices[Index].Position,WorldTransformB);
+  end;
+
+  Manifold.ContactManifoldType:=kcmtUnknown;
+  Manifold.CountContacts:=0;
+  Manifold.LocalRadius[0]:=0.0;
+  Manifold.LocalRadius[1]:=0.0;
+
+  if not TriangleTrianglePenetration(VerticesA[0],VerticesA[1],VerticesA[2],VerticesB[0],VerticesB[1],VerticesB[2],Normal,PenetrationDepth,FeatureKind,EdgeIndexA,EdgeIndexB) then begin
+   exit;
+  end;
+
+{$ifdef KraftSideAwareHulls}
+  // Single sided gate: a single sided mesh only collides on its front (Face[0]). Reject the contact when the push
+  // direction of A (Normal, pointing from B to A) would drive A through the back of a single sided triangle. Front
+  // A faces B when Dot(Normal,FrontNormalA)<0, front B faces A when Dot(Normal,FrontNormalB)>0; the opposite sign
+  // is a back face hit. Double sided meshes are never gated.
+  FrontNormalA:=Vector3SafeNorm(Vector3Cross(Vector3Sub(VerticesA[1],VerticesA[0]),Vector3Sub(VerticesA[2],VerticesA[0])));
+  FrontNormalB:=Vector3SafeNorm(Vector3Cross(Vector3Sub(VerticesB[1],VerticesB[0]),Vector3Sub(VerticesB[2],VerticesB[0])));
+  if ((not ShapeA.fDoubleSided) and (Vector3Dot(Normal,FrontNormalA)>0.0)) or
+     ((not ShapeB.fDoubleSided) and (Vector3Dot(Normal,FrontNormalB)<0.0)) then begin
+   Manifold.ContactManifoldType:=kcmtUnknown;
+   exit;
+  end;
+{$endif}
+
+  ContactManager.fCountTemporaryContacts[ThreadIndex]:=0;
+
+  case FeatureKind of
+   0:begin
+    // Reference face = triangle A (kcmtFaceA). The outward reference plane normal points from A to B.
+    ReferenceNormalWorld:=Vector3Neg(Normal);
+    Manifold.ContactManifoldType:=kcmtFaceA;
+    Manifold.LocalNormal:=Vector3TermMatrixMulTransposedBasis(ReferenceNormalWorld,WorldTransformA);
+    ReferenceVertices:=VerticesA;
+    IncidentVertices:=VerticesB;
+    ClipTrianglePair(false,0);
+   end;
+   1:begin
+    // Reference face = triangle B (kcmtFaceB). The outward reference plane normal points from B to A.
+    ReferenceNormalWorld:=Normal;
+    Manifold.ContactManifoldType:=kcmtFaceB;
+    Manifold.LocalNormal:=Vector3TermMatrixMulTransposedBasis(ReferenceNormalWorld,WorldTransformB);
+    ReferenceVertices:=VerticesB;
+    IncidentVertices:=VerticesA;
+    ClipTrianglePair(true,1);
+   end;
+   else begin
+    // Edge edge (kcmtEdges). The contact normal points from A to B, exactly like the hull edge path stores it.
+    ContactNormalWorld:=Vector3Neg(Normal);
+    if ClosestPointsOfSegments(VerticesA[EdgeIndexA],VerticesA[(EdgeIndexA+1) mod 3],VerticesB[EdgeIndexB],VerticesB[(EdgeIndexB+1) mod 3],ClosestOnA,ClosestOnB) then begin
+     EdgePenetration:=Vector3Dot(Vector3Sub(ClosestOnB,ClosestOnA),ContactNormalWorld);
+     if EdgePenetration<0.0 then begin
+      Manifold.ContactManifoldType:=kcmtEdges;
+      Manifold.LocalNormal:=Vector3TermMatrixMulTransposedBasis(ContactNormalWorld,WorldTransformA);
+      if ContactManager.fCountTemporaryContacts[ThreadIndex]<MAX_TEMPORARY_CONTACTS then begin
+       Contact:=@ContactManager.fTemporaryContacts[ThreadIndex,ContactManager.fCountTemporaryContacts[ThreadIndex]];
+       inc(ContactManager.fCountTemporaryContacts[ThreadIndex]);
+       Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(ClosestOnA,ShapeWorldTransform(Shapes[0]));
+       Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(ClosestOnB,ShapeWorldTransform(Shapes[1]));
+       Contact^.Penetration:=EdgePenetration;
+       Contact^.FeatureID:=CreateFeatureID(TKraftUInt32($80000000) or TKraftUInt32(EdgeIndexA),TKraftUInt32($80000000) or TKraftUInt32(EdgeIndexB));
+      end;
+     end;
+    end;
+   end;
+  end;
+
+  if ContactManager.fCountTemporaryContacts[ThreadIndex]>0 then begin
+   // Reduce the clipped contacts down to at most four with the largest area, exactly like the hull path.
+   Manifold.CountContacts:=ContactManager.ReduceContacts(pointer(@ContactManager.fTemporaryContacts[ThreadIndex,0]),ContactManager.fCountTemporaryContacts[ThreadIndex],pointer(@Manifold.Contacts[0]),Manifold.LocalNormal);
   end;
 
  end;
@@ -44679,8 +45366,11 @@ var Index,SubIndex:TKraftInt32;
     ShapeA,ShapeB:TKraftShape;
     MeshShape:TKraftShapeMesh;
     Mesh:TKraftMesh;
+    MeshShapeA:TKraftShapeMesh; // A side mesh shape of a mesh versus mesh sub pair (B side is MeshShape)
+    MeshA:TKraftMesh;
     HasContact:boolean;
     MeshTriangle:PKraftMeshTriangle;
+    MeshTriangleA:PKraftMeshTriangle; // A side mesh triangle of a mesh versus mesh sub pair (B side is MeshTriangle)
     Contact,BestOldContact,OldContact:PKraftContact;
     BestContactDistance,ContactDistance:TKraftScalar;
     OldManifoldContacts:array[0..MAX_CONTACTS-1] of TKraftContact;
@@ -44866,6 +45556,54 @@ begin
  end;
 {$endif}
 
+ if assigned(MeshMeshContactPair) then begin
+  // Mesh versus mesh sub pair: synthesize both triangles, the A side into the second scratch triangle shape and
+  // the B side into the per thread triangle shape passed in as TriangleShape. The existing ContainerIndex and
+  // ElementIndex address the B side triangle, ShapeAContainerIndex and ShapeAElementIndex address the A side.
+  if (ShapeAContainerIndex>=0) and
+     (ShapeAElementIndex>=0) and
+     (ContainerIndex>=0) and
+     (ElementIndex>=0) and
+     assigned(TriangleShape) and
+     (ShapeA is TKraftShapeMesh) and
+     (ShapeB is TKraftShapeMesh) and
+     (ShapeAContainerIndex<TKraftShapeMesh(ShapeA).fCountMeshes) and
+     (ShapeAElementIndex<TKraftShapeMesh(ShapeA).fMeshes[ShapeAContainerIndex].fCountTriangles) and
+     (ContainerIndex<TKraftShapeMesh(ShapeB).fCountMeshes) and
+     (ElementIndex<TKraftShapeMesh(ShapeB).fMeshes[ContainerIndex].fCountTriangles) then begin
+   // A side triangle, synthesized into the second scratch triangle shape.
+   MeshShapeA:=TKraftShapeMesh(ShapeA);
+   MeshA:=TKraftShapeMesh(ShapeA).fMeshes[ShapeAContainerIndex];
+   ShapeTriangleA:=TKraftShapeTriangle(ContactManager.fPhysics.fSecondTriangleShapes[ThreadIndex]);
+   MeshTriangleA:=@MeshA.fTriangles[ShapeAElementIndex];
+   ShapeTriangleA.fWorldTransform:={$ifdef KraftDoublePositions}ShapeWorldTransform(MeshShapeA){$else}MeshShapeA.fWorldTransform{$endif};
+   ShapeTriangleA.fConvexHull.fVertices[0].Position:=Vector3ScalarMul(MeshA.fVertices[MeshTriangleA^.Vertices[0]],MeshShapeA.fScale);
+   ShapeTriangleA.fConvexHull.fVertices[1].Position:=Vector3ScalarMul(MeshA.fVertices[MeshTriangleA^.Vertices[1]],MeshShapeA.fScale);
+   ShapeTriangleA.fConvexHull.fVertices[2].Position:=Vector3ScalarMul(MeshA.fVertices[MeshTriangleA^.Vertices[2]],MeshShapeA.fScale);
+{$ifdef KraftSideAwareHulls}
+   ShapeTriangleA.fDoubleSided:=MeshA.fDoubleSided;
+{$endif}
+   ShapeTriangleA.UpdateData;
+   ShapeA:=ShapeTriangleA;
+   // B side triangle, synthesized exactly like the single mesh path below.
+   MeshShape:=TKraftShapeMesh(ShapeB);
+   Mesh:=TKraftShapeMesh(ShapeB).fMeshes[ContainerIndex];
+   ShapeTriangle:=TKraftShapeTriangle(TriangleShape);
+   MeshTriangle:=@Mesh.fTriangles[ElementIndex];
+   ShapeTriangle.fWorldTransform:={$ifdef KraftDoublePositions}ShapeWorldTransform(MeshShape){$else}MeshShape.fWorldTransform{$endif};
+   ShapeTriangle.fConvexHull.fVertices[0].Position:=Vector3ScalarMul(Mesh.fVertices[MeshTriangle^.Vertices[0]],MeshShape.fScale);
+   ShapeTriangle.fConvexHull.fVertices[1].Position:=Vector3ScalarMul(Mesh.fVertices[MeshTriangle^.Vertices[1]],MeshShape.fScale);
+   ShapeTriangle.fConvexHull.fVertices[2].Position:=Vector3ScalarMul(Mesh.fVertices[MeshTriangle^.Vertices[2]],MeshShape.fScale);
+{$ifdef KraftSideAwareHulls}
+   ShapeTriangle.fDoubleSided:=Mesh.fDoubleSided;
+{$endif}
+   ShapeTriangle.UpdateData;
+   ShapeB:=ShapeTriangle;
+  end else begin
+   exit;
+  end;
+ end;
+
  if assigned(MeshContactPair) then begin
   if (ContainerIndex>=0) and
      (ElementIndex>=0) and
@@ -44918,6 +45656,13 @@ begin
     //Assert(false,'Undecomposed signed distance field versus mesh pair reached the narrow phase');
     ProcessPersistentContactManifold(ShapeA,ShapeB);
    end;
+
+  end else if (ShapeA.fShapeType=kstTriangle) and (ShapeB.fShapeType=kstTriangle) then begin
+
+   // Triangle versus triangle pairs (mesh versus mesh sub pairs) always take the dedicated SAT narrow phase,
+   // independent of the persistent contact manifold mode, since MPR needs no support here and the dedicated
+   // path produces the full clipped manifold in one shot.
+   CollideTriangleWithTriangle(TKraftShapeTriangle(ShapeA),TKraftShapeTriangle(ShapeB));
 
   end else if ContactManager.fPhysics.fPersistentContactManifold then begin
 
@@ -44987,8 +45732,13 @@ begin
   end;
 
   // Smooth the contact normal across shared inner edges of the mesh (prevents snagging on tessellation seams).
-  if (ContactManager.fPhysics.fInternalEdgeHandlingMode=kiehmClamping) and assigned(MeshContactPair) then begin
+  // Mesh versus mesh sub pairs clamp the B side triangle here exactly like the single mesh path does.
+  if (ContactManager.fPhysics.fInternalEdgeHandlingMode=kiehmClamping) and (assigned(MeshContactPair) or assigned(MeshMeshContactPair)) then begin
    AdjustTriangleContactNormal(MeshTriangle);
+  end;
+  // Mesh versus mesh sub pairs additionally clamp the A side triangle through the mirrored adjuster.
+  if (ContactManager.fPhysics.fInternalEdgeHandlingMode=kiehmClamping) and assigned(MeshMeshContactPair) then begin
+   AdjustTriangleContactNormalOnSideA(MeshTriangleA);
   end;
 
   if SpeculativeContacts then begin
@@ -45410,8 +46160,8 @@ begin
     if MeshSkipListNode^.CountTriangles>0 then begin
      for TriangleIndex:=MeshSkipListNode^.FirstTriangleIndex to MeshSkipListNode^.FirstTriangleIndex+(MeshSkipListNode^.CountTriangles-1) do begin
       Triangle:=@Mesh.fTriangles[TriangleIndex];
-      if AABBIntersect(Triangle^.AABB,fConvexAABBInMeshLocalSpace) and not fContactManager.HasDuplicateContact(fRigidBodyConvex,fRigidBodyMesh,fShapeConvex,fShapeMesh,MeshIndex,TriangleIndex,self) then begin
-       fContactManager.AddConvexContact(fRigidBodyConvex,fRigidBodyMesh,fShapeConvex,fShapeMesh,MeshIndex,TriangleIndex,self);
+      if AABBIntersect(Triangle^.AABB,fConvexAABBInMeshLocalSpace) and not fContactManager.HasDuplicateContact(fRigidBodyConvex,fRigidBodyMesh,fShapeConvex,fShapeMesh,MeshIndex,TriangleIndex,-1,-1,self) then begin
+       fContactManager.AddConvexContact(fRigidBodyConvex,fRigidBodyMesh,fShapeConvex,fShapeMesh,MeshIndex,TriangleIndex,-1,-1,self);
       end;
      end;
     end;
@@ -45435,8 +46185,8 @@ begin
        if MeshSkipListNode^.CountTriangles>0 then begin
         for TriangleIndex:=MeshSkipListNode^.FirstTriangleIndex to MeshSkipListNode^.FirstTriangleIndex+(MeshSkipListNode^.CountTriangles-1) do begin
          Triangle:=@Mesh.fTriangles[TriangleIndex];
-         if AABBIntersect(Triangle^.AABB,fConvexAABBInMeshLocalSpace) and not fContactManager.HasDuplicateContact(fRigidBodyConvex,fRigidBodyMesh,fShapeConvex,fShapeMesh,MeshIndex,TriangleIndex,self) then begin
-          fContactManager.AddConvexContact(fRigidBodyConvex,fRigidBodyMesh,fShapeConvex,fShapeMesh,MeshIndex,TriangleIndex,self);
+         if AABBIntersect(Triangle^.AABB,fConvexAABBInMeshLocalSpace) and not fContactManager.HasDuplicateContact(fRigidBodyConvex,fRigidBodyMesh,fShapeConvex,fShapeMesh,MeshIndex,TriangleIndex,-1,-1,self) then begin
+          fContactManager.AddConvexContact(fRigidBodyConvex,fRigidBodyMesh,fShapeConvex,fShapeMesh,MeshIndex,TriangleIndex,-1,-1,self);
          end;
         end;
        end;
@@ -45457,19 +46207,463 @@ end;
 procedure TKraftMeshContactPair.Update;
 var NewConvexAABBInMeshLocalSpace:TKraftAABB;
     Transform:TKraftMatrix4x4;
-    Displacement,BoundsExpansion:TKraftVector3;
+    Displacement,BoundsExpansion,RelativeLinearVelocity:TKraftVector3;
+    Sphere:TKraftSphere;
+    BoundsExpansionScalar:TKraftScalar;
 begin
  Transform:=Matrix4x4TermMulSimpleInverted(fShapeConvex.fWorldTransform,fShapeMesh.fWorldTransform);
  NewConvexAABBInMeshLocalSpace:=AABBHomogenTransform(fShapeConvex.fShapeAABB,Transform);
  if not AABBContains(fConvexAABBInMeshLocalSpace,NewConvexAABBInMeshLocalSpace) then begin
-  Displacement:=Vector3TermMatrixMulBasis(Vector3ScalarMul(fRigidBodyConvex.fLinearVelocity,fRigidBodyConvex.fPhysics.fWorldDeltaTime),Transform);
-  BoundsExpansion:=Vector3ScalarMul(Vector3(fShapeConvex.fAngularMotionDisc,fShapeConvex.fAngularMotionDisc,fShapeConvex.fAngularMotionDisc),Vector3Length(fRigidBodyConvex.fAngularVelocity)*fRigidBodyConvex.fPhysics.fWorldDeltaTime);
+  // The prediction corridor must cover the relative motion, since a mesh body can move on its own now that meshes
+  // may be dynamic, so a fast mesh against a resting convex would otherwise leave the corridor empty.
+  RelativeLinearVelocity:=fRigidBodyConvex.fLinearVelocity;
+  if assigned(fRigidBodyMesh) then begin
+   RelativeLinearVelocity:=Vector3Sub(RelativeLinearVelocity,fRigidBodyMesh.fLinearVelocity);
+  end;
+  Displacement:=Vector3TermMatrixMulBasis(Vector3ScalarMul(RelativeLinearVelocity,fRigidBodyConvex.fPhysics.fWorldDeltaTime),Transform);
+  BoundsExpansionScalar:=fShapeConvex.fAngularMotionDisc*Vector3Length(fRigidBodyConvex.fAngularVelocity)*fRigidBodyConvex.fPhysics.fWorldDeltaTime;
+  if assigned(fRigidBodyMesh) then begin
+   // The mesh rotation shifts the convex AABB within the mesh-local frame, so widen the corridor by that swept span.
+   Sphere:=SphereFromAABB(NewConvexAABBInMeshLocalSpace);
+   BoundsExpansionScalar:=BoundsExpansionScalar+(Vector3Length(fRigidBodyMesh.fAngularVelocity)*fRigidBodyConvex.fPhysics.fWorldDeltaTime*(Vector3Length(Sphere.Center)+Sphere.Radius));
+  end;
+  BoundsExpansion:=Vector3(BoundsExpansionScalar,BoundsExpansionScalar,BoundsExpansionScalar);
   fConvexAABBInMeshLocalSpace:=AABBStretch(NewConvexAABBInMeshLocalSpace,Displacement,BoundsExpansion);
   if fShapeMesh.fScale<>1.0 then begin
    // Mesh geometry/BVH stays in base space; bring the query AABB from the (rigid) mesh-local
    // frame into base-mesh coordinates by dividing out the mesh's uniform scale.
    fConvexAABBInMeshLocalSpace.Min:=Vector3ScalarMul(fConvexAABBInMeshLocalSpace.Min,fShapeMesh.fInverseScale);
    fConvexAABBInMeshLocalSpace.Max:=Vector3ScalarMul(fConvexAABBInMeshLocalSpace.Max,fShapeMesh.fInverseScale);
+  end;
+  Query;
+ end;
+end;
+
+{ TKraftMeshMeshContactPair }
+
+constructor TKraftMeshMeshContactPair.Create(const aContactManager:TKraftContactManager);
+begin
+ inherited Create;
+
+ fContactManager:=aContactManager;
+
+ if assigned(fContactManager.fMeshMeshContactPairLast) then begin
+  fContactManager.fMeshMeshContactPairLast.fNext:=self;
+  fPrevious:=fContactManager.fMeshMeshContactPairLast;
+ end else begin
+  fContactManager.fMeshMeshContactPairFirst:=self;
+  fPrevious:=nil;
+ end;
+ fContactManager.fMeshMeshContactPairLast:=self;
+ fNext:=nil;
+
+ fHashBucket:=-1;
+ fHashPrevious:=nil;
+ fHashNext:=nil;
+
+ fFirstContactPair:=nil;
+ fLastContactPair:=nil;
+
+ fIsOnFreeList:=false;
+
+ fFlags:=[];
+
+ inc(fContactManager.fCountMeshMeshContactPairs);
+
+ fShapeMeshA:=nil;
+ fShapeMeshB:=nil;
+
+ fRigidBodyMeshA:=nil;
+ fRigidBodyMeshB:=nil;
+
+ fCorridorDisplacement:=Vector3Origin;
+ fCorridorBoundsExpansion:=Vector3Origin;
+
+ fGeneration:=0;
+
+end;
+
+destructor TKraftMeshMeshContactPair.Destroy;
+var ContactPair:PKraftContactPair;
+begin
+
+ RemoveFromHashTable;
+
+ if fIsOnFreeList then begin
+  if assigned(fPrevious) then begin
+   fPrevious.fNext:=fNext;
+  end else if fContactManager.fMeshMeshContactPairFirstFree=self then begin
+   fContactManager.fMeshMeshContactPairFirstFree:=fNext;
+  end;
+  if assigned(fNext) then begin
+   fNext.fPrevious:=fPrevious;
+  end else if fContactManager.fMeshMeshContactPairLastFree=self then begin
+   fContactManager.fMeshMeshContactPairLastFree:=fPrevious;
+  end;
+  fPrevious:=nil;
+  fNext:=nil;
+ end else begin
+  if assigned(fPrevious) then begin
+   fPrevious.fNext:=fNext;
+  end else if fContactManager.fMeshMeshContactPairFirst=self then begin
+   fContactManager.fMeshMeshContactPairFirst:=fNext;
+  end;
+  if assigned(fNext) then begin
+   fNext.fPrevious:=fPrevious;
+  end else if fContactManager.fMeshMeshContactPairLast=self then begin
+   fContactManager.fMeshMeshContactPairLast:=fPrevious;
+  end;
+  fPrevious:=nil;
+  fNext:=nil;
+ end;
+
+ while assigned(fFirstContactPair) do begin
+  ContactPair:=fFirstContactPair;
+  RemoveContactPair(ContactPair);
+  if assigned(fContactManager) then begin
+   fContactManager.RemoveContact(ContactPair);
+  end;
+ end;
+ fFirstContactPair:=nil;
+ fLastContactPair:=nil;
+
+ dec(fContactManager.fCountMeshMeshContactPairs);
+
+ inherited Destroy;
+end;
+
+procedure TKraftMeshMeshContactPair.AddContactPair(const aContactPair:PKraftContactPair);
+begin
+ aContactPair^.MeshMeshContactPair:=self;
+ if assigned(fLastContactPair) then begin
+  fLastContactPair^.MeshContactPairNextContactPair:=aContactPair;
+  aContactPair^.MeshContactPairPreviousContactPair:=fLastContactPair;
+ end else begin
+  fFirstContactPair:=aContactPair;
+  aContactPair^.MeshContactPairPreviousContactPair:=nil;
+ end;
+ fLastContactPair:=aContactPair;
+ aContactPair^.MeshContactPairNextContactPair:=nil;
+end;
+
+procedure TKraftMeshMeshContactPair.RemoveContactPair(const aContactPair:PKraftContactPair);
+begin
+ aContactPair^.MeshMeshContactPair:=nil;
+ if assigned(aContactPair^.MeshContactPairPreviousContactPair) then begin
+  aContactPair^.MeshContactPairPreviousContactPair^.MeshContactPairNextContactPair:=aContactPair^.MeshContactPairNextContactPair;
+ end else if fFirstContactPair=aContactPair then begin
+  fFirstContactPair:=aContactPair^.MeshContactPairNextContactPair;
+ end;
+ if assigned(aContactPair^.MeshContactPairNextContactPair) then begin
+  aContactPair^.MeshContactPairNextContactPair^.MeshContactPairPreviousContactPair:=aContactPair^.MeshContactPairPreviousContactPair;
+ end else if fLastContactPair=aContactPair then begin
+  fLastContactPair:=aContactPair^.MeshContactPairPreviousContactPair;
+ end;
+ aContactPair^.MeshContactPairPreviousContactPair:=nil;
+ aContactPair^.MeshContactPairNextContactPair:=nil;
+end;
+
+procedure TKraftMeshMeshContactPair.MoveToFreeList;
+var ContactPair:PKraftContactPair;
+begin
+ if not fIsOnFreeList then begin
+
+  fIsOnFreeList:=true;
+
+  if assigned(fPrevious) then begin
+   fPrevious.fNext:=fNext;
+  end else if fContactManager.fMeshMeshContactPairFirst=self then begin
+   fContactManager.fMeshMeshContactPairFirst:=fNext;
+  end;
+  if assigned(fNext) then begin
+   fNext.fPrevious:=fPrevious;
+  end else if fContactManager.fMeshMeshContactPairLast=self then begin
+   fContactManager.fMeshMeshContactPairLast:=fPrevious;
+  end;
+
+  if assigned(fContactManager.fMeshMeshContactPairLastFree) then begin
+   fContactManager.fMeshMeshContactPairLastFree.fNext:=self;
+   fPrevious:=fContactManager.fMeshMeshContactPairLastFree;
+  end else begin
+   fContactManager.fMeshMeshContactPairFirstFree:=self;
+   fPrevious:=nil;
+  end;
+  fContactManager.fMeshMeshContactPairLastFree:=self;
+  fNext:=nil;
+
+  while assigned(fFirstContactPair) do begin
+   ContactPair:=fFirstContactPair;
+   RemoveContactPair(ContactPair);
+   if assigned(fContactManager) then begin
+    fContactManager.RemoveContact(ContactPair);
+   end;
+  end;
+  fFirstContactPair:=nil;
+  fLastContactPair:=nil;
+
+ end;
+end;
+
+procedure TKraftMeshMeshContactPair.MoveFromFreeList;
+begin
+ if fIsOnFreeList then begin
+
+  fIsOnFreeList:=false;
+
+  fFlags:=[];
+
+  if assigned(fPrevious) then begin
+   fPrevious.fNext:=fNext;
+  end else if fContactManager.fMeshMeshContactPairFirstFree=self then begin
+   fContactManager.fMeshMeshContactPairFirstFree:=fNext;
+  end;
+  if assigned(fNext) then begin
+   fNext.fPrevious:=fPrevious;
+  end else if fContactManager.fMeshMeshContactPairLastFree=self then begin
+   fContactManager.fMeshMeshContactPairLastFree:=fPrevious;
+  end;
+
+  if assigned(fContactManager.fMeshMeshContactPairLast) then begin
+   fContactManager.fMeshMeshContactPairLast.fNext:=self;
+   fPrevious:=fContactManager.fMeshMeshContactPairLast;
+  end else begin
+   fContactManager.fMeshMeshContactPairFirst:=self;
+   fPrevious:=nil;
+  end;
+  fContactManager.fMeshMeshContactPairLast:=self;
+  fNext:=nil;
+
+  fGeneration:=0;
+
+ end;
+end;
+
+procedure TKraftMeshMeshContactPair.AddToHashTable;
+var HashTableBucket:PKraftMeshMeshContactPairHashTableBucket;
+begin
+ if fHashBucket<0 then begin
+  fHashBucket:=HashTwoShapes(fShapeMeshA,fShapeMeshB) and high(TKraftMeshMeshContactPairHashTable);
+  HashTableBucket:=@fContactManager.fMeshMeshContactPairHashTable[fHashBucket];
+  if assigned(HashTableBucket^.First) then begin
+   HashTableBucket^.First.fHashPrevious:=self;
+   fHashNext:=HashTableBucket^.First;
+  end else begin
+   HashTableBucket^.Last:=self;
+   fHashNext:=nil;
+  end;
+  HashTableBucket^.First:=self;
+  fHashPrevious:=nil;
+ end;
+end;
+
+procedure TKraftMeshMeshContactPair.RemoveFromHashTable;
+var HashTableBucket:PKraftMeshMeshContactPairHashTableBucket;
+begin
+ if fHashBucket>=0 then begin
+  HashTableBucket:=@fContactManager.fMeshMeshContactPairHashTable[fHashBucket];
+  fHashBucket:=-1;
+  if assigned(fHashPrevious) then begin
+   fHashPrevious.fHashNext:=fHashNext;
+  end else if HashTableBucket^.First=self then begin
+   HashTableBucket^.First:=fHashNext;
+  end;
+  if assigned(fHashNext) then begin
+   fHashNext.fHashPrevious:=fHashPrevious;
+  end else if HashTableBucket^.Last=self then begin
+   HashTableBucket^.Last:=fHashPrevious;
+  end;
+  fHashPrevious:=nil;
+  fHashNext:=nil;
+ end;
+end;
+
+procedure TKraftMeshMeshContactPair.Query;
+var CorridorInMeshABaseSpace,TriangleAABBInMeshBBaseSpace:TKraftAABB;
+    AToBTransform,BToATransform:TKraftMatrix4x4;
+ procedure QueryMeshB(const aQueryAABB:TKraftAABB;const aMeshIndexA,aTriangleIndexA:TKraftInt32);
+ var SkipListNodeIndex,MeshSkipListNodeIndex,TriangleIndex:TKraftInt32;
+     MeshIndex:TKraftPtrInt;
+     Mesh:TKraftMesh;
+     SkipListNode:PKraftDynamicAABBTreeSkipListNode;
+     MeshSkipListNode:PKraftMeshSkipListNode;
+     Triangle:PKraftMeshTriangle;
+ begin
+  if TKraftShapeMesh(fShapeMeshB).fCountMeshes=1 then begin
+   MeshIndex:=0;
+   Mesh:=TKraftShapeMesh(fShapeMeshB).fMeshes[MeshIndex];
+   MeshSkipListNodeIndex:=0;
+   while MeshSkipListNodeIndex<Mesh.fCountSkipListNodes do begin
+    MeshSkipListNode:=@Mesh.fSkipListNodes[MeshSkipListNodeIndex];
+    if AABBIntersect(MeshSkipListNode^.AABB,aQueryAABB) then begin
+     if MeshSkipListNode^.CountTriangles>0 then begin
+      for TriangleIndex:=MeshSkipListNode^.FirstTriangleIndex to MeshSkipListNode^.FirstTriangleIndex+(MeshSkipListNode^.CountTriangles-1) do begin
+       Triangle:=@Mesh.fTriangles[TriangleIndex];
+       if AABBIntersect(Triangle^.AABB,aQueryAABB) and not fContactManager.HasDuplicateContact(fRigidBodyMeshA,fRigidBodyMeshB,fShapeMeshA,fShapeMeshB,MeshIndex,TriangleIndex,aMeshIndexA,aTriangleIndexA,nil,self) then begin
+        fContactManager.AddConvexContact(fRigidBodyMeshA,fRigidBodyMeshB,fShapeMeshA,fShapeMeshB,MeshIndex,TriangleIndex,aMeshIndexA,aTriangleIndexA,nil,self);
+       end;
+      end;
+     end;
+     inc(MeshSkipListNodeIndex);
+    end else begin
+     MeshSkipListNodeIndex:=MeshSkipListNode^.SkipToNodeIndex;
+    end;
+   end;
+  end else begin
+   SkipListNodeIndex:=0;
+   while SkipListNodeIndex<TKraftShapeMesh(fShapeMeshB).fCountSkipListNodes do begin
+    SkipListNode:=@TKraftShapeMesh(fShapeMeshB).fSkipListNodes[SkipListNodeIndex];
+    if AABBIntersect(SkipListNode^.AABB,aQueryAABB) then begin
+     MeshIndex:=TKraftPtrInt(TKraftPtrUInt(SkipListNode^.UserData))-1;
+     if MeshIndex>=0 then begin
+      Mesh:=TKraftShapeMesh(fShapeMeshB).fMeshes[MeshIndex];
+      MeshSkipListNodeIndex:=0;
+      while MeshSkipListNodeIndex<Mesh.fCountSkipListNodes do begin
+       MeshSkipListNode:=@Mesh.fSkipListNodes[MeshSkipListNodeIndex];
+       if AABBIntersect(MeshSkipListNode^.AABB,aQueryAABB) then begin
+        if MeshSkipListNode^.CountTriangles>0 then begin
+         for TriangleIndex:=MeshSkipListNode^.FirstTriangleIndex to MeshSkipListNode^.FirstTriangleIndex+(MeshSkipListNode^.CountTriangles-1) do begin
+          Triangle:=@Mesh.fTriangles[TriangleIndex];
+          if AABBIntersect(Triangle^.AABB,aQueryAABB) and not fContactManager.HasDuplicateContact(fRigidBodyMeshA,fRigidBodyMeshB,fShapeMeshA,fShapeMeshB,MeshIndex,TriangleIndex,aMeshIndexA,aTriangleIndexA,nil,self) then begin
+           fContactManager.AddConvexContact(fRigidBodyMeshA,fRigidBodyMeshB,fShapeMeshA,fShapeMeshB,MeshIndex,TriangleIndex,aMeshIndexA,aTriangleIndexA,nil,self);
+          end;
+         end;
+        end;
+        inc(MeshSkipListNodeIndex);
+       end else begin
+        MeshSkipListNodeIndex:=MeshSkipListNode^.SkipToNodeIndex;
+       end;
+      end;
+     end;
+     inc(SkipListNodeIndex);
+    end else begin
+     SkipListNodeIndex:=SkipListNode^.SkipToNodeIndex;
+    end;
+   end;
+  end;
+ end;
+ procedure ProcessTriangleA(const aMeshIndexA,aTriangleIndexA:TKraftInt32;const aTriangle:PKraftMeshTriangle);
+ begin
+  // Bring the surviving A triangle AABB from A base space into B base space, so it can walk the B side BVH as
+  // the inner level of the dual walk: back to A rigid local via the A scale, into B rigid local via the A to B
+  // transform, then into B base space by folding out the B scale. The per triangle AABB gets the same relative
+  // motion stretch as the whole corridor, since without it a fast relative motion would miss the sub pairs the
+  // speculative contacts and the time of impact path need ahead of the actual overlap.
+  TriangleAABBInMeshBBaseSpace:=aTriangle^.AABB;
+  if fShapeMeshA.fScale<>1.0 then begin
+   TriangleAABBInMeshBBaseSpace.Min:=Vector3ScalarMul(TriangleAABBInMeshBBaseSpace.Min,fShapeMeshA.fScale);
+   TriangleAABBInMeshBBaseSpace.Max:=Vector3ScalarMul(TriangleAABBInMeshBBaseSpace.Max,fShapeMeshA.fScale);
+  end;
+  TriangleAABBInMeshBBaseSpace:=AABBStretch(AABBHomogenTransform(TriangleAABBInMeshBBaseSpace,AToBTransform),fCorridorDisplacement,fCorridorBoundsExpansion);
+  if fShapeMeshB.fScale<>1.0 then begin
+   TriangleAABBInMeshBBaseSpace.Min:=Vector3ScalarMul(TriangleAABBInMeshBBaseSpace.Min,fShapeMeshB.fInverseScale);
+   TriangleAABBInMeshBBaseSpace.Max:=Vector3ScalarMul(TriangleAABBInMeshBBaseSpace.Max,fShapeMeshB.fInverseScale);
+  end;
+  QueryMeshB(TriangleAABBInMeshBBaseSpace,aMeshIndexA,aTriangleIndexA);
+ end;
+var SkipListNodeIndex,MeshSkipListNodeIndex,TriangleIndex:TKraftInt32;
+    MeshIndex:TKraftPtrInt;
+    Mesh:TKraftMesh;
+    SkipListNode:PKraftDynamicAABBTreeSkipListNode;
+    MeshSkipListNode:PKraftMeshSkipListNode;
+    Triangle:PKraftMeshTriangle;
+begin
+ inc(fGeneration);
+ AToBTransform:=Matrix4x4TermMulSimpleInverted(fShapeMeshA.fWorldTransform,fShapeMeshB.fWorldTransform);
+ BToATransform:=Matrix4x4TermMulSimpleInverted(fShapeMeshB.fWorldTransform,fShapeMeshA.fWorldTransform);
+ // Bring the whole-A prediction corridor from the B base space it is stored in into the A base space, so the
+ // outer level of the dual walk can query the A side BVH once: back to B rigid local via the B scale, into A
+ // rigid local via the B to A transform, then into A base space by folding out the A scale.
+ CorridorInMeshABaseSpace:=fMeshAAABBInMeshBLocalSpace;
+ if fShapeMeshB.fScale<>1.0 then begin
+  CorridorInMeshABaseSpace.Min:=Vector3ScalarMul(CorridorInMeshABaseSpace.Min,fShapeMeshB.fScale);
+  CorridorInMeshABaseSpace.Max:=Vector3ScalarMul(CorridorInMeshABaseSpace.Max,fShapeMeshB.fScale);
+ end;
+ CorridorInMeshABaseSpace:=AABBHomogenTransform(CorridorInMeshABaseSpace,BToATransform);
+ if fShapeMeshA.fScale<>1.0 then begin
+  CorridorInMeshABaseSpace.Min:=Vector3ScalarMul(CorridorInMeshABaseSpace.Min,fShapeMeshA.fInverseScale);
+  CorridorInMeshABaseSpace.Max:=Vector3ScalarMul(CorridorInMeshABaseSpace.Max,fShapeMeshA.fInverseScale);
+ end;
+ if TKraftShapeMesh(fShapeMeshA).fCountMeshes=1 then begin
+  MeshIndex:=0;
+  Mesh:=TKraftShapeMesh(fShapeMeshA).fMeshes[MeshIndex];
+  MeshSkipListNodeIndex:=0;
+  while MeshSkipListNodeIndex<Mesh.fCountSkipListNodes do begin
+   MeshSkipListNode:=@Mesh.fSkipListNodes[MeshSkipListNodeIndex];
+   if AABBIntersect(MeshSkipListNode^.AABB,CorridorInMeshABaseSpace) then begin
+    if MeshSkipListNode^.CountTriangles>0 then begin
+     for TriangleIndex:=MeshSkipListNode^.FirstTriangleIndex to MeshSkipListNode^.FirstTriangleIndex+(MeshSkipListNode^.CountTriangles-1) do begin
+      Triangle:=@Mesh.fTriangles[TriangleIndex];
+      if AABBIntersect(Triangle^.AABB,CorridorInMeshABaseSpace) then begin
+       ProcessTriangleA(MeshIndex,TriangleIndex,Triangle);
+      end;
+     end;
+    end;
+    inc(MeshSkipListNodeIndex);
+   end else begin
+    MeshSkipListNodeIndex:=MeshSkipListNode^.SkipToNodeIndex;
+   end;
+  end;
+ end else begin
+  SkipListNodeIndex:=0;
+  while SkipListNodeIndex<TKraftShapeMesh(fShapeMeshA).fCountSkipListNodes do begin
+   SkipListNode:=@TKraftShapeMesh(fShapeMeshA).fSkipListNodes[SkipListNodeIndex];
+   if AABBIntersect(SkipListNode^.AABB,CorridorInMeshABaseSpace) then begin
+    MeshIndex:=TKraftPtrInt(TKraftPtrUInt(SkipListNode^.UserData))-1;
+    if MeshIndex>=0 then begin
+     Mesh:=TKraftShapeMesh(fShapeMeshA).fMeshes[MeshIndex];
+     MeshSkipListNodeIndex:=0;
+     while MeshSkipListNodeIndex<Mesh.fCountSkipListNodes do begin
+      MeshSkipListNode:=@Mesh.fSkipListNodes[MeshSkipListNodeIndex];
+      if AABBIntersect(MeshSkipListNode^.AABB,CorridorInMeshABaseSpace) then begin
+       if MeshSkipListNode^.CountTriangles>0 then begin
+        for TriangleIndex:=MeshSkipListNode^.FirstTriangleIndex to MeshSkipListNode^.FirstTriangleIndex+(MeshSkipListNode^.CountTriangles-1) do begin
+         Triangle:=@Mesh.fTriangles[TriangleIndex];
+         if AABBIntersect(Triangle^.AABB,CorridorInMeshABaseSpace) then begin
+          ProcessTriangleA(MeshIndex,TriangleIndex,Triangle);
+         end;
+        end;
+       end;
+       inc(MeshSkipListNodeIndex);
+      end else begin
+       MeshSkipListNodeIndex:=MeshSkipListNode^.SkipToNodeIndex;
+      end;
+     end;
+    end;
+    inc(SkipListNodeIndex);
+   end else begin
+    SkipListNodeIndex:=SkipListNode^.SkipToNodeIndex;
+   end;
+  end;
+ end;
+end;
+
+procedure TKraftMeshMeshContactPair.Update;
+var NewMeshAAABBInMeshBLocalSpace:TKraftAABB;
+    Transform:TKraftMatrix4x4;
+    Displacement,BoundsExpansion,RelativeLinearVelocity:TKraftVector3;
+    Sphere:TKraftSphere;
+    BoundsExpansionScalar:TKraftScalar;
+begin
+ Transform:=Matrix4x4TermMulSimpleInverted(fShapeMeshA.fWorldTransform,fShapeMeshB.fWorldTransform);
+ NewMeshAAABBInMeshBLocalSpace:=AABBHomogenTransform(fShapeMeshA.fShapeAABB,Transform);
+ if not AABBContains(fMeshAAABBInMeshBLocalSpace,NewMeshAAABBInMeshBLocalSpace) then begin
+  // The prediction corridor must cover the relative motion of the two dynamic meshes, so a fast mesh against a
+  // resting one does not leave the corridor empty. Both bodies always exist for a mesh versus mesh pair.
+  RelativeLinearVelocity:=Vector3Sub(fRigidBodyMeshA.fLinearVelocity,fRigidBodyMeshB.fLinearVelocity);
+  Displacement:=Vector3TermMatrixMulBasis(Vector3ScalarMul(RelativeLinearVelocity,fRigidBodyMeshA.fPhysics.fWorldDeltaTime),Transform);
+  BoundsExpansionScalar:=fShapeMeshA.fAngularMotionDisc*Vector3Length(fRigidBodyMeshA.fAngularVelocity)*fRigidBodyMeshA.fPhysics.fWorldDeltaTime;
+  // The B mesh rotation shifts the A shape AABB within the B local frame, so widen the corridor by that swept span.
+  Sphere:=SphereFromAABB(NewMeshAAABBInMeshBLocalSpace);
+  BoundsExpansionScalar:=BoundsExpansionScalar+(Vector3Length(fRigidBodyMeshB.fAngularVelocity)*fRigidBodyMeshA.fPhysics.fWorldDeltaTime*(Vector3Length(Sphere.Center)+Sphere.Radius));
+  BoundsExpansion:=Vector3(BoundsExpansionScalar,BoundsExpansionScalar,BoundsExpansionScalar);
+  fCorridorDisplacement:=Displacement;
+  fCorridorBoundsExpansion:=BoundsExpansion;
+  fMeshAAABBInMeshBLocalSpace:=AABBStretch(NewMeshAAABBInMeshBLocalSpace,Displacement,BoundsExpansion);
+  if fShapeMeshB.fScale<>1.0 then begin
+   // Mesh geometry/BVH stays in base space; bring the corridor from the (rigid) B local frame into base-mesh
+   // coordinates by dividing out the B mesh uniform scale, see Query.
+   fMeshAAABBInMeshBLocalSpace.Min:=Vector3ScalarMul(fMeshAAABBInMeshBLocalSpace.Min,fShapeMeshB.fInverseScale);
+   fMeshAAABBInMeshBLocalSpace.Max:=Vector3ScalarMul(fMeshAAABBInMeshBLocalSpace.Max,fShapeMeshB.fInverseScale);
   end;
   Query;
  end;
@@ -45496,6 +46690,14 @@ begin
  fMeshContactPairLastFree:=nil;
 
  fCountMeshContactPairs:=0;
+
+ fMeshMeshContactPairFirst:=nil;
+ fMeshMeshContactPairLast:=nil;
+
+ fMeshMeshContactPairFirstFree:=nil;
+ fMeshMeshContactPairLastFree:=nil;
+
+ fCountMeshMeshContactPairs:=0;
 
  fFeatureOwnershipClaimedFeatures:=TKraftMeshTriangleVerticesHashMap.Create(-1);
  fFeatureOwnershipContactPairs:=nil;
@@ -45529,6 +46731,8 @@ begin
 
  FillChar(fMeshContactPairHashTable,SizeOf(TKraftMeshContactPairHashTable),AnsiChar(#0));
 
+ FillChar(fMeshMeshContactPairHashTable,SizeOf(TKraftMeshMeshContactPairHashTable),AnsiChar(#0));
+
 end;
 
 destructor TKraftContactManager.Destroy;
@@ -45559,6 +46763,14 @@ begin
   fMeshContactPairFirstFree.Free;
  end;
 
+ while assigned(fMeshMeshContactPairFirst) do begin
+  fMeshMeshContactPairFirst.Free;
+ end;
+
+ while assigned(fMeshMeshContactPairFirstFree) do begin
+  fMeshMeshContactPairFirstFree.Free;
+ end;
+
 //Assert(CountContactPairs=0);
 //Assert(fCountMeshContactPairs=0);
 
@@ -45577,7 +46789,7 @@ begin
  inherited Destroy;
 end;
 
-function TKraftContactManager.HasDuplicateContact(const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const AShapeA,AShapeB:TKraftShape;const AContainerIndex:TKraftInt32=-1;const AElementIndex:TKraftInt32=-1;const AMeshContactPair:TKraftMeshContactPair=nil):boolean;
+function TKraftContactManager.HasDuplicateContact(const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const AShapeA,AShapeB:TKraftShape;const AContainerIndex:TKraftInt32=-1;const AElementIndex:TKraftInt32=-1;const AShapeAContainerIndex:TKraftInt32=-1;const AShapeAElementIndex:TKraftInt32=-1;const AMeshContactPair:TKraftMeshContactPair=nil;const AMeshMeshContactPair:TKraftMeshMeshContactPair=nil):boolean;
 var HashTableBucket:PKraftContactPairHashTableBucket;
     ContactPair:PKraftContactPair;
 begin
@@ -45588,6 +46800,27 @@ begin
   while assigned(ContactPair) do begin
    if ((ContactPair^.Shapes[0]=AShapeA) and (ContactPair^.Shapes[1]=AShapeB)) or
       ((ContactPair^.Shapes[0]=AShapeB) and (ContactPair^.Shapes[1]=AShapeA)) then begin
+    result:=true;
+    exit;
+   end;
+   ContactPair:=ContactPair^.Next;
+  end;
+ end else if AShapeAContainerIndex>=0 then begin
+  // Mesh versus mesh triangle sub pair: both sides carry a triangle index, so the pair is keyed by the four
+  // index hash and compared over all four indices. In the swapped shape case the two index pairs swap along
+  // with the shapes, since the stored B side then belongs to the queried A side and vice versa.
+  HashTableBucket:=@fConvexMeshTriangleContactPairHashTable[HashTwoShapesAndFourLongWords(AShapeA,AShapeB,AContainerIndex,AElementIndex,AShapeAContainerIndex,AShapeAElementIndex) and high(TKraftContactPairHashTable)];
+  ContactPair:=HashTableBucket^.First;
+  while assigned(ContactPair) do begin
+   if (((ContactPair^.Shapes[0]=AShapeA) and (ContactPair^.Shapes[1]=AShapeB) and
+        (ContactPair^.ContainerIndex=AContainerIndex) and (ContactPair^.ElementIndex=AElementIndex) and
+        (ContactPair^.ShapeAContainerIndex=AShapeAContainerIndex) and (ContactPair^.ShapeAElementIndex=AShapeAElementIndex)) or
+       ((ContactPair^.Shapes[0]=AShapeB) and (ContactPair^.Shapes[1]=AShapeA) and
+        (ContactPair^.ContainerIndex=AShapeAContainerIndex) and (ContactPair^.ElementIndex=AShapeAElementIndex) and
+        (ContactPair^.ShapeAContainerIndex=AContainerIndex) and (ContactPair^.ShapeAElementIndex=AElementIndex))) then begin
+    if assigned(AMeshMeshContactPair) then begin
+     ContactPair^.MeshMeshContactPairGeneration:=AMeshMeshContactPair.fGeneration;
+    end;
     result:=true;
     exit;
    end;
@@ -45612,7 +46845,7 @@ begin
  end;
 end;
 
-procedure TKraftContactManager.AddConvexContact(const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const aShapeA,aShapeB:TKraftShape;const aContainerIndex:TKraftInt32=-1;const aElementIndex:TKraftInt32=-1;const aMeshContactPair:TKraftMeshContactPair=nil);
+procedure TKraftContactManager.AddConvexContact(const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const aShapeA,aShapeB:TKraftShape;const aContainerIndex:TKraftInt32=-1;const aElementIndex:TKraftInt32=-1;const aShapeAContainerIndex:TKraftInt32=-1;const aShapeAElementIndex:TKraftInt32=-1;const aMeshContactPair:TKraftMeshContactPair=nil;const aMeshMeshContactPair:TKraftMeshMeshContactPair=nil);
 var i:TKraftInt32;
     ContactPair:PKraftContactPair;
     HashTableBucket:PKraftContactPairHashTableBucket;
@@ -45642,9 +46875,18 @@ begin
 
  ContactPair^.ElementIndex:=aElementIndex;
 
+ ContactPair^.ShapeAContainerIndex:=aShapeAContainerIndex;
+
+ ContactPair^.ShapeAElementIndex:=aShapeAElementIndex;
+
  if (aContainerIndex<0) and (aElementIndex<0) then begin
   ContactPair^.HashBucket:=HashTwoShapes(aShapeA,aShapeB) and high(TKraftContactPairHashTable);
   HashTableBucket:=@fConvexConvexContactPairHashTable[ContactPair^.HashBucket];
+ end else if aShapeAContainerIndex>=0 then begin
+  // Mesh versus mesh triangle sub pair: keyed by both triangle index pairs, but stored in the same triangle
+  // bucket table as the convex versus mesh triangle pairs.
+  ContactPair^.HashBucket:=HashTwoShapesAndFourLongWords(aShapeA,aShapeB,aContainerIndex,aElementIndex,aShapeAContainerIndex,aShapeAElementIndex) and high(TKraftContactPairHashTable);
+  HashTableBucket:=@fConvexMeshTriangleContactPairHashTable[ContactPair^.HashBucket];
  end else begin
   ContactPair^.HashBucket:=HashTwoShapesAndTwoLongWords(aShapeA,aShapeB,aContainerIndex,aElementIndex) and high(TKraftContactPairHashTable);
   HashTableBucket:=@fConvexMeshTriangleContactPairHashTable[ContactPair^.HashBucket];
@@ -45665,6 +46907,14 @@ begin
  end else begin
   ContactPair^.MeshContactPair:=nil;
   ContactPair^.MeshContactPairGeneration:=High(TKraftUInt64);
+ end;
+
+ if assigned(aMeshMeshContactPair) then begin
+  aMeshMeshContactPair.AddContactPair(ContactPair);
+  ContactPair^.MeshMeshContactPairGeneration:=aMeshMeshContactPair.fGeneration;
+ end else begin
+  ContactPair^.MeshMeshContactPair:=nil;
+  ContactPair^.MeshMeshContactPairGeneration:=High(TKraftUInt64);
  end;
 
  ContactPair^.RigidBodies[0]:=ARigidBodyA;
@@ -45760,7 +47010,10 @@ procedure TKraftContactManager.AddMeshContact(const ARigidBodyConvex,ARigidBodyM
 var HashTableBucket:PKraftMeshContactPairHashTableBucket;
     MeshContactPair:TKraftMeshContactPair;
     Transform:TKraftMatrix4x4;
-    Displacement,BoundsExpansion:TKraftVector3;
+    Displacement,BoundsExpansion,RelativeLinearVelocity:TKraftVector3;
+    ConvexAABBInMeshLocalSpace:TKraftAABB;
+    Sphere:TKraftSphere;
+    BoundsExpansionScalar:TKraftScalar;
 begin
 
  HashTableBucket:=@fMeshContactPairHashTable[HashTwoShapes(AShapeConvex,AShapeMesh) and high(TKraftMeshContactPairHashTable)];
@@ -45788,9 +47041,22 @@ begin
  MeshContactPair.AddToHashTable;
 
  Transform:=Matrix4x4TermMulSimpleInverted(MeshContactPair.fShapeConvex.fWorldTransform,MeshContactPair.fShapeMesh.fWorldTransform);
- Displacement:=Vector3TermMatrixMulBasis(Vector3ScalarMul(MeshContactPair.fRigidBodyConvex.fLinearVelocity,MeshContactPair.fRigidBodyConvex.fPhysics.fWorldDeltaTime),Transform);
- BoundsExpansion:=Vector3ScalarMul(Vector3(MeshContactPair.fShapeConvex.fAngularMotionDisc,MeshContactPair.fShapeConvex.fAngularMotionDisc,MeshContactPair.fShapeConvex.fAngularMotionDisc),Vector3Length(MeshContactPair.fRigidBodyConvex.fAngularVelocity)*MeshContactPair.fRigidBodyConvex.fPhysics.fWorldDeltaTime);
- MeshContactPair.fConvexAABBInMeshLocalSpace:=AABBStretch(AABBHomogenTransform(MeshContactPair.fShapeConvex.fShapeAABB,Transform),Displacement,BoundsExpansion);
+ // The prediction corridor must cover the relative motion, since a mesh body can move on its own now that meshes
+ // may be dynamic, so a fast mesh against a resting convex would otherwise leave the corridor empty.
+ RelativeLinearVelocity:=MeshContactPair.fRigidBodyConvex.fLinearVelocity;
+ if assigned(MeshContactPair.fRigidBodyMesh) then begin
+  RelativeLinearVelocity:=Vector3Sub(RelativeLinearVelocity,MeshContactPair.fRigidBodyMesh.fLinearVelocity);
+ end;
+ Displacement:=Vector3TermMatrixMulBasis(Vector3ScalarMul(RelativeLinearVelocity,MeshContactPair.fRigidBodyConvex.fPhysics.fWorldDeltaTime),Transform);
+ ConvexAABBInMeshLocalSpace:=AABBHomogenTransform(MeshContactPair.fShapeConvex.fShapeAABB,Transform);
+ BoundsExpansionScalar:=MeshContactPair.fShapeConvex.fAngularMotionDisc*Vector3Length(MeshContactPair.fRigidBodyConvex.fAngularVelocity)*MeshContactPair.fRigidBodyConvex.fPhysics.fWorldDeltaTime;
+ if assigned(MeshContactPair.fRigidBodyMesh) then begin
+  // The mesh rotation shifts the convex AABB within the mesh-local frame, so widen the corridor by that swept span.
+  Sphere:=SphereFromAABB(ConvexAABBInMeshLocalSpace);
+  BoundsExpansionScalar:=BoundsExpansionScalar+(Vector3Length(MeshContactPair.fRigidBodyMesh.fAngularVelocity)*MeshContactPair.fRigidBodyConvex.fPhysics.fWorldDeltaTime*(Vector3Length(Sphere.Center)+Sphere.Radius));
+ end;
+ BoundsExpansion:=Vector3(BoundsExpansionScalar,BoundsExpansionScalar,BoundsExpansionScalar);
+ MeshContactPair.fConvexAABBInMeshLocalSpace:=AABBStretch(ConvexAABBInMeshLocalSpace,Displacement,BoundsExpansion);
  if MeshContactPair.fShapeMesh.fScale<>1.0 then begin
   // Fold the mesh's uniform scale out of the query AABB (base-space BVH); see Update.
   MeshContactPair.fConvexAABBInMeshLocalSpace.Min:=Vector3ScalarMul(MeshContactPair.fConvexAABBInMeshLocalSpace.Min,MeshContactPair.fShapeMesh.fInverseScale);
@@ -45798,6 +47064,92 @@ begin
  end;
 
  MeshContactPair.Query;
+
+end;
+
+procedure TKraftContactManager.AddMeshMeshContact(const ARigidBodyA,ARigidBodyB:TKraftRigidBody;const AShapeMeshA,AShapeMeshB:TKraftShape);
+ function CountMeshTriangles(const aShapeMesh:TKraftShape):TKraftInt32;
+ var Index:TKraftInt32;
+     ShapeMesh:TKraftShapeMesh;
+ begin
+  result:=0;
+  ShapeMesh:=TKraftShapeMesh(aShapeMesh);
+  for Index:=0 to ShapeMesh.fCountMeshes-1 do begin
+   inc(result,ShapeMesh.fMeshes[Index].fCountTriangles);
+  end;
+ end;
+var HashTableBucket:PKraftMeshMeshContactPairHashTableBucket;
+    MeshMeshContactPair:TKraftMeshMeshContactPair;
+    Transform:TKraftMatrix4x4;
+    Displacement,BoundsExpansion,RelativeLinearVelocity:TKraftVector3;
+    MeshAAABBInMeshBLocalSpace:TKraftAABB;
+    Sphere:TKraftSphere;
+    BoundsExpansionScalar:TKraftScalar;
+    OuterRigidBody,InnerRigidBody:TKraftRigidBody;
+    OuterShapeMesh,InnerShapeMesh:TKraftShape;
+begin
+
+ HashTableBucket:=@fMeshMeshContactPairHashTable[HashTwoShapes(AShapeMeshA,AShapeMeshB) and high(TKraftMeshMeshContactPairHashTable)];
+ MeshMeshContactPair:=HashTableBucket.First;
+ while assigned(MeshMeshContactPair) do begin
+  if ((MeshMeshContactPair.fShapeMeshA=AShapeMeshA) and (MeshMeshContactPair.fShapeMeshB=AShapeMeshB)) or
+     ((MeshMeshContactPair.fShapeMeshA=AShapeMeshB) and (MeshMeshContactPair.fShapeMeshB=AShapeMeshA)) then begin
+   exit;
+  end;
+  MeshMeshContactPair:=MeshMeshContactPair.fHashNext;
+ end;
+
+ // Pick the mesh with the smaller triangle count as the outer role A (walked once against the whole-A prediction
+ // corridor), the other one as the inner role B, since the outer walk cost dominates the dual walk. On a tie the
+ // given AShapeMeshA keeps the outer role.
+ if CountMeshTriangles(AShapeMeshB)<CountMeshTriangles(AShapeMeshA) then begin
+  OuterRigidBody:=ARigidBodyB;
+  InnerRigidBody:=ARigidBodyA;
+  OuterShapeMesh:=AShapeMeshB;
+  InnerShapeMesh:=AShapeMeshA;
+ end else begin
+  OuterRigidBody:=ARigidBodyA;
+  InnerRigidBody:=ARigidBodyB;
+  OuterShapeMesh:=AShapeMeshA;
+  InnerShapeMesh:=AShapeMeshB;
+ end;
+
+ if assigned(fMeshMeshContactPairFirstFree) then begin
+  MeshMeshContactPair:=fMeshMeshContactPairFirstFree;
+  MeshMeshContactPair.MoveFromFreeList;
+ end else begin
+  MeshMeshContactPair:=TKraftMeshMeshContactPair.Create(self);
+ end;
+
+ MeshMeshContactPair.fRigidBodyMeshA:=OuterRigidBody;
+ MeshMeshContactPair.fRigidBodyMeshB:=InnerRigidBody;
+
+ MeshMeshContactPair.fShapeMeshA:=OuterShapeMesh;
+ MeshMeshContactPair.fShapeMeshB:=InnerShapeMesh;
+
+ MeshMeshContactPair.AddToHashTable;
+
+ Transform:=Matrix4x4TermMulSimpleInverted(MeshMeshContactPair.fShapeMeshA.fWorldTransform,MeshMeshContactPair.fShapeMeshB.fWorldTransform);
+ // The prediction corridor must cover the relative motion of the two dynamic meshes, so a fast mesh against a
+ // resting one does not leave the corridor empty. Both bodies always exist for a mesh versus mesh pair.
+ RelativeLinearVelocity:=Vector3Sub(MeshMeshContactPair.fRigidBodyMeshA.fLinearVelocity,MeshMeshContactPair.fRigidBodyMeshB.fLinearVelocity);
+ Displacement:=Vector3TermMatrixMulBasis(Vector3ScalarMul(RelativeLinearVelocity,MeshMeshContactPair.fRigidBodyMeshA.fPhysics.fWorldDeltaTime),Transform);
+ MeshAAABBInMeshBLocalSpace:=AABBHomogenTransform(MeshMeshContactPair.fShapeMeshA.fShapeAABB,Transform);
+ BoundsExpansionScalar:=MeshMeshContactPair.fShapeMeshA.fAngularMotionDisc*Vector3Length(MeshMeshContactPair.fRigidBodyMeshA.fAngularVelocity)*MeshMeshContactPair.fRigidBodyMeshA.fPhysics.fWorldDeltaTime;
+ // The B mesh rotation shifts the A shape AABB within the B local frame, so widen the corridor by that swept span.
+ Sphere:=SphereFromAABB(MeshAAABBInMeshBLocalSpace);
+ BoundsExpansionScalar:=BoundsExpansionScalar+(Vector3Length(MeshMeshContactPair.fRigidBodyMeshB.fAngularVelocity)*MeshMeshContactPair.fRigidBodyMeshA.fPhysics.fWorldDeltaTime*(Vector3Length(Sphere.Center)+Sphere.Radius));
+ BoundsExpansion:=Vector3(BoundsExpansionScalar,BoundsExpansionScalar,BoundsExpansionScalar);
+ MeshMeshContactPair.fCorridorDisplacement:=Displacement;
+ MeshMeshContactPair.fCorridorBoundsExpansion:=BoundsExpansion;
+ MeshMeshContactPair.fMeshAAABBInMeshBLocalSpace:=AABBStretch(MeshAAABBInMeshBLocalSpace,Displacement,BoundsExpansion);
+ if MeshMeshContactPair.fShapeMeshB.fScale<>1.0 then begin
+  // Fold the B mesh uniform scale out of the corridor (base-space BVH); see Update.
+  MeshMeshContactPair.fMeshAAABBInMeshBLocalSpace.Min:=Vector3ScalarMul(MeshMeshContactPair.fMeshAAABBInMeshBLocalSpace.Min,MeshMeshContactPair.fShapeMeshB.fInverseScale);
+  MeshMeshContactPair.fMeshAAABBInMeshBLocalSpace.Max:=Vector3ScalarMul(MeshMeshContactPair.fMeshAAABBInMeshBLocalSpace.Max,MeshMeshContactPair.fShapeMeshB.fInverseScale);
+ end;
+
+ MeshMeshContactPair.Query;
 
 end;
 
@@ -45818,7 +47170,13 @@ begin
  if (ksfCollision in AShapeA.fFlags) and
     (ksfCollision in AShapeB.fFlags) then begin
 
-  if AShapeA.fIsMesh then begin
+  if AShapeA.fIsMesh and AShapeB.fIsMesh then begin
+
+   // Mesh versus mesh pairs are decomposed into triangle versus triangle sub pairs by a dedicated dual mesh
+   // contact pair; the outer role goes to the mesh with the smaller triangle count, chosen in AddMeshMeshContact.
+   AddMeshMeshContact(RigidBodyA,RigidBodyB,AShapeA,AShapeB);
+
+  end else if AShapeA.fIsMesh then begin
 
    AddMeshContact(RigidBodyB,RigidBodyA,AShapeB,AShapeA);
 
@@ -45828,8 +47186,8 @@ begin
 
   end else begin
 
-   if not HasDuplicateContact(RigidBodyA,RigidBodyB,AShapeA,AShapeB,-1,-1,nil) then begin
-    AddConvexContact(RigidBodyA,RigidBodyB,AShapeA,AShapeB,-1,-1,nil);
+   if not HasDuplicateContact(RigidBodyA,RigidBodyB,AShapeA,AShapeB,-1,-1,-1,-1,nil) then begin
+    AddConvexContact(RigidBodyA,RigidBodyB,AShapeA,AShapeB,-1,-1,-1,-1,nil);
    end;
 
   end;
@@ -45924,6 +47282,12 @@ begin
   aContactPair^.MeshContactPair.RemoveContactPair(aContactPair);
  end;
 
+ if assigned(aContactPair^.MeshMeshContactPair) then begin
+  // A removed triangle versus triangle sub pair only has to be unlinked from its mesh versus mesh contact pair;
+  // it carries no cluster recycling state of its own.
+  aContactPair^.MeshMeshContactPair.RemoveContactPair(aContactPair);
+ end;
+
  aContactPair^.Previous:=nil;
 
  aContactPair^.Next:=fFreeContactPairs;
@@ -45940,9 +47304,16 @@ begin
  AMeshContactPair.MoveToFreeList;
 end;
 
+procedure TKraftContactManager.RemoveMeshMeshContact(AMeshMeshContactPair:TKraftMeshMeshContactPair);
+begin
+ AMeshMeshContactPair.RemoveFromHashTable;
+ AMeshMeshContactPair.MoveToFreeList;
+end;
+
 procedure TKraftContactManager.RemoveContactsFromRigidBody(ARigidBody:TKraftRigidBody);
 var ContactPairEdge,NextContactPairEdge:PKraftContactPairEdge;
     MeshContactPair,NextMeshContactPair:TKraftMeshContactPair;
+    MeshMeshContactPair,NextMeshMeshContactPair:TKraftMeshMeshContactPair;
 begin
  ContactPairEdge:=ARigidBody.fContactPairEdgeFirst;
  while assigned(ContactPairEdge) do begin
@@ -45960,6 +47331,14 @@ begin
   end;
   MeshContactPair:=NextMeshContactPair;
  end;
+ MeshMeshContactPair:=fMeshMeshContactPairFirst;
+ while assigned(MeshMeshContactPair) do begin
+  NextMeshMeshContactPair:=MeshMeshContactPair.fNext;
+  if (MeshMeshContactPair.fRigidBodyMeshA=ARigidBody) or (MeshMeshContactPair.fRigidBodyMeshB=ARigidBody) then begin
+   RemoveMeshMeshContact(MeshMeshContactPair);
+  end;
+  MeshMeshContactPair:=NextMeshMeshContactPair;
+ end;
 end;
 
 procedure TKraftContactManager.DoBroadPhase;
@@ -45972,6 +47351,7 @@ end;
 
 procedure TKraftContactManager.DoMidPhase;
 var MeshContactPair:TKraftMeshContactPair;
+    MeshMeshContactPair:TKraftMeshMeshContactPair;
     StartTime:TKraftInt64;
 begin
  StartTime:=fPhysics.fHighResolutionTimer.GetTime;
@@ -45979,6 +47359,11 @@ begin
  while assigned(MeshContactPair) do begin
   MeshContactPair.Update;
   MeshContactPair:=MeshContactPair.fNext;
+ end;
+ MeshMeshContactPair:=fMeshMeshContactPairFirst;
+ while assigned(MeshMeshContactPair) do begin
+  MeshMeshContactPair.Update;
+  MeshMeshContactPair:=MeshMeshContactPair.fNext;
  end;
  inc(fPhysics.fMidPhaseTime,fPhysics.fHighResolutionTimer.GetTime-StartTime);
 end;
@@ -46712,6 +48097,7 @@ const ActionAccept=0;
 var ActiveContactPairIndex,Action:TKraftInt32;
     ContactPair,NextContactPair:PKraftContactPair;
     MeshContactPair,NextMeshContactPair:TKraftMeshContactPair;
+    MeshMeshContactPair,NextMeshMeshContactPair:TKraftMeshMeshContactPair;
 {$ifdef KraftConstraintGraphColoring}
     Constraint:TKraftConstraint;
 {$endif}
@@ -46841,6 +48227,22 @@ begin
     ContactPair^.MeshContactPairGeneration:=ContactPair^.MeshContactPair.fGeneration;
     if not AABBIntersect(TKraftShapeMesh(ContactPair^.MeshContactPair.fShapeMesh).fMeshes[ContactPair^.ContainerIndex].fTriangles[ContactPair^.ElementIndex].AABB,
                          ContactPair^.MeshContactPair.fConvexAABBInMeshLocalSpace) then begin
+     Action:=ActionRemove;
+     break;
+    end;
+   end;
+
+   // The B side triangle of a mesh versus mesh sub pair that the requery skipped (generation drifted) is checked
+   // against the whole-A prediction corridor, so a sub pair whose B triangle left the corridor is removed.
+   if assigned(ContactPair^.MeshMeshContactPair) and
+      (ContactPair^.MeshMeshContactPairGeneration<>ContactPair^.MeshMeshContactPair.fGeneration) and
+      (ContactPair^.ContainerIndex>=0) and
+      (ContactPair^.ContainerIndex<TKraftShapeMesh(ContactPair^.MeshMeshContactPair.fShapeMeshB).fCountMeshes) and
+      (ContactPair^.ElementIndex>=0) and
+      (ContactPair^.ElementIndex<TKraftShapeMesh(ContactPair^.MeshMeshContactPair.fShapeMeshB).fMeshes[ContactPair^.ContainerIndex].fCountTriangles) then begin
+    ContactPair^.MeshMeshContactPairGeneration:=ContactPair^.MeshMeshContactPair.fGeneration;
+    if not AABBIntersect(TKraftShapeMesh(ContactPair^.MeshMeshContactPair.fShapeMeshB).fMeshes[ContactPair^.ContainerIndex].fTriangles[ContactPair^.ElementIndex].AABB,
+                         ContactPair^.MeshMeshContactPair.fMeshAAABBInMeshBLocalSpace) then begin
      Action:=ActionRemove;
      break;
     end;
@@ -47046,6 +48448,42 @@ begin
   end;
 
   MeshContactPair:=MeshContactPair.fNext;
+
+ end;
+
+ MeshMeshContactPair:=fMeshMeshContactPairFirst;
+ while assigned(MeshMeshContactPair) do begin
+
+  ShapeA:=MeshMeshContactPair.fShapeMeshA;
+  ShapeB:=MeshMeshContactPair.fShapeMeshB;
+
+  RigidBodyA:=MeshMeshContactPair.fRigidBodyMeshA;
+  RigidBodyB:=MeshMeshContactPair.fRigidBodyMeshB;
+
+  if kcfFiltered in MeshMeshContactPair.fFlags then begin
+   if (not RigidBodyA.CanCollideWith(RigidBodyB)) or (assigned(fOnCanCollide) and not fOnCanCollide(ShapeA,ShapeB)) then begin
+    NextMeshMeshContactPair:=MeshMeshContactPair.fNext;
+    RemoveMeshMeshContact(MeshMeshContactPair);
+    MeshMeshContactPair:=NextMeshMeshContactPair;
+    continue;
+   end;
+   MeshMeshContactPair.fFlags:=MeshMeshContactPair.fFlags-[kcfFiltered];
+  end;
+
+  if ((RigidBodyA.fFlags*[krbfAwake,krbfActive])<>[krbfAwake,krbfActive]) and
+     ((RigidBodyB.fFlags*[krbfAwake,krbfActive])<>[krbfAwake,krbfActive]) then begin
+   MeshMeshContactPair:=MeshMeshContactPair.fNext;
+   continue;
+  end;
+
+  if not AABBIntersect(ShapeA.ProxyFatWorldAABB^,ShapeB.ProxyFatWorldAABB^) then begin
+   NextMeshMeshContactPair:=MeshMeshContactPair.fNext;
+   RemoveMeshMeshContact(MeshMeshContactPair);
+   MeshMeshContactPair:=NextMeshMeshContactPair;
+   continue;
+  end;
+
+  MeshMeshContactPair:=MeshMeshContactPair.fNext;
 
  end;
 
@@ -48835,8 +50273,6 @@ procedure TKraftRigidBody.Finish;
      raise EKraftShapeTypeOnlyForStaticRigidBody.Create('Plane shapes are allowed only at static rigidbodies');
     end else if Shape is TKraftShapeTriangle then begin
      raise EKraftShapeTypeOnlyForStaticRigidBody.Create('Triangle shapes are allowed only at static rigidbodies');
-    end else if Shape is TKraftShapeMesh then begin
-     raise EKraftShapeTypeOnlyForStaticRigidBody.Create('Mesh shapes are allowed only at static rigidbodies');
     end;
     if (ksfMass in Shape.fFlags) and ((Shape.fDensity>EPSILON) or (Shape.fForcedMass>EPSILON)) then begin
      fMass:=fMass+Shape.fMassData.Mass;
@@ -48990,6 +50426,9 @@ begin
    ContactPair^.Flags:=ContactPair^.Flags+[kcfFiltered];
    if assigned(ContactPair^.MeshContactPair) then begin
     ContactPair^.MeshContactPair.fFlags:=ContactPair^.MeshContactPair.fFlags+[kcfFiltered];
+   end;
+   if assigned(ContactPair^.MeshMeshContactPair) then begin
+    ContactPair^.MeshMeshContactPair.fFlags:=ContactPair^.MeshMeshContactPair.fFlags+[kcfFiltered];
    end;
   end;
   ContactPairEdge:=ContactPairEdge^.Next;
@@ -49697,6 +51136,9 @@ begin
        if assigned(ContactPair^.MeshContactPair) then begin
         ContactPair^.MeshContactPair.fFlags:=ContactPair^.MeshContactPair.fFlags+[kcfFiltered];
        end;
+       if assigned(ContactPair^.MeshMeshContactPair) then begin
+        ContactPair^.MeshMeshContactPair.fFlags:=ContactPair^.MeshMeshContactPair.fFlags+[kcfFiltered];
+       end;
       end;
      end;
      ContactPairEdge:=ContactPairEdge^.Next;
@@ -49813,6 +51255,9 @@ begin
        ContactPair^.Flags:=ContactPair^.Flags+[kcfFiltered];
        if assigned(ContactPair^.MeshContactPair) then begin
         ContactPair^.MeshContactPair.fFlags:=ContactPair^.MeshContactPair.fFlags+[kcfFiltered];
+       end;
+       if assigned(ContactPair^.MeshMeshContactPair) then begin
+        ContactPair^.MeshMeshContactPair.fFlags:=ContactPair^.MeshMeshContactPair.fFlags+[kcfFiltered];
        end;
       end;
      end;
@@ -67354,6 +68799,15 @@ begin
   fTriangleShapes[Index].CalculateMassData;
  end;
 
+ // Second scratch triangle per thread for the A side of mesh versus mesh sub pairs (B side keeps fTriangleShapes).
+ fSecondTriangleShapes:=nil;
+ SetLength(fSecondTriangleShapes,Max(1,fCountThreads));
+ for Index:=0 to length(fSecondTriangleShapes)-1 do begin
+  fSecondTriangleShapes[Index]:=TKraftShapeTriangle.Create(self,nil,TriangleVertex0,TriangleVertex1,TriangleVertex2);
+  fSecondTriangleShapes[Index].UpdateShapeAABB;
+  fSecondTriangleShapes[Index].CalculateMassData;
+ end;
+
 {$ifndef KraftPasMP}
  if fCountThreads>1 then begin
   fJobManager:=TKraftJobManager.Create(self);
@@ -67380,6 +68834,11 @@ begin
   FreeAndNil(fTriangleShapes[Index]);
  end;
  fTriangleShapes:=nil;
+
+ for Index:=0 to length(fSecondTriangleShapes)-1 do begin
+  FreeAndNil(fSecondTriangleShapes[Index]);
+ end;
+ fSecondTriangleShapes:=nil;
 
  while assigned(fConstraintLast) do begin
   fConstraintLast.Free;
@@ -68842,7 +70301,7 @@ begin
 end;
 
 // Conservative advancement
-function TKraft.GetConservativeAdvancementTimeOfImpact(const aShapeA:TKraftShape;const aSweepA:TKraftSweep;const aShapeB:TKraftShape;const aShapeBMeshIndex,aShapeBTriangleIndex:TKraftInt32;const aSweepB:TKraftSweep;const aTimeStep:TKraftTimeStep;const aThreadIndex:TKraftInt32;var aBeta:TKraftScalar):boolean;
+function TKraft.GetConservativeAdvancementTimeOfImpact(const aShapeA:TKraftShape;const aShapeAMeshIndex,aShapeATriangleIndex:TKraftInt32;const aSweepA:TKraftSweep;const aShapeB:TKraftShape;const aShapeBMeshIndex,aShapeBTriangleIndex:TKraftInt32;const aSweepB:TKraftSweep;const aTimeStep:TKraftTimeStep;const aThreadIndex:TKraftInt32;var aBeta:TKraftScalar):boolean;
 const Radius=1e-3;
 var Tries:TKraftInt32;
     BoundingRadiusA,BoundingRadiusB,MaximumAngularProjectedVelocity,RelativeLinearVelocityLength,Lambda,LastLambda,
@@ -68851,6 +70310,10 @@ var Tries:TKraftInt32;
     Mesh:TKraftMesh;
     MeshTriangle:PKraftMeshTriangle;
     ShapeTriangle:TKraftShapeTriangle;
+    MeshShapeA:TKraftShapeMesh;
+    MeshA:TKraftMesh;
+    MeshTriangleA:PKraftMeshTriangle;
+    ShapeTriangleA:TKraftShapeTriangle;
     Shapes:array[0..1] of TKraftShape;
     RelativeLinearVelocity:TKraftVector3;
     LinearVelocities,AngularVelocities:array[0..1] of TKraftVector3;
@@ -68861,7 +70324,29 @@ begin
 
  result:=false;
 
- Shapes[0]:=aShapeA;
+ if (aShapeAMeshIndex>=0) and (aShapeATriangleIndex>=0) and (aShapeA is TKraftShapeMesh) then begin
+  MeshShapeA:=TKraftShapeMesh(aShapeA);
+  if aShapeAMeshIndex<=MeshShapeA.fCountMeshes then begin
+   MeshA:=MeshShapeA.fMeshes[aShapeAMeshIndex];
+   if aShapeATriangleIndex<=MeshA.fCountTriangles then begin
+    ShapeTriangleA:=TKraftShapeTriangle(fSecondTriangleShapes[aThreadIndex]);
+    Shapes[0]:=ShapeTriangleA;
+    MeshTriangleA:=@MeshA.fTriangles[aShapeATriangleIndex];
+    ShapeTriangleA.fLocalTransform:=MeshShapeA.fLocalTransform;
+    ShapeTriangleA.fWorldTransform:=MeshShapeA.fWorldTransform;
+    ShapeTriangleA.fConvexHull.fVertices[0].Position:=Vector3ScalarMul(MeshA.fVertices[MeshTriangleA^.Vertices[0]],MeshShapeA.fScale);
+    ShapeTriangleA.fConvexHull.fVertices[1].Position:=Vector3ScalarMul(MeshA.fVertices[MeshTriangleA^.Vertices[1]],MeshShapeA.fScale);
+    ShapeTriangleA.fConvexHull.fVertices[2].Position:=Vector3ScalarMul(MeshA.fVertices[MeshTriangleA^.Vertices[2]],MeshShapeA.fScale);
+    ShapeTriangleA.UpdateData;
+   end else begin
+    exit;
+   end;
+  end else begin
+   exit;
+  end;
+ end else begin
+  Shapes[0]:=aShapeA;
+ end;
 
  if (aShapeBMeshIndex>=0) and (aShapeBTriangleIndex>=0) and (aShapeB is TKraftShapeMesh) then begin
   MeshShape:=TKraftShapeMesh(aShapeB);
@@ -68982,7 +70467,7 @@ begin
 end;
 
 // Bilateral advancement
-function TKraft.GetBilateralAdvancementTimeOfImpact(const aShapeA:TKraftShape;const aSweepA:TKraftSweep;const aShapeB:TKraftShape;const aShapeBMeshIndex,aShapeBTriangleIndex:TKraftInt32;const aSweepB:TKraftSweep;const aTimeStep:TKraftTimeStep;const aThreadIndex:TKraftInt32;var aBeta:TKraftScalar):boolean;
+function TKraft.GetBilateralAdvancementTimeOfImpact(const aShapeA:TKraftShape;const aShapeAMeshIndex,aShapeATriangleIndex:TKraftInt32;const aSweepA:TKraftSweep;const aShapeB:TKraftShape;const aShapeBMeshIndex,aShapeBTriangleIndex:TKraftInt32;const aSweepB:TKraftSweep;const aTimeStep:TKraftTimeStep;const aThreadIndex:TKraftInt32;var aBeta:TKraftScalar):boolean;
 const sfmNONE=0;
       sfmVERTICES=1;
       sfmEDGEA=2;
@@ -68998,6 +70483,10 @@ var Iteration,TryIteration,RootIteration,SeparationFunctionMode:TKraftInt32;
     MeshShape:TKraftShapeMesh;
     Mesh:TKraftMesh;
     MeshTriangle:PKraftMeshTriangle;
+    ShapeTriangleA:TKraftShapeTriangle;
+    MeshShapeA:TKraftShapeMesh;
+    MeshA:TKraftMesh;
+    MeshTriangleA:PKraftMeshTriangle;
     Axis,{LocalVertex,va,vb,}eA,eB:TKraftVector3;
     LocalPlane:TKraftPlane;
     GJK:TKraftGJK;
@@ -69064,7 +70553,29 @@ begin
 
  result:=false;
 
- Shapes[0]:=aShapeA;
+ if (aShapeAMeshIndex>=0) and (aShapeATriangleIndex>=0) and (aShapeA is TKraftShapeMesh) then begin
+  MeshShapeA:=TKraftShapeMesh(aShapeA);
+  if aShapeAMeshIndex<=MeshShapeA.fCountMeshes then begin
+   MeshA:=MeshShapeA.fMeshes[aShapeAMeshIndex];
+   if aShapeATriangleIndex<=MeshA.fCountTriangles then begin
+    ShapeTriangleA:=TKraftShapeTriangle(fSecondTriangleShapes[aThreadIndex]);
+    Shapes[0]:=ShapeTriangleA;
+    MeshTriangleA:=@MeshA.fTriangles[aShapeATriangleIndex];
+    ShapeTriangleA.fLocalTransform:=MeshShapeA.fLocalTransform;
+    ShapeTriangleA.fWorldTransform:=MeshShapeA.fWorldTransform;
+    ShapeTriangleA.fConvexHull.fVertices[0].Position:=Vector3ScalarMul(MeshA.fVertices[MeshTriangleA^.Vertices[0]],MeshShapeA.fScale);
+    ShapeTriangleA.fConvexHull.fVertices[1].Position:=Vector3ScalarMul(MeshA.fVertices[MeshTriangleA^.Vertices[1]],MeshShapeA.fScale);
+    ShapeTriangleA.fConvexHull.fVertices[2].Position:=Vector3ScalarMul(MeshA.fVertices[MeshTriangleA^.Vertices[2]],MeshShapeA.fScale);
+    ShapeTriangleA.UpdateData;
+   end else begin
+    exit;
+   end;
+  end else begin
+   exit;
+  end;
+ end else begin
+  Shapes[0]:=aShapeA;
+ end;
 
  if (aShapeBMeshIndex>=0) and (aShapeBTriangleIndex>=0) and (aShapeB is TKraftShapeMesh) then begin
   MeshShape:=TKraftShapeMesh(aShapeB);
@@ -69517,20 +71028,20 @@ begin
 
 end;
 
-function TKraft.GetTimeOfImpact(const aShapeA:TKraftShape;const aSweepA:TKraftSweep;const aShapeB:TKraftShape;const aShapeBMeshIndex,aShapeBTriangleIndex:TKraftInt32;const aSweepB:TKraftSweep;const aTimeStep:TKraftTimeStep;const aThreadIndex:TKraftInt32;var aBeta:TKraftScalar):boolean;
+function TKraft.GetTimeOfImpact(const aShapeA:TKraftShape;const aShapeAMeshIndex,aShapeATriangleIndex:TKraftInt32;const aSweepA:TKraftSweep;const aShapeB:TKraftShape;const aShapeBMeshIndex,aShapeBTriangleIndex:TKraftInt32;const aSweepB:TKraftSweep;const aTimeStep:TKraftTimeStep;const aThreadIndex:TKraftInt32;var aBeta:TKraftScalar):boolean;
 begin
  if (aShapeA.fShapeType=kstSignedDistanceField) or (aShapeB.fShapeType=kstSignedDistanceField) then begin
   // Signed distance fields have no polytope features for the bilateral advancement separation function
   // (the GJK signed distance field path computes closest points without a simplex), so pairs with a signed
   // distance field always take the conservative advancement path, which only needs distances and normals
-  result:=GetConservativeAdvancementTimeOfImpact(aShapeA,aSweepA,aShapeB,aShapeBMeshIndex,aShapeBTriangleIndex,aSweepB,aTimeStep,aThreadIndex,aBeta);
+  result:=GetConservativeAdvancementTimeOfImpact(aShapeA,aShapeAMeshIndex,aShapeATriangleIndex,aSweepA,aShapeB,aShapeBMeshIndex,aShapeBTriangleIndex,aSweepB,aTimeStep,aThreadIndex,aBeta);
  end else begin
   case fTimeOfImpactAlgorithm of
    ktoiaConservativeAdvancement:begin
-    result:=GetConservativeAdvancementTimeOfImpact(aShapeA,aSweepA,aShapeB,aShapeBMeshIndex,aShapeBTriangleIndex,aSweepB,aTimeStep,aThreadIndex,aBeta);
+    result:=GetConservativeAdvancementTimeOfImpact(aShapeA,aShapeAMeshIndex,aShapeATriangleIndex,aSweepA,aShapeB,aShapeBMeshIndex,aShapeBTriangleIndex,aSweepB,aTimeStep,aThreadIndex,aBeta);
    end;
    else {ktoiaBilateralAdvancement:}begin
-    result:=GetBilateralAdvancementTimeOfImpact(aShapeA,aSweepA,aShapeB,aShapeBMeshIndex,aShapeBTriangleIndex,aSweepB,aTimeStep,aThreadIndex,aBeta);
+    result:=GetBilateralAdvancementTimeOfImpact(aShapeA,aShapeAMeshIndex,aShapeATriangleIndex,aSweepA,aShapeB,aShapeBMeshIndex,aShapeBTriangleIndex,aSweepB,aTimeStep,aThreadIndex,aBeta);
    end;
   end;
  end;
@@ -69830,6 +71341,8 @@ begin
        Sweeps[0]:=SweepTermNormalize(RigidBodies[0].fSweep);
        Sweeps[1]:=SweepTermNormalize(RigidBodies[1].fSweep);
        if GetTimeOfImpact(ContactPair^.Shapes[0],
+                          ContactPair^.ShapeAContainerIndex,
+                          ContactPair^.ShapeAElementIndex,
                           Sweeps[0],
                           ContactPair^.Shapes[1],
                           ContactPair^.ContainerIndex,
@@ -69982,6 +71495,8 @@ begin
 
     Beta:=0.0;
     if GetTimeOfImpact(ContactPair^.Shapes[0],
+                       ContactPair^.ShapeAContainerIndex,
+                       ContactPair^.ShapeAElementIndex,
                        SweepTermNormalize(RigidBodies[0].fSweep),
                        ContactPair^.Shapes[1],
                        ContactPair^.ContainerIndex,
@@ -72100,7 +73615,110 @@ var Sphere:TKraftSphere;
  var PositionA,PositionB,Normal:TKraftVector3;
      PenetrationDepth:TKraftScalar;
      Penetrating:boolean;
+     SkipListNodeIndex,MeshSkipListNodeIndex,TriangleIndex:TKraftInt32;
+     MeshIndex:TKraftPtrInt;
+     Mesh:TKraftMesh;
+     SkipListNode:PKraftDynamicAABBTreeSkipListNode;
+     MeshSkipListNode:PKraftMeshSkipListNode;
+     Triangle:PKraftMeshTriangle;
+     IndirectTriangle:TKraftIndirectTriangle;
+     AABB:TKraftAABB;
+     TrianglePoints:array[0..2] of TKraftVector3;
+     QueryTransform,WithTransform:TKraftMatrix4x4;
+     WasHit,Scaled:boolean;
  begin
+  if aShape.fShapeType=kstMesh then begin
+   // A pushed mesh is decomposed into its triangles; every query triangle is brought into world space and
+   // depenetrated against the single convex or signed distance field world shape, and all triangle pushes are
+   // accumulated exactly like the convex branch below.
+   WasHit:=false;
+{$ifdef KraftDoublePositions}
+   QueryTransform:=PushRelativeTransformA;
+   WithTransform:=PushWithShapeTransform(aWithShape);
+{$else}
+   QueryTransform:=TransformA;
+   WithTransform:=aWithShape.fWorldTransform;
+{$endif}
+   // The query mesh BVH (SkipListNode AABBs) lives in the unscaled base space, so the world shape's world AABB is
+   // brought into the query mesh local space and then divided into that base space.
+   AABB:=AABBHomogenTransform(aWithShape.fWorldAABB,Matrix4x4TermSimpleInverse(TransformA));
+   AABB.Min:=Vector3ScalarMul(AABB.Min,aShape.fInverseScale);
+   AABB.Max:=Vector3ScalarMul(AABB.Max,aShape.fInverseScale);
+   // Only synthesize scaled triangle vertex copies when the shape is actually scaled; otherwise transform the base vertices directly.
+   Scaled:=aShape.fScale<>1.0;
+   SkipListNodeIndex:=0;
+   while SkipListNodeIndex<TKraftShapeMesh(aShape).fCountSkipListNodes do begin
+    SkipListNode:=@TKraftShapeMesh(aShape).fSkipListNodes[SkipListNodeIndex];
+    if AABBIntersect(SkipListNode^.AABB,AABB) then begin
+     MeshIndex:=TKraftPtrInt(TKraftPtrUInt(SkipListNode^.UserData))-1;
+     if MeshIndex>=0 then begin
+      Mesh:=TKraftShapeMesh(aShape).fMeshes[MeshIndex];
+      MeshSkipListNodeIndex:=0;
+      while MeshSkipListNodeIndex<Mesh.fCountSkipListNodes do begin
+       MeshSkipListNode:=@Mesh.fSkipListNodes[MeshSkipListNodeIndex];
+       if AABBIntersect(MeshSkipListNode^.AABB,AABB) then begin
+        if MeshSkipListNode^.CountTriangles>0 then begin
+         for TriangleIndex:=MeshSkipListNode^.FirstTriangleIndex to MeshSkipListNode^.FirstTriangleIndex+(MeshSkipListNode^.CountTriangles-1) do begin
+          Triangle:=@Mesh.fTriangles[TriangleIndex];
+          if Scaled then begin
+           TrianglePoints[0]:=Vector3TermMatrixMul(Vector3ScalarMul(Mesh.fVertices[Triangle^.Vertices[0]],aShape.fScale),QueryTransform);
+           TrianglePoints[1]:=Vector3TermMatrixMul(Vector3ScalarMul(Mesh.fVertices[Triangle^.Vertices[1]],aShape.fScale),QueryTransform);
+           TrianglePoints[2]:=Vector3TermMatrixMul(Vector3ScalarMul(Mesh.fVertices[Triangle^.Vertices[2]],aShape.fScale),QueryTransform);
+          end else begin
+           TrianglePoints[0]:=Vector3TermMatrixMul(Mesh.fVertices[Triangle^.Vertices[0]],QueryTransform);
+           TrianglePoints[1]:=Vector3TermMatrixMul(Mesh.fVertices[Triangle^.Vertices[1]],QueryTransform);
+           TrianglePoints[2]:=Vector3TermMatrixMul(Mesh.fVertices[Triangle^.Vertices[2]],QueryTransform);
+          end;
+          IndirectTriangle.Points[0]:=@TrianglePoints[0];
+          IndirectTriangle.Points[1]:=@TrianglePoints[1];
+          IndirectTriangle.Points[2]:=@TrianglePoints[2];
+          Normal:=Vector3SafeNorm(Vector3Cross(Vector3Sub(TrianglePoints[1],TrianglePoints[0]),Vector3Sub(TrianglePoints[2],TrianglePoints[0])));
+          IndirectTriangle.Normal:=@Normal;
+          if aWithShape.fShapeType=kstSignedDistanceField then begin
+           // The query triangle is already in world space, so the field samples against it directly; the returned
+           // normal is the field push direction and is negated to become the query triangle push direction
+           Penetrating:=SignedDistanceFieldIndirectTrianglePenetration(aWithShape,@IndirectTriangle,WithTransform,Matrix4x4Identity,PositionB,PositionA,Normal,PenetrationDepth);
+           if Penetrating then begin
+            Normal:=Vector3Neg(Normal);
+           end;
+          end else begin
+           // The query triangle is passed as the world space MPR side, so the raw normal is directly its push direction
+           Penetrating:=MPRIndirectTrianglePenetration(@IndirectTriangle,aWithShape,Matrix4x4Identity,WithTransform,PositionA,PositionB,Normal,PenetrationDepth);
+          end;
+          if Penetrating then begin
+           if aSingleDeepest then begin
+            if (Count=0) or (BestPenetrationDepth<=PenetrationDepth) then begin
+             Count:=1;
+             BestMinimumTranslationVector:=Vector3ScalarMul(Normal,PenetrationDepth);
+             BestPenetrationDepth:=PenetrationDepth;
+            end;
+           end else begin
+            SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Normal,PenetrationDepth));
+            inc(Count);
+           end;
+           Hit:=true;
+           WasHit:=true;
+          end;
+         end;
+        end;
+        inc(MeshSkipListNodeIndex);
+       end else begin
+        MeshSkipListNodeIndex:=MeshSkipListNode^.SkipToNodeIndex;
+       end;
+      end;
+     end;
+     inc(SkipListNodeIndex);
+    end else begin
+     SkipListNodeIndex:=SkipListNode^.SkipToNodeIndex;
+    end;
+   end;
+   if WasHit then begin
+    if assigned(aOnPushShapeContactHook) then begin
+     aOnPushShapeContactHook(aWithShape);
+    end;
+   end;
+   exit;
+  end;
   // Signed distance fields have no support mapping for MPR, so a pair where either the pushed shape or the
   // world shape is a signed distance field goes through the dedicated signed distance field penetration (same
   // convention: normal = push direction of aShape; a field-vs-field pair descends mutually inside it)
@@ -72152,7 +73770,155 @@ var Sphere:TKraftSphere;
      WasHit:boolean;
      TrianglePenetrating:boolean;
      Scaled:boolean;
+     QuerySkipListNodeIndex,QueryMeshSkipListNodeIndex,QueryTriangleIndex,
+     WorldSkipListNodeIndex,WorldMeshSkipListNodeIndex,WorldTriangleIndex,
+     FeatureKind,EdgeIndexA,EdgeIndexB:TKraftInt32;
+     VertexNormal:TKraftVector3;
+     VertexDepth:TKraftScalar;
+     QueryMeshIndex,WorldMeshIndex:TKraftPtrInt;
+     QueryMesh,WorldMesh:TKraftMesh;
+     QuerySkipListNode,WorldSkipListNode:PKraftDynamicAABBTreeSkipListNode;
+     QueryMeshSkipListNode,WorldMeshSkipListNode:PKraftMeshSkipListNode;
+     QueryTriangle,WorldTriangle:PKraftMeshTriangle;
+     QueryPoints,WorldPoints:array[0..2] of TKraftVector3;
+     QueryScaled,WorldScaled:boolean;
+     InnerAABB,QueryTriangleAABB:TKraftAABB;
+     QueryTransform,WithTransform,InverseWithTransform:TKraftMatrix4x4;
  begin
+  if aShape.fShapeType=kstMesh then begin
+   // Both shapes are meshes, so the push is a double walk: every query triangle is brought into world space and
+   // tested against every world mesh triangle whose base space AABB overlaps it, with the shape free triangle
+   // versus triangle separating axis test. Its normal is already the push direction of the query triangle, and all
+   // triangle pushes are accumulated exactly like the convex branches.
+   WasHit:=false;
+{$ifdef KraftDoublePositions}
+   QueryTransform:=PushRelativeTransformA;
+   WithTransform:=PushWithShapeTransform(aWithShape);
+{$else}
+   QueryTransform:=TransformA;
+   WithTransform:=aWithShape.fWorldTransform;
+{$endif}
+   InverseWithTransform:=Matrix4x4TermSimpleInverse(WithTransform);
+   // Outer search AABB: the world mesh world AABB brought into the query mesh unscaled base space.
+   AABB:=AABBHomogenTransform(aWithShape.fWorldAABB,Matrix4x4TermSimpleInverse(TransformA));
+   AABB.Min:=Vector3ScalarMul(AABB.Min,aShape.fInverseScale);
+   AABB.Max:=Vector3ScalarMul(AABB.Max,aShape.fInverseScale);
+   // Only synthesize scaled triangle vertex copies when a mesh is actually scaled; otherwise transform the base vertices directly.
+   QueryScaled:=aShape.fScale<>1.0;
+   WorldScaled:=aWithShape.fScale<>1.0;
+   QuerySkipListNodeIndex:=0;
+   while QuerySkipListNodeIndex<TKraftShapeMesh(aShape).fCountSkipListNodes do begin
+    QuerySkipListNode:=@TKraftShapeMesh(aShape).fSkipListNodes[QuerySkipListNodeIndex];
+    if AABBIntersect(QuerySkipListNode^.AABB,AABB) then begin
+     QueryMeshIndex:=TKraftPtrInt(TKraftPtrUInt(QuerySkipListNode^.UserData))-1;
+     if QueryMeshIndex>=0 then begin
+      QueryMesh:=TKraftShapeMesh(aShape).fMeshes[QueryMeshIndex];
+      QueryMeshSkipListNodeIndex:=0;
+      while QueryMeshSkipListNodeIndex<QueryMesh.fCountSkipListNodes do begin
+       QueryMeshSkipListNode:=@QueryMesh.fSkipListNodes[QueryMeshSkipListNodeIndex];
+       if AABBIntersect(QueryMeshSkipListNode^.AABB,AABB) then begin
+        if QueryMeshSkipListNode^.CountTriangles>0 then begin
+         for QueryTriangleIndex:=QueryMeshSkipListNode^.FirstTriangleIndex to QueryMeshSkipListNode^.FirstTriangleIndex+(QueryMeshSkipListNode^.CountTriangles-1) do begin
+          QueryTriangle:=@QueryMesh.fTriangles[QueryTriangleIndex];
+          if QueryScaled then begin
+           QueryPoints[0]:=Vector3TermMatrixMul(Vector3ScalarMul(QueryMesh.fVertices[QueryTriangle^.Vertices[0]],aShape.fScale),QueryTransform);
+           QueryPoints[1]:=Vector3TermMatrixMul(Vector3ScalarMul(QueryMesh.fVertices[QueryTriangle^.Vertices[1]],aShape.fScale),QueryTransform);
+           QueryPoints[2]:=Vector3TermMatrixMul(Vector3ScalarMul(QueryMesh.fVertices[QueryTriangle^.Vertices[2]],aShape.fScale),QueryTransform);
+          end else begin
+           QueryPoints[0]:=Vector3TermMatrixMul(QueryMesh.fVertices[QueryTriangle^.Vertices[0]],QueryTransform);
+           QueryPoints[1]:=Vector3TermMatrixMul(QueryMesh.fVertices[QueryTriangle^.Vertices[1]],QueryTransform);
+           QueryPoints[2]:=Vector3TermMatrixMul(QueryMesh.fVertices[QueryTriangle^.Vertices[2]],QueryTransform);
+          end;
+          // Inner search AABB: this query triangle's world AABB brought into the world mesh unscaled base space.
+          QueryTriangleAABB.Min.x:=Min(QueryPoints[0].x,Min(QueryPoints[1].x,QueryPoints[2].x));
+          QueryTriangleAABB.Min.y:=Min(QueryPoints[0].y,Min(QueryPoints[1].y,QueryPoints[2].y));
+          QueryTriangleAABB.Min.z:=Min(QueryPoints[0].z,Min(QueryPoints[1].z,QueryPoints[2].z));
+          QueryTriangleAABB.Max.x:=Max(QueryPoints[0].x,Max(QueryPoints[1].x,QueryPoints[2].x));
+          QueryTriangleAABB.Max.y:=Max(QueryPoints[0].y,Max(QueryPoints[1].y,QueryPoints[2].y));
+          QueryTriangleAABB.Max.z:=Max(QueryPoints[0].z,Max(QueryPoints[1].z,QueryPoints[2].z));
+{$ifdef SIMD}
+          QueryTriangleAABB.Min.w:=0.0;
+          QueryTriangleAABB.Max.w:=0.0;
+{$endif}
+          InnerAABB:=AABBHomogenTransform(QueryTriangleAABB,InverseWithTransform);
+          InnerAABB.Min:=Vector3ScalarMul(InnerAABB.Min,aWithShape.fInverseScale);
+          InnerAABB.Max:=Vector3ScalarMul(InnerAABB.Max,aWithShape.fInverseScale);
+          WorldSkipListNodeIndex:=0;
+          while WorldSkipListNodeIndex<TKraftShapeMesh(aWithShape).fCountSkipListNodes do begin
+           WorldSkipListNode:=@TKraftShapeMesh(aWithShape).fSkipListNodes[WorldSkipListNodeIndex];
+           if AABBIntersect(WorldSkipListNode^.AABB,InnerAABB) then begin
+            WorldMeshIndex:=TKraftPtrInt(TKraftPtrUInt(WorldSkipListNode^.UserData))-1;
+            if WorldMeshIndex>=0 then begin
+             WorldMesh:=TKraftShapeMesh(aWithShape).fMeshes[WorldMeshIndex];
+             WorldMeshSkipListNodeIndex:=0;
+             while WorldMeshSkipListNodeIndex<WorldMesh.fCountSkipListNodes do begin
+              WorldMeshSkipListNode:=@WorldMesh.fSkipListNodes[WorldMeshSkipListNodeIndex];
+              if AABBIntersect(WorldMeshSkipListNode^.AABB,InnerAABB) then begin
+               if WorldMeshSkipListNode^.CountTriangles>0 then begin
+                for WorldTriangleIndex:=WorldMeshSkipListNode^.FirstTriangleIndex to WorldMeshSkipListNode^.FirstTriangleIndex+(WorldMeshSkipListNode^.CountTriangles-1) do begin
+                 WorldTriangle:=@WorldMesh.fTriangles[WorldTriangleIndex];
+                 if WorldScaled then begin
+                  WorldPoints[0]:=Vector3TermMatrixMul(Vector3ScalarMul(WorldMesh.fVertices[WorldTriangle^.Vertices[0]],aWithShape.fScale),WithTransform);
+                  WorldPoints[1]:=Vector3TermMatrixMul(Vector3ScalarMul(WorldMesh.fVertices[WorldTriangle^.Vertices[1]],aWithShape.fScale),WithTransform);
+                  WorldPoints[2]:=Vector3TermMatrixMul(Vector3ScalarMul(WorldMesh.fVertices[WorldTriangle^.Vertices[2]],aWithShape.fScale),WithTransform);
+                 end else begin
+                  WorldPoints[0]:=Vector3TermMatrixMul(WorldMesh.fVertices[WorldTriangle^.Vertices[0]],WithTransform);
+                  WorldPoints[1]:=Vector3TermMatrixMul(WorldMesh.fVertices[WorldTriangle^.Vertices[1]],WithTransform);
+                  WorldPoints[2]:=Vector3TermMatrixMul(WorldMesh.fVertices[WorldTriangle^.Vertices[2]],WithTransform);
+                 end;
+                 if TriangleTrianglePenetration(QueryPoints[0],QueryPoints[1],QueryPoints[2],WorldPoints[0],WorldPoints[1],WorldPoints[2],Normal,PenetrationDepth,FeatureKind,EdgeIndexA,EdgeIndexB) then begin
+                  // The surface SAT depth of two crossing facets of interpenetrating solids is a near zero sliver;
+                  // the deepest vertex behind the other facet plane carries the volume overlap the push needs
+                  if TriangleTriangleDeepestVertexPenetration(QueryPoints[0],QueryPoints[1],QueryPoints[2],WorldPoints[0],WorldPoints[1],WorldPoints[2],VertexNormal,VertexDepth) and (PenetrationDepth<VertexDepth) then begin
+                   Normal:=VertexNormal;
+                   PenetrationDepth:=VertexDepth;
+                  end;
+                  if aSingleDeepest then begin
+                   if (Count=0) or (BestPenetrationDepth<=PenetrationDepth) then begin
+                    Count:=1;
+                    BestMinimumTranslationVector:=Vector3ScalarMul(Normal,PenetrationDepth);
+                    BestPenetrationDepth:=PenetrationDepth;
+                   end;
+                  end else begin
+                   SumMinimumTranslationVector:=Vector3Add(SumMinimumTranslationVector,Vector3ScalarMul(Normal,PenetrationDepth));
+                   inc(Count);
+                  end;
+                  Hit:=true;
+                  WasHit:=true;
+                 end;
+                end;
+               end;
+               inc(WorldMeshSkipListNodeIndex);
+              end else begin
+               WorldMeshSkipListNodeIndex:=WorldMeshSkipListNode^.SkipToNodeIndex;
+              end;
+             end;
+            end;
+            inc(WorldSkipListNodeIndex);
+           end else begin
+            WorldSkipListNodeIndex:=WorldSkipListNode^.SkipToNodeIndex;
+           end;
+          end;
+         end;
+        end;
+        inc(QueryMeshSkipListNodeIndex);
+       end else begin
+        QueryMeshSkipListNodeIndex:=QueryMeshSkipListNode^.SkipToNodeIndex;
+       end;
+      end;
+     end;
+     inc(QuerySkipListNodeIndex);
+    end else begin
+     QuerySkipListNodeIndex:=QuerySkipListNode^.SkipToNodeIndex;
+    end;
+   end;
+   if WasHit then begin
+    if assigned(aOnPushShapeContactHook) then begin
+     aOnPushShapeContactHook(aWithShape);
+    end;
+   end;
+   exit;
+  end;
   WasHit:=false;
 {$ifdef KraftDoublePositions}
   SphereCenter:=Vector3TermMatrixMulInverted(Vector3SubPosition(PositionFromVector3(Sphere.Center),PushBase),PushWithShapeTransform(aWithShape));
@@ -72288,15 +74054,11 @@ begin
    result:=PushSphere(Center,TKraftShapeSphere(aShape).fRadius,aCollisionGroups,aTryIterations,aOnPushShapeContactHook,aKraftOnPushShapeFilterHook,aShape);
    aSeperation:={$ifdef KraftDoublePositions}Vector3SubPosition(Center,OriginalCenter){$else}Vector3Sub(Center,OriginalCenter){$endif};
   end;
-  kstMesh:begin
-   // Meshes are not supported as the pushed shape for PushShape, since a mesh is not a single convex volume.
-   raise EKraftShapeTypeNotSupported.Create('Mesh shype type isn''t supported for PushShape');
-   result:=false;
-  end;
   else begin
-   // Convex shapes and signed distance fields are both depenetrated here; a pushed signed distance field is
+   // Convex shapes, signed distance fields and meshes are all depenetrated here; a pushed signed distance field is
    // resolved against convex, field and mesh world geometry through the signed distance field branches inside
-   // CollideConvex and CollideMesh below.
+   // CollideConvex and CollideMesh below, and a pushed mesh is decomposed into its triangles by the mesh branches
+   // inside CollideConvex and CollideMesh.
    Stack.Initialize;
    try
     // The query sphere is the shape's world AABB bounding sphere; its center doesn't have to coincide with
@@ -72891,6 +74653,19 @@ var Hit:Boolean;
   end;
  end;
  procedure CollideConvex(const aWithShape:TKraftShape);
+ var SkipListNodeIndex,MeshSkipListNodeIndex,TriangleIndex:TKraftInt32;
+     MeshIndex:TKraftPtrInt;
+     Mesh:TKraftMesh;
+     PositionA,PositionB,Normal:TKraftVector3;
+     PenetrationDepth:TKraftScalar;
+     SkipListNode:PKraftDynamicAABBTreeSkipListNode;
+     MeshSkipListNode:PKraftMeshSkipListNode;
+     Triangle:PKraftMeshTriangle;
+     IndirectTriangle:TKraftIndirectTriangle;
+     AABB:TKraftAABB;
+     TrianglePoints:array[0..2] of TKraftVector3;
+     QueryTransform,WithTransform:TKraftMatrix4x4;
+     Scaled:boolean;
  begin
   case aShape.fShapeType of
    kstSphere:begin
@@ -72925,6 +74700,80 @@ var Hit:Boolean;
      end;
      else begin
       CollideGeneral(aWithShape);
+     end;
+    end;
+   end;
+   kstMesh:begin
+    // A query mesh is decomposed into its triangles; every triangle is brought into world space and collided
+    // against the single convex or signed distance field world shape, reporting one contact per penetrating
+    // triangle with the query triangle push direction as the contact normal.
+{$ifdef KraftDoublePositions}
+    QueryTransform:=CollideRelativeTransform(aShape);
+    WithTransform:=CollideRelativeTransform(aWithShape);
+{$else}
+    QueryTransform:=aShape.fWorldTransform;
+    WithTransform:=aWithShape.fWorldTransform;
+{$endif}
+    // The query mesh BVH (SkipListNode AABBs) lives in the unscaled base space, so the world shape's world AABB is
+    // brought into the query mesh local space and then divided into that base space.
+    AABB:=AABBHomogenTransform(aWithShape.fWorldAABB,Matrix4x4TermSimpleInverse(aShape.fWorldTransform));
+    AABB.Min:=Vector3ScalarMul(AABB.Min,aShape.fInverseScale);
+    AABB.Max:=Vector3ScalarMul(AABB.Max,aShape.fInverseScale);
+    // Only synthesize scaled triangle vertex copies when the shape is actually scaled; otherwise transform the base vertices directly.
+    Scaled:=aShape.fScale<>1.0;
+    SkipListNodeIndex:=0;
+    while SkipListNodeIndex<TKraftShapeMesh(aShape).fCountSkipListNodes do begin
+     SkipListNode:=@TKraftShapeMesh(aShape).fSkipListNodes[SkipListNodeIndex];
+     if AABBIntersect(SkipListNode^.AABB,AABB) then begin
+      MeshIndex:=TKraftPtrInt(TKraftPtrUInt(SkipListNode^.UserData))-1;
+      if MeshIndex>=0 then begin
+       Mesh:=TKraftShapeMesh(aShape).fMeshes[MeshIndex];
+       MeshSkipListNodeIndex:=0;
+       while MeshSkipListNodeIndex<Mesh.fCountSkipListNodes do begin
+        MeshSkipListNode:=@Mesh.fSkipListNodes[MeshSkipListNodeIndex];
+        if AABBIntersect(MeshSkipListNode^.AABB,AABB) then begin
+         if MeshSkipListNode^.CountTriangles>0 then begin
+          for TriangleIndex:=MeshSkipListNode^.FirstTriangleIndex to MeshSkipListNode^.FirstTriangleIndex+(MeshSkipListNode^.CountTriangles-1) do begin
+           Triangle:=@Mesh.fTriangles[TriangleIndex];
+           if Scaled then begin
+            TrianglePoints[0]:=Vector3TermMatrixMul(Vector3ScalarMul(Mesh.fVertices[Triangle^.Vertices[0]],aShape.fScale),QueryTransform);
+            TrianglePoints[1]:=Vector3TermMatrixMul(Vector3ScalarMul(Mesh.fVertices[Triangle^.Vertices[1]],aShape.fScale),QueryTransform);
+            TrianglePoints[2]:=Vector3TermMatrixMul(Vector3ScalarMul(Mesh.fVertices[Triangle^.Vertices[2]],aShape.fScale),QueryTransform);
+           end else begin
+            TrianglePoints[0]:=Vector3TermMatrixMul(Mesh.fVertices[Triangle^.Vertices[0]],QueryTransform);
+            TrianglePoints[1]:=Vector3TermMatrixMul(Mesh.fVertices[Triangle^.Vertices[1]],QueryTransform);
+            TrianglePoints[2]:=Vector3TermMatrixMul(Mesh.fVertices[Triangle^.Vertices[2]],QueryTransform);
+           end;
+           IndirectTriangle.Points[0]:=@TrianglePoints[0];
+           IndirectTriangle.Points[1]:=@TrianglePoints[1];
+           IndirectTriangle.Points[2]:=@TrianglePoints[2];
+           Normal:=Vector3SafeNorm(Vector3Cross(Vector3Sub(TrianglePoints[1],TrianglePoints[0]),Vector3Sub(TrianglePoints[2],TrianglePoints[0])));
+           IndirectTriangle.Normal:=@Normal;
+           if aWithShape.fShapeType=kstSignedDistanceField then begin
+            // The query triangle is already in world space, so the field samples against it directly; PositionB is
+            // the point on the world field, PositionA the point on the query triangle, and the field push normal is
+            // negated to become the query triangle push direction
+            if SignedDistanceFieldIndirectTrianglePenetration(aWithShape,@IndirectTriangle,WithTransform,Matrix4x4Identity,PositionB,PositionA,Normal,PenetrationDepth) then begin
+             AddContact(aWithShape,-1,-1,PositionA,PositionB,Vector3Neg(Normal),PenetrationDepth);
+            end;
+           end else begin
+            // The query triangle is passed as the world space MPR side, so PositionA lies on it, PositionB on the
+            // world shape and the raw normal is already the query triangle push direction
+            if MPRIndirectTrianglePenetration(@IndirectTriangle,aWithShape,Matrix4x4Identity,WithTransform,PositionA,PositionB,Normal,PenetrationDepth) then begin
+             AddContact(aWithShape,-1,-1,PositionA,PositionB,Normal,PenetrationDepth);
+            end;
+           end;
+          end;
+         end;
+         inc(MeshSkipListNodeIndex);
+        end else begin
+         MeshSkipListNodeIndex:=MeshSkipListNode^.SkipToNodeIndex;
+        end;
+       end;
+      end;
+      inc(SkipListNodeIndex);
+     end else begin
+      SkipListNodeIndex:=SkipListNode^.SkipToNodeIndex;
      end;
     end;
    end;
@@ -73465,6 +75314,21 @@ var Hit:Boolean;
      AABB:TKraftAABB;
      TrianglePoints:array[0..2] of TKraftVector3;
      Scaled:boolean;
+     QuerySkipListNodeIndex,QueryMeshSkipListNodeIndex,QueryTriangleIndex,
+     WorldSkipListNodeIndex,WorldMeshSkipListNodeIndex,WorldTriangleIndex,
+     VertexIndex,FeatureKind,EdgeIndexA,EdgeIndexB:TKraftInt32;
+     VertexNormal:TKraftVector3;
+     VertexDepth:TKraftScalar;
+     QueryMeshIndex,WorldMeshIndex:TKraftPtrInt;
+     QueryMesh,WorldMesh:TKraftMesh;
+     QuerySkipListNode,WorldSkipListNode:PKraftDynamicAABBTreeSkipListNode;
+     QueryMeshSkipListNode,WorldMeshSkipListNode:PKraftMeshSkipListNode;
+     QueryTriangle,WorldTriangle:PKraftMeshTriangle;
+     QueryPoints,WorldPoints:array[0..2] of TKraftVector3;
+     QueryScaled,WorldScaled:boolean;
+     DeepestDot,ProjectionDistance:TKraftScalar;
+     InnerAABB,QueryTriangleAABB:TKraftAABB;
+     QueryTransform,WithTransform,InverseWithTransform:TKraftMatrix4x4;
  begin
   case aShape.fShapeType of
    kstSphere:begin
@@ -73551,6 +75415,136 @@ var Hit:Boolean;
       inc(SkipListNodeIndex);
      end else begin
       SkipListNodeIndex:=SkipListNode^.SkipToNodeIndex;
+     end;
+    end;
+   end;
+   kstMesh:begin
+    // Both shapes are meshes, so the query is a double walk: every query triangle is brought into world space and
+    // tested against every world mesh triangle whose base space AABB overlaps it, with the shape free triangle
+    // versus triangle separating axis test. Its normal is the query triangle push direction. That test yields no
+    // contact points, so the deepest query vertex along the negated normal is taken as the query surface point and
+    // projected by the penetration depth onto the world triangle as the paired world surface point.
+{$ifdef KraftDoublePositions}
+    QueryTransform:=CollideRelativeTransform(aShape);
+    WithTransform:=CollideRelativeTransform(aWithShape);
+{$else}
+    QueryTransform:=aShape.fWorldTransform;
+    WithTransform:=aWithShape.fWorldTransform;
+{$endif}
+    InverseWithTransform:=Matrix4x4TermSimpleInverse(WithTransform);
+    // Outer search AABB: the world mesh world AABB brought into the query mesh unscaled base space.
+    AABB:=AABBHomogenTransform(aWithShape.fWorldAABB,Matrix4x4TermSimpleInverse(aShape.fWorldTransform));
+    AABB.Min:=Vector3ScalarMul(AABB.Min,aShape.fInverseScale);
+    AABB.Max:=Vector3ScalarMul(AABB.Max,aShape.fInverseScale);
+    // Only synthesize scaled triangle vertex copies when a mesh is actually scaled; otherwise transform the base vertices directly.
+    QueryScaled:=aShape.fScale<>1.0;
+    WorldScaled:=aWithShape.fScale<>1.0;
+    QuerySkipListNodeIndex:=0;
+    while QuerySkipListNodeIndex<TKraftShapeMesh(aShape).fCountSkipListNodes do begin
+     QuerySkipListNode:=@TKraftShapeMesh(aShape).fSkipListNodes[QuerySkipListNodeIndex];
+     if AABBIntersect(QuerySkipListNode^.AABB,AABB) then begin
+      QueryMeshIndex:=TKraftPtrInt(TKraftPtrUInt(QuerySkipListNode^.UserData))-1;
+      if QueryMeshIndex>=0 then begin
+       QueryMesh:=TKraftShapeMesh(aShape).fMeshes[QueryMeshIndex];
+       QueryMeshSkipListNodeIndex:=0;
+       while QueryMeshSkipListNodeIndex<QueryMesh.fCountSkipListNodes do begin
+        QueryMeshSkipListNode:=@QueryMesh.fSkipListNodes[QueryMeshSkipListNodeIndex];
+        if AABBIntersect(QueryMeshSkipListNode^.AABB,AABB) then begin
+         if QueryMeshSkipListNode^.CountTriangles>0 then begin
+          for QueryTriangleIndex:=QueryMeshSkipListNode^.FirstTriangleIndex to QueryMeshSkipListNode^.FirstTriangleIndex+(QueryMeshSkipListNode^.CountTriangles-1) do begin
+           QueryTriangle:=@QueryMesh.fTriangles[QueryTriangleIndex];
+           if QueryScaled then begin
+            QueryPoints[0]:=Vector3TermMatrixMul(Vector3ScalarMul(QueryMesh.fVertices[QueryTriangle^.Vertices[0]],aShape.fScale),QueryTransform);
+            QueryPoints[1]:=Vector3TermMatrixMul(Vector3ScalarMul(QueryMesh.fVertices[QueryTriangle^.Vertices[1]],aShape.fScale),QueryTransform);
+            QueryPoints[2]:=Vector3TermMatrixMul(Vector3ScalarMul(QueryMesh.fVertices[QueryTriangle^.Vertices[2]],aShape.fScale),QueryTransform);
+           end else begin
+            QueryPoints[0]:=Vector3TermMatrixMul(QueryMesh.fVertices[QueryTriangle^.Vertices[0]],QueryTransform);
+            QueryPoints[1]:=Vector3TermMatrixMul(QueryMesh.fVertices[QueryTriangle^.Vertices[1]],QueryTransform);
+            QueryPoints[2]:=Vector3TermMatrixMul(QueryMesh.fVertices[QueryTriangle^.Vertices[2]],QueryTransform);
+           end;
+           // Inner search AABB: this query triangle's world AABB brought into the world mesh unscaled base space.
+           QueryTriangleAABB.Min.x:=Min(QueryPoints[0].x,Min(QueryPoints[1].x,QueryPoints[2].x));
+           QueryTriangleAABB.Min.y:=Min(QueryPoints[0].y,Min(QueryPoints[1].y,QueryPoints[2].y));
+           QueryTriangleAABB.Min.z:=Min(QueryPoints[0].z,Min(QueryPoints[1].z,QueryPoints[2].z));
+           QueryTriangleAABB.Max.x:=Max(QueryPoints[0].x,Max(QueryPoints[1].x,QueryPoints[2].x));
+           QueryTriangleAABB.Max.y:=Max(QueryPoints[0].y,Max(QueryPoints[1].y,QueryPoints[2].y));
+           QueryTriangleAABB.Max.z:=Max(QueryPoints[0].z,Max(QueryPoints[1].z,QueryPoints[2].z));
+{$ifdef SIMD}
+           QueryTriangleAABB.Min.w:=0.0;
+           QueryTriangleAABB.Max.w:=0.0;
+{$endif}
+           InnerAABB:=AABBHomogenTransform(QueryTriangleAABB,InverseWithTransform);
+           InnerAABB.Min:=Vector3ScalarMul(InnerAABB.Min,aWithShape.fInverseScale);
+           InnerAABB.Max:=Vector3ScalarMul(InnerAABB.Max,aWithShape.fInverseScale);
+           WorldSkipListNodeIndex:=0;
+           while WorldSkipListNodeIndex<TKraftShapeMesh(aWithShape).fCountSkipListNodes do begin
+            WorldSkipListNode:=@TKraftShapeMesh(aWithShape).fSkipListNodes[WorldSkipListNodeIndex];
+            if AABBIntersect(WorldSkipListNode^.AABB,InnerAABB) then begin
+             WorldMeshIndex:=TKraftPtrInt(TKraftPtrUInt(WorldSkipListNode^.UserData))-1;
+             if WorldMeshIndex>=0 then begin
+              WorldMesh:=TKraftShapeMesh(aWithShape).fMeshes[WorldMeshIndex];
+              WorldMeshSkipListNodeIndex:=0;
+              while WorldMeshSkipListNodeIndex<WorldMesh.fCountSkipListNodes do begin
+               WorldMeshSkipListNode:=@WorldMesh.fSkipListNodes[WorldMeshSkipListNodeIndex];
+               if AABBIntersect(WorldMeshSkipListNode^.AABB,InnerAABB) then begin
+                if WorldMeshSkipListNode^.CountTriangles>0 then begin
+                 for WorldTriangleIndex:=WorldMeshSkipListNode^.FirstTriangleIndex to WorldMeshSkipListNode^.FirstTriangleIndex+(WorldMeshSkipListNode^.CountTriangles-1) do begin
+                  WorldTriangle:=@WorldMesh.fTriangles[WorldTriangleIndex];
+                  if WorldScaled then begin
+                   WorldPoints[0]:=Vector3TermMatrixMul(Vector3ScalarMul(WorldMesh.fVertices[WorldTriangle^.Vertices[0]],aWithShape.fScale),WithTransform);
+                   WorldPoints[1]:=Vector3TermMatrixMul(Vector3ScalarMul(WorldMesh.fVertices[WorldTriangle^.Vertices[1]],aWithShape.fScale),WithTransform);
+                   WorldPoints[2]:=Vector3TermMatrixMul(Vector3ScalarMul(WorldMesh.fVertices[WorldTriangle^.Vertices[2]],aWithShape.fScale),WithTransform);
+                  end else begin
+                   WorldPoints[0]:=Vector3TermMatrixMul(WorldMesh.fVertices[WorldTriangle^.Vertices[0]],WithTransform);
+                   WorldPoints[1]:=Vector3TermMatrixMul(WorldMesh.fVertices[WorldTriangle^.Vertices[1]],WithTransform);
+                   WorldPoints[2]:=Vector3TermMatrixMul(WorldMesh.fVertices[WorldTriangle^.Vertices[2]],WithTransform);
+                  end;
+                  if TriangleTrianglePenetration(QueryPoints[0],QueryPoints[1],QueryPoints[2],WorldPoints[0],WorldPoints[1],WorldPoints[2],Normal,PenetrationDepth,FeatureKind,EdgeIndexA,EdgeIndexB) then begin
+                   // The surface SAT depth of two crossing facets of interpenetrating solids is a near zero sliver;
+                   // the deepest vertex behind the other facet plane carries the volume overlap the query reports
+                   if TriangleTriangleDeepestVertexPenetration(QueryPoints[0],QueryPoints[1],QueryPoints[2],WorldPoints[0],WorldPoints[1],WorldPoints[2],VertexNormal,VertexDepth) and (PenetrationDepth<VertexDepth) then begin
+                    Normal:=VertexNormal;
+                    PenetrationDepth:=VertexDepth;
+                   end;
+                   // The deepest query vertex along the negated push normal is the query contact point; the paired
+                   // world contact point is that vertex pushed by the penetration depth along the normal up onto the
+                   // world triangle surface level, since the separating axis test itself returns no contact points
+                   PositionA:=QueryPoints[0];
+                   DeepestDot:=Vector3Dot(QueryPoints[0],Normal);
+                   for VertexIndex:=1 to 2 do begin
+                    ProjectionDistance:=Vector3Dot(QueryPoints[VertexIndex],Normal);
+                    if ProjectionDistance<DeepestDot then begin
+                     DeepestDot:=ProjectionDistance;
+                     PositionA:=QueryPoints[VertexIndex];
+                    end;
+                   end;
+                   PositionB:=Vector3Add(PositionA,Vector3ScalarMul(Normal,PenetrationDepth));
+                   AddContact(aWithShape,WorldMeshIndex,WorldTriangleIndex,PositionA,PositionB,Normal,PenetrationDepth);
+                  end;
+                 end;
+                end;
+                inc(WorldMeshSkipListNodeIndex);
+               end else begin
+                WorldMeshSkipListNodeIndex:=WorldMeshSkipListNode^.SkipToNodeIndex;
+               end;
+              end;
+             end;
+             inc(WorldSkipListNodeIndex);
+            end else begin
+             WorldSkipListNodeIndex:=WorldSkipListNode^.SkipToNodeIndex;
+            end;
+           end;
+          end;
+         end;
+         inc(QueryMeshSkipListNodeIndex);
+        end else begin
+         QueryMeshSkipListNodeIndex:=QueryMeshSkipListNode^.SkipToNodeIndex;
+        end;
+       end;
+      end;
+      inc(QuerySkipListNodeIndex);
+     end else begin
+      QuerySkipListNodeIndex:=QuerySkipListNode^.SkipToNodeIndex;
      end;
     end;
    end;
