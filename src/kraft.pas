@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-07-20-19-23-0000                       *
+ *                        Version 2026-07-21-03-39-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -22108,18 +22108,25 @@ function SignedDistanceFieldIndirectTrianglePenetration(const aSDFShape:TKraftSh
 // the penetration, the depth is positive on overlap and aPositionSDF / aPositionTriangle are the deepest
 // surface points on both shapes. Two paths are evaluated and the deeper valid one wins: the deepest triangle
 // vertex sampled against the field (mirrors DeepestVertexPenetration, for a sharp mesh corner poking into the
-// field) and the deepest field surface point below the triangle facet plane found by a tangential surface
-// slide (mirrors PlanePenetration; this is the primary path, since level mesh facets are large and a field
-// usually rests on the interior of a facet with no triangle vertex inside it at all).
-const MaxSlideIterations=24;
+// field) and the primary resting path, a field resting on the interior of a large facet with no triangle
+// vertex inside it. That resting path has two interchangeable implementations returning the same contract: by
+// default the field's own pseudo features (its axis aligned bounds corners and face centers projected onto the
+// field surface) are sampled against the triangle facet, matching the sampling narrow phase (CollideSignedDist-
+// anceFieldWithSampling) so both code paths agree; defining KraftSignedDistanceFieldTrianglePlaneSlide selects
+// the older variant instead, which slides the deepest field surface point tangentially below the facet plane
+// (mirrors PlanePenetration).
+const Epsilon=1e-5;
+{$ifdef KraftSignedDistanceFieldTrianglePlaneSlide}
+      MaxSlideIterations=24;
       MaxSurfaceProjectionIterations=4;
-      Epsilon=1e-5;
       StepEpsilon=1e-4;
-var VertexIndex,BestVertexIndex,Iteration,ProjectionIteration:TKraftInt32;
-    Distance,BestVertexDistance,StepSize,PlaneDistance,TrialPlaneDistance,TangentLength,ProjectedDistance:TKraftScalar;
+{$else}
+      CountFieldFeaturePoints=14;
+{$endif}
+var VertexIndex,BestVertexIndex,{$ifdef KraftSignedDistanceFieldTrianglePlaneSlide}Iteration{$else}FeatureIndex{$endif},ProjectionIteration:TKraftInt32;
+    Distance,BestVertexDistance,{$ifdef KraftSignedDistanceFieldTrianglePlaneSlide}StepSize,PlaneDistance,TrialPlaneDistance,TangentLength,ProjectedDistance{$else}FeatureSignedDistance,BestFeatureSignedDistance{$endif}:TKraftScalar;
     WorldVertices:array[0..2] of TKraftVector3;
-    LocalSDFPoint,LocalGradient,WorldGradient,TriangleNormalWorld,LocalPlaneNormal,LocalPlanePoint:TKraftVector3;
-    CurrentPoint,TrialPoint,Gradient,TangentDirection,PositionSDFWorld,ProjectedWorld:TKraftVector3;
+    LocalSDFPoint,LocalGradient,WorldGradient,TriangleNormalWorld,{$ifdef KraftSignedDistanceFieldTrianglePlaneSlide}LocalPlaneNormal,LocalPlanePoint,CurrentPoint,TrialPoint,Gradient,TangentDirection,PositionSDFWorld,ProjectedWorld{$else}LocalFeaturePoint,WorldFeaturePoint,ClosestOnTriangle,FeatureVector,BestFeatureWorldPoint,BestFeatureClosest{$endif}:TKraftVector3;
 begin
 
  result:=false;
@@ -22163,6 +22170,7 @@ begin
  // interior of a large facet with no triangle vertex inside it
  TriangleNormalWorld:=Vector3SafeNorm(Vector3Cross(Vector3Sub(WorldVertices[1],WorldVertices[0]),Vector3Sub(WorldVertices[2],WorldVertices[0])));
  if Vector3LengthSquared(TriangleNormalWorld)>Epsilon then begin
+{$ifdef KraftSignedDistanceFieldTrianglePlaneSlide}
   LocalPlaneNormal:=Vector3SafeNorm(Vector3TermMatrixMulTransposedBasis(TriangleNormalWorld,aSDFTransform));
   LocalPlanePoint:=Vector3TermMatrixMulInverted(WorldVertices[0],aSDFTransform);
   // Seed at the field bounds corner deepest below the facet plane
@@ -22236,6 +22244,80 @@ begin
     result:=true;
    end;
   end;
+{$else}
+  // Default: sample the field's own pseudo features (its axis aligned bounds corners and, from index 8 on, its
+  // bounds face centers) projected onto the field surface, then test each against the triangle facet, exactly
+  // like AddFieldFeatureSamples in the sampling narrow phase. The deepest surface feature below the facet gives
+  // the resting contact and the field is pushed out along the facet normal.
+  BestFeatureSignedDistance:=0.0;
+  BestFeatureWorldPoint:=Vector3Origin;
+  BestFeatureClosest:=Vector3Origin;
+  for FeatureIndex:=0 to CountFieldFeaturePoints-1 do begin
+   if FeatureIndex<8 then begin
+    LocalFeaturePoint:=aSDFShape.fShapeAABB.Min;
+    if (FeatureIndex and 1)<>0 then begin
+     LocalFeaturePoint.x:=aSDFShape.fShapeAABB.Max.x;
+    end;
+    if (FeatureIndex and 2)<>0 then begin
+     LocalFeaturePoint.y:=aSDFShape.fShapeAABB.Max.y;
+    end;
+    if (FeatureIndex and 4)<>0 then begin
+     LocalFeaturePoint.z:=aSDFShape.fShapeAABB.Max.z;
+    end;
+   end else begin
+    LocalFeaturePoint:=Vector3Avg(aSDFShape.fShapeAABB.Min,aSDFShape.fShapeAABB.Max);
+    case FeatureIndex of
+     8:begin
+      LocalFeaturePoint.x:=aSDFShape.fShapeAABB.Min.x;
+     end;
+     9:begin
+      LocalFeaturePoint.x:=aSDFShape.fShapeAABB.Max.x;
+     end;
+     10:begin
+      LocalFeaturePoint.y:=aSDFShape.fShapeAABB.Min.y;
+     end;
+     11:begin
+      LocalFeaturePoint.y:=aSDFShape.fShapeAABB.Max.y;
+     end;
+     12:begin
+      LocalFeaturePoint.z:=aSDFShape.fShapeAABB.Min.z;
+     end;
+     else begin
+      LocalFeaturePoint.z:=aSDFShape.fShapeAABB.Max.z;
+     end;
+    end;
+   end;
+{$ifdef SIMD}
+   LocalFeaturePoint.w:=0.0;
+{$endif}
+   // Project the seed onto the field surface
+   for ProjectionIteration:=1 to 8 do begin
+    Distance:=aSDFShape.GetLocalSignedDistance(LocalFeaturePoint);
+    if abs(Distance)<Epsilon then begin
+     break;
+    end;
+    LocalFeaturePoint:=Vector3Sub(LocalFeaturePoint,Vector3ScalarMul(aSDFShape.GetLocalSignedDistanceNormalizedGradient(LocalFeaturePoint),Distance));
+   end;
+   WorldFeaturePoint:=Vector3TermMatrixMul(LocalFeaturePoint,aSDFTransform);
+   // Signed distance of the surface feature to the bounded triangle facet (sign from the facet normal)
+   if SIMDTriangleClosestPointTo(WorldVertices[0],WorldVertices[1],WorldVertices[2],WorldFeaturePoint,ClosestOnTriangle) then begin
+    FeatureVector:=Vector3Sub(WorldFeaturePoint,ClosestOnTriangle);
+    FeatureSignedDistance:=Vector3Length(FeatureVector)*SignNonZero(Vector3Dot(TriangleNormalWorld,Vector3Sub(WorldFeaturePoint,WorldVertices[0])));
+    if BestFeatureSignedDistance>FeatureSignedDistance then begin
+     BestFeatureSignedDistance:=FeatureSignedDistance;
+     BestFeatureWorldPoint:=WorldFeaturePoint;
+     BestFeatureClosest:=ClosestOnTriangle;
+    end;
+   end;
+  end;
+  if (BestFeatureSignedDistance<0.0) and ((not result) or ((-BestFeatureSignedDistance)>aPenetrationDepth)) then begin
+   aNormal:=TriangleNormalWorld;
+   aPenetrationDepth:=-BestFeatureSignedDistance;
+   aPositionSDF:=BestFeatureWorldPoint;
+   aPositionTriangle:=BestFeatureClosest;
+   result:=true;
+  end;
+{$endif}
  end;
 
 end;
@@ -44824,12 +44906,16 @@ begin
   if (ShapeA.fShapeType=kstSignedDistanceField) or
      (ShapeB.fShapeType=kstSignedDistanceField) then begin
 
-   // Dedicated signed distance field narrow phase: a full one-shot sampling manifold for everything except
-   // whole meshes, which keep going through the incremental persistent manifold machinery on top of
-   // SignedDistanceFieldPenetration
+   // Dedicated signed distance field narrow phase: a full one-shot sampling manifold. Whole meshes never reach
+   // here, since AddContact routes any mesh pair through AddMeshContact, which splits the mesh into triangle sub
+   // pairs (each an already handled field-versus-triangle sampling pair) before DetectCollisions sees the mesh.
    if (ShapeA.fShapeType<>kstMesh) and (ShapeB.fShapeType<>kstMesh) then begin
     CollideSignedDistanceFieldWithSampling(ShapeA,ShapeB);
    end else begin
+    // An undecomposed field-versus-mesh pair must never arrive; SignedDistanceFieldPenetration has no
+    // mesh branch and would silently degenerate into the field-versus-field mutual descent, so refuse it here
+    // instead of producing a bogus contact (asserts in debug, drops the pair without contact in release).
+    //Assert(false,'Undecomposed signed distance field versus mesh pair reached the narrow phase');
     ProcessPersistentContactManifold(ShapeA,ShapeB);
    end;
 
