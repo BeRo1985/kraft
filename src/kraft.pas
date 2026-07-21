@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-07-21-06-39-0000                       *
+ *                        Version 2026-07-21-06-53-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -71285,7 +71285,7 @@ end;
 procedure TKraft.SolveContinuousMotionClamping(const aTimeStep:TKraftTimeStep);
 var RigidBody:TKraftRigidBody;
     ContactPair:PKraftContactPair;
-    Beta:TKraftScalar;
+    Beta,SweepDistance,ClampedTimeOfImpact:TKraftScalar;
     NeedUpdate:boolean;
     ContactPairEdge:PKraftContactPairEdge;
     RigidBodies:array[0..1] of TKraftRigidBody;
@@ -71370,7 +71370,17 @@ begin
  while assigned(RigidBody) do begin
   if ((RigidBody.fRigidBodyType=krbtDynamic) or (RigidBody.fRigidBodyType=krbtKinematic)) and ({(RigidBody.fTimeOfImpact>0.0) and} (RigidBody.fTimeOfImpact<1.0)) then begin
 // writeln(RigidBody.fTimeOfImpact:1:8);
-   RigidBody.Advance(RigidBody.fTimeOfImpact);
+   // Advance a little past the time of impact so the clamped body ends about two linear slops deep instead of
+   // exactly at touching distance: a one shot narrow phase produces no manifold for a separated pair, so a body
+   // clamped right onto the surface would keep its full velocity, get its touching-distance time of impact
+   // discarded by the anti-stuck gate above in the next step and take the full unclamped step right through
+   // thin geometry. A slop deep contact instead is resolved by the regular solver like any resting contact.
+   SweepDistance:=Vector3Length(Vector3SubPosition(RigidBody.fSweep.c,RigidBody.fSweep.c0));
+   ClampedTimeOfImpact:=RigidBody.fTimeOfImpact;
+   if SweepDistance>EPSILON then begin
+    ClampedTimeOfImpact:=Min(1.0,ClampedTimeOfImpact+((2.0*fLinearSlop)/SweepDistance));
+   end;
+   RigidBody.Advance(ClampedTimeOfImpact);
    RigidBody.SynchronizeProxies;
    NeedUpdate:=true;
   end;
