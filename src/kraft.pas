@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-07-21-06-53-0000                       *
+ *                        Version 2026-07-21-12-42-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -62774,6 +62774,7 @@ begin
 end;
 
 procedure TKraftSolver.PrepareContactsSoftRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
+const MinimumCentralFrictionWeight=1e-10; // Epsilon floor of the friction center weight, avoids a branch and a division by zero and gets washed out normally
 var ContactPairIndex,ContactIndex,TangentIndex,IndexA,IndexB:TKraftInt32;
     VelocityState:PKraftSolverVelocityState;
     PositionState:PKraftSolverPositionState;
@@ -62781,7 +62782,7 @@ var ContactPairIndex,ContactIndex,TangentIndex,IndexA,IndexB:TKraftInt32;
     TGSState:PKraftSolverTGSContactState;
     SolverContact:PKraftSolverContact;
     iA,iB:PKraftMatrix3x3;
-    mA,mB,NormalMass,TangentMass,dv,h,InvCount,kTwist:TKraftScalar;
+    mA,mB,NormalMass,TangentMass,dv,h,FrictionWeight,TotalFrictionWeight,InverseFrictionWeightTau,kTwist:TKraftScalar;
     LocalCenterA,LocalCenterB,cA,vA,wA,rnA,rtA,cB,vB,wB,rnB,rtB,rA,rB,Temp,CentroidA,CentroidB,rtA1,rtA2,rtB1,rtB2:TKraftVector3;
     TangentVectors:array[0..1] of TKraftVector3;
     qA,qB:TKraftQuaternion;
@@ -62896,16 +62897,23 @@ begin
   // / scalar twist / 3x3 rolling effective masses, one shared set per manifold.
   if SolverContactManifold.CountContacts>0 then begin
 
-   // Centroid of the contact anchors (originA/originB).
+   // Centroid of the contact anchors (originA/originB), as a weighted average for C0 continuity: contacts
+   // separated beyond twice the speculative distance (four linear slops) only matter for continuous collision
+   // detection and must not drag the friction center around, and closer points may begin to touch on and off,
+   // so the center has to move smoothly instead of jumping when a point enters or leaves the manifold
+   // (prevents spinning top drift and reduces jitter).
    CentroidA:=Vector3Origin;
    CentroidB:=Vector3Origin;
+   TotalFrictionWeight:=0.0;
+   InverseFrictionWeightTau:=1.0/(4.0*fPhysics.fLinearSlop);
    for ContactIndex:=0 to SolverContactManifold.CountContacts-1 do begin
-    CentroidA:=Vector3Add(CentroidA,VelocityState^.Points[ContactIndex].RelativePositions[0]);
-    CentroidB:=Vector3Add(CentroidB,VelocityState^.Points[ContactIndex].RelativePositions[1]);
+    FrictionWeight:=Min(Max(2.0-(SolverContactManifold.Contacts[ContactIndex].Separation*InverseFrictionWeightTau),MinimumCentralFrictionWeight),1.0);
+    CentroidA:=Vector3Add(CentroidA,Vector3ScalarMul(VelocityState^.Points[ContactIndex].RelativePositions[0],FrictionWeight));
+    CentroidB:=Vector3Add(CentroidB,Vector3ScalarMul(VelocityState^.Points[ContactIndex].RelativePositions[1],FrictionWeight));
+    TotalFrictionWeight:=TotalFrictionWeight+FrictionWeight;
    end;
-   InvCount:=1.0/SolverContactManifold.CountContacts;
-   CentroidA:=Vector3ScalarMul(CentroidA,InvCount);
-   CentroidB:=Vector3ScalarMul(CentroidB,InvCount);
+   CentroidA:=Vector3ScalarMul(CentroidA,1.0/TotalFrictionWeight);
+   CentroidB:=Vector3ScalarMul(CentroidB,1.0/TotalFrictionWeight);
    TGSState^.OriginA:=CentroidA;
    TGSState^.OriginB:=CentroidB;
 
