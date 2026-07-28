@@ -127,13 +127,18 @@ begin
  end;
 end;
 
-function CountConvexHullsOf(const aPhysics:TKraft):longint;
+// A world always holds internal convex hulls of its own, for the triangle shapes it builds in its
+// constructor, so only the membership of one particular hull is meaningful here
+function IsConvexHullOf(const aPhysics:TKraft;const aConvexHull:TKraftConvexHull):boolean;
 var ConvexHull:TKraftConvexHull;
 begin
- result:=0;
+ result:=false;
  ConvexHull:=aPhysics.ConvexHullFirst;
  while assigned(ConvexHull) do begin
-  inc(result);
+  if ConvexHull=aConvexHull then begin
+   result:=true;
+   exit;
+  end;
   ConvexHull:=ConvexHull.Next;
  end;
 end;
@@ -166,9 +171,9 @@ begin
    // The standalone objects must stay out of both worlds, otherwise the first world to die would free them
    Check('standalone mesh not in mesh list of world A',CountMeshesOf(PhysicsA)=0);
    Check('standalone mesh not in mesh list of world B',CountMeshesOf(PhysicsB)=0);
-   // Each world builds its own internal hulls for the shapes it needs, the shared one must not be among them
-   Check('standalone hull not in convex hull list of world A',CountConvexHullsOf(PhysicsA)=0);
-   Check('standalone hull not in convex hull list of world B',CountConvexHullsOf(PhysicsB)=0);
+   // Each world builds internal hulls of its own, the shared one must not be among them
+   Check('standalone hull not in convex hull list of world A',not IsConvexHullOf(PhysicsA,Hull));
+   Check('standalone hull not in convex hull list of world B',not IsConvexHullOf(PhysicsB,Hull));
 
    HeightA:=StepAndGetHeight(PhysicsA,BodyA,180);
    HeightB:=StepAndGetHeight(PhysicsB,BodyB,180);
@@ -339,7 +344,7 @@ begin
   Check('owned mesh is linked into the mesh list',Mesh.Physics=Physics);
   Check('mesh list of the world holds exactly the owned mesh',CountMeshesOf(Physics)=1);
   Check('owned hull is linked into the convex hull list',Hull.Physics=Physics);
-  Check('convex hull list of the world holds exactly the owned hull',CountConvexHullsOf(Physics)=1);
+  Check('owned hull is in the convex hull list of the world',IsConvexHullOf(Physics,Hull));
 
   Body:=PopulateWorld(Physics,Mesh,Hull,3.0);
   Height:=StepAndGetHeight(Physics,Body,180);

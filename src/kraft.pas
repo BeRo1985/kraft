@@ -1859,6 +1859,12 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        procedure CalculateMassData;
 
+       // The actual build steps, wrapped by Build and Finish, which make sure that the FPU is in the state
+       // which these expect even when the convex hull is standalone and thus has no physics instance which
+       // did that already
+       procedure BuildInternal(const AMaximumCountConvexHullPoints:TKraftInt32;const AUserDefinedTolerance:double);
+       procedure FinishInternal;
+
       public
 
        constructor Create(const aPhysics:TKraft=nil);
@@ -2235,6 +2241,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        procedure SplitTooLargeTriangles;
 
        procedure IdentifyEdges;
+
+       // The actual build, wrapped by Finish, which makes sure that the FPU is in the state which this
+       // expects even when the mesh is standalone and thus has no physics instance which did that already
+       procedure FinishInternal(const aBVHBuildMode:TKraftMeshBVHBuildMode);
 
       public
 
@@ -7504,6 +7514,46 @@ end;
 begin
 end;
 {$ifend}
+
+// Geometry which is built without a physics instance has nobody who put the FPU and the SIMD unit into the
+// state which the geometry math expects, since TKraft does that in its constructor and in Step. Without it,
+// for example the zero volume of a flat mesh lets the centroid division of CalculateMassData trap on an
+// invalid operation instead of quietly yielding a NaN. Unlike TKraft.Create, which sets the state and keeps
+// it, these restore what they found, so that merely building a mesh does not change the mode of its caller.
+type TKraftFPUState=record
+      PrecisionMode:TFPUPrecisionMode;
+      ExceptionMask:TFPUExceptionMask;
+      SIMDFlags:TKraftUInt32;
+     end;
+
+// The SIMD control word is saved first and restored last on purpose: on the targets where the scalar
+// floating point math goes through SSE, SetExceptionMask writes it as well. Saving it afterwards would
+// capture the already modified word, and restoring it before SetExceptionMask would let that overwrite it
+// again, which would silently undo the masking that TKraft.Create established for the whole thread.
+procedure KraftEnterPhysicsFPUState(out aOldState:TKraftFPUState);
+begin
+ aOldState.SIMDFlags:=SIMDGetFlags;
+ aOldState.PrecisionMode:=GetPrecisionMode;
+ aOldState.ExceptionMask:=GetExceptionMask;
+ if aOldState.PrecisionMode<>PhysicsFPUPrecisionMode then begin
+  SetPrecisionMode(PhysicsFPUPrecisionMode);
+ end;
+ if aOldState.ExceptionMask<>PhysicsFPUExceptionMask then begin
+  SetExceptionMask(PhysicsFPUExceptionMask);
+ end;
+ SIMDSetOurFlags;
+end;
+
+procedure KraftLeavePhysicsFPUState(const aOldState:TKraftFPUState);
+begin
+ if aOldState.ExceptionMask<>PhysicsFPUExceptionMask then begin
+  SetExceptionMask(aOldState.ExceptionMask);
+ end;
+ if aOldState.PrecisionMode<>PhysicsFPUPrecisionMode then begin
+  SetPrecisionMode(aOldState.PrecisionMode);
+ end;
+ SIMDSetFlags(aOldState.SIMDFlags);
+end;
 
 {$if (defined(cpu386) or defined(cpuamd64) or defined(cpux86_64) or defined(cpux64)) and not defined(KraftDelphiOnNonWindowsTarget)}
 type TCPUIDData=record
@@ -30145,6 +30195,22 @@ begin
 end;
 
 procedure TKraftConvexHull.Build(const AMaximumCountConvexHullPoints:TKraftInt32=-1;const AUserDefinedTolerance:double=-1.0);
+var OldFPUState:TKraftFPUState;
+begin
+ if assigned(fPhysics) then begin
+  // The physics instance has already put this thread into the FPU state which the build expects
+  BuildInternal(AMaximumCountConvexHullPoints,AUserDefinedTolerance);
+ end else begin
+  KraftEnterPhysicsFPUState(OldFPUState);
+  try
+   BuildInternal(AMaximumCountConvexHullPoints,AUserDefinedTolerance);
+  finally
+   KraftLeavePhysicsFPUState(OldFPUState);
+  end;
+ end;
+end;
+
+procedure TKraftConvexHull.BuildInternal(const AMaximumCountConvexHullPoints:TKraftInt32;const AUserDefinedTolerance:double);
 const HashBits=8;
       HashSize=1 shl HashBits;
       HashMask=HashSize-1;
@@ -30942,6 +31008,22 @@ begin
 end;
 
 procedure TKraftConvexHull.Finish;
+var OldFPUState:TKraftFPUState;
+begin
+ if assigned(fPhysics) then begin
+  // The physics instance has already put this thread into the FPU state which the build expects
+  FinishInternal;
+ end else begin
+  KraftEnterPhysicsFPUState(OldFPUState);
+  try
+   FinishInternal;
+  finally
+   KraftLeavePhysicsFPUState(OldFPUState);
+  end;
+ end;
+end;
+
+procedure TKraftConvexHull.FinishInternal;
 const Steps=1024;
       //ModuloThree:array[0..5] of TKraftInt32=(0,1,2,0,1,2);
 var VertexIndex:TKraftInt32;
@@ -34576,6 +34658,22 @@ begin
 end;
 
 procedure TKraftMesh.Finish(const aBVHBuildMode:TKraftMeshBVHBuildMode);
+var OldFPUState:TKraftFPUState;
+begin
+ if assigned(fPhysics) then begin
+  // The physics instance has already put this thread into the FPU state which the build expects
+  FinishInternal(aBVHBuildMode);
+ end else begin
+  KraftEnterPhysicsFPUState(OldFPUState);
+  try
+   FinishInternal(aBVHBuildMode);
+  finally
+   KraftLeavePhysicsFPUState(OldFPUState);
+  end;
+ end;
+end;
+
+procedure TKraftMesh.FinishInternal(const aBVHBuildMode:TKraftMeshBVHBuildMode);
 type TDynamicAABBTreeNode=record
       AABB:TKraftAABB;
       Parent:TKraftSizeInt;
