@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-07-21-12-42-0000                       *
+ *                        Version 2026-07-28-20-57-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -1805,12 +1805,33 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftConvexHullEdges=array of TKraftConvexHullEdge;
 
+     // A standalone convex hull can be used by several TKraft instances at the same time, so it keeps
+     // track of which ones reference it, in order to be able to invalidate the shapes of all of them when
+     // its content changes. Count is the number of shapes of that physics instance which reference the
+     // convex hull.
+     PKraftConvexHullUser=^TKraftConvexHullUser;
+     TKraftConvexHullUser=record
+      Physics:TKraft;
+      Count:TKraftInt32;
+     end;
+
+     TKraftConvexHullUsers=array of TKraftConvexHullUser;
+
      { TKraftConvexHull }
 
      TKraftConvexHull=class(TPersistent)
       private
 
+       // May be nil, which makes the convex hull standalone: it is then not linked into any convex hull
+       // list, so that no TKraft instance frees it in its destructor. Freeing it is up to the caller then,
+       // who in exchange can hand the very same convex hull to as many TKraft instances as wanted, also
+       // from different threads, as long as it is only read after it was built.
        fPhysics:TKraft;
+
+       // Which TKraft instances reference this convex hull through a shape, see InvalidateUsers
+       fUsers:TKraftConvexHullUsers;
+       fCountUsers:TKraftInt32;
+       fUsersLock:{$ifdef KraftPasMP}TPasMPSlimReaderWriterLock{$else}TCriticalSection{$endif};
 
        fPrevious:TKraftConvexHull;
        fNext:TKraftConvexHull;
@@ -1840,8 +1861,15 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
       public
 
-       constructor Create(const aPhysics:TKraft);
+       constructor Create(const aPhysics:TKraft=nil);
        destructor Destroy; override;
+
+       // A standalone convex hull belongs to no physics instance, so it must be told which ones use it, in
+       // order to be able to invalidate their shapes when its content changes. TKraftShapeConvexHull does
+       // that on its own, so these are only needed for convex hulls which are referenced in some other way.
+       procedure RegisterUser(const aPhysics:TKraft);
+       procedure UnregisterUser(const aPhysics:TKraft);
+       procedure InvalidateUsers;
 
        procedure Clear(const aFreeMemory:boolean=true);
 
@@ -2098,10 +2126,36 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftMeshTriangleVerticesHashMap=TKraftHashMap<TKraftMeshTriangleVertices,TKraftInt32>;
 
+     // A standalone mesh can be used by several TKraft instances at the same time, so it keeps track of
+     // which ones reference it, in order to be able to invalidate the shapes of all of them when its
+     // content changes. Count is the number of TKraftShapeMesh instances of that physics instance which
+     // reference this mesh.
+     PKraftMeshUser=^TKraftMeshUser;
+     TKraftMeshUser=record
+      Physics:TKraft;
+      Count:TKraftInt32;
+     end;
+
+     TKraftMeshUsers=array of TKraftMeshUser;
+
      TKraftMesh=class(TPersistent)
       private
 
+       // May be nil, which makes the mesh standalone: it is then not linked into any mesh list, so that no
+       // TKraft instance frees it in its destructor and none rebuilds it in TKraft.Rebuild. Both is up to
+       // the caller then, who in exchange can hand the very same mesh to as many TKraft instances as
+       // wanted, also from different threads, as long as it is only read after it was built.
        fPhysics:TKraft;
+
+{$ifdef KraftPasMP}
+       // Only used when fPhysics is nil, where there is no physics instance to take a PasMP instance from
+       fPasMPInstance:TPasMP;
+{$endif}
+
+       // Which TKraft instances reference this mesh through a TKraftShapeMesh, see InvalidateUsers
+       fUsers:TKraftMeshUsers;
+       fCountUsers:TKraftInt32;
+       fUsersLock:{$ifdef KraftPasMP}TPasMPSlimReaderWriterLock{$else}TCriticalSection{$endif};
 
        fPrevious:TKraftMesh;
        fNext:TKraftMesh;
@@ -2184,8 +2238,15 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
       public
 
-       constructor Create(const aPhysics:TKraft);
+       constructor Create(const aPhysics:TKraft=nil{$if defined(KraftPasMP)};const aPasMPInstance:TPasMP=nil{$ifend});
        destructor Destroy; override;
+
+       // A standalone mesh belongs to no physics instance, so it must be told which ones use it, in order
+       // to be able to invalidate their shapes when its content changes. TKraftShapeMesh does that on its
+       // own, so these are only needed for meshes which are referenced in some other way.
+       procedure RegisterUser(const aPhysics:TKraft);
+       procedure UnregisterUser(const aPhysics:TKraft);
+       procedure InvalidateUsers;
 
        procedure Clear(const aFreeMemory:boolean=true);
 
@@ -29638,6 +29699,15 @@ begin
 
  fPhysics:=aPhysics;
 
+ // Only a standalone convex hull can have more than one user and thus needs the bookkeeping for it
+ fUsers:=nil;
+ fCountUsers:=0;
+ if assigned(fPhysics) then begin
+  fUsersLock:=nil;
+ end else begin
+  fUsersLock:={$ifdef KraftPasMP}TPasMPSlimReaderWriterLock{$else}TCriticalSection{$endif}.Create;
+ end;
+
  fVertices:=nil;
  fCountVertices:=0;
 
@@ -29653,14 +29723,21 @@ begin
 
  fAngularMotionDisc:=0.0;
 
- if assigned(fPhysics.fConvexHullLast) then begin
-  fPhysics.fConvexHullLast.fNext:=self;
-  fPrevious:=fPhysics.fConvexHullLast;
+ // Only a convex hull with a physics instance is linked into its convex hull list, since that list is what
+ // makes TKraft.Destroy free the convex hull. A standalone one stays out of it, so that it survives every
+ // physics instance which uses it, and is freed by its caller instead.
+ if assigned(fPhysics) then begin
+  if assigned(fPhysics.fConvexHullLast) then begin
+   fPhysics.fConvexHullLast.fNext:=self;
+   fPrevious:=fPhysics.fConvexHullLast;
+  end else begin
+   fPhysics.fConvexHullFirst:=self;
+   fPrevious:=nil;
+  end;
+  fPhysics.fConvexHullLast:=self;
  end else begin
-  fPhysics.fConvexHullFirst:=self;
   fPrevious:=nil;
  end;
- fPhysics.fConvexHullLast:=self;
  fNext:=nil;
 
 end;
@@ -29674,21 +29751,100 @@ begin
 
  fEdges:=nil;
 
- if assigned(fPrevious) then begin
-  fPrevious.fNext:=fNext;
- end else if fPhysics.fConvexHullFirst=self then begin
-  fPhysics.fConvexHullFirst:=fNext;
- end;
- if assigned(fNext) then begin
-  fNext.fPrevious:=fPrevious;
- end else if fPhysics.fConvexHullLast=self then begin
-  fPhysics.fConvexHullLast:=fPrevious;
+ if assigned(fPhysics) then begin
+  if assigned(fPrevious) then begin
+   fPrevious.fNext:=fNext;
+  end else if fPhysics.fConvexHullFirst=self then begin
+   fPhysics.fConvexHullFirst:=fNext;
+  end;
+  if assigned(fNext) then begin
+   fNext.fPrevious:=fPrevious;
+  end else if fPhysics.fConvexHullLast=self then begin
+   fPhysics.fConvexHullLast:=fPrevious;
+  end;
  end;
  fPrevious:=nil;
  fNext:=nil;
 
+ fUsers:=nil;
+ fCountUsers:=0;
+ FreeAndNil(fUsersLock);
+
  inherited Destroy;
 
+end;
+
+procedure TKraftConvexHull.RegisterUser(const aPhysics:TKraft);
+var Index:TKraftInt32;
+begin
+ // A convex hull with a physics instance is invalidated through that one directly, so it neither keeps a
+ // user list nor the lock which would guard it
+ if assigned(aPhysics) and not assigned(fPhysics) then begin
+  fUsersLock.Acquire;
+  try
+   for Index:=0 to fCountUsers-1 do begin
+    if fUsers[Index].Physics=aPhysics then begin
+     inc(fUsers[Index].Count);
+     exit;
+    end;
+   end;
+   if fCountUsers>=length(fUsers) then begin
+    SetLength(fUsers,(fCountUsers+1)*2);
+   end;
+   fUsers[fCountUsers].Physics:=aPhysics;
+   fUsers[fCountUsers].Count:=1;
+   inc(fCountUsers);
+  finally
+   fUsersLock.Release;
+  end;
+ end;
+end;
+
+procedure TKraftConvexHull.UnregisterUser(const aPhysics:TKraft);
+var Index:TKraftInt32;
+begin
+ if assigned(aPhysics) and not assigned(fPhysics) then begin
+  fUsersLock.Acquire;
+  try
+   for Index:=0 to fCountUsers-1 do begin
+    if fUsers[Index].Physics=aPhysics then begin
+     dec(fUsers[Index].Count);
+     if fUsers[Index].Count<=0 then begin
+      dec(fCountUsers);
+      if Index<fCountUsers then begin
+       fUsers[Index]:=fUsers[fCountUsers];
+      end;
+      fUsers[fCountUsers].Physics:=nil;
+      fUsers[fCountUsers].Count:=0;
+     end;
+     break;
+    end;
+   end;
+  finally
+   fUsersLock.Release;
+  end;
+ end;
+end;
+
+procedure TKraftConvexHull.InvalidateUsers;
+var Index:TKraftInt32;
+begin
+ // A convex hull with a physics instance belongs to exactly that one and is freed by it, so it cannot be
+ // shared in the first place and the user list does not need to be walked
+ if assigned(fPhysics) then begin
+  fPhysics.InvalidateShapes;
+ end else begin
+  fUsersLock.Acquire;
+  try
+   for Index:=0 to fCountUsers-1 do begin
+    if fUsers[Index].Physics<>fPhysics then begin
+     fUsers[Index].Physics.InvalidateShapes;
+    end;
+   end;
+  finally
+   fUsersLock.Release;
+  end;
+ end;
 end;
 
 procedure TKraftConvexHull.Clear(const aFreeMemory:boolean);
@@ -29715,7 +29871,7 @@ begin
 
  fAngularMotionDisc:=0.0;
 
- fPhysics.InvalidateShapes;
+ InvalidateUsers;
 
 end;
 
@@ -32076,12 +32232,25 @@ begin
  end;
 end;
 
-constructor TKraftMesh.Create(const aPhysics:TKraft);
+constructor TKraftMesh.Create(const aPhysics:TKraft{$if defined(KraftPasMP)};const aPasMPInstance:TPasMP{$ifend});
 begin
 
  inherited Create;
 
  fPhysics:=aPhysics;
+
+{$ifdef KraftPasMP}
+ fPasMPInstance:=aPasMPInstance;
+{$endif}
+
+ // Only a standalone mesh can have more than one user and thus needs the bookkeeping for it
+ fUsers:=nil;
+ fCountUsers:=0;
+ if assigned(fPhysics) then begin
+  fUsersLock:=nil;
+ end else begin
+  fUsersLock:={$ifdef KraftPasMP}TPasMPSlimReaderWriterLock{$else}TCriticalSection{$endif}.Create;
+ end;
 
  fVerticesHashMap:=TKraftMeshVectorHashMap.Create(-1);
 
@@ -32114,14 +32283,21 @@ begin
 
  fSmoothSphereCastNormals:=true;
 
- if assigned(fPhysics.fMeshLast) then begin
-  fPhysics.fMeshLast.fNext:=self;
-  fPrevious:=fPhysics.fMeshLast;
+ // Only a mesh with a physics instance is linked into its mesh list, since that list is what makes
+ // TKraft.Destroy free the mesh and TKraft.Rebuild rebuild it. A standalone mesh stays out of it, so that
+ // it survives every physics instance which uses it, and is freed and rebuilt by its caller instead.
+ if assigned(fPhysics) then begin
+  if assigned(fPhysics.fMeshLast) then begin
+   fPhysics.fMeshLast.fNext:=self;
+   fPrevious:=fPhysics.fMeshLast;
+  end else begin
+   fPhysics.fMeshFirst:=self;
+   fPrevious:=nil;
+  end;
+  fPhysics.fMeshLast:=self;
  end else begin
-  fPhysics.fMeshFirst:=self;
   fPrevious:=nil;
  end;
- fPhysics.fMeshLast:=self;
  fNext:=nil;
 
  fNodeQueue:=nil;
@@ -32167,21 +32343,100 @@ begin
 
  fSkipListNodes:=nil;
 
- if assigned(fPrevious) then begin
-  fPrevious.fNext:=fNext;
- end else if fPhysics.fMeshFirst=self then begin
-  fPhysics.fMeshFirst:=fNext;
- end;
- if assigned(fNext) then begin
-  fNext.fPrevious:=fPrevious;
- end else if fPhysics.fMeshLast=self then begin
-  fPhysics.fMeshLast:=fPrevious;
+ if assigned(fPhysics) then begin
+  if assigned(fPrevious) then begin
+   fPrevious.fNext:=fNext;
+  end else if fPhysics.fMeshFirst=self then begin
+   fPhysics.fMeshFirst:=fNext;
+  end;
+  if assigned(fNext) then begin
+   fNext.fPrevious:=fPrevious;
+  end else if fPhysics.fMeshLast=self then begin
+   fPhysics.fMeshLast:=fPrevious;
+  end;
  end;
  fPrevious:=nil;
  fNext:=nil;
 
+ fUsers:=nil;
+ fCountUsers:=0;
+ FreeAndNil(fUsersLock);
+
  inherited Destroy;
 
+end;
+
+procedure TKraftMesh.RegisterUser(const aPhysics:TKraft);
+var Index:TKraftInt32;
+begin
+ // A mesh with a physics instance is invalidated through that one directly, so it neither keeps a user
+ // list nor the lock which would guard it
+ if assigned(aPhysics) and not assigned(fPhysics) then begin
+  fUsersLock.Acquire;
+  try
+   for Index:=0 to fCountUsers-1 do begin
+    if fUsers[Index].Physics=aPhysics then begin
+     inc(fUsers[Index].Count);
+     exit;
+    end;
+   end;
+   if fCountUsers>=length(fUsers) then begin
+    SetLength(fUsers,(fCountUsers+1)*2);
+   end;
+   fUsers[fCountUsers].Physics:=aPhysics;
+   fUsers[fCountUsers].Count:=1;
+   inc(fCountUsers);
+  finally
+   fUsersLock.Release;
+  end;
+ end;
+end;
+
+procedure TKraftMesh.UnregisterUser(const aPhysics:TKraft);
+var Index:TKraftInt32;
+begin
+ if assigned(aPhysics) and not assigned(fPhysics) then begin
+  fUsersLock.Acquire;
+  try
+   for Index:=0 to fCountUsers-1 do begin
+    if fUsers[Index].Physics=aPhysics then begin
+     dec(fUsers[Index].Count);
+     if fUsers[Index].Count<=0 then begin
+      dec(fCountUsers);
+      if Index<fCountUsers then begin
+       fUsers[Index]:=fUsers[fCountUsers];
+      end;
+      fUsers[fCountUsers].Physics:=nil;
+      fUsers[fCountUsers].Count:=0;
+     end;
+     break;
+    end;
+   end;
+  finally
+   fUsersLock.Release;
+  end;
+ end;
+end;
+
+procedure TKraftMesh.InvalidateUsers;
+var Index:TKraftInt32;
+begin
+ // A mesh with a physics instance belongs to exactly that one and is freed by it, so it cannot be shared
+ // in the first place and the user list does not need to be walked
+ if assigned(fPhysics) then begin
+  fPhysics.InvalidateShapes;
+ end else begin
+  fUsersLock.Acquire;
+  try
+   for Index:=0 to fCountUsers-1 do begin
+    if fUsers[Index].Physics<>fPhysics then begin
+     fUsers[Index].Physics.InvalidateShapes;
+    end;
+   end;
+  finally
+   fUsersLock.Release;
+  end;
+ end;
 end;
 
 procedure TKraftMesh.Clear(const aFreeMemory:boolean);
@@ -32216,7 +32471,7 @@ begin
  end;
  fCountSkipListNodes:=0;
 
- fPhysics.InvalidateShapes;
+ InvalidateUsers;
 
 end;
 
@@ -34350,6 +34605,7 @@ var Index{$ifdef KraftPasMP},JobIndex{$endif},TreeNodeIndex,SkipListNodeIndex,
     TreeNode:PKraftMeshTreeNode;
 {$ifdef KraftPasMP}
     Jobs:array of PPasMPJob;
+    PasMPInstance:TPasMP;
 {$endif}
     Stack:array of TKraftUInt64;
     StackItem:TKraftUInt64;
@@ -34772,14 +35028,28 @@ begin
        fNodeQueue.Clear;
        fNodeQueue.Enqueue(0);
        fCountActiveWorkers:=0;
- {$ifdef KraftPasMP}if fParallel and assigned(fPhysics.fPasMP) and (fPhysics.fPasMP.CountJobWorkerThreads>0) then begin
+{$ifdef KraftPasMP}
+       // A standalone mesh has no physics instance to take a PasMP instance from, so it uses the one which
+       // was given to its constructor, and leaves the job area and affinity masks at their PasMP side
+       // defaults, which are the same values that TKraft initializes its own masks with anyway.
+       if assigned(fPhysics) then begin
+        PasMPInstance:=fPhysics.fPasMP;
+       end else begin
+        PasMPInstance:=fPasMPInstance;
+       end;
+{$endif}
+ {$ifdef KraftPasMP}if fParallel and assigned(PasMPInstance) and (PasMPInstance.CountJobWorkerThreads>0) then begin
         Jobs:=nil;
         try
-         SetLength(Jobs,fPhysics.fPasMP.CountJobWorkerThreads);
+         SetLength(Jobs,PasMPInstance.CountJobWorkerThreads);
          for JobIndex:=0 to length(Jobs)-1 do begin
-          Jobs[JobIndex]:=fPhysics.fPasMP.Acquire(BuildJob,self,nil,0,fPhysics.fPasMPAreaMask,fPhysics.fPasMPAvoidAreaMask,fPhysics.fPasMPAffinityAllowMask,fPhysics.fPasMPAffinityAvoidMask);
+          if assigned(fPhysics) then begin
+           Jobs[JobIndex]:=PasMPInstance.Acquire(BuildJob,self,nil,0,fPhysics.fPasMPAreaMask,fPhysics.fPasMPAvoidAreaMask,fPhysics.fPasMPAffinityAllowMask,fPhysics.fPasMPAffinityAvoidMask);
+          end else begin
+           Jobs[JobIndex]:=PasMPInstance.Acquire(BuildJob,self);
+          end;
          end;
-         fPhysics.fPasMP.Invoke(Jobs);
+         PasMPInstance.Invoke(Jobs);
         finally
          Jobs:=nil;
         end;
@@ -38269,6 +38539,12 @@ begin
 
  fConvexHull:=AConvexHull;
 
+ // So that a standalone convex hull, which can be used by several physics instances at the same time,
+ // knows whose shapes it has to invalidate when its content changes
+ if assigned(fConvexHull) then begin
+  fConvexHull.RegisterUser(aPhysics);
+ end;
+
  inherited Create(aPhysics,ARigidBody);
 
  fShapeType:=kstConvexHull;
@@ -38290,6 +38566,9 @@ end;
 
 destructor TKraftShapeConvexHull.Destroy;
 begin
+ if assigned(fConvexHull) then begin
+  fConvexHull.UnregisterUser(fPhysics);
+ end;
  inherited Destroy;
 end;
 
@@ -38775,6 +39054,9 @@ end;
 
 destructor TKraftShapeBox.Destroy;
 begin
+ // The shape owns this convex hull, so it dies together with its only user, which makes the user
+ // bookkeeping of the inherited destructor both pointless and, after the free below, unsafe
+ fConvexHull:=nil;
  fShapeConvexHull.Free;
  inherited Destroy;
 end;
@@ -39554,6 +39836,9 @@ end;
 
 destructor TKraftShapePlane.Destroy;
 begin
+ // The shape owns this convex hull, so it dies together with its only user, which makes the user
+ // bookkeeping of the inherited destructor both pointless and, after the free below, unsafe
+ fConvexHull:=nil;
  fShapeConvexHull.Free;
  inherited Destroy;
 end;
@@ -40032,6 +40317,9 @@ end;
 
 destructor TKraftShapeTriangle.Destroy;
 begin
+ // The shape owns this convex hull, so it dies together with its only user, which makes the user
+ // bookkeeping of the inherited destructor both pointless and, after the free below, unsafe
+ fConvexHull:=nil;
  fShapeConvexHull.Free;
  inherited Destroy;
 end;
@@ -40436,6 +40724,12 @@ begin
  SetLength(fMeshes,1);
  fMeshes[0]:=aMesh;
 
+ // So that a standalone mesh, which can be used by several physics instances at the same time, knows whose
+ // shapes it has to invalidate when its content changes
+ if assigned(aMesh) then begin
+  aMesh.RegisterUser(aPhysics);
+ end;
+
 {$ifdef KraftShapeMeshCastUseTreeBVH}
  fTreeNodes:=nil;
  SetLength(fTreeNodes,1);
@@ -40473,6 +40767,7 @@ begin
 end;
 
 constructor TKraftShapeMesh.Create(const aPhysics:TKraft;const ARigidBody:TKraftRigidBody;const AMeshes:array of TKraftMesh);
+var MeshIndex:TKraftInt32;
 begin
 
 //fMesh:=AMesh;
@@ -40482,6 +40777,14 @@ begin
  fMeshes:=nil;
  SetLength(fMeshes,length(AMeshes));
  Move(AMeshes[0],fMeshes[0],length(AMeshes)*SizeOf(TKraftMesh));
+
+ // So that a standalone mesh, which can be used by several physics instances at the same time, knows whose
+ // shapes it has to invalidate when its content changes
+ for MeshIndex:=0 to fCountMeshes-1 do begin
+  if assigned(fMeshes[MeshIndex]) then begin
+   fMeshes[MeshIndex].RegisterUser(aPhysics);
+  end;
+ end;
 
 {$ifdef KraftShapeMeshCastUseTreeBVH}
  fTreeNodes:=nil;
@@ -40525,7 +40828,13 @@ begin
 end;
 
 destructor TKraftShapeMesh.Destroy;
+var MeshIndex:TKraftInt32;
 begin
+ for MeshIndex:=0 to fCountMeshes-1 do begin
+  if assigned(fMeshes[MeshIndex]) then begin
+   fMeshes[MeshIndex].UnregisterUser(fPhysics);
+  end;
+ end;
  fMeshes:=nil;
 {$ifdef KraftShapeMeshCastUseTreeBVH}
  fTreeNodes:=nil;
