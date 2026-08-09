@@ -3918,10 +3918,10 @@ begin
    AngularVelocity.x:=AngularVelocity.x*Clamp01(1.0-exp((-fDeltaTime)*fSettings.fFlightStabilizationAngularVelocityDamping.x));
   end;
   if not IsZero(fSettings.fFlightStabilizationAngularVelocityDamping.y) then begin
-   AngularVelocity.y:=AngularVelocity.y*Clamp01(1.0-exp((-fDeltaTime)*fSettings.fFlightStabilizationAngularVelocityDamping.x));
+   AngularVelocity.y:=AngularVelocity.y*Clamp01(1.0-exp((-fDeltaTime)*fSettings.fFlightStabilizationAngularVelocityDamping.y));
   end;
   if not IsZero(fSettings.fFlightStabilizationAngularVelocityDamping.z) then begin
-   AngularVelocity.z:=AngularVelocity.z*Clamp01(1.0-exp((-fDeltaTime)*fSettings.fFlightStabilizationAngularVelocityDamping.x));
+   AngularVelocity.z:=AngularVelocity.z*Clamp01(1.0-exp((-fDeltaTime)*fSettings.fFlightStabilizationAngularVelocityDamping.z));
   end;
   fRigidBody.AngularVelocity:=AngularVelocity;
 
