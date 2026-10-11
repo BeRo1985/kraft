@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-09-20-16-47-0000                       *
+ *                        Version 2026-10-11-17-02-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -68816,7 +68816,7 @@ var Index:TKraftInt32;
 {$ifend}
 {$ifdef windows}
     sinfo:SYSTEM_INFO;
-    dwProcessAffinityMask,dwSystemAffinityMask:TKraftPtrUInt;
+    dwProcessAffinityMask,dwSystemAffinityMask:DWORD_PTR;
  function GetRealCountOfCPUCores:TKraftInt32;
  const RelationProcessorCore=0;
        RelationNumaNode=1;
