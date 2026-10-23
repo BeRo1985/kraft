@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-10-11-17-02-0000                       *
+ *                        Version 2026-10-23-19-48-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -29752,6 +29752,26 @@ begin
  end;
 end;
 
+// The mass center of a hull or of a closed mesh is its volume centroid. That centroid only means
+// something where there is a positive volume to take it of, though: a flat hull has none, and the
+// cone sum of an open or inside out mesh need not have one either. Where the result gives that away,
+// by a volume which is not positive or by a centroid which is not finite or lies outside of the
+// bounds, the origin stays the mass center, just as it always was. The same goes for a volume too
+// small to have been given an inertia (both mass computations leave it at zero then, at unit density),
+// since a mass center away from the origin would turn that zero into a negative one in the body.
+function CentroidAsMassCenter(const aCentroid:TKraftVector3;const aVolume:TKraftScalar;const aAABB:TKraftAABB):TKraftVector3;
+begin
+ if (aVolume>EPSILON) and
+    not (IsNaN(aCentroid.x) or IsNaN(aCentroid.y) or IsNaN(aCentroid.z)) and
+    (aCentroid.x>=aAABB.Min.x) and (aCentroid.x<=aAABB.Max.x) and
+    (aCentroid.y>=aAABB.Min.y) and (aCentroid.y<=aAABB.Max.y) and
+    (aCentroid.z>=aAABB.Min.z) and (aCentroid.z<=aAABB.Max.z) then begin
+  result:=aCentroid;
+ end else begin
+  result:=Vector3Origin;
+ end;
+end;
+
 constructor TKraftConvexHull.Create(const aPhysics:TKraft);
 begin
 
@@ -30061,6 +30081,10 @@ begin
 {$ifdef SIMD}
  fCentroid.w:=0.0;
 {$endif}
+
+ // Streams from before the mass center was derived from the centroid carry the origin as mass center,
+ // but the centroid next to it, so the mass center is derived anew instead of taken as it was stored
+ fMassData.Center:=CentroidAsMassCenter(fCentroid,fMassData.Volume,fAABB);
 
 end;
 
@@ -31095,6 +31119,9 @@ begin
   fAABB.Max.y:=-MAX_SCALAR;
   fAABB.Max.z:=-MAX_SCALAR;
  end;
+
+ // Only now, with the bounds known, as these tell whether the centroid can be the mass center
+ fMassData.Center:=CentroidAsMassCenter(fCentroid,fMassData.Volume,fAABB);
 
  fAngularMotionDisc:=Vector3Length(fSphere.Center)+fSphere.Radius;
 
@@ -32651,6 +32678,10 @@ begin
 {$ifdef SIMD}
  fCentroid.w:=0.0;
 {$endif}
+
+ // Streams from before the mass center was derived from the centroid carry the origin as mass center,
+ // but the centroid next to it, so the mass center is derived anew instead of taken as it was stored
+ fMassData.Center:=CentroidAsMassCenter(fCentroid,fMassData.Volume,fAABB);
 
  if SIMD=KraftSIMD then begin
 
@@ -34786,6 +34817,9 @@ begin
     fAABB:=AABBCombine(fAABB,Triangle^.AABB);
    end;
   end;
+
+  // Only now, with the bounds known, as these tell whether the centroid can be the mass center
+  fMassData.Center:=CentroidAsMassCenter(fCentroid,fMassData.Volume,fAABB);
 
   if length(fTreeNodes)<=Max(1,length(fTriangles)) then begin
    SetLength(fTreeNodes,Max(1,length(fTriangles)*2));
@@ -38706,13 +38740,17 @@ begin
  fMassData.Inertia[2,0]:=fMassData.Inertia[2,0]*Scale;
  fMassData.Inertia[2,1]:=fMassData.Inertia[2,1]*Scale;
  fMassData.Inertia[2,2]:=fMassData.Inertia[2,2]*Scale;
+ // The hull inertia is about the hull origin. It is taken over to the mass center of the hull first,
+ // as it is only from there that it can be rotated into the body and then moved to where the mass
+ // center sits in it. For a hull whose mass center is its origin, the first step changes nothing.
+ Matrix3x3Sub(fMassData.Inertia,InertiaTensorParallelAxisTheorem(fConvexHull.fMassData.Center,fMassData.Mass));
  if ksfHasForcedCenterOfMass in fFlags then begin
   fMassData.Center:=Vector3TermMatrixMul(fForcedCenterOfMass,fLocalTransform);
  end else begin
   fMassData.Center:=Vector3TermMatrixMul(fMassData.Center,fLocalTransform);
  end;
  fMassData.Inertia:=Matrix3x3TermAdd(InertiaTensorTransform(fMassData.Inertia,Matrix3x3(fLocalTransform)),
-                                     InertiaTensorParallelAxisTheorem(Vector3Sub(fMassData.Center,fConvexHull.fMassData.Center),fMassData.Mass));
+                                     InertiaTensorParallelAxisTheorem(fMassData.Center,fMassData.Mass));
  // Uniform geometric scale: shared hull stays base-space; mass ~ s^3, inertia(about origin) ~ s^5,
  // center ~ s. For forced mass only the geometric extent scales the inertia (~ s^2). Bit-exact at s=1.
  if fForcedMass<=EPSILON then begin
@@ -38733,6 +38771,8 @@ begin
  fMassData.Inertia[2,1]:=fMassData.Inertia[2,1]*InertiaScale;
  fMassData.Inertia[2,2]:=fMassData.Inertia[2,2]*InertiaScale;
  fMassData.Center:=Vector3ScalarMul(fMassData.Center,fScale);
+ // In shape space, so in the scaled one, since that is where the geometry is looked at from it
+ fLocalCenterOfMass:=Vector3ScalarMul(fConvexHull.fMassData.Center,fScale);
 end;
 
 function TKraftShapeConvexHull.GetLocalSignedDistance(const Position:TKraftVector3):TKraftScalar;
@@ -41148,7 +41188,6 @@ end;
 procedure TKraftShapeMesh.CalculateMassData;
 var Index:TKraftInt32;
     Mass,Volume,Scale:TKraftScalar;
-    Center:TKraftVector3;
     BodyInertiaTensor:TKraftMatrix3x3;
     Mesh:TKraftMesh;
 begin
@@ -41165,6 +41204,10 @@ begin
 
    fMassData:=fMeshes[0].fMassData;
 
+   // The mesh inertia is about the mesh origin, so it is taken over to the mesh mass center here, to be
+   // about the mass center like the combined inertia of several meshes below is
+   Matrix3x3Sub(fMassData.Inertia,InertiaTensorParallelAxisTheorem(fMassData.Center,fMassData.Mass));
+
   end;
 
   2..TKraftInt32($7fffffff):begin
@@ -41174,6 +41217,11 @@ begin
    Mass:=0.0;
 
    Volume:=0.0;
+
+   // Both are sums from here on, which must not pile up over repeated runs, such as after a rescale
+   fLocalCentroid:=Vector3Origin;
+
+   fLocalCenterOfMass:=Vector3Origin;
 
    for Index:=0 to fCountMeshes-1 do begin
 
@@ -41243,7 +41291,6 @@ begin
  end;
 
  Mass:=fMassData.Mass;
- Center:=fMassData.Center;
  if fForcedMass>EPSILON then begin
   fMassData.Mass:=fForcedMass;
  end else begin
@@ -41264,8 +41311,10 @@ begin
  end else begin
   fMassData.Center:=Vector3TermMatrixMul(fMassData.Center,fLocalTransform);
  end;
+ // The inertia is about the mass center by now, from where it is rotated into the body and then moved
+ // to where the mass center sits in it
  fMassData.Inertia:=Matrix3x3TermAdd(InertiaTensorTransform(fMassData.Inertia,Matrix3x3(fLocalTransform)),
-                                     InertiaTensorParallelAxisTheorem(Vector3Sub(fMassData.Center,Center),fMassData.Mass));
+                                     InertiaTensorParallelAxisTheorem(fMassData.Center,fMassData.Mass));
 
 end;
 
