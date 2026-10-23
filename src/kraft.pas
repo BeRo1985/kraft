@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-10-23-20-20-0000                       *
+ *                        Version 2026-10-23-21-15-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -26970,7 +26970,10 @@ function ConvexHullVectorNormalize(const v:TConvexHullVector):TConvexHullVector;
 var l:double;
 begin
  l:=sqr(v.x)+sqr(v.y)+sqr(v.z);
- if l>EPSILON then begin
+ // Only a vector without any length has no direction. A threshold of the size of the physics epsilon
+ // (on the squared length, at that) also took the normals of perfectly fine small faces, as a Newell
+ // normal is only twice as long as the face is large, and gave them the made up up vector below.
+ if l>0.0 then begin
   l:=sqrt(l);
   result.x:=v.x/l;
   result.y:=v.y/l;
@@ -29960,6 +29963,8 @@ procedure TKraftConvexHull.LoadFromStream(const AStream:TStream);
 var i,j:TKraftInt32;
     Signature:TKraftSignature;
     FileFormatVersion:TKraftUInt32;
+    Last,Current:PKraftVector3;
+    NormalX,NormalY,NormalZ,CentroidX,CentroidY,CentroidZ,Len:double;
 begin
 
  AStream.ReadBuffer(Signature,SizeOf(TKraftSignature));
@@ -30010,6 +30015,42 @@ begin
   SetLength(fFaces[i].NeighbourFaces,fFaces[i].CountNeighbourFaces);
   for j:=0 to fFaces[i].CountNeighbourFaces-1 do begin
    AStream.ReadBuffer(fFaces[i].NeighbourFaces[j],SizeOf(TKraftInt32));
+  end;
+ end;
+
+ // Streams from before small faces were given their real normal carry the made up up vector as the
+ // normal of each of them, so the plane of such a face is derived from its vertices anew, the same way
+ // as on building. A face which really faces straight up merely gets its own plane once more.
+ for i:=0 to fCountFaces-1 do begin
+  if (fFaces[i].Plane.Normal.x=0.0) and (fFaces[i].Plane.Normal.y=1.0) and (fFaces[i].Plane.Normal.z=0.0) and
+     (fFaces[i].CountVertices>=3) then begin
+   NormalX:=0.0;
+   NormalY:=0.0;
+   NormalZ:=0.0;
+   CentroidX:=0.0;
+   CentroidY:=0.0;
+   CentroidZ:=0.0;
+   Last:=@fVertices[fFaces[i].Vertices[fFaces[i].CountVertices-1]].Position;
+   for j:=0 to fFaces[i].CountVertices-1 do begin
+    Current:=@fVertices[fFaces[i].Vertices[j]].Position;
+    NormalX:=NormalX+((double(Last^.y)-Current^.y)*(double(Last^.z)+Current^.z));
+    NormalY:=NormalY+((double(Last^.z)-Current^.z)*(double(Last^.x)+Current^.x));
+    NormalZ:=NormalZ+((double(Last^.x)-Current^.x)*(double(Last^.y)+Current^.y));
+    CentroidX:=CentroidX+Current^.x;
+    CentroidY:=CentroidY+Current^.y;
+    CentroidZ:=CentroidZ+Current^.z;
+    Last:=Current;
+   end;
+   Len:=sqrt(sqr(NormalX)+sqr(NormalY)+sqr(NormalZ));
+   if Len>0.0 then begin
+    NormalX:=NormalX/Len;
+    NormalY:=NormalY/Len;
+    NormalZ:=NormalZ/Len;
+    fFaces[i].Plane.Normal.x:=NormalX;
+    fFaces[i].Plane.Normal.y:=NormalY;
+    fFaces[i].Plane.Normal.z:=NormalZ;
+    fFaces[i].Plane.Distance:=-(((NormalX*CentroidX)+(NormalY*CentroidY)+(NormalZ*CentroidZ))/fFaces[i].CountVertices);
+   end;
   end;
  end;
 

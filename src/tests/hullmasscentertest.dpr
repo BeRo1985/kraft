@@ -314,6 +314,81 @@ begin
  end;
 end;
 
+// A ball of many small faces. A face plane once took the small Newell normal of such a face for no
+// direction at all and made it point straight up, which a triangle of a mesh then took as a separating
+// axis forever, so such a hull fell right through a mesh floor.
+procedure TestSmallFacePlanes;
+const CountPoints=600;
+      Radius=0.1;
+var Physics:TKraft;
+    Hull:TKraftConvexHull;
+    FloorBody,BallBody:TKraftRigidBody;
+    FloorMesh:TKraftMesh;
+    FloorShape:TKraftShapeMesh;
+    BallShape:TKraftShapeConvexHull;
+    Index,FaceIndex,VertexIndex,CountBadFaces,CellX,CellZ:longint;
+    y,r,Angle,Distance,MaxDistance:TKraftScalar;
+    Indices:array[0..8,0..8] of TKraftInt32;
+begin
+ WriteLn('hull of many small faces');
+ Physics:=CreatePhysics;
+ try
+  Hull:=TKraftConvexHull.Create(Physics);
+  for Index:=0 to CountPoints-1 do begin
+   // Golden spiral, evenly spread over the sphere
+   y:=1.0-((2.0*(Index+0.5))/CountPoints);
+   r:=sqrt(Max(0.0,1.0-sqr(y)));
+   Angle:=Index*pi*(3.0-sqrt(5.0));
+   Hull.AddVertex(Vector3(cos(Angle)*r*Radius,y*Radius,sin(Angle)*r*Radius));
+  end;
+  Hull.Build;
+  Hull.Finish;
+  CountBadFaces:=0;
+  for FaceIndex:=0 to Hull.CountFaces-1 do begin
+   MaxDistance:=-MAX_SCALAR;
+   for VertexIndex:=0 to Hull.CountVertices-1 do begin
+    Distance:=Vector3Dot(Hull.Faces[FaceIndex].Plane.Normal,Hull.Vertices[VertexIndex].Position)+Hull.Faces[FaceIndex].Plane.Distance;
+    MaxDistance:=Max(MaxDistance,Distance);
+   end;
+   if MaxDistance>1e-4 then begin
+    inc(CountBadFaces);
+   end;
+  end;
+  Check('every face plane has the whole hull on its inner side ('+IntToStr(CountBadFaces)+' of '+IntToStr(Hull.CountFaces)+' not)',CountBadFaces=0);
+  // A floor mesh of 0.25 m cells around the origin, top at y=0
+  FloorMesh:=TKraftMesh.Create(Physics);
+  for CellZ:=0 to 8 do begin
+   for CellX:=0 to 8 do begin
+    Indices[CellX,CellZ]:=FloorMesh.AddVertex(Vector3((CellX-4)*0.25,0.0,(CellZ-4)*0.25),false);
+   end;
+  end;
+  for CellZ:=0 to 7 do begin
+   for CellX:=0 to 7 do begin
+    FloorMesh.AddTriangle(Indices[CellX,CellZ],Indices[CellX,CellZ+1],Indices[CellX+1,CellZ+1]);
+    FloorMesh.AddTriangle(Indices[CellX,CellZ],Indices[CellX+1,CellZ+1],Indices[CellX+1,CellZ]);
+   end;
+  end;
+  FloorMesh.Finish;
+  FloorBody:=TKraftRigidBody.Create(Physics);
+  FloorBody.SetRigidBodyType(krbtSTATIC);
+  FloorShape:=TKraftShapeMesh.Create(Physics,FloorBody,FloorMesh);
+  FloorShape.Friction:=0.5;
+  FloorBody.Finish;
+  FloorBody.SetWorldTransformation(Matrix4x4Identity);
+  FloorBody.CollisionGroups:=[0];
+  BallBody:=CreateHullBody(Physics,Hull,Matrix4x4Identity,1.0);
+  BallShape:=TKraftShapeConvexHull(BallBody.ShapeFirst);
+  BallShape.Friction:=0.5;
+  BallBody.SetWorldTransformation(Matrix4x4Translate(0.1,Radius+0.05,0.07));
+  for Index:=1 to 120 do begin
+   Physics.Step(1.0/60.0);
+  end;
+  Check('ball of small faces rests on a mesh floor (y '+FloatToStrF(BallBody.WorldTransform[3,1],ffFixed,7,3)+')',abs(BallBody.WorldTransform[3,1]-Radius)<0.02);
+ finally
+  Physics.Free;
+ end;
+end;
+
 function RunPin(const aTiltDegrees:TKraftScalar):TKraftScalar;
 var Physics:TKraft;
     FloorBody,PinBody:TKraftRigidBody;
@@ -363,6 +438,7 @@ begin
  TestTinyHullKeepsOrigin;
  TestHullStreamWithoutMassCenter;
  TestMeshMassCenter;
+ TestSmallFacePlanes;
  TestPinStandsAndFalls;
  WriteLn;
  WriteLn('=== ',CountPassed,' passed, ',CountFailed,' failed ===');
