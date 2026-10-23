@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-10-23-19-48-0000                       *
+ *                        Version 2026-10-23-20-20-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -10082,7 +10082,7 @@ begin
  m[0,0]:=CosinusAngle+((1.0-CosinusAngle)*sqr(Axis.x));
  m[1,0]:=((1.0-CosinusAngle)*Axis.x*Axis.y)-(Axis.z*SinusAngle);
  m[2,0]:=((1.0-CosinusAngle)*Axis.x*Axis.z)+(Axis.y*SinusAngle);
- m[0,1]:=((1.0-CosinusAngle)*Axis.x*Axis.z)+(Axis.z*SinusAngle);
+ m[0,1]:=((1.0-CosinusAngle)*Axis.x*Axis.y)+(Axis.z*SinusAngle);
  m[1,1]:=CosinusAngle+((1.0-CosinusAngle)*sqr(Axis.y));
  m[2,1]:=((1.0-CosinusAngle)*Axis.y*Axis.z)-(Axis.x*SinusAngle);
  m[0,2]:=((1.0-CosinusAngle)*Axis.x*Axis.z)-(Axis.y*SinusAngle);
@@ -10822,7 +10822,7 @@ begin
  m[0,0]:=CosinusAngle+((1-CosinusAngle)*Axis.x*Axis.x);
  m[1,0]:=((1-CosinusAngle)*Axis.x*Axis.y)-(Axis.z*SinusAngle);
  m[2,0]:=((1-CosinusAngle)*Axis.x*Axis.z)+(Axis.y*SinusAngle);
- m[0,1]:=((1-CosinusAngle)*Axis.x*Axis.z)+(Axis.z*SinusAngle);
+ m[0,1]:=((1-CosinusAngle)*Axis.x*Axis.y)+(Axis.z*SinusAngle);
  m[1,1]:=CosinusAngle+((1-CosinusAngle)*Axis.y*Axis.y);
  m[2,1]:=((1-CosinusAngle)*Axis.y*Axis.z)-(Axis.x*SinusAngle);
  m[0,2]:=((1-CosinusAngle)*Axis.x*Axis.z)-(Axis.y*SinusAngle);
@@ -15871,7 +15871,8 @@ end;
 
 function InertiaTensorTransform({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Inertia,Transform:TKraftMatrix3x3):TKraftMatrix3x3;
 begin
- result:=Matrix3x3TermMulTranspose(Matrix3x3TermMul(Transform,Inertia),Transform);
+ // Transform has the turned axes as its rows (row vectors from the left), so the tensor goes as T^T*I*T
+ result:=Matrix3x3TermMul(Matrix3x3TermTranspose(Transform),Matrix3x3TermMul(Inertia,Transform));
 end;
 
 function InertiaTensorParallelAxisTheorem({$ifdef USE_CONSTREF_EX}constref{$else}const{$endif} Center:TKraftVector3;const Mass:TKraftScalar):TKraftMatrix3x3;
@@ -42402,7 +42403,7 @@ begin
 end;
 
 procedure TKraftShapeSignedDistanceField.CalculateMassData;
-var ScaleCubed,InertiaScale:TKraftScalar;
+var Scale,ScaleCubed,InertiaScale:TKraftScalar;
 begin
 
  fMassData:=fSignedDistanceField.fMassData;
@@ -42420,12 +42421,36 @@ begin
 
  end else begin
 
-  fMassData.Center:=Vector3TermMatrixMul(fMassData.Center,fLocalTransform);
+  // The field inertia is the one of unit density about the field's own mass center. It is brought to
+  // the mass of this shape first, and from the mass center it is then rotated into the body and moved
+  // to where the mass center sits in it, as the body takes the inertia of every shape about its origin.
+  if fSignedDistanceField.fMassData.Mass>EPSILON then begin
+   Scale:=fMassData.Mass/fSignedDistanceField.fMassData.Mass;
+  end else begin
+   Scale:=0.0;
+  end;
+  fMassData.Inertia[0,0]:=fMassData.Inertia[0,0]*Scale;
+  fMassData.Inertia[0,1]:=fMassData.Inertia[0,1]*Scale;
+  fMassData.Inertia[0,2]:=fMassData.Inertia[0,2]*Scale;
+  fMassData.Inertia[1,0]:=fMassData.Inertia[1,0]*Scale;
+  fMassData.Inertia[1,1]:=fMassData.Inertia[1,1]*Scale;
+  fMassData.Inertia[1,2]:=fMassData.Inertia[1,2]*Scale;
+  fMassData.Inertia[2,0]:=fMassData.Inertia[2,0]*Scale;
+  fMassData.Inertia[2,1]:=fMassData.Inertia[2,1]*Scale;
+  fMassData.Inertia[2,2]:=fMassData.Inertia[2,2]*Scale;
+  if ksfHasForcedCenterOfMass in fFlags then begin
+   fMassData.Center:=Vector3TermMatrixMul(fForcedCenterOfMass,fLocalTransform);
+  end else begin
+   fMassData.Center:=Vector3TermMatrixMul(fMassData.Center,fLocalTransform);
+  end;
+  fMassData.Inertia:=Matrix3x3TermAdd(InertiaTensorTransform(fMassData.Inertia,Matrix3x3(fLocalTransform)),
+                                      InertiaTensorParallelAxisTheorem(fMassData.Center,fMassData.Mass));
 
  end;
 
  // Uniform geometric scale: the shared field stays base-space; volume/mass ~ s^3, center ~ s,
- // inertia (about the origin) ~ s^5. Bit-exact at s=1; the static placeholder inertia is left untouched.
+ // inertia (about the origin) ~ s^5, or ~ s^2 for a forced mass, where only the extent grows.
+ // Bit-exact at s=1; the static placeholder inertia is left untouched.
  if fScale<>1.0 then begin
   ScaleCubed:=(fScale*fScale)*fScale;
   fMassData.Volume:=fMassData.Volume*ScaleCubed;
@@ -42434,7 +42459,11 @@ begin
   end;
   if fRigidBody.fRigidBodyType<>krbtStatic then begin
    fMassData.Center:=Vector3ScalarMul(fMassData.Center,fScale);
-   InertiaScale:=ScaleCubed*(fScale*fScale);
+   if fForcedMass<=EPSILON then begin
+    InertiaScale:=ScaleCubed*(fScale*fScale);
+   end else begin
+    InertiaScale:=fScale*fScale;
+   end;
    fMassData.Inertia[0,0]:=fMassData.Inertia[0,0]*InertiaScale;
    fMassData.Inertia[0,1]:=fMassData.Inertia[0,1]*InertiaScale;
    fMassData.Inertia[0,2]:=fMassData.Inertia[0,2]*InertiaScale;
@@ -50714,7 +50743,10 @@ var Orientation:TKraftMatrix3x3;
 begin
  if fRigidBodyType=krbtDynamic then begin
   Orientation:=QuaternionToMatrix3x3(fSweep.q0);
-  fWorldInverseInertiaTensor:=Matrix3x3TermMulTranspose(Matrix3x3TermMul(Orientation,fBodyInverseInertiaTensor),Orientation);
+  // The orientation has the turned body axes as its rows, like every transform here which takes a row
+  // vector from the left, so a body tensor gets into world space as O^T*I*O and not as O*I*O^T, which
+  // would turn it the other way round
+  fWorldInverseInertiaTensor:=Matrix3x3TermMul(Matrix3x3TermTranspose(Orientation),Matrix3x3TermMul(fBodyInverseInertiaTensor,Orientation));
 //fWorldInverseInertiaTensor:=Matrix3x3TermMul(Matrix3x3TermMul(Orientation,fBodyInverseInertiaTensor),Matrix3x3TermTranspose(Orientation));
   Matrix3x3Inverse(fWorldInertiaTensor,fWorldInverseInertiaTensor);
  end;
