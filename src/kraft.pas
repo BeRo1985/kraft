@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-10-24-05-12-0000                       *
+ *                        Version 2026-10-24-15-52-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -3166,6 +3166,12 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        RecycleRelativeOrientation:TKraftQuaternion;
        RecycleWorldOrientations:array[0..1] of TKraftQuaternion;
        RecycleSeparation:TKraftScalar;
+       // For touching pairs the separation of the nearest candidate point which the collide routine dropped at
+       // the last real narrow phase run for not touching yet (a corner of the incident face above the reference
+       // face, a capsule end above the ground). A manifold holds only the touching points, so the pair may drift
+       // only that far before such a point could touch unseen. Zero for transient edge contacts, MAX_SCALAR where
+       // the routine left nothing out.
+       RecycleTouchSeparation:TKraftScalar;
 {$ifdef KraftConstraintGraphColoring}
        // Persistent constraint graph membership (negative when not in the graph), maintained by
        // TKraftConstraintGraph over the touching state and sleep transitions. The owned bits mask remembers
@@ -6756,7 +6762,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        // Contact pairs whose relative body pose stayed within this distance since their last real narrow phase
        // run skip the narrow phase and keep their last result (zero or negative switches contact recycling off).
        // For pairs without contacts the tolerance is additionally capped by the surface separation the pair had
-       // at that run, so a beginning touch can never be missed.
+       // at that run, so a beginning touch can never be missed, and for touching pairs by the separation of the
+       // nearest point which did not touch yet, so that a further touch (a body tipping onto its face) cannot be
+       // missed either. A resting stack keeps every point touching and so the full distance.
        property ContactRecycleDistance:TKraftScalar read fContactRecycleDistance write fContactRecycleDistance;
 
        // Optional additional recycling cap which also requires that neither body has rotated more than about
@@ -43075,6 +43083,7 @@ end;
 procedure TKraftContactPair.DetectCollisions(const ContactManager:TKraftContactManager;const TriangleShape:TKraftShape=nil;const ThreadIndex:TKraftInt32=0;const SpeculativeContacts:boolean=true;const DeltaTime:double=0.0);
 var OldManifoldCountContacts:TKraftInt32;
     OldContactManifoldType:TKraftContactManifoldType;
+    OldRecycleTouchSeparation:TKraftScalar;
     ShapeTriangle:TKraftShapeTriangle;
     ShapeTriangleA:TKraftShapeTriangle; // A side scratch triangle of a mesh versus mesh sub pair (B side is ShapeTriangle)
 {$ifdef KraftDoublePositions}
@@ -43972,6 +43981,9 @@ var OldManifoldCountContacts:TKraftInt32;
     SquaredDistance:=Vector3DistSquared(ClosestPointA,ClosestPointB);
     if SquaredDistance<SquaredRadiiWithTolerance then begin
      AddImplicitContact(ClosestPointA,ClosestPointB,RadiusA,RadiusB,CreateFeatureID(1),false);
+    end else begin
+     // The other end, not touching yet, see RecycleTouchSeparation
+     RecycleTouchSeparation:=Min(RecycleTouchSeparation,sqrt(SquaredDistance)-(RadiusA+RadiusB));
     end;
 
    end;
@@ -44097,12 +44109,15 @@ var OldManifoldCountContacts:TKraftInt32;
                           0.0,
                           CreateFeatureID(1,PointIndex),
                           false);
+         end else if Distance>ShapeA.fRadius then begin
+          // A lifted end, not touching yet, see RecycleTouchSeparation
+          RecycleTouchSeparation:=Min(RecycleTouchSeparation,Distance-ShapeA.fRadius);
          end;
         end;
-        if Manifold.CountContacts>1 then begin
+        // One end on the face is a face contact as well, under the same feature as when both ends lie on it,
+        // so that the warm start carries over when the other end lifts off or comes down
+        if Manifold.CountContacts>0 then begin
          exit;
-        end else begin
-         Manifold.CountContacts:=0;
         end;
        end;
       end;
@@ -44117,6 +44132,23 @@ var OldManifoldCountContacts:TKraftInt32;
                              0.0,
                              CreateFeatureID(0),
                              false);
+
+    // A capsule end which is not where it touches may come into touch, see RecycleTouchSeparation; measured
+    // against the plane of the contact, the normal of which points from the hull to the capsule
+{$ifdef KraftDoublePositions}
+    CapsulePosition:=Vector3TermMatrixMul(ShapeA.fLocalCentroid,WorldTransformA);
+    CapsuleAxis:=Vector3Norm(Vector3(WorldTransformA[1,0],WorldTransformA[1,1],WorldTransformA[1,2]));
+{$else}
+    CapsulePosition:=Vector3TermMatrixMul(ShapeA.fLocalCentroid,ShapeA.fWorldTransform);
+    CapsuleAxis:=Vector3Norm(Vector3(ShapeA.fWorldTransform[1,0],ShapeA.fWorldTransform[1,1],ShapeA.fWorldTransform[1,2]));
+{$endif}
+    ClosestPoints[0]:=Vector3Sub(CapsulePosition,Vector3ScalarMul(CapsuleAxis,ShapeA.fHeight*0.5));
+    ClosestPoints[1]:=Vector3Add(CapsulePosition,Vector3ScalarMul(CapsuleAxis,ShapeA.fHeight*0.5));
+    for PointIndex:=0 to 1 do begin
+     if Vector3DistSquared(ClosestPoints[PointIndex],GJK.ClosestPoints[0])>sqr(ShapeA.fHeight*0.01) then begin
+      RecycleTouchSeparation:=Min(RecycleTouchSeparation,Vector3Dot(Vector3Sub(ClosestPoints[PointIndex],GJK.ClosestPoints[1]),GJK.Normal)-ShapeA.fRadius);
+     end;
+    end;
    end;
 
   end else begin
@@ -44273,6 +44305,8 @@ var OldManifoldCountContacts:TKraftInt32;
                             0.0,
                             CreateFeatureID(2,MaxEdgeIndex),
                             false);
+     // Crossing edges are a passing state, see the hull edge contact
+     RecycleTouchSeparation:=0.0;
      exit;
     end;
    end;
@@ -44305,6 +44339,9 @@ var OldManifoldCountContacts:TKraftInt32;
                         0.0,
                         CreateFeatureID(3,PointIndex),
                         false);
+       end else begin
+        // A lifted end, not touching yet, see RecycleTouchSeparation
+        RecycleTouchSeparation:=Min(RecycleTouchSeparation,Distance-ShapeA.fRadius);
        end;
       end;
      end;
@@ -44550,6 +44587,9 @@ var OldManifoldCountContacts:TKraftInt32;
      end else begin
       break;
      end;
+    end else if RecycleTouchSeparation>Distance then begin
+     // Not touching yet, but it may come into touch, see RecycleTouchSeparation
+     RecycleTouchSeparation:=Distance;
     end;
    end;
 
@@ -44758,6 +44798,8 @@ var OldManifoldCountContacts:TKraftInt32;
        Contact^.Penetration:=EdgePenetration;
        Contact^.FeatureID:=CreateFeatureID(TKraftUInt32($80000000) or TKraftUInt32(EdgeIndexA),TKraftUInt32($80000000) or TKraftUInt32(EdgeIndexB));
       end;
+      // Crossing edges are a passing state, see the hull edge contact
+      RecycleTouchSeparation:=0.0;
      end;
     end;
    end;
@@ -45191,7 +45233,7 @@ var OldManifoldCountContacts:TKraftInt32;
   procedure ClipFaceContactPoints(const ReferenceHull:TKraftShapeConvexHull;const ReferenceFaceIndex:TKraftInt32;const IncidentHull:TKraftShapeConvexHull;const IncidentFaceIndex:TKraftInt32;const Flip:boolean);
   var Contact:PKraftContact;
       ReferenceVertexIndex,OtherReferenceVertexIndex,IncidentVertexIndex,ClipVertexIndex,
-      ReferenceEdgeIndexOffset,IncidentEdgeIndexOffset{$ifdef DebugDraw},
+      ReferenceEdgeIndexOffset,IncidentEdgeIndexOffset,VertexIndex{$ifdef DebugDraw},
       DebugClipVertexListIndex{$endif}:TKraftInt32;
       {$ifdef DebugDraw}DebugClipVertexListOK:boolean;{$endif}
       ReferenceFace,IncidentFace:PKraftConvexHullFace;
@@ -45199,7 +45241,7 @@ var OldManifoldCountContacts:TKraftInt32;
       PreviousClipVertexDistance,CurrentClipVertexDistance,Distance:TKraftScalar;
       ClipVertices:array[0..2] of TKraftClipVertexList;
       ReferencePoint:TKraftVector3;
-      ReferenceWorldPlane,ReferenceEdgePlane:TKraftPlane;
+      ReferenceWorldPlane,ReferenceEdgePlane,IncidentWorldPlane:TKraftPlane;
 {$ifdef KraftDoublePositions}
       ReferenceWorldTransform,IncidentWorldTransform:TKraftMatrix4x4;
 {$endif}
@@ -45343,6 +45385,28 @@ var OldManifoldCountContacts:TKraftInt32;
    end;
 {$endif}
 
+   // Not only the incident face may come into touch, a hull with a base of several faces tips onto the
+   // others, and the reference hull may tip onto the incident one with another face too. A face plane is a
+   // supporting plane of its hull, so the separation of a vertex from it bounds the distance of that vertex
+   // from the hull from below, see RecycleTouchSeparation. The artificial corners of a plane hull are left out.
+   if IncidentHull.fShapeType<>kstPlane then begin
+    for VertexIndex:=0 to IncidentHull.fConvexHull.fCountVertices-1 do begin
+     Distance:=PlaneVectorDistance(ReferenceWorldPlane,Vector3TermMatrixMulWithScale(IncidentHull.fConvexHull.fVertices[VertexIndex].Position,{$ifdef KraftDoublePositions}IncidentWorldTransform{$else}IncidentHull.fWorldTransform{$endif},IncidentHull.fScale));
+     if (Distance>0.0) and (RecycleTouchSeparation>Distance) then begin
+      RecycleTouchSeparation:=Distance;
+     end;
+    end;
+   end;
+   if ReferenceHull.fShapeType<>kstPlane then begin
+    IncidentWorldPlane:=PlaneFastTransformWithScale(IncidentFace^.Plane,{$ifdef KraftDoublePositions}IncidentWorldTransform{$else}IncidentHull.fWorldTransform{$endif},IncidentHull.fScale);
+    for VertexIndex:=0 to ReferenceHull.fConvexHull.fCountVertices-1 do begin
+     Distance:=PlaneVectorDistance(IncidentWorldPlane,Vector3TermMatrixMulWithScale(ReferenceHull.fConvexHull.fVertices[VertexIndex].Position,{$ifdef KraftDoublePositions}ReferenceWorldTransform{$else}ReferenceHull.fWorldTransform{$endif},ReferenceHull.fScale));
+     if (Distance>0.0) and (RecycleTouchSeparation>Distance) then begin
+      RecycleTouchSeparation:=Distance;
+     end;
+    end;
+   end;
+
    for ClipVertexIndex:=0 to ClipVertices[0].Count-1 do begin
     ClipVertex:=@ClipVertices[0].Vertices[ClipVertexIndex];
     Distance:=PlaneVectorDistance(ReferenceWorldPlane,ClipVertex^.Position);
@@ -45376,6 +45440,9 @@ var OldManifoldCountContacts:TKraftInt32;
      end else begin
       break;
      end;
+    end else if RecycleTouchSeparation>Distance then begin
+     // Not touching yet, but it may come into touch, see RecycleTouchSeparation
+     RecycleTouchSeparation:=Distance;
     end;
    end;
 
@@ -45450,6 +45517,7 @@ var OldManifoldCountContacts:TKraftInt32;
      if ValidContacts=SolverContactManifold.CountContacts then begin
       // We've still valid contacts, so we can reuse the contact manifold directly from the last frame and we can skip the whole SAT
 //    writeln(ContactManager.fPhysics.HighResolutionTimer.GetTime);
+      RecycleTouchSeparation:=OldRecycleTouchSeparation;
       exit;
      end;
 
@@ -45538,6 +45606,8 @@ var OldManifoldCountContacts:TKraftInt32;
       Contact^.Penetration:=PenetrationDepth;
       Contact^.FeatureID.ElementA:=TKraftUInt32(Manifold.EdgeQuery.IndexA) or TKraftUInt32($80000000);
       Contact^.FeatureID.ElementB:=TKraftUInt32(Manifold.EdgeQuery.IndexB) or TKraftUInt32($80000000);
+      // Crossing edges are a passing state, the next touch is a face, which nothing here tracks
+      RecycleTouchSeparation:=0.0;
      end;
     end;
 
@@ -46381,11 +46451,14 @@ begin
     (Shapes[0].fShapeType<>kstSignedDistanceField) and
     (Shapes[1].fShapeType<>kstSignedDistanceField) then begin
 
-  // Touching manifolds recycle within the full distance. Pairs without contacts recycle only while the
-  // drift stays below the surface separation they had at the last real run, so that a beginning touch can
-  // never be missed, no matter how small the contact acceptance window of the involved collide routine is.
+  // Touching manifolds recycle only while the drift stays below the separation of the nearest point their
+  // collide routine left out for not touching yet, see RecycleTouchSeparation, since the manifold knows the
+  // touching points alone: a body which tips over an edge onto its face would otherwise sink in unseen. Pairs
+  // without contacts recycle only while the drift stays below the surface separation they had at the last
+  // real run, so that a beginning touch can never be missed, no matter how small the contact acceptance
+  // window of the involved collide routine is.
   if Manifold.CountContacts>0 then begin
-   RecycleTolerance:=Physics.fContactRecycleDistance;
+   RecycleTolerance:=Min(Physics.fContactRecycleDistance,RecycleTouchSeparation);
   end else begin
    RecycleTolerance:=Min(Physics.fContactRecycleDistance,RecycleSeparation);
   end;
@@ -46471,6 +46544,10 @@ begin
  Manifold.ContactManifoldType:=kcmtUnknown;
 
  Manifold.CountContacts:=0;
+
+ // Lowered by the collide routines below for every candidate point they leave out for not touching yet
+ OldRecycleTouchSeparation:=RecycleTouchSeparation;
+ RecycleTouchSeparation:=MAX_SCALAR;
 
  ShapeA:=Shapes[0];
  ShapeB:=Shapes[1];
@@ -48615,11 +48692,18 @@ begin
 
     // Sanity walk: every marked representative pair must still carry its cluster manifold. A mode switch
     // or a continuous collision rebuild may have overwritten one, then the whole pair rebuilds normally.
+    // Every touching pair also holds the drift below the separation of the points its collide routine
+    // left out for not touching yet, see TKraftContactPair.RecycleTouchSeparation.
     result:=true;
     ContactPair:=aMeshContactPair.fFirstContactPair;
     while assigned(ContactPair) do begin
      if (kcfMeshClusterRepresentative in ContactPair^.Flags) and
         ((ContactPair^.Manifold.ContactManifoldType<>kcmtImplicitNormal) or (ContactPair^.Manifold.CountContacts=0)) then begin
+      result:=false;
+      break;
+     end;
+     if ((kcfMeshClusterRepresentative in ContactPair^.Flags) or (kcfColliding in ContactPair^.Flags)) and
+        ((PositionDrift+RotationDrift)>=ContactPair^.RecycleTouchSeparation) then begin
       result:=false;
       break;
      end;
