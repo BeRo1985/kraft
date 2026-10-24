@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-10-23-21-15-0000                       *
+ *                        Version 2026-10-24-02-54-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -3028,6 +3028,7 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        CachedSimplex:PKraftGJKCachedSimplex;
        Shapes:TKraftGJKStateShapes;
        Transforms:TKraftGJKStateTransforms;
+       function RunAgainstPlane:boolean;
        function Run:boolean;
      end;
 
@@ -5092,7 +5093,6 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      PKraftSolverPositionState=^TKraftSolverPositionState;
      TKraftSolverPositionState=record
-      LocalPoints:array[0..MAX_CONTACTS-1] of TKraftVector3;
       LocalNormal:TKraftVector3;
       LocalCenters:array[0..1] of TKraftVector3;
       WorldInverseInertiaTensors:array[0..1] of TKraftMatrix3x3;
@@ -5401,6 +5401,12 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fWideBatchColorRangeCounts:array[0..KraftConstraintGraphColorCount-1] of TKraftInt32;
        fWideActive:boolean;
 {$endif}
+
+       // The contact points of a manifold are run through backwards on every second velocity iteration of the
+       // sequential impulse solver, which evens out the bias of the Gauss-Seidel order between them. The last
+       // iteration always runs forwards, so every step ends in the same order, as ending on the backward one lets
+       // bodies at rest settle and fall asleep measurably less often
+       fReversePointOrder:boolean;
 
        function MakeSoft(const aHertz,aDampingRatio,aH:TKraftScalar):TKraftSolverSoftness;
 
@@ -18298,7 +18304,10 @@ var w1x,Iw1x:TKraftMatrix3x3;
 begin
  w1x:=GetSkewSymmetricMatrixMinus(w1);
  Iw1x:=GetSkewSymmetricMatrixMinus(Vector3TermMatrixMul(w1,I));
- result:=Matrix3x3TermAdd(I,Matrix3x3TermScalarMul(Matrix3x3TermSub(Matrix3x3TermMul(w1x,I),Iw1x),dt));
+ // The Jacobian for row vectors taken from the left (v*J), as Vector3TermMatrixMulInverse applies it, which is
+ // the transpose of I+dt*(skew(w1)*I-skew(I*w1)), so I comes first here and the minus skew matrices, which
+ // are the transposed ones, follow
+ result:=Matrix3x3TermAdd(I,Matrix3x3TermScalarMul(Matrix3x3TermSub(Matrix3x3TermMul(I,w1x),Iw1x),dt));
 end;
 
 constructor TKraftClipVertexList.Create;
@@ -20544,17 +20553,50 @@ begin
  result:=aTriangle^.Points[Index]^;
 end;
 
+// Whether two vectors are as good as parallel, or one of them is zero, judged by their cross product.
+// The sine of their angle is held against the square root of EPSILON, which is just what testing the
+// squared length of the cross product against EPSILON amounts to for two vectors of unit length. Unlike
+// that test, it holds at any size of the shapes, where the plain one takes nearly every cross product
+// of small shapes for parallel and hardly any of large ones.
+function MPRIsDegenerateCross(const aCross,aA,aB:TKraftVector3):boolean;
+begin
+ result:=Vector3LengthSquared(aCross)<=(EPSILON*(Vector3LengthSquared(aA)*Vector3LengthSquared(aB)));
+end;
+
+// Whether the center difference which seeds the portal is too short to point anywhere. Judged against the size
+// of the shapes and not against a fixed length, which would also replace the real center differences of small
+// shapes, and so turn their portals, and with them their normals, aside.
+function MPRIsDegenerateSeed(const aSeed:TKraftVector3;const aRadiusA,aRadiusB:TKraftScalar):boolean;
+begin
+ result:=Vector3LengthSquared(aSeed)<=(sqr(EPSILON)*(sqr(aRadiusA)+sqr(aRadiusB)));
+end;
+
+// How close a portal has to come to the surface of the Minkowski difference: MPRTolerance for shapes of a length
+// unit and larger, and below that the same fraction of the size of the smaller shape, as the fixed tolerance would
+// leave the depth of small shapes open by about their own size.
+function MPRShapeTolerance(const aRadiusA,aRadiusB:TKraftScalar):TKraftScalar;
+begin
+ result:=Min(aRadiusA,aRadiusB);
+ if result>1.0 then begin
+  result:=1.0;
+ end;
+ result:=result*MPRTolerance;
+end;
+
 function MPRIntersection(const aShapeA,aShapeB:TKraftShape;const aTransformA,aTransformB:TKraftMatrix4x4):boolean;
 const EPSILON=1e-6;
 var Phase1Iteration,Phase2Iterations:TKraftInt32;
+    Tolerance:TKraftScalar;
     v0,v1,v2,v3,v4,t,n:TKraftVector3;
 begin
 
  result:=false;
 
+ Tolerance:=MPRShapeTolerance(aShapeA.fShapeSphere.Radius,aShapeB.fShapeSphere.Radius);
+
  v0:=Vector3Sub(aShapeB.GetCenter(aTransformB),aShapeA.GetCenter(aTransformA));
 
- if Vector3LengthSquared(v0)<1e-5 then begin
+ if MPRIsDegenerateSeed(v0,aShapeA.fShapeSphere.Radius,aShapeB.fShapeSphere.Radius) then begin
   v0.x:=1e-5;
  end;
 
@@ -20566,7 +20608,7 @@ begin
  end;
 
  n:=Vector3Cross(v1,v0);
- if Vector3LengthSquared(n)<EPSILON then begin
+ if MPRIsDegenerateCross(n,v1,v0) then begin
   result:=true;
   exit;
  end;
@@ -20614,7 +20656,7 @@ begin
   repeat
    inc(Phase2Iterations);
    n:=Vector3Cross(Vector3Sub(v2,v1),Vector3Sub(v3,v1));
-   if Vector3LengthSquared(n)<EPSILON then begin
+   if MPRIsDegenerateCross(n,Vector3Sub(v2,v1),Vector3Sub(v3,v1)) then begin
     result:=true;
     exit;
    end;
@@ -20624,7 +20666,7 @@ begin
    end;
    v4:=Vector3Sub(Vector3TermMatrixMul(aShapeB.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(n,aTransformB)),aTransformB),
                   Vector3TermMatrixMul(aShapeA.GetLocalFullSupport(Vector3TermMatrixMulTransposedBasis(Vector3Neg(n),aTransformA)),aTransformA));
-   if (Vector3Dot(Vector3Sub(v4,v3),n)<=MPRTolerance) or
+   if (Vector3Dot(Vector3Sub(v4,v3),n)<=Tolerance) or
       (Vector3Dot(v4,n)<=0.0) or
       (Phase2Iterations>MPRMaximumIterations) then begin
     exit;
@@ -20666,7 +20708,7 @@ end;
 function MPRPenetration(const aShapeA,aShapeB:TKraftShape;const aTransformA,aTransformB:TKraftMatrix4x4;out aPositionA,aPositionB,aNormal:TKraftVector3;out aPenetrationDepth:TKraftScalar):boolean;
 const EPSILON=1e-6;
 var Phase1Iteration,Phase2Iterations:TKraftInt32;
-    b0,b1,b2,b3,Sum,Inv:TKraftScalar;
+    b0,b1,b2,b3,Sum,Inv,Tolerance:TKraftScalar;
     v0,v0a,v0b,v1,v1a,v1b,v2,v2a,v2b,v3,v3a,v3b,v4,v4a,v4b,t,n:TKraftVector3;
 begin
 
@@ -20675,6 +20717,8 @@ begin
  aPositionA:=Vector3Origin;
  aPositionB:=Vector3Origin;
  aPenetrationDepth:=0.0;
+
+ Tolerance:=MPRShapeTolerance(aShapeA.fShapeSphere.Radius,aShapeB.fShapeSphere.Radius);
 
  v0a:=aShapeA.GetCenter(aTransformA);
  v0b:=aShapeB.GetCenter(aTransformB);
@@ -20697,7 +20741,7 @@ begin
   v0:=Vector3Sub(v0b,v0a);
  end;
 
- if Vector3LengthSquared(v0)<1e-5 then begin
+ if MPRIsDegenerateSeed(v0,aShapeA.fShapeSphere.Radius,aShapeB.fShapeSphere.Radius) then begin
   v0.x:=1e-5;
  end;
 
@@ -20711,7 +20755,7 @@ begin
  end;
 
  n:=Vector3Cross(v1,v0);
- if Vector3LengthSquared(n)<EPSILON then begin
+ if MPRIsDegenerateCross(n,v1,v0) then begin
   aPositionA:=v1a;
   aPositionB:=v1b;
   aNormal:=Vector3Norm(Vector3Sub(v1,v0));
@@ -20780,7 +20824,7 @@ begin
 
    n:=Vector3Cross(Vector3Sub(v2,v1),Vector3Sub(v3,v1));
 
-   if Vector3LengthSquared(n)<EPSILON then begin
+   if MPRIsDegenerateCross(n,Vector3Sub(v2,v1),Vector3Sub(v3,v1)) then begin
     aPositionA:=v1a;
     aPositionB:=v1b;
     aNormal:=Vector3Norm(Vector3Sub(v1,v0));
@@ -20801,7 +20845,7 @@ begin
 
    aPenetrationDepth:=Vector3Dot(v4,n);
 
-   if (Vector3Dot(Vector3Sub(v4,v3),n)<=MPRTolerance) or
+   if (Vector3Dot(Vector3Sub(v4,v3),n)<=Tolerance) or
       (aPenetrationDepth<=0.0) or
       (Phase2Iterations>MPRMaximumIterations) then begin
 
@@ -20904,7 +20948,7 @@ end;
 function MPRIndirectTrianglePenetration(const aShapeA:PKraftIndirectTriangle;const aShapeB:TKraftShape;const aTransformA,aTransformB:TKraftMatrix4x4;out aPositionA,aPositionB,aNormal:TKraftVector3;out aPenetrationDepth:TKraftScalar):boolean;
 const EPSILON=1e-6;
 var Phase1Iteration,Phase2Iterations:TKraftInt32;
-    b0,b1,b2,b3,Sum,Inv:TKraftScalar;
+    b0,b1,b2,b3,Sum,Inv,TriangleSize,Tolerance:TKraftScalar;
     v0,v0a,v0b,v1,v1a,v1b,v2,v2a,v2b,v3,v3a,v3b,v4,v4a,v4b,t,n:TKraftVector3;
 begin
 
@@ -20913,6 +20957,10 @@ begin
  aPositionA:=Vector3Origin;
  aPositionB:=Vector3Origin;
  aPenetrationDepth:=0.0;
+
+ TriangleSize:=MPRIndirectTriangleSeedDisplacement(aShapeA);
+
+ Tolerance:=MPRShapeTolerance(TriangleSize,aShapeB.fShapeSphere.Radius);
 
  v0a:=MPRIndirectTriangleGetCenter(aShapeA,aTransformA);
  v0b:=aShapeB.GetCenter(aTransformB);
@@ -20923,10 +20971,10 @@ begin
  // triangle seed is displaced onto the side of the facet facing away from the other shape center, exactly
  // like the triangle shape treatment in MPRPenetration, so the portal resolves towards the facing surface.
  n:=Vector3SafeNorm(Vector3TermMatrixMulBasis(aShapeA^.Normal^,aTransformA));
- v0a:=Vector3Sub(v0a,Vector3ScalarMul(n,SignNonZero(Vector3Dot(n,v0))*MPRIndirectTriangleSeedDisplacement(aShapeA)));
+ v0a:=Vector3Sub(v0a,Vector3ScalarMul(n,SignNonZero(Vector3Dot(n,v0))*TriangleSize));
  v0:=Vector3Sub(v0b,v0a);
 
- if Vector3LengthSquared(v0)<1e-5 then begin
+ if MPRIsDegenerateSeed(v0,TriangleSize,aShapeB.fShapeSphere.Radius) then begin
   v0.x:=1e-5;
  end;
 
@@ -20940,7 +20988,7 @@ begin
  end;
 
  n:=Vector3Cross(v1,v0);
- if Vector3LengthSquared(n)<EPSILON then begin
+ if MPRIsDegenerateCross(n,v1,v0) then begin
   aPositionA:=v1a;
   aPositionB:=v1b;
   aNormal:=Vector3Norm(Vector3Sub(v1,v0));
@@ -21009,7 +21057,7 @@ begin
 
    n:=Vector3Cross(Vector3Sub(v2,v1),Vector3Sub(v3,v1));
 
-   if Vector3LengthSquared(n)<EPSILON then begin
+   if MPRIsDegenerateCross(n,Vector3Sub(v2,v1),Vector3Sub(v3,v1)) then begin
     aPositionA:=v1a;
     aPositionB:=v1b;
     aNormal:=Vector3Norm(Vector3Sub(v1,v0));
@@ -21030,7 +21078,7 @@ begin
 
    aPenetrationDepth:=Vector3Dot(v4,n);
 
-   if (Vector3Dot(Vector3Sub(v4,v3),n)<=MPRTolerance) or
+   if (Vector3Dot(Vector3Sub(v4,v3),n)<=Tolerance) or
       (aPenetrationDepth<=0.0) or
       (Phase2Iterations>MPRMaximumIterations) then begin
 
@@ -21392,10 +21440,12 @@ const EPSILON=1e-6;
 var Count:TKraftInt32;
     LocalPointB,v0,v1,v1a,v2,v2a,v3,v3a,v4,v4a,v1v0,v2v0,v3v0,t,n:TKraftVector3;
     Dot,DotV0,BarycentricCoordinate,v0v1v2v3Volume,v1v2v3Volume,v0v2v3Volume,v0v1v3Volume,
-    InverseTotalVolume,v0Weight,v1Weight,v2Weight,v3Weight,Dot2:TKraftScalar;
+    InverseTotalVolume,v0Weight,v1Weight,v2Weight,v3Weight,Dot2,Tolerance:TKraftScalar;
 begin
 
  result:=false;
+
+ Tolerance:=MPRShapeTolerance(aShapeA.fShapeSphere.Radius,aShapeB.fShapeSphere.Radius);
 
  LocalPointB.x:=aTransformB[3,0];
  LocalPointB.y:=aTransformB[3,1];
@@ -21404,7 +21454,7 @@ begin
  LocalPointB.w:=0.0;
 {$endif}
 
- if Vector3LengthSquared(LocalPointB)<EPSILON then begin
+ if MPRIsDegenerateSeed(LocalPointB,aShapeA.fShapeSphere.Radius,aShapeB.fShapeSphere.Radius) then begin
   aHitPosition:=LocalPointB;
   result:=true;
   exit;
@@ -21416,7 +21466,7 @@ begin
  v1:=MPRGetSweptExtremePoint(aShapeA,aShapeB,aSweep,aTransformB,n,v1a);
 
  n:=Vector3Cross(v1,v0);
- if Vector3LengthSquared(n)<EPSILON then begin
+ if MPRIsDegenerateCross(n,v1,v0) then begin
   Dot:=Vector3Dot(v1,LocalPointB);
   if Dot<0.0 then begin
    result:=false;
@@ -21487,7 +21537,7 @@ begin
   v4:=MPRGetSweptExtremePoint(aShapeA,aShapeB,aSweep,aTransformB,n,v4a);
   Dot2:=Vector3Dot(v4,n);
   if (Dot2<0.0) or
-     ((Dot2-Dot)<MPRTolerance) or
+     ((Dot2-Dot)<=(Tolerance*Vector3Length(n))) or
      (Count>MPRSweepCastMaximumIterations) then begin
    aHitPosition:=LocalPointB;
    exit;
@@ -21562,8 +21612,10 @@ begin
 {$endif}
 
  // This sweep amount needs to expand the minkowski difference to fully intersect the plane defined by the sweep direction and origin.
+ // A motion only counts as none when it is that short compared to the shapes. Against a fixed length, small shapes
+ // could move well beyond their own size without counting as moving, and so lost the sweep.
  RayLengthSquared:=Vector3LengthSquared(LocalDirection);
- if RayLengthSquared>EPSILON then begin
+ if RayLengthSquared>(sqr(EPSILON)*sqr(MaximumRadius)) then begin
   // Scale the sweep length by the margins. Divide by the length to pull the margin into terms of the length of the ray.
   SweepLength:=(Vector3Dot(LocalOrigin,LocalDirection)/RayLengthSquared)+(MaximumRadius/sqrt(RayLengthSquared));
  end else begin
@@ -21586,7 +21638,7 @@ end;
 function MPRSweepActualCast(const aShapeA,aShapeB:TKraftShape;const aSweepLength,aRayLengthSquared:TKraftScalar;const aLocalDirection,aSweep:TKraftVector3;const aLocalTransformBinA:TKraftMatrix4x4;out aHitPosition,aHitNormal:TKraftVector3;out aHitTime:TKraftScalar):boolean;
 const EPSILON=1e-6;
 var n,v1,v1a,v2,v2a,v3,v3a,v4,v4a,t:TKraftVector3;
-    Rate,Distance,Dot,SupportDot:TKraftScalar;
+    Rate,Distance,Dot,SupportDot,Tolerance:TKraftScalar;
     Count:TKraftInt32;
 begin
 
@@ -21596,12 +21648,15 @@ begin
  aHitNormal:=Vector3Origin;
  aHitTime:=0.0;
 
+ Tolerance:=MPRShapeTolerance(aShapeA.fShapeSphere.Radius,aShapeB.fShapeSphere.Radius);
+
  n:=aLocalDirection;
  v1:=MPRGetSweptExtremePoint(aShapeA,aShapeB,aSweep,aLocalTransformBinA,n,v1a);
 
  n:=Vector3Cross(v1,aLocalDirection);
- if Vector3LengthSquared(n)<EPSILON then begin
-  if aRayLengthSquared>EPSILON then begin
+ if MPRIsDegenerateCross(n,v1,aLocalDirection) then begin
+  // MPRSweepCast hands a ray length of zero for no motion, and any other one is a real motion
+  if aRayLengthSquared>0.0 then begin
    aHitNormal:=Vector3Norm(Vector3ScalarMul(aLocalDirection,1.0/sqrt(aRayLengthSquared)));
   end else begin
    aHitNormal:=Vector3Origin;
@@ -21669,8 +21724,10 @@ begin
   Dot:=Vector3Dot(n,v1);
   SupportDot:=Vector3Dot(n,v4);
 
-  if ((SupportDot-Dot)<MPRTolerance) or (Count>MPRMaximumIterations) then begin
-   if Vector3LengthSquared(n)>EPSILON then begin
+  // n is not normalized here, so the tolerance is taken along with its length, as everywhere else it is
+  // held against a normalized direction
+  if ((SupportDot-Dot)<=(Tolerance*Vector3Length(n))) or (Count>MPRMaximumIterations) then begin
+   if not MPRIsDegenerateCross(n,Vector3Sub(v1,v2),Vector3Sub(v3,v2)) then begin
     aHitNormal:=Vector3Norm(n);
     Dot:=Vector3Dot(aHitNormal,aLocalDirection);
     SupportDot:=Vector3Dot(aHitNormal,v1);
@@ -21717,14 +21774,16 @@ const EPSILON=1e-6;
 var Count:TKraftInt32;
     RayDirection,v0,v1,v1a,v1b,v2,v2a,v2b,v3,v3a,v3b,v4,v4a,v4b,t,n,v0v1,v0v2,v0v3,v2v3,v2v1,
     PointToV0,PointToV1,PointToV2,PointToV3,PointToV4:TKraftVector3;
-    Dot,DotV0,Dot2,BarycentricCoordinate,u,v,w:TKraftScalar;
+    Dot,DotV0,Dot2,BarycentricCoordinate,u,v,w,Tolerance:TKraftScalar;
 begin
 
  result:=false;
 
+ Tolerance:=MPRShapeTolerance(aShapeA.fShapeSphere.Radius,aShapeB.fShapeSphere.Radius);
+
  RayDirection:=Vector3Add(aMinkowskiRayHit,Vector3(aLocalTransformBinA[3,0],aLocalTransformBinA[3,1],aLocalTransformBinA[3,2]));
 
- if Vector3LengthSquared(RayDirection)<EPSILON then begin
+ if MPRIsDegenerateSeed(RayDirection,aShapeA.fShapeSphere.Radius,aShapeB.fShapeSphere.Radius) then begin
   aLocalPosition:=Vector3Origin;
   result:=true;
   exit;
@@ -21739,7 +21798,7 @@ begin
  v1:=Vector3Sub(v1b,v1a);
 
  n:=Vector3Cross(v1,v0);
- if Vector3LengthSquared(n)<EPSILON then begin
+ if MPRIsDegenerateCross(n,v1,v0) then begin
   Dot:=Vector3Dot(Vector3Sub(v1,aMinkowskiRayHit),RayDirection);
   DotV0:=Vector3Dot(Vector3Sub(v0,aMinkowskiRayHit),RayDirection);
   BarycentricCoordinate:=(-DotV0)/(Dot-DotV0);
@@ -21816,7 +21875,7 @@ begin
 
   Dot2:=Vector3Dot(PointToV4,n);
 
-  if ((Dot2-Dot)<MPRTolerance) or (Count>MPRMaximumIterations) then begin
+  if ((Dot2-Dot)<=(Tolerance*Vector3Length(n))) or (Count>MPRMaximumIterations) then begin
    CartesianToBarycentric(v1,v2,v3,aMinkowskiRayHit,u,v,w);
    aLocalPosition:=Vector3(
                    (u*v1a.x)+(v*v2a.x)+(w*v3a.x),
@@ -21908,7 +21967,8 @@ begin
 
  // This sweep amount needs to expand the minkowski difference to fully intersect the plane defined by the sweep direction and origin.
  RayLengthSquared:=Vector3LengthSquared(LocalDirection);
- if RayLengthSquared>EPSILON then begin
+ // Compared to the shapes, as in MPRSweepTest
+ if RayLengthSquared>(sqr(EPSILON)*sqr(MaximumRadius)) then begin
   // Scale the sweep length by the margins. Divide by the length to pull the margin into terms of the length of the ray.
   SweepLength:=(Vector3Dot(LocalOrigin,LocalDirection)/RayLengthSquared)+(MaximumRadius/sqrt(RayLengthSquared));
  end else begin
@@ -22144,7 +22204,7 @@ begin
  v1:=Vector3Sub(v1b,v1a);
 
  n:=Vector3Cross(v1,v0);
- if Vector3LengthSquared(n)<EPSILON then begin
+ if MPRIsDegenerateCross(n,v1,v0) then begin
   aDistance:=abs(Vector3Dot(Vector3Sub(v1b,v1a),Vector3Norm(Vector3Sub(v1,v0))));
   result:=true;
   exit;
@@ -23023,6 +23083,98 @@ begin
 {$endif}
 end;
 
+// The distance query against a plane shape. For the simplex path a plane is the flat quad of its top face, far
+// larger than anything it meets, and the closest point of a simplex with corners that far away has no precision
+// left near the plane (a box two centimetres above came out more than twenty centimetres away), so the distance
+// comes from the plane equation here: the deepest feature vertex of the other shape against the plane normal.
+// The simplex is filled with that vertex against the top face, for the consumers which take the features from
+// it, like the separation function of the bilateral advancement.
+function TKraftGJK.RunAgainstPlane:boolean;
+var PlaneIndex,OtherIndex,OtherFeatureIndex,Index:TKraftInt32;
+    PlaneShape:TKraftShapePlane;
+    PlaneNormal,OtherPoint:TKraftVector3;
+    SignedDistance:TKraftScalar;
+    SimplexVertex:PKraftGJKSimplexVertex;
+begin
+
+ if Shapes[1].fShapeType=kstPlane then begin
+  PlaneIndex:=1;
+  OtherIndex:=0;
+ end else begin
+  PlaneIndex:=0;
+  OtherIndex:=1;
+ end;
+ PlaneShape:=TKraftShapePlane(Shapes[PlaneIndex]);
+
+ PlaneNormal:=Vector3SafeNorm(Vector3TermMatrixMulBasis(PlaneShape.fPlane.Normal,Transforms[PlaneIndex]^));
+ OtherFeatureIndex:=Shapes[OtherIndex].GetLocalFeatureSupportIndex(Vector3TermMatrixMulTransposedBasis(Vector3Neg(PlaneNormal),Transforms[OtherIndex]^));
+ OtherPoint:=Vector3TermMatrixMul(Shapes[OtherIndex].GetLocalFeatureSupportVertex(OtherFeatureIndex),Transforms[OtherIndex]^);
+
+ // Measured in the space of the plane, where its equation holds as it is
+ SignedDistance:=PlaneVectorDistanceWithScale(PlaneShape.fPlane,Vector3TermMatrixMulInverted(OtherPoint,Transforms[PlaneIndex]^),PlaneShape.fScale);
+
+ ClosestPoints[OtherIndex]:=OtherPoint;
+ ClosestPoints[PlaneIndex]:=Vector3Sub(OtherPoint,Vector3ScalarMul(PlaneNormal,SignedDistance));
+
+ // From the second shape towards the first one, like the simplex path
+ if PlaneIndex=1 then begin
+  Normal:=PlaneNormal;
+ end else begin
+  Normal:=Vector3Neg(PlaneNormal);
+ end;
+
+ Simplex.Count:=3;
+ Simplex.Divisor:=1.0;
+ for Index:=0 to 2 do begin
+  SimplexVertex:=@Simplex.VerticesData[Index];
+  Simplex.Vertices[Index]:=SimplexVertex;
+  if PlaneIndex=1 then begin
+   SimplexVertex^.iA:=OtherFeatureIndex;
+   SimplexVertex^.iB:=Index;
+  end else begin
+   SimplexVertex^.iA:=Index;
+   SimplexVertex^.iB:=OtherFeatureIndex;
+  end;
+  SimplexVertex^.sA:=Vector3TermMatrixMul(Shapes[0].GetLocalFeatureSupportVertex(SimplexVertex^.iA),Transforms[0]^);
+  SimplexVertex^.sB:=Vector3TermMatrixMul(Shapes[1].GetLocalFeatureSupportVertex(SimplexVertex^.iB),Transforms[1]^);
+  SimplexVertex^.w:=Vector3Sub(SimplexVertex^.sB,SimplexVertex^.sA);
+  SimplexVertex^.a:=1.0/3.0;
+ end;
+ Simplex.Vertices[3]:=@Simplex.VerticesData[3];
+
+ Iterations:=1;
+
+ if SignedDistance>0.0 then begin
+
+  Distance:=SignedDistance;
+
+  // Apply the radius stuff, if requested and needed, just like the simplex path
+  if UseRadii then begin
+   if (Distance>(Shapes[0].fFeatureRadius+Shapes[1].fFeatureRadius)) and (Distance>EPSILON) then begin
+    Distance:=Distance-(Shapes[0].fFeatureRadius+Shapes[1].fFeatureRadius);
+    ClosestPoints[0]:=Vector3Sub(ClosestPoints[0],Vector3ScalarMul(Normal,Shapes[0].fFeatureRadius));
+    ClosestPoints[1]:=Vector3Add(ClosestPoints[1],Vector3ScalarMul(Normal,Shapes[1].fFeatureRadius));
+   end else begin
+    Distance:=0.0;
+    ClosestPoints[0]:=Vector3Avg(ClosestPoints[0],ClosestPoints[1]);
+    ClosestPoints[1]:=ClosestPoints[0];
+   end;
+  end;
+
+  Failed:=false;
+
+ end else begin
+
+  // Overlapping, which the simplex path reports as failed as well
+  Distance:=0.0;
+  Failed:=true;
+
+ end;
+
+ result:=not Failed;
+
+end;
+
 function TKraftGJK.Run:boolean;
 var CountSaved,Index,iA,iB:TKraftInt32;
     Initialized,Duplicate:boolean;
@@ -23033,7 +23185,7 @@ var CountSaved,Index,iA,iB:TKraftInt32;
     Direction,a,b,c,d,ba,ab,cb,bc,ac,ca,db,bd,cd,dc,da,ad,baxca,daxba,bcxdc,caxda,
     ClosestPoint:TKraftVector3;
     uAB,vAB,uBC,vBC,uCA,vCA,uBD,vBD,uDC,vDC,uAD,vAD,uADB,vADB,wADB,uACD,vACD,wACD,uCBD,vCBD,wCBD,
-    uABC,vABC,wABC,uABCD,vABCD,wABCD,xABCD,Denominator:TKraftScalar;
+    uABC,vABC,wABC,uABCD,vABCD,wABCD,xABCD,Denominator,DirectionScale:TKraftScalar;
     TempVertex:PKraftGJKSimplexVertex;
 begin
 
@@ -23069,6 +23221,11 @@ begin
 
   exit;
 
+ end;
+
+ if (Shapes[0].fShapeType=kstPlane) or (Shapes[1].fShapeType=kstPlane) then begin
+  result:=RunAgainstPlane;
+  exit;
  end;
 
  // Initialize simplex vertex permutation order
@@ -23169,8 +23326,12 @@ begin
       Simplex.Divisor:=1.0;
       Simplex.Count:=1;
      end else begin
-      if abs(uAB+vAB)<EPSILON then begin
-       // Terminate on affinely dependent points in the set (if uAB+vAB is (nearly) zero, we can never use point B)
+      if (abs(uAB+vAB)<EPSILON) and
+         ((uAB+vAB)<=(sqr(EPSILON)*(Vector3LengthSquared(a)+Vector3LengthSquared(b)))) then begin
+       // Terminate on affinely dependent points in the set (if uAB+vAB, the squared length of the segment, is
+       // (nearly) zero, we can never use point B). Zero both by the fixed value and compared to the ends: the
+       // fixed value alone merges the real, short segments of small shapes into a single point, and the ends
+       // alone the long ones of huge shapes, like the hull of a plane.
        Simplex.Vertices[0]^.a:=1.0;
        Simplex.Divisor:=1.0;
        Simplex.Count:=1;
@@ -23414,7 +23575,11 @@ begin
               Simplex.Count:=2;
              end else begin
               Denominator:=Vector3Dot(cb,Vector3Cross(ab,db));
-              if abs(Denominator)<EPSILON then begin
+              // Flat both by a fixed volume and compared to its edges, as small but sound tetrahedra are below the
+              // fixed volume as well, where giving up the sign of the denominator would pick the wrong regions,
+              // while the large ones of huge shapes are only that flat compared to their edges
+              if (abs(Denominator)<EPSILON) and
+                 (sqr(Denominator)<=(sqr(EPSILON)*(Vector3LengthSquared(cb)*Vector3LengthSquared(ab)*Vector3LengthSquared(db)))) then begin
                Denominator:=1.0;
               end else begin
                Denominator:=1.0/Denominator;
@@ -23541,17 +23706,23 @@ begin
   end;
   SquaredDistances[0]:=SquaredDistances[1];
 
-  // Get next direction
+  // Get next direction, and the squared magnitude of the values it is computed from, as the scale of its
+  // rounding noise
   case Simplex.Count of
    1:begin
     Direction:=Vector3Neg(Simplex.Vertices[0]^.w);
+    DirectionScale:=Vector3LengthSquared(Simplex.Vertices[0]^.sA)+Vector3LengthSquared(Simplex.Vertices[0]^.sB);
    end;
    2:begin
     Direction:=Vector3Sub(Simplex.Vertices[0]^.w,Simplex.Vertices[1]^.w);
+    DirectionScale:=sqr(Vector3LengthSquared(Direction))*Vector3LengthSquared(Simplex.Vertices[0]^.w);
     Direction:=Vector3Cross(Vector3Cross(Direction,Vector3Neg(Simplex.Vertices[0]^.w)),Direction);
    end;
    3:begin
-    Direction:=Vector3Cross(Vector3Sub(Simplex.Vertices[1]^.w,Simplex.Vertices[0]^.w),Vector3Sub(Simplex.Vertices[2]^.w,Simplex.Vertices[0]^.w));
+    a:=Vector3Sub(Simplex.Vertices[1]^.w,Simplex.Vertices[0]^.w);
+    b:=Vector3Sub(Simplex.Vertices[2]^.w,Simplex.Vertices[0]^.w);
+    DirectionScale:=Vector3LengthSquared(a)*Vector3LengthSquared(b);
+    Direction:=Vector3Cross(a,b);
     if Vector3Dot(Direction,Simplex.Vertices[0]^.w)>0.0 then begin
      Direction:=Vector3Neg(Direction);
     end;
@@ -23559,10 +23730,16 @@ begin
    else begin
     Assert(false);
     Direction:=Vector3Origin;
+    DirectionScale:=0.0;
    end;
   end;
 
-  if Vector3LengthSquared(Direction)<EPSILON then begin
+  // Small both by the fixed threshold and compared to that scale. The fixed threshold alone also stops the
+  // search at the real, small distances of small shapes, and the scale alone at the far larger ones of huge
+  // shapes like the hull of a plane, and either then reports the distance of the unfinished simplex, which
+  // is too large.
+  if (Vector3LengthSquared(Direction)<EPSILON) and
+     (Vector3LengthSquared(Direction)<=(sqr(EPSILON)*DirectionScale)) then begin
    // The origin is probably contained by a line segment or triangle. Thus the shapes are overlapped.
    // We can't return zero here even though there may be overlap.
    // In case the simplex is a point, segment, or triangle it is difficult to determine if the origin is
@@ -42858,6 +43035,21 @@ begin
 
 end;
 
+// How far the contact points of two bodies can come closer within the coming step. A recycled pair without
+// contacts has to stay that much further apart than the separation of its last real run, as with speculative
+// contacts that run has to happen while the touch is still ahead within the step, and not only once the drift
+// so far reaches the separation, by when the bodies may have passed through each other. Zero without
+// speculative contacts, where a touch is first seen after it happened anyway.
+function SpeculativeStepMotion(const aPhysics:TKraft;const aRigidBodyA,aRigidBodyB:TKraftRigidBody;const aMaxAngularMotionDisc:TKraftScalar):TKraftScalar;
+begin
+ if aPhysics.fContinuousMode=kcmSpeculativeContacts then begin
+  result:=(Vector3Length(Vector3Sub(aRigidBodyB.fLinearVelocity,aRigidBodyA.fLinearVelocity))+
+           ((Vector3Length(aRigidBodyA.fAngularVelocity)+Vector3Length(aRigidBodyB.fAngularVelocity))*aMaxAngularMotionDisc))*aPhysics.fPredictionDeltaTime;
+ end else begin
+  result:=0.0;
+ end;
+end;
+
 procedure TKraftContactPair.DetectCollisions(const ContactManager:TKraftContactManager;const TriangleShape:TKraftShape=nil;const ThreadIndex:TKraftInt32=0;const SpeculativeContacts:boolean=true;const DeltaTime:double=0.0);
 var OldManifoldCountContacts:TKraftInt32;
     OldContactManifoldType:TKraftContactManifoldType;
@@ -44308,7 +44500,8 @@ var OldManifoldCountContacts:TKraftInt32;
    for ClipVertexIndex:=0 to ClipVertices[0].Count-1 do begin
     ClipVertex:=@ClipVertices[0].Vertices[ClipVertexIndex];
     Distance:=PlaneVectorDistance(ReferenceWorldPlane,ClipVertex^.Position);
-    if Distance<0.0 then begin
+    // A point exactly on the reference face touches it, so it counts as a contact, like in the hull clipping
+    if Distance<=0.0 then begin
      if ContactManager.fCountTemporaryContacts[ThreadIndex]<MAX_TEMPORARY_CONTACTS then begin
       Contact:=@ContactManager.fTemporaryContacts[ThreadIndex,ContactManager.fCountTemporaryContacts[ThreadIndex]];
       inc(ContactManager.fCountTemporaryContacts[ThreadIndex]);
@@ -44990,7 +45183,10 @@ var OldManifoldCountContacts:TKraftInt32;
    for ClipVertexIndex:=0 to ClipVertices[0].Count-1 do begin
     ClipVertex:=@ClipVertices[0].Vertices[ClipVertexIndex];
     Distance:=PlaneVectorDistance(ReferenceWorldPlane,ClipVertex^.Position);
-    if Distance<0.0 then begin
+    // A point exactly on the reference face touches it, which has to count as a contact, as a body which
+    // arrives with a face exactly on another one (just where a speculative contact stops it) would get no
+    // contact at all otherwise and pass right through
+    if Distance<=0.0 then begin
      if ContactManager.fCountTemporaryContacts[ThreadIndex]<MAX_TEMPORARY_CONTACTS then begin
       Contact:=@ContactManager.fTemporaryContacts[ThreadIndex,ContactManager.fCountTemporaryContacts[ThreadIndex]];
       inc(ContactManager.fCountTemporaryContacts[ThreadIndex]);
@@ -45168,7 +45364,8 @@ var OldManifoldCountContacts:TKraftInt32;
      end;
  //{}Normal:=Vector3TermMatrixMulBasis(Manifold.EdgeQuery.Normal,Shapes[1].fWorldTransform);
      PenetrationDepth:=Vector3Dot(Vector3Sub(pb,pa),Normal);
-     if PenetrationDepth<0.0 then begin
+     // Touching edges count as a contact as well, like the points in the face clipping
+     if PenetrationDepth<=0.0 then begin
       Manifold.ContactManifoldType:=kcmtEdges;
       Manifold.LocalNormal:=Vector3TermMatrixMulTransposedBasis(Normal,Shapes[0].fWorldTransform);
       Contact:=@ContactManager.fTemporaryContacts[ThreadIndex,ContactManager.fCountTemporaryContacts[ThreadIndex]];
@@ -45819,14 +46016,17 @@ var OldManifoldCountContacts:TKraftInt32;
 
  end;
  procedure FindSpeculativeContacts(ShapeA,ShapeB:TKraftShape);
- var Index:TKraftInt32;
+ var Index,MovingIndex:TKraftInt32;
      VelocityLength,t0,t1:TKraftScalar;
      Sweeps:array[0..1] of TKraftSweep;
      Transforms:array[0..1,0..1] of TKraftMatrix4x4;
      Contact:PKraftContact;
-     Velocity:TKraftVector3;
+     Velocity,CenterOfMass,Offset:TKraftVector3;
      LinearVelocities:array[0..1] of TKraftVector3;
+     ContactPoints:array[0..1] of TKraftVector3;
      GJK:TKraftGJK;
+     MovingShape:TKraftShape;
+     MovingBody:TKraftRigidBody;
 {$ifdef KraftDoublePositions}
      WorldTransformA,WorldTransformB:TKraftMatrix4x4;
 {$endif}
@@ -45878,7 +46078,10 @@ var OldManifoldCountContacts:TKraftInt32;
       // took over, which could still tunnel through obstacles thinner than the feature radius
       GJK.UseRadii:=true;
       GJK.Run;
-      if (GJK.Distance>0.0) and (GJK.Distance<(VelocityLength+EPSILON)) and not GJK.Failed then begin
+      // Also at a touch already, as long as it still has a normal (which is of unit length then, and zero
+      // otherwise). The speculative contact of the last step stops a body just at the touch, but still on its
+      // way, and whether a collide routine sees a contact there yet only depends on the rounding.
+      if ((GJK.Distance>0.0) or (Vector3LengthSquared(GJK.Normal)>0.5)) and (GJK.Distance<(VelocityLength+EPSILON)) and not GJK.Failed then begin
        if MPRSweepTest(ShapeA,ShapeB,Sweeps[0],Sweeps[1]) then begin
         Manifold.ContactManifoldType:=kcmtSpeculative;
         Manifold.CountContacts:=1;
@@ -45886,9 +46089,34 @@ var OldManifoldCountContacts:TKraftInt32;
         if Vector3LengthSquared(Manifold.LocalNormal)<EPSILON then begin
          Manifold.LocalNormal:=Vector3YAxis;
         end;
+        // Faces which approach each other in parallel have no single closest point, and the one GJK finds is
+        // any point of them, often a corner, where the braking impulse would set the moving body spinning, so
+        // that it then meets the other face with an edge first and turns past it. So the contact acts on the
+        // line through the center of mass of the moving body along the normal, between the planes through both
+        // closest points, which keeps the distance and the normal exactly as they are. Like the whole of the
+        // speculative contact, which only looks at the linear motion, that leaves a real edge or corner touch to
+        // the regular contact of the next step.
+        ContactPoints[0]:=GJK.ClosestPoints[0];
+        ContactPoints[1]:=GJK.ClosestPoints[1];
+        if (RigidBodies[0].fInverseMass>0.0) or (RigidBodies[1].fInverseMass<=0.0) then begin
+         MovingIndex:=0;
+         MovingShape:=ShapeA;
+        end else begin
+         MovingIndex:=1;
+         MovingShape:=ShapeB;
+        end;
+        MovingBody:=RigidBodies[MovingIndex];
+        // The triangles of a mesh are scratch shapes, which are not placed by the local transform of their body
+        if MovingShape.fShapeType<>kstTriangle then begin
+         CenterOfMass:=Vector3TermMatrixMul(Vector3TermMatrixMulInverted(MovingBody.fSweep.LocalCenter,MovingShape.fLocalTransform),GJK.Transforms[MovingIndex]^);
+         Offset:=Vector3Sub(CenterOfMass,GJK.ClosestPoints[MovingIndex]);
+         Offset:=Vector3Sub(Offset,Vector3ScalarMul(GJK.Normal,Vector3Dot(Offset,GJK.Normal)));
+         ContactPoints[0]:=Vector3Add(ContactPoints[0],Offset);
+         ContactPoints[1]:=Vector3Add(ContactPoints[1],Offset);
+        end;
         Contact:=@Manifold.Contacts[0];
-        Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(GJK.ClosestPoints[0],{$ifdef KraftDoublePositions}WorldTransformA{$else}Shapes[0].fWorldTransform{$endif});
-        Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(GJK.ClosestPoints[1],{$ifdef KraftDoublePositions}WorldTransformB{$else}Shapes[1].fWorldTransform{$endif});
+        Contact^.LocalPoints[0]:=Vector3TermMatrixMulInverted(ContactPoints[0],{$ifdef KraftDoublePositions}WorldTransformA{$else}Shapes[0].fWorldTransform{$endif});
+        Contact^.LocalPoints[1]:=Vector3TermMatrixMulInverted(ContactPoints[1],{$ifdef KraftDoublePositions}WorldTransformB{$else}Shapes[1].fWorldTransform{$endif});
         Contact^.Penetration:=GJK.Distance;
         Contact^.FeatureID:=CreateFeatureID(-1);
        end;
@@ -46012,6 +46240,10 @@ begin
   end;
   if (RigidBodies[1].fRigidBodyType<>krbtStatic) and (MaxAngularMotionDisc<Shapes[1].fAngularMotionDisc) then begin
    MaxAngularMotionDisc:=Shapes[1].fAngularMotionDisc;
+  end;
+
+  if Manifold.CountContacts=0 then begin
+   RecycleTolerance:=RecycleTolerance-SpeculativeStepMotion(Physics,RigidBodies[0],RigidBodies[1],MaxAngularMotionDisc);
   end;
 
   PositionDrift:=Vector3Dist(CurrentRelativePosition,RecycleRelativePosition);
@@ -48229,7 +48461,9 @@ begin
 
     if result then begin
      aMeshContactPair.fClustersRecycling:=true;
-     aMeshContactPair.fClustersRecycleDrift:=PositionDrift+RotationDrift;
+     // Only held against the separation of the separated pairs, which have to keep the motion of the coming
+     // step away from it as well, see SpeculativeStepMotion
+     aMeshContactPair.fClustersRecycleDrift:=PositionDrift+RotationDrift+SpeculativeStepMotion(Physics,aMeshContactPair.fRigidBodyConvex,aMeshContactPair.fRigidBodyMesh,MaxAngularMotionDisc);
     end;
 
    end;
@@ -50783,7 +51017,9 @@ procedure TKraftRigidBody.UpdateWorldInertiaTensor;
 var Orientation:TKraftMatrix3x3;
 begin
  if fRigidBodyType=krbtDynamic then begin
-  Orientation:=QuaternionToMatrix3x3(fSweep.q0);
+  // The current orientation and not the one at the begin of the step (q0), as the solvers call this at the end
+  // of a step just after they have set the new one, where q0 would leave the tensor a step behind
+  Orientation:=QuaternionToMatrix3x3(fSweep.q);
   // The orientation has the turned body axes as its rows, like every transform here which takes a row
   // vector from the left, so a body tensor gets into world space as O^T*I*O and not as O*I*O^T, which
   // would turn it the other way round
@@ -61928,6 +62164,8 @@ begin
  fWideActive:=false;
 {$endif}
 
+ fReversePointOrder:=false;
+
 end;
 
 destructor TKraftSolver.Destroy;
@@ -62112,8 +62350,6 @@ begin
    ContactPoint^.NormalMass:=0.0;
    ContactPoint^.TangentMass[0]:=0.0;
    ContactPoint^.TangentMass[1]:=0.0;
-
-   PositionState^.LocalPoints[ContactIndex]:=Contact^.LocalPoints[ContactIndex];
 
   end;
 
@@ -62731,7 +62967,7 @@ begin
 end;
 
 procedure TKraftSolver.SolveVelocityConstraintsRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
-var OrderIndex,ContactPairIndex,ContactIndex,TangentIndex,IndexA,IndexB,CountPoints:TKraftInt32;
+var OrderIndex,ContactPairIndex,PointIndex,ContactIndex,TangentIndex,IndexA,IndexB,CountPoints:TKraftInt32;
     VelocityState:PKraftSolverVelocityState;
     ContactPoint:PKraftSolverVelocityStateContactPoint;
     iA,iB:PKraftMatrix3x3;
@@ -62775,7 +63011,13 @@ begin
   lA:=fLinearFactors[IndexA];
   lB:=fLinearFactors[IndexB];
 
-  for ContactIndex:=0 to CountPoints-1 do begin
+  for PointIndex:=0 to CountPoints-1 do begin
+
+   if fReversePointOrder then begin
+    ContactIndex:=(CountPoints-1)-PointIndex;
+   end else begin
+    ContactIndex:=PointIndex;
+   end;
 
    ContactPoint:=@VelocityState^.Points[ContactIndex];
 
@@ -62846,7 +63088,9 @@ begin
    // Clamp the accumulated impulse magnitude to the rolling-resistance budget.
    MaxLambda:=VelocityState^.RollingResistance*TotalNormalImpulse;
    MagSqr:=Vector3LengthSquared(fSIRollingStates[ContactPairIndex].RollingImpulse);
-   if MagSqr>((MaxLambda*MaxLambda)+EPSILON) then begin
+   // Against the budget alone: a fixed epsilon on top of the squared budget is far larger than the squared
+   // rolling impulses of ordinary bodies, so the clamp never took hold and the resistance locked the rotation
+   if MagSqr>sqr(MaxLambda) then begin
     fSIRollingStates[ContactPairIndex].RollingImpulse:=Vector3ScalarMul(fSIRollingStates[ContactPairIndex].RollingImpulse,MaxLambda/sqrt(MagSqr));
    end;
    DeltaRoll:=Vector3Sub(fSIRollingStates[ContactPairIndex].RollingImpulse,OldRoll);
@@ -63773,6 +64017,8 @@ begin
   // Central friction, twist and rolling resistance, anchored at the manifold centroid.
   // It run ONLY in the relax pass (no bias) — "no friction when applying bias" - which is what
   // keeps tall stacks stable. Order: twist, then rolling, then the 2x2 tangential friction.
+  // Solving the tangential friction in the solve pass as well lets stacks lean less, but a box rocking flat on
+  // the floor then gains energy from it and never comes to rest.
   if (CountPoints>0) and not aUseBias then begin
 
    // Central twist friction about the normal, limited by friction * sum(leverArm*normalImpulse).
@@ -63805,7 +64051,8 @@ begin
     // Clamp the accumulated impulse magnitude to the rolling-resistance budget.
     MaxLambda:=VelocityState^.RollingResistance*TotalNormalImpulse;
     MagSqr:=Vector3LengthSquared(TGSState^.RollingImpulse);
-    if MagSqr>((MaxLambda*MaxLambda)+EPSILON) then begin
+    // Against the budget alone, see the sequential impulse solver
+    if MagSqr>sqr(MaxLambda) then begin
      TGSState^.RollingImpulse:=Vector3ScalarMul(TGSState^.RollingImpulse,MaxLambda/sqrt(MagSqr));
     end;
     DeltaRoll:=Vector3Sub(TGSState^.RollingImpulse,OldRoll);
@@ -64922,7 +65169,6 @@ type TWB=TKraftSolverWideContactBatch;
 const SignMaskW:array[0..3] of TKraftUInt32=($00000000,$00000000,$00000000,$80000000);
       SignMaskAll:array[0..3] of TKraftUInt32=($80000000,$80000000,$80000000,$80000000);
       OneV:array[0..3] of TKraftScalar=(1.0,1.0,1.0,1.0);
-      EpsilonV:array[0..3] of TKraftScalar=(EPSILON,EPSILON,EPSILON,EPSILON);
       TWPSize=SizeOf(TWP);
 {$ifdef fpc}{$pop}{$endif}
 asm
@@ -65761,10 +66007,9 @@ asm
  movups xmm11,dqword ptr [rcx+TWB.RollingResistances]
  movaps xmm10,xmm11
  mulps xmm10,dqword ptr [rsp+160]
- // cond = MagSqr > (MaxLambda^2 + EPSILON).
+ // cond = MagSqr > MaxLambda^2, against the budget alone, see the sequential impulse solver.
  movaps xmm12,xmm10
  mulps xmm12,xmm10
- addps xmm12,dqword ptr [rip+EpsilonV]
  cmpltps xmm12,xmm9
  // scale = MaxLambda / sqrt(MagSqr) (Inf/NaN where MagSqr=0, discarded by the bitwise blend below).
  sqrtps xmm13,xmm9
@@ -66411,7 +66656,8 @@ begin
      // Clamp the accumulated impulse magnitude to the rolling-resistance budget.
      MaxLambda:=Batch^.RollingResistances[LaneIndex]*TotalNormalImpulse;
      MagSqr:=Vector3LengthSquared(NewRoll);
-     if MagSqr>((MaxLambda*MaxLambda)+EPSILON) then begin
+     // Against the budget alone, see the sequential impulse solver
+     if MagSqr>sqr(MaxLambda) then begin
       NewRoll:=Vector3ScalarMul(NewRoll,MaxLambda/sqrt(MagSqr));
      end;
      Batch^.RollingImpulses.x[LaneIndex]:=NewRoll.x;
@@ -67782,8 +68028,10 @@ begin
    LinearVelocity:=fSolver.fVelocities[Index].LinearVelocity;
    AngularVelocity:=fSolver.fVelocities[Index].AngularVelocity;
 
-   // Gyroscopic force from the full Newton-Euler equation with an implicit Euler step (stable). It is added to
-   // a local effective torque so the persistent fTorque is not disturbed across substeps.
+   // Gyroscopic term from the full Newton-Euler equation with an implicit Euler step (stable). That step yields
+   // the change of the angular velocity itself and not a torque, so it goes onto the angular velocity directly,
+   // as a torque it would be scaled by the inverse inertia and the substep once more, which blows up bodies with
+   // a small moment of inertia like thin capsules.
    EffectiveTorque:=RigidBody.fTorque;
    if RigidBody.fEnableGyroscopicForce then begin
     GyroscopicForce:=Vector3Sub(Vector3Sub(AngularVelocity,
@@ -67800,14 +68048,14 @@ begin
     if (RigidBody.fMaximalGyroscopicForce>EPSILON) and (Vector3LengthSquared(GyroscopicForce)>sqr(RigidBody.fMaximalGyroscopicForce)) then begin
      Vector3Scale(GyroscopicForce,RigidBody.fMaximalGyroscopicForce/Vector3Length(GyroscopicForce));
     end;
-    EffectiveTorque:=Vector3Add(EffectiveTorque,GyroscopicForce);
+    AngularVelocity:=Vector3Add(AngularVelocity,GyroscopicForce);
    end;
 
    // Linear velocity: v += (F/m + g) * h
    Acceleration:=Vector3Add(Vector3Mul(RigidBody.fForce,Vector3ScalarMul(RigidBody.fLinearFactor,RigidBody.InverseMass)),Gravity);
    LinearVelocity:=Vector3Add(LinearVelocity,Vector3ScalarMul(Acceleration,h));
 
-   // Angular velocity: w += (T * I^-1) * h  (T includes the gyroscopic contribution).
+   // Angular velocity: w += (T * I^-1) * h
    AngularVelocity:=Vector3Add(AngularVelocity,Vector3ScalarMul(Vector3TermMatrixMul(EffectiveTorque,RigidBody.fWorldInverseInertiaTensor),h));
 
    // User damping callback. It reads and writes the body's velocities, so mirror the substep state into the
@@ -68011,7 +68259,9 @@ begin
     if (RigidBody.fMaximalGyroscopicForce>EPSILON) and (Vector3LengthSquared(GyroscopicForce)>sqr(RigidBody.fMaximalGyroscopicForce)) then begin
      Vector3Scale(GyroscopicForce,RigidBody.fMaximalGyroscopicForce/Vector3Length(GyroscopicForce));
     end;
-    RigidBody.fTorque:=Vector3Add(RigidBody.fTorque,GyroscopicForce);
+    // The implicit step yields the change of the angular velocity itself and not a torque, which would be scaled
+    // by the inverse inertia and the time step once more and blow up bodies with a small moment of inertia
+    RigidBody.fAngularVelocity:=Vector3Add(RigidBody.fAngularVelocity,GyroscopicForce);
    end;
 
    // Integrate linear velocity
@@ -68108,6 +68358,7 @@ begin
  end;
  for Iteration:=1 to Max(fPhysics.fVelocityIterations,fPhysics.fSpeculativeIterations) do begin
   if Iteration<=fPhysics.fVelocityIterations then begin
+   fSolver.fReversePointOrder:=((fPhysics.fVelocityIterations-Iteration) and 1)<>0;
 {$ifdef KraftConstraintGraphColoring}
    // Fused color stages solve the joints of one color before and concurrently with its contacts, see
    // DispatchFusedColorStage; the unfused path keeps the classic order, all contact colors before all joint colors.
@@ -68733,6 +68984,7 @@ begin
  // starting impulses were applied in the discrete solver.
 
  for Iteration:=0 to fPhysics.fVelocityIterations-1 do begin
+  fSolver.fReversePointOrder:=(((fPhysics.fVelocityIterations-1)-Iteration) and 1)<>0;
   fSolver.SolveVelocityConstraints;
  end;
 
