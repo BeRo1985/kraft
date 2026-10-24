@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-10-24-15-52-0000                       *
+ *                        Version 2026-10-24-17-24-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -334,6 +334,12 @@ const EPSILON={$ifdef KraftUseDouble}1e-14{$else}1e-5{$endif}; // actually {$ifd
       // taken) for the optional absolute rotation cap of the contact recycling, same value as Box3D uses.
       ContactRecycleAbsoluteRotationCosineSquared=0.99240388;
 
+      // Drift bound of a recycled implicit contact (a sphere or a capsule on something) in units of the linear slop.
+      // Its points are the closest points of both shapes at the last real narrow phase run, and they move along
+      // the surfaces with any relative motion, so a rolling ball would otherwise keep pressing on the spot where it
+      // was centimetres ago, under a normal tilted against its path, and sink in.
+      ContactRecycleImplicitSlopFactor=0.25;
+
       // Constraint graph coloring, the same layout as Box3D: the front colors for constraints between two
       // movable bodies, the colors before the overflow color (searched backwards, so they do not collide
       // with the front region under low load) prioritized for constraints with a static or missing partner,
@@ -462,9 +468,9 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
      // Internal/ghost-edge handling for triangle meshes, switchable at runtime. The edge-convexity precomputation
      // (TKraftMesh.IdentifyEdges) and the feature-ownership scratch structures are always built and freed, so the
      // mode can be changed mid-simulation; only which handling is applied per step is selected here.
-     TKraftInternalEdgeHandlingMode=(kiehmNone,                       // No internal-edge handling
-                                     kiehmClamping,                   // Contact-normal clamping into the neighbour-face fan (default)
-                                     kiehmFeatureOwnership);          // Feature-ownership arbitration over the shared mesh contact pair
+     TKraftInternalEdgeHandlingMode=(kiehmNone,                       // No internal-edge handling (default)
+                                     kiehmClamping,                   // Contact-normal clamping into the neighbour-face fan
+                                     kiehmFeatureOwnership);          // Feature-ownership arbitration over the shared mesh contact pair, which keeps a ball rolling over a flat mesh as smooth as over a plane
      PKraftInternalEdgeHandlingMode=^TKraftInternalEdgeHandlingMode;
 
      // How the contacts of convex-versus-triangle-mesh pairs reach the solver, switchable at runtime. In the
@@ -43128,6 +43134,7 @@ var OldManifoldCountContacts:TKraftInt32;
    Manifold.ContactManifoldType:=kcmtImplicit;
    Manifold.LocalRadius[0]:=r0;
    Manifold.LocalRadius[1]:=r1;
+   RecycleTouchSeparation:=Min(RecycleTouchSeparation,ContactManager.fPhysics.fLinearSlop*ContactRecycleImplicitSlopFactor);
    Contact:=@Manifold.Contacts[Manifold.CountContacts];
    inc(Manifold.CountContacts);
    if IsLocal then begin
@@ -43228,6 +43235,7 @@ var OldManifoldCountContacts:TKraftInt32;
    Manifold.LocalNormal:=Normal;
    Manifold.LocalRadius[0]:=r0;
    Manifold.LocalRadius[1]:=r1;
+   RecycleTouchSeparation:=Min(RecycleTouchSeparation,ContactManager.fPhysics.fLinearSlop*ContactRecycleImplicitSlopFactor);
    Contact:=@Manifold.Contacts[Manifold.CountContacts];
    inc(Manifold.CountContacts);
    if IsLocal then begin

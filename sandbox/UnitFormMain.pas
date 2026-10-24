@@ -120,6 +120,9 @@ type TCamera=object
     procedure sTreeViewDemosKeyPress(Sender: TObject; var Key: Char);
   private
     { Private declarations }
+    // Closes the sandbox the regular way after the time given with --quit-after, for unattended runs
+    QuitTimer:TTimer;
+    procedure QuitTimerTimer(Sender: TObject);
   public
     { Public declarations }
     {$ifdef KraftPasMP}PasMPInstance:TPasMP;{$endif}
@@ -151,7 +154,32 @@ type TCamera=object
 var
   FormMain: TFormMain;
 
+// Looks for --aName=value or --aName value on the command line
+function GetCommandLineOption(const aName:string;out aValue:string):boolean;
+
 implementation
+
+function GetCommandLineOption(const aName:string;out aValue:string):boolean;
+var Index:longint;
+    Parameter:string;
+begin
+ result:=false;
+ aValue:='';
+ for Index:=1 to ParamCount do begin
+  Parameter:=ParamStr(Index);
+  if Parameter=('--'+aName) then begin
+   if Index<ParamCount then begin
+    aValue:=ParamStr(Index+1);
+   end;
+   result:=true;
+   exit;
+  end else if copy(Parameter,1,length(aName)+3)=('--'+aName+'=') then begin
+   aValue:=copy(Parameter,length(aName)+4,length(Parameter));
+   result:=true;
+   exit;
+  end;
+ end;
+end;
 
 {$R *.lfm}
 
@@ -526,6 +554,7 @@ end;
 
 procedure TFormMain.FormCreate(Sender: TObject);
 var Index:longint;
+    Value:string;
 begin
 
  ThePropertyEditorHook:=TPropertyEditorHook.Create(nil);
@@ -616,7 +645,12 @@ begin
    sTreeViewDemos.Items.AddChildObject(TreeNodeDemos,DemoScenes.Strings[Index],DemoScenes.Objects[Index]);
   end;
 //TreeNodeDemoDefault:=TreeNodeDemos.FindNode('Sphere on SDF terrain');
-  TreeNodeDemoDefault:=TreeNodeDemos.FindNode('Raycast vehicle');
+  // --scene=<name> picks the scene to start with, see --list-scenes for the names
+  if GetCommandLineOption('scene',Value) then begin
+   TreeNodeDemoDefault:=TreeNodeDemos.FindNode(Value);
+  end else begin
+   TreeNodeDemoDefault:=TreeNodeDemos.FindNode('Raycast vehicle');
+  end;
   if not assigned(TreeNodeDemoDefault) then begin
    TreeNodeDemoDefault:=TreeNodeDemos.GetFirstChild;
   end;
@@ -624,6 +658,15 @@ begin
   sTreeViewDemos.Items.EndUpdate;
  end;
  TreeNodeDemos.Expand(true);
+
+ // --quit-after=<seconds> closes the sandbox the regular way, as the menu does, after that time
+ QuitTimer:=nil;
+ if GetCommandLineOption('quit-after',Value) and (StrToFloatDef(Value,0.0)>0.0) then begin
+  QuitTimer:=TTimer.Create(self);
+  QuitTimer.Interval:=Max(1,round(StrToFloatDef(Value,0.0)*1000.0));
+  QuitTimer.OnTimer:=QuitTimerTimer;
+  QuitTimer.Enabled:=true;
+ end;
 
 // LoadScene(TDemoSceneBoxOnPlane);
 
@@ -678,6 +721,12 @@ end;
 procedure TFormMain.N2Click(Sender: TObject);
 begin
  close;
+end;
+
+procedure TFormMain.QuitTimerTimer(Sender: TObject);
+begin
+ QuitTimer.Enabled:=false;
+ Close;
 end;
 
 procedure TFormMain.OpenGLControlWorldClick(Sender: TObject);
