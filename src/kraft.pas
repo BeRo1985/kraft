@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-10-24-02-54-0000                       *
+ *                        Version 2026-10-24-05-12-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -4450,6 +4450,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property EnableTwistLimit:boolean read fEnableTwistLimit write fEnableTwistLimit;
        property LowerTwistAngle:TKraftScalar read fLowerTwistAngle write fLowerTwistAngle;
        property UpperTwistAngle:TKraftScalar read fUpperTwistAngle write fUpperTwistAngle;
+       // Friction torque in Nm against any relative rotation of the two bodies, off at 0. Without it the TGS soft
+       // solver lets a ragdoll look settled while its thin limbs still roll back and forth by a hair, and about half
+       // of the tosses never fall asleep; 0.005 on every socket puts the sandbox ragdoll (about 0.1 kg) to sleep in
+       // all tested tosses. It is an absolute torque, so a heavier or larger ragdoll needs it scaled with mass and size.
        property AngularFriction:TKraftScalar read fAngularFriction write fAngularFriction;
      end;
 
@@ -5050,6 +5054,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property SlerpDriveFrequencyHz:TKraftScalar read fSlerpDriveFrequencyHz write fSlerpDriveFrequencyHz;
        property SlerpDriveDampingRatio:TKraftScalar read fSlerpDriveDampingRatio write fSlerpDriveDampingRatio;
        property MaximalSlerpDriveTorque:TKraftScalar read fMaximalSlerpDriveTorque write fMaximalSlerpDriveTorque;
+       // With a zero target velocity the angular velocity drive is joint friction, MaximalAngularDriveTorque being
+       // the friction torque, see TKraftConstraintJointBallSocket.AngularFriction
        property EnableAngularVelocityDrive:boolean read fEnableAngularVelocityDrive write fEnableAngularVelocityDrive;
        property TargetAngularVelocity:TKraftVector3 read fTargetAngularVelocity write fTargetAngularVelocity;
        property MaximalAngularDriveTorque:TKraftScalar read fMaximalAngularDriveTorque write fMaximalAngularDriveTorque;
@@ -6238,6 +6244,10 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
        fVelocityIterations:TKraftInt32;
 
+       // Sweeps over the normal constraints of each contact manifold per velocity iteration of the sequential
+       // impulse solver, see the property
+       fContactNormalSweeps:TKraftInt32;
+
        fPositionIterations:TKraftInt32;
 
        fSpeculativeIterations:TKraftInt32;
@@ -6655,6 +6665,15 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property ConstraintPositionCorrectionMode:TKraftPositionCorrectionMode read fConstraintPositionCorrectionMode write fConstraintPositionCorrectionMode;
 
        property VelocityIterations:TKraftInt32 read fVelocityIterations write fVelocityIterations;
+
+       // How often the sequential impulse solver sweeps over the normal constraints of each contact manifold in one
+       // velocity iteration, the first sweep together with the friction. The contact points of a face share the
+       // same two bodies and push on each other through their rotation, so with one sweep their impulses stay far
+       // from converged and tilt stacked boxes a little every step: at 120 Hz and 8 iterations a tower of twenty
+       // boxes falls over, while with 2 sweeps it stands within 3 mm and comes to rest, and a tower of thirty stands
+       // too. That second sweep costs about half as much solver time again in scenes full of contacts. The TGS soft
+       // solver does not use it.
+       property ContactNormalSweeps:TKraftInt32 read fContactNormalSweeps write fContactNormalSweeps;
 
        property PositionIterations:TKraftInt32 read fPositionIterations write fPositionIterations;
 
@@ -34802,8 +34821,11 @@ begin
  OffDiag[1]:=OffDiag[1]/Denominator;
  OffDiag[2]:=OffDiag[2]/Denominator;
 
- fMassData.Volume:=Volume;
- fMassData.Mass:=Volume*Density;
+ // A mesh wound the other way round has a negative signed volume. The centroid and the inertia sums above are
+ // divided by that same signed volume and come out right anyway, but volume and mass have to take its magnitude,
+ // or the body gets a negative mass and no inertia at all and flies off at its first contact.
+ fMassData.Volume:=abs(Volume);
+ fMassData.Mass:=abs(Volume)*Density;
 
  if fMassData.Mass>EPSILON then begin
   fMassData.Inertia[0,0]:=(Diag[1]+Diag[2])*fMassData.Mass;
@@ -44386,13 +44408,19 @@ var OldManifoldCountContacts:TKraftInt32;
   end;
 
  end;
- procedure CollideTriangleWithTriangle(ShapeA,ShapeB:TKraftShapeTriangle);
+ procedure CollideTriangleWithTriangle(ShapeA,ShapeB:TKraftShapeTriangle;const aDoubleSidedA,aDoubleSidedB:boolean);
  // Dedicated triangle versus triangle narrow phase for mesh versus mesh sub pairs. It runs the shape free SAT
  // core TriangleTrianglePenetration on the six world space vertices, then, following the clipping and manifold
  // conventions of CollideConvexHullWithConvexHull, builds a full clipped one shot manifold: a reference face clip
  // for a face winner (kcmtFaceA when triangle A is the reference, kcmtFaceB when triangle B is), or a single
  // closest point edge contact for an edge winner (kcmtEdges). The SAT normal points from B to A, the push
  // direction of shape A, matching the MPR normal convention of this file.
+ // The SAT only sees how far the two triangle surfaces overlap. Two facing triangles of solid meshes whose planes
+ // have already passed through each other, like the bottom of a box dropped a few centimetres deep onto another
+ // box, do not overlap as surfaces at all, so the SAT reports them apart, and only the side triangles crossing the
+ // other face held the box, the ones on one side only, which tipped it over and let it sink in. Such facing pairs
+ // go through a dual clip instead: each triangle in turn is the reference, the other one is clipped against its
+ // prism, and the reference reached less deeply wins, as in the classic clip method of mesh versus mesh collision.
  var VerticesA,VerticesB,ReferenceVertices,IncidentVertices:array[0..2] of TKraftVector3;
      Normal,ReferenceNormalWorld,ContactNormalWorld,FrontNormalA,FrontNormalB,ClosestOnA,ClosestOnB:TKraftVector3;
      PenetrationDepth,EdgePenetration:TKraftScalar;
@@ -44526,6 +44554,137 @@ var OldManifoldCountContacts:TKraftInt32;
    end;
 
   end;
+  function BodyCenter(const aIndex:TKraftInt32):TKraftVector3;
+  // World space center of mass of the body of Shapes[aIndex], relative to the narrow phase base like the vertices
+  begin
+   if assigned(Shapes[aIndex].fRigidBody) then begin
+    result:=Vector3TermMatrixMul(Vector3TermMatrixMulInverted(Shapes[aIndex].fRigidBody.fSweep.LocalCenter,Shapes[aIndex].fLocalTransform),ShapeWorldTransform(Shapes[aIndex]));
+   end else begin
+    result:=Vector3TermMatrixMul(Vector3Origin,ShapeWorldTransform(Shapes[aIndex]));
+   end;
+  end;
+  function IsBehind(const aVertices:array of TKraftVector3;const aNormal,aCenter:TKraftVector3):boolean;
+  // Whether a body center lies on the back of a triangle: behind its plane and either right behind the triangle
+  // itself or clearly behind it as seen from the triangle center
+  const BehindCosine=0.5;
+  var Distance:TKraftScalar;
+  begin
+   Distance:=Vector3Dot(aNormal,Vector3Sub(aCenter,aVertices[0]));
+   if Distance<0.0 then begin
+    result:=PointInTriangle(aVertices[0],aVertices[1],aVertices[2],aNormal,Vector3Sub(aCenter,Vector3ScalarMul(aNormal,Distance))) or
+            (Vector3Dot(aNormal,Vector3SafeNorm(Vector3Sub(aCenter,Vector3ScalarMul(Vector3Add(Vector3Add(aVertices[0],aVertices[1]),aVertices[2]),1.0/3.0))))<(-BehindCosine));
+   end else begin
+    result:=false;
+   end;
+  end;
+  function CollideFacingTriangles:boolean;
+  // Dual clip of two facing triangles, which the SAT sees apart: each triangle in turn is the reference, the other
+  // one is clipped against its prism, and the reference the other triangle reaches less deeply is kept as the
+  // manifold in the temporary contacts, with its type and local normal set. A reference face points along its
+  // winding, as the outside of a solid mesh. A double sided triangle is turned round once a moving body lies on its
+  // back, as the inner floor of a hollow box does for a body inside it; against a static body it keeps its
+  // winding, since the center of a large static mesh like a terrain says nothing about the side. A reference only
+  // counts when the center of the other body lies in front of it, so a far face that merely faces the other
+  // triangle from behind, like the underside of a floor against the top of a box on it, never pulls the box into
+  // the floor.
+  const FacingCosine=0.7;
+        RelativeFaceTolerance=0.98;
+        AbsoluteTolerance=0.0025;
+  var FaceNormalA,FaceNormalB,CenterA,CenterB:TKraftVector3;
+      CountA,CountB,ContactIndex:TKraftInt32;
+      DepthA,DepthB:TKraftScalar;
+      StaticA,StaticB,BehindA,BehindB,FlippedA,FlippedB:boolean;
+  begin
+   result:=false;
+   FaceNormalA:=Vector3SafeNorm(Vector3Cross(Vector3Sub(VerticesA[1],VerticesA[0]),Vector3Sub(VerticesA[2],VerticesA[0])));
+   FaceNormalB:=Vector3SafeNorm(Vector3Cross(Vector3Sub(VerticesB[1],VerticesB[0]),Vector3Sub(VerticesB[2],VerticesB[0])));
+   if (Vector3LengthSquared(FaceNormalA)<0.5) or (Vector3LengthSquared(FaceNormalB)<0.5) then begin
+    exit;
+   end;
+   StaticA:=(not assigned(Shapes[0].fRigidBody)) or (Shapes[0].fRigidBody.fRigidBodyType=krbtSTATIC);
+   StaticB:=(not assigned(Shapes[1].fRigidBody)) or (Shapes[1].fRigidBody.fRigidBodyType=krbtSTATIC);
+   if StaticA and StaticB then begin
+    exit;
+   end;
+   CenterA:=BodyCenter(0);
+   CenterB:=BodyCenter(1);
+   FlippedA:=aDoubleSidedA and not StaticB and IsBehind(VerticesA,FaceNormalA,CenterB);
+   if FlippedA then begin
+    FaceNormalA:=Vector3Neg(FaceNormalA);
+   end;
+   FlippedB:=aDoubleSidedB and not StaticA and IsBehind(VerticesB,FaceNormalB,CenterA);
+   if FlippedB then begin
+    FaceNormalB:=Vector3Neg(FaceNormalB);
+   end;
+   if Vector3Dot(FaceNormalA,FaceNormalB)>(-FacingCosine) then begin
+    exit;
+   end;
+   // A reference can only have points of the other triangle behind it when one of its vertices is
+   BehindA:=false;
+   BehindB:=false;
+   for ContactIndex:=0 to 2 do begin
+    if Vector3Dot(FaceNormalA,Vector3Sub(VerticesB[ContactIndex],VerticesA[0]))<=0.0 then begin
+     BehindA:=true;
+    end;
+    if Vector3Dot(FaceNormalB,Vector3Sub(VerticesA[ContactIndex],VerticesB[0]))<=0.0 then begin
+     BehindB:=true;
+    end;
+   end;
+   if not (BehindA or BehindB) then begin
+    exit;
+   end;
+   // Triangle A as the reference; the edge planes of the clip follow the winding of the reference vertices, so
+   // a turned round reference gets them in the opposite order
+   ContactManager.fCountTemporaryContacts[ThreadIndex]:=0;
+   if BehindA and (Vector3Dot(FaceNormalA,Vector3Sub(CenterB,VerticesA[0]))>0.0) then begin
+    ReferenceNormalWorld:=FaceNormalA;
+    ReferenceVertices:=VerticesA;
+    if FlippedA then begin
+     ReferenceVertices[1]:=VerticesA[2];
+     ReferenceVertices[2]:=VerticesA[1];
+    end;
+    IncidentVertices:=VerticesB;
+    ClipTrianglePair(false,0);
+   end;
+   CountA:=ContactManager.fCountTemporaryContacts[ThreadIndex];
+   DepthA:=0.0;
+   for ContactIndex:=0 to CountA-1 do begin
+    DepthA:=Max(DepthA,-ContactManager.fTemporaryContacts[ThreadIndex,ContactIndex].Penetration);
+   end;
+   // Triangle B as the reference, its contacts appended behind the ones of A
+   if BehindB and (Vector3Dot(FaceNormalB,Vector3Sub(CenterA,VerticesB[0]))>0.0) then begin
+    ReferenceNormalWorld:=FaceNormalB;
+    ReferenceVertices:=VerticesB;
+    if FlippedB then begin
+     ReferenceVertices[1]:=VerticesB[2];
+     ReferenceVertices[2]:=VerticesB[1];
+    end;
+    IncidentVertices:=VerticesA;
+    ClipTrianglePair(true,1);
+   end;
+   CountB:=ContactManager.fCountTemporaryContacts[ThreadIndex]-CountA;
+   DepthB:=0.0;
+   for ContactIndex:=CountA to (CountA+CountB)-1 do begin
+    DepthB:=Max(DepthB,-ContactManager.fTemporaryContacts[ThreadIndex,ContactIndex].Penetration);
+   end;
+   // The shallower reference wins, B only when clearly shallower, with the bias of the SAT against flickering
+   if (CountA>0) and ((CountB=0) or (DepthB>=((DepthA*RelativeFaceTolerance)-AbsoluteTolerance))) then begin
+    Manifold.ContactManifoldType:=kcmtFaceA;
+    Manifold.LocalNormal:=Vector3TermMatrixMulTransposedBasis(FaceNormalA,WorldTransformA);
+    ContactManager.fCountTemporaryContacts[ThreadIndex]:=CountA;
+    result:=true;
+   end else if CountB>0 then begin
+    for ContactIndex:=0 to CountB-1 do begin
+     ContactManager.fTemporaryContacts[ThreadIndex,ContactIndex]:=ContactManager.fTemporaryContacts[ThreadIndex,CountA+ContactIndex];
+    end;
+    Manifold.ContactManifoldType:=kcmtFaceB;
+    Manifold.LocalNormal:=Vector3TermMatrixMulTransposedBasis(FaceNormalB,WorldTransformB);
+    ContactManager.fCountTemporaryContacts[ThreadIndex]:=CountB;
+    result:=true;
+   end else begin
+    ContactManager.fCountTemporaryContacts[ThreadIndex]:=0;
+   end;
+  end;
  begin
 
   WorldTransformA:=ShapeWorldTransform(ShapeA);
@@ -44541,6 +44700,10 @@ var OldManifoldCountContacts:TKraftInt32;
   Manifold.LocalRadius[1]:=0.0;
 
   if not TriangleTrianglePenetration(VerticesA[0],VerticesA[1],VerticesA[2],VerticesB[0],VerticesB[1],VerticesB[2],Normal,PenetrationDepth,FeatureKind,EdgeIndexA,EdgeIndexB) then begin
+   // Apart as surfaces, but facing triangles may still have passed through each other
+   if CollideFacingTriangles then begin
+    Manifold.CountContacts:=ContactManager.ReduceContacts(pointer(@ContactManager.fTemporaryContacts[ThreadIndex,0]),ContactManager.fCountTemporaryContacts[ThreadIndex],pointer(@Manifold.Contacts[0]),Manifold.LocalNormal);
+   end;
    exit;
   end;
 
@@ -46430,7 +46593,11 @@ begin
    // Triangle versus triangle pairs (mesh versus mesh sub pairs) always take the dedicated SAT narrow phase,
    // independent of the persistent contact manifold mode, since MPR needs no support here and the dedicated
    // path produces the full clipped manifold in one shot.
-   CollideTriangleWithTriangle(TKraftShapeTriangle(ShapeA),TKraftShapeTriangle(ShapeB));
+   if assigned(MeshMeshContactPair) then begin
+    CollideTriangleWithTriangle(TKraftShapeTriangle(ShapeA),TKraftShapeTriangle(ShapeB),MeshA.fDoubleSided,Mesh.fDoubleSided);
+   end else begin
+    CollideTriangleWithTriangle(TKraftShapeTriangle(ShapeA),TKraftShapeTriangle(ShapeB),true,true);
+   end;
 
   end else if ContactManager.fPhysics.fPersistentContactManifold then begin
 
@@ -62967,7 +63134,7 @@ begin
 end;
 
 procedure TKraftSolver.SolveVelocityConstraintsRange(const aFromOrderIndex,aToOrderIndex,aThreadIndex:TKraftInt32);
-var OrderIndex,ContactPairIndex,PointIndex,ContactIndex,TangentIndex,IndexA,IndexB,CountPoints:TKraftInt32;
+var OrderIndex,ContactPairIndex,PointIndex,ContactIndex,TangentIndex,IndexA,IndexB,CountPoints,SweepIndex:TKraftInt32;
     VelocityState:PKraftSolverVelocityState;
     ContactPoint:PKraftSolverVelocityStateContactPoint;
     iA,iB:PKraftMatrix3x3;
@@ -63068,6 +63235,45 @@ begin
    Vector3DirectAdd(vB,Vector3Mul(P,Vector3ScalarMul(lB,mB)));
    Vector3DirectAdd(wB,Vector3TermMatrixMul(Vector3Cross(rB,P),iB^));
 
+  end;
+
+  // Further sweeps over the normal constraints alone, in the same order, see TKraft.ContactNormalSweeps; a single
+  // point has nothing to converge against
+  if CountPoints>1 then begin
+   for SweepIndex:=2 to fPhysics.fContactNormalSweeps do begin
+    for PointIndex:=0 to CountPoints-1 do begin
+
+     if fReversePointOrder then begin
+      ContactIndex:=(CountPoints-1)-PointIndex;
+     end else begin
+      ContactIndex:=PointIndex;
+     end;
+
+     ContactPoint:=@VelocityState^.Points[ContactIndex];
+
+     rA:=ContactPoint^.RelativePositions[0];
+     rB:=ContactPoint^.RelativePositions[1];
+
+     dv:=Vector3Sub(Vector3Add(vB,Vector3Cross(wB,rB)),Vector3Add(vA,Vector3Cross(wA,rA)));
+
+     vn:=Vector3Dot(dv,Normal);
+
+     Lambda:=ContactPoint^.NormalMass*(ContactPoint^.Bias-vn);
+
+     Old:=ContactPoint^.NormalImpulse;
+     ContactPoint^.NormalImpulse:=Max(0.0,Old+Lambda);
+     Lambda:=ContactPoint^.NormalImpulse-Old;
+
+     P:=Vector3ScalarMul(Normal,Lambda);
+
+     Vector3DirectSub(vA,Vector3Mul(P,Vector3ScalarMul(lA,mA)));
+     Vector3DirectSub(wA,Vector3TermMatrixMul(Vector3Cross(rA,P),iA^));
+
+     Vector3DirectAdd(vB,Vector3Mul(P,Vector3ScalarMul(lB,mB)));
+     Vector3DirectAdd(wB,Vector3TermMatrixMul(Vector3Cross(rB,P),iB^));
+
+    end;
+   end;
   end;
 
   // Optional rolling resistance (angular only), magnitude-clamped to rollingResistance * sum(normalImpulse).
@@ -69529,6 +69735,8 @@ begin
  fConstraintPositionCorrectionMode:=kpcmNonLinearGaussSeidel;
 
  fVelocityIterations:=8;
+
+ fContactNormalSweeps:=1;
 
  fPositionIterations:=3;
 

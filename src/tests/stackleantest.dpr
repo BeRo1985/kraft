@@ -13,11 +13,14 @@ uses {$ifdef unix}cthreads,{$endif} SysUtils,Classes,Math,kraft;
 // points backwards on every second iteration, which more than halves the lean of the pyramids. The TGS soft
 // solver keeps the friction out of the solve pass like Box3D; solving it there too lets stacks lean less, but a
 // box rocking flat on the floor then gains energy and never comes to rest, which the last check guards against.
-// The scalar TGS contact stage and its wide variants in Pascal and assembler have to agree.
+// The scalar TGS contact stage and its wide variants in Pascal and assembler have to agree. With two sweeps over
+// the normal constraints per iteration (ContactNormalSweeps) the sequential impulse solver also keeps towers of
+// twenty and thirty boxes standing, which fall over with one.
 
 const Names:array[0..3] of string=('SI','TGS','TGS wide','TGS wide asm');
 
 var CountPassed,CountFailed:longint;
+    NormalSweeps:longint;
 
 procedure Check(const aName:string;const aCondition:boolean);
 begin
@@ -37,6 +40,7 @@ begin
  result:=TKraft.Create(1);
  result.SetFrequency(120.0);
  result.VelocityIterations:=8;
+ result.ContactNormalSweeps:=NormalSweeps;
  result.PositionIterations:=3;
  result.Gravity.y:=-9.81;
  if aSolver=0 then begin
@@ -150,10 +154,12 @@ end;
 
 var Solver,Moved:longint;
     Tower,Pyramid10,Pyramid20,Rocking:array[0..3] of TKraftScalar;
+    Tower20,Tower30:TKraftScalar;
 begin
  FormatSettings.DecimalSeparator:='.';
  CountPassed:=0;
  CountFailed:=0;
+ NormalSweeps:=1;
  for Solver:=0 to 3 do begin
   Tower[Solver]:=Drift(Solver,false,10,Moved);
   Check(Names[Solver]+': the ten box tower stands',Moved=0);
@@ -176,6 +182,17 @@ begin
         (abs(Tower[Solver]-Tower[1])<0.01) and (abs(Pyramid10[Solver]-Pyramid10[1])<0.01) and (abs(Pyramid20[Solver]-Pyramid20[1])<0.01) and
         (abs(Rocking[Solver]-Rocking[1])<0.001));
  end;
+ NormalSweeps:=2;
+ Tower[0]:=Drift(0,false,10,Moved);
+ Pyramid20[0]:=Drift(0,true,20,Moved);
+ Tower20:=Drift(0,false,20,Moved);
+ Check('SI with two normal sweeps: the tower of twenty boxes stands',Moved=0);
+ Tower30:=Drift(0,false,30,Moved);
+ Check('SI with two normal sweeps: the tower of thirty boxes stands',Moved=0);
+ WriteLn(Format('  SI, two normal sweeps drift: tower 10 %7.2f mm, tower 20 %7.2f mm, tower 30 %7.2f mm, pyramid 20 %7.2f mm',[Tower[0],Tower20,Tower30,Pyramid20[0]]));
+ Check('SI with two normal sweeps: the ten box tower leans less than 3 mm',Tower[0]<3.0);
+ Check('SI with two normal sweeps: the tower of twenty boxes leans less than 10 mm',Tower20<10.0);
+ Check('SI with two normal sweeps: the pyramid of height 20 leans less than 6 mm',Pyramid20[0]<6.0);
  WriteLn;
  WriteLn('=== ',CountPassed,' passed, ',CountFailed,' failed ===');
  if CountFailed>0 then begin
