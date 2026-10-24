@@ -26,6 +26,9 @@
 #   FPC           fpc binary to use               (default: fpc)
 #   FPCFLAGS      extra flags appended to fpc      (default: empty)
 #   RUN_TIMEOUT   seconds allowed per test, 0=off  (default: 180)
+#   LONG_RUN_TIMEOUT  seconds allowed for the long scenario sweeps
+#                 (ragdollsweep100, sixdofragdoll), which take around half
+#                 an hour, 0=off                   (default: 3600)
 #
 set -u
 
@@ -38,12 +41,14 @@ UNIT_DIR=".."                       # location of kraft.pas
 BIN_DIR="bin"                       # compiled executables
 UNIT_OUT="units"                    # .ppu / .o intermediates (kraft.ppu is cached here)
 RUN_TIMEOUT="${RUN_TIMEOUT:-180}"   # seconds per test run, 0 disables the timeout
+LONG_RUN_TIMEOUT="${LONG_RUN_TIMEOUT:-3600}" # the same for the tests in LONG_TESTS
+LONG_TESTS=" ragdollsweep100 sixdofragdoll " # scenario sweeps, far longer than the default allows
 EXTRA_FPCFLAGS="${FPCFLAGS:-}"
 
 COMPILE_ONLY=0
 VERBOSE=1                           # 1 = always print test output, 0 = only on failure
 
-usage() { sed -n '3,28p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '3,31p' "$0" | sed 's/^# \{0,1\}//'; }
 
 # --- Argument parsing ------------------------------------------------------
 SELECT=()
@@ -135,8 +140,12 @@ for name in "${TESTS[@]}"; do
   # --- run ---
   exe="$BIN_DIR/$name"
   run_log="$BIN_DIR/$name.run.log"
-  if [ "$RUN_TIMEOUT" -gt 0 ]; then
-    timeout -k 5 "$RUN_TIMEOUT" "$exe" >"$run_log" 2>&1; rc=$?
+  case "$LONG_TESTS" in
+    *" $name "*) test_timeout="$LONG_RUN_TIMEOUT" ;;
+    *)           test_timeout="$RUN_TIMEOUT" ;;
+  esac
+  if [ "$test_timeout" -gt 0 ]; then
+    timeout -k 5 "$test_timeout" "$exe" >"$run_log" 2>&1; rc=$?
   else
     "$exe" >"$run_log" 2>&1; rc=$?
   fi
@@ -146,7 +155,7 @@ for name in "${TESTS[@]}"; do
     [ "$VERBOSE" -eq 1 ] && sed 's/^/    /' "$run_log"
     passed=$((passed+1))
   elif [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
-    echo "TIMEOUT (>${RUN_TIMEOUT}s)"
+    echo "TIMEOUT (>${test_timeout}s)"
     sed 's/^/    /' "$run_log"
     timed_out=$((timed_out+1))
     FAILED+=("$name (timeout)")

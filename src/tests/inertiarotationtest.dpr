@@ -268,6 +268,37 @@ begin
  end;
 end;
 
+// After a step of a spinning body, its world inertia has to belong to the orientation it has now, and not to
+// the one it had at the begin of the step, in both solver modes
+procedure TestWorldInertiaAfterStep;
+var Physics:TKraft;
+    Hull:TKraftConvexHull;
+    Body:TKraftRigidBody;
+    SolverMode:TKraftSolverMode;
+    Name:string;
+begin
+ for SolverMode:=ksmSequentialImpulse to ksmTGSSoft do begin
+  Physics:=CreatePhysics;
+  try
+   Physics.SolverMode:=SolverMode;
+   Hull:=BuildBoxHull(Physics,Matrix4x4Identity);
+   Body:=CreateBody(Physics,0,Hull,Matrix4x4Identity,1.0,0.0,1.0);
+   Body.SetWorldTransformation(TestTurn);
+   Body.AngularVelocity:=Vector3(1.0,3.0,-2.0);
+   Body.SetToAwake;
+   Physics.Step(1.0/60.0);
+   if SolverMode=ksmSequentialImpulse then begin
+    Name:='SI';
+   end else begin
+    Name:='TGS';
+   end;
+   CheckTensor(Name+': world inertia after a step belongs to the new orientation',Body.WorldInertiaTensor,Turned(Body.BodyInertiaTensor,Matrix3x3(Body.WorldTransform)),1e-4);
+  finally
+   Physics.Free;
+  end;
+ end;
+end;
+
 begin
  FormatSettings.DecimalSeparator:='.';
  CountPassed:=0;
@@ -275,6 +306,7 @@ begin
  TestAxisAngleRotations;
  TestHullTurns;
  TestSignedDistanceField;
+ TestWorldInertiaAfterStep;
  WriteLn;
  WriteLn('=== ',CountPassed,' passed, ',CountFailed,' failed ===');
  if CountFailed>0 then begin

@@ -23,7 +23,7 @@ type TWallKind=(wkBox,wkMesh);
 
 const Setups:array[0..5] of TCCDSetup=
        ((Name:'None (tunnel control)      ';Mode:kcmNone;Algorithm:ktoiaBilateralAdvancement;MustHold:false),
-        (Name:'Speculative                ';Mode:kcmSpeculativeContacts;Algorithm:ktoiaBilateralAdvancement;MustHold:false),
+        (Name:'Speculative                ';Mode:kcmSpeculativeContacts;Algorithm:ktoiaBilateralAdvancement;MustHold:true),
         (Name:'MotionClamping+Bilateral   ';Mode:kcmMotionClamping;Algorithm:ktoiaBilateralAdvancement;MustHold:true),
         (Name:'MotionClamping+Conservative';Mode:kcmMotionClamping;Algorithm:ktoiaConservativeAdvancement;MustHold:true),
         (Name:'TOISubSteps+Bilateral      ';Mode:kcmTimeOfImpactSubSteps;Algorithm:ktoiaBilateralAdvancement;MustHold:true),
