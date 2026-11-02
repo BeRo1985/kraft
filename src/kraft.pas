@@ -93,6 +93,12 @@ unit kraft;
  {$if not (defined(VER3_0) or defined(VER3_2))}
   {$warn 6060 off} // case statement does not handle all possible cases
  {$ifend}
+ // Explicit typecasts between float types of different sizes, such as double(SingleValue), are accepted in mode
+ // Delphi only since the FPC 3.3.1 trunk of 2025-12-10, which carries the same version number as the older trunks.
+ // FPC_INITFINAL_HASUNITNAME came into the trunk on the same day, shortly before, and so tells the newer ones apart.
+ {$if defined(FPC_INITFINAL_HASUNITNAME)}
+  {$define KraftFloatTypecasts}
+ {$ifend}
 {$else}
  {$define LITTLE_ENDIAN}
  {$ifdef cpux64}
@@ -111,6 +117,10 @@ unit kraft;
   {$if CompilerVersion>=24.0}
    {$legacyifend on}
    {$define KraftAdvancedRecords}
+  {$ifend}
+  {$if CompilerVersion>=32.0}
+   // Delphi accepts explicit typecasts between float types of different sizes since 10.2
+   {$define KraftFloatTypecasts}
   {$ifend}
  {$endif}
  {$ifdef ver180}
@@ -30175,6 +30185,9 @@ var i,j:TKraftInt32;
     FileFormatVersion:TKraftUInt32;
     Last,Current:PKraftVector3;
     NormalX,NormalY,NormalZ,CentroidX,CentroidY,CentroidZ,Len:double;
+{$ifndef KraftFloatTypecasts}
+    LastX,LastY,LastZ:double;
+{$endif}
 begin
 
  AStream.ReadBuffer(Signature,SizeOf(TKraftSignature));
@@ -30243,9 +30256,19 @@ begin
    Last:=@fVertices[fFaces[i].Vertices[fFaces[i].CountVertices-1]].Position;
    for j:=0 to fFaces[i].CountVertices-1 do begin
     Current:=@fVertices[fFaces[i].Vertices[j]].Position;
+{$ifdef KraftFloatTypecasts}
     NormalX:=NormalX+((double(Last^.y)-Current^.y)*(double(Last^.z)+Current^.z));
     NormalY:=NormalY+((double(Last^.z)-Current^.z)*(double(Last^.x)+Current^.x));
     NormalZ:=NormalZ+((double(Last^.x)-Current^.x)*(double(Last^.y)+Current^.y));
+{$else}
+    // Widened by the assignment instead, with the same result
+    LastX:=Last^.x;
+    LastY:=Last^.y;
+    LastZ:=Last^.z;
+    NormalX:=NormalX+((LastY-Current^.y)*(LastZ+Current^.z));
+    NormalY:=NormalY+((LastZ-Current^.z)*(LastX+Current^.x));
+    NormalZ:=NormalZ+((LastX-Current^.x)*(LastY+Current^.y));
+{$endif}
     CentroidX:=CentroidX+Current^.x;
     CentroidY:=CentroidY+Current^.y;
     CentroidZ:=CentroidZ+Current^.z;
