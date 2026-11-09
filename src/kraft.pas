@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-11-09-19-00-0000                       *
+ *                        Version 2026-11-09-23-30-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -24565,6 +24565,7 @@ procedure TKraftDynamicAABBTree.FreeNode(NodeID:TKraftInt32);
 var Node:PKraftDynamicAABBTreeNode;
 begin
  Node:=@fNodes^[NodeID];
+ Node^.UserData:=nil; // a freed leaf must not lead anyone holding its old ID to the shape that owned it
  Node^.Next:=fFreeList;
  Node^.Height:=-1;
  Node^.MoveBufferIndex:=-1;
@@ -25421,6 +25422,9 @@ begin
 
 {$ifdef KraftPasMPThreadSafeBVH}
   TPasMPMultipleReaderSingleWriterSpinLock.ReadToWrite(fMultipleReaderSingleWriterLockState);
+  // The upgrade gives up the read lock for a moment, in which another writer may have grown and thereby
+  // reallocated the node array, so the node pointer from before is fetched again.
+  Node:=@fNodes^[aNodeID];
 {$endif}
 
   RemoveLeaf(aNodeID);
@@ -50039,29 +50043,27 @@ begin
 end;
 
 procedure TKraftBroadPhaseMoveBuffer.Add(const aProxyID:TKraftInt32);
+// A queued proxy keeps its slot in the MoveBufferIndex of its tree node, which makes the already queued test
+// exact. A proxy queued twice would survive its removal with one stale copy, so the test and the append run
+// as one step under the write lock, rather than as a read lock upgraded in between, where a second thread
+// could queue the same proxy as well. The node array belongs to the tree and is read under its read lock,
+// because another thread may grow and thereby reallocate it at the same time.
 var Index:TKraftInt32;
     Node:PKraftDynamicAABBTreeNode;
 begin
 {$ifdef KraftPasMPThreadSafeBVH}
- TPasMPMultipleReaderSingleWriterSpinLock.AcquireRead(fMultipleReaderSingleWriterLockState);
+ TPasMPMultipleReaderSingleWriterSpinLock.AcquireWrite(fMultipleReaderSingleWriterLockState);
+ TPasMPMultipleReaderSingleWriterSpinLock.AcquireRead(fAABBTree.fMultipleReaderSingleWriterLockState);
 {$endif}
  if (aProxyID>=0) and (aProxyID<fAABBTree.fNodeCapacity) then begin
   Node:=@fAABBTree.fNodes^[aProxyID];
  end else begin
   Node:=nil;
  end;
- if assigned(Node) and
-    (Node^.MoveBufferIndex>=0) and
-    (Node^.MoveBufferIndex<fSize) and
-    (fItems[Node^.MoveBufferIndex]=aProxyID) then begin
-  // Already added
-{$ifdef KraftPasMPThreadSafeBVH}
-  TPasMPMultipleReaderSingleWriterSpinLock.ReleaseRead(fMultipleReaderSingleWriterLockState);
-{$endif}
- end else begin
-{$ifdef KraftPasMPThreadSafeBVH}
-  TPasMPMultipleReaderSingleWriterSpinLock.ReadToWrite(fMultipleReaderSingleWriterLockState);
-{$endif}
+ if not (assigned(Node) and
+         (Node^.MoveBufferIndex>=0) and
+         (Node^.MoveBufferIndex<fSize) and
+         (fItems[Node^.MoveBufferIndex]=aProxyID)) then begin
   Index:=fSize;
   inc(fSize);
   if length(fItems)<fSize then begin
@@ -50071,22 +50073,26 @@ begin
   if assigned(Node) then begin
    Node^.MoveBufferIndex:=Index;
   end;
-{$ifdef KraftPasMPThreadSafeBVH}
-  TPasMPMultipleReaderSingleWriterSpinLock.ReleaseWrite(fMultipleReaderSingleWriterLockState);
-{$endif}
  end;
+{$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.ReleaseRead(fAABBTree.fMultipleReaderSingleWriterLockState);
+ TPasMPMultipleReaderSingleWriterSpinLock.ReleaseWrite(fMultipleReaderSingleWriterLockState);
+{$endif}
 end;
 
 procedure TKraftBroadPhaseMoveBuffer.Remove(const aProxyID:TKraftInt32);
-var Index,SearchIndex:TKraftInt32;
+// The order of the items is irrelevant, so the removed item is overwritten with the last one, and the moved
+// item gets its new slot written back into its node. With its old slot left there, it no longer counted as
+// queued, the next Add queued it a second time, and the removal of its proxy then left the other copy
+// behind: a stale proxy ID, which the broadphase resolved over the freed node to the shape that had owned
+// it, even when that shape had been destroyed meanwhile. Locking as in Add.
+var Index,SearchIndex,MovedProxyID:TKraftInt32;
     Node:PKraftDynamicAABBTreeNode;
 begin
 {$ifdef KraftPasMPThreadSafeBVH}
  TPasMPMultipleReaderSingleWriterSpinLock.AcquireWrite(fMultipleReaderSingleWriterLockState);
+ TPasMPMultipleReaderSingleWriterSpinLock.AcquireRead(fAABBTree.fMultipleReaderSingleWriterLockState);
 {$endif}
- // The order of the items is irrelevant in this case, so that we can simply
- // overwrite the to be removed item with the the last array item, while
- // decrementing the size of the array in the process at the same time.
  if (aProxyID>=0) and (aProxyID<fAABBTree.fNodeCapacity) then begin
   Node:=@fAABBTree.fNodes^[aProxyID];
  end else begin
@@ -50097,7 +50103,6 @@ begin
     (Node^.MoveBufferIndex<fSize) and
     (fItems[Node^.MoveBufferIndex]=aProxyID) then begin
   Index:=Node^.MoveBufferIndex;
-  Node^.MoveBufferIndex:=-1;
  end else begin
   Index:=-1;
   for SearchIndex:=0 to fSize-1 do begin
@@ -50107,13 +50112,21 @@ begin
    end;
   end;
  end;
+ if assigned(Node) then begin
+  Node^.MoveBufferIndex:=-1;
+ end;
  if Index>=0 then begin
   dec(fSize);
   if Index<fSize then begin
-   fItems[Index]:=fItems[fSize];
+   MovedProxyID:=fItems[fSize];
+   fItems[Index]:=MovedProxyID;
+   if (MovedProxyID>=0) and (MovedProxyID<fAABBTree.fNodeCapacity) then begin
+    fAABBTree.fNodes^[MovedProxyID].MoveBufferIndex:=Index; // keeps the moved item recognized as queued
+   end;
   end;
  end;
 {$ifdef KraftPasMPThreadSafeBVH}
+ TPasMPMultipleReaderSingleWriterSpinLock.ReleaseRead(fAABBTree.fMultipleReaderSingleWriterLockState);
  TPasMPMultipleReaderSingleWriterSpinLock.ReleaseWrite(fMultipleReaderSingleWriterLockState);
 {$endif}
 end;
@@ -50235,6 +50248,20 @@ procedure TKraftBroadPhase.ProcessMoveBufferItemParallelForFunction(const Job:PP
 {$else}
 procedure TKraftBroadPhase.ProcessMoveBufferItem(const JobIndex,ThreadIndex:TKraftInt32);
 {$endif}
+ // The shape of a queued proxy, or nil when the ID does not denote a live leaf of the tree anymore. With the
+ // move buffer bookkeeping intact that does not happen, but a stale ID must never lead to a shape which may
+ // have been destroyed meanwhile, as the pair would then get a freed rigid body.
+ function QueuedShape(const aAABBTree:TKraftDynamicAABBTree;const aProxyID:TKraftInt32):TKraftShape;
+ var Node:PKraftDynamicAABBTreeNode;
+ begin
+  result:=nil;
+  if (aProxyID>=0) and (aProxyID<aAABBTree.fNodeCapacity) then begin
+   Node:=@aAABBTree.fNodes^[aProxyID];
+   if (Node^.Height>=0) and (Node^.Children[0]<0) then begin
+    result:=Node^.UserData;
+   end;
+  end;
+ end;
 var {$ifdef KraftPasMP}JobIndex,{$endif}Index,MoveBufferIndex:TKraftInt32;
     Shape:TKraftShape;
 begin
@@ -50243,33 +50270,27 @@ begin
   if Index<fStaticMoveBuffer.fSize then begin
    // Static shapes against dynamic shapes
    MoveBufferIndex:=fStaticMoveBuffer.fItems[Index];
-   if MoveBufferIndex>=0 then begin
-    Shape:=fPhysics.fStaticAABBTree.fNodes[MoveBufferIndex].UserData;
-    if assigned(Shape) then begin
-     QueryShapeWithTree(ThreadIndex,Shape,fPhysics.fDynamicAABBTree);
-    end;
+   Shape:=QueuedShape(fPhysics.fStaticAABBTree,MoveBufferIndex);
+   if assigned(Shape) then begin
+    QueryShapeWithTree(ThreadIndex,Shape,fPhysics.fDynamicAABBTree);
    end;
   end else if Index<(fStaticMoveBuffer.fSize+fDynamicMoveBuffer.fSize) then begin
    // Dynamic shapes against static, dynamic and kinematic shapes
    dec(Index,fStaticMoveBuffer.fSize);
    MoveBufferIndex:=fDynamicMoveBuffer.fItems[Index];
-   if MoveBufferIndex>=0 then begin
-    Shape:=fPhysics.fDynamicAABBTree.fNodes[MoveBufferIndex].UserData;
-    if assigned(Shape) then begin
-     QueryShapeWithTree(ThreadIndex,Shape,fPhysics.fStaticAABBTree);
-     QueryShapeWithTree(ThreadIndex,Shape,fPhysics.fDynamicAABBTree);
-     QueryShapeWithTree(ThreadIndex,Shape,fPhysics.fKinematicAABBTree);
-    end;
+   Shape:=QueuedShape(fPhysics.fDynamicAABBTree,MoveBufferIndex);
+   if assigned(Shape) then begin
+    QueryShapeWithTree(ThreadIndex,Shape,fPhysics.fStaticAABBTree);
+    QueryShapeWithTree(ThreadIndex,Shape,fPhysics.fDynamicAABBTree);
+    QueryShapeWithTree(ThreadIndex,Shape,fPhysics.fKinematicAABBTree);
    end;
   end else if Index<(fStaticMoveBuffer.fSize+fDynamicMoveBuffer.fSize+fKinematicMoveBuffer.fSize) then begin
    // Kinematic shapes against dynamic shapes
    dec(Index,fStaticMoveBuffer.fSize+fDynamicMoveBuffer.fSize);
    MoveBufferIndex:=fKinematicMoveBuffer.fItems[Index];
-   if MoveBufferIndex>=0 then begin
-    Shape:=fPhysics.fKinematicAABBTree.fNodes[MoveBufferIndex].UserData;
-    if assigned(Shape) then begin
-     QueryShapeWithTree(ThreadIndex,Shape,fPhysics.fDynamicAABBTree);
-    end;
+   Shape:=QueuedShape(fPhysics.fKinematicAABBTree,MoveBufferIndex);
+   if assigned(Shape) then begin
+    QueryShapeWithTree(ThreadIndex,Shape,fPhysics.fDynamicAABBTree);
    end;
   end;
  end;
