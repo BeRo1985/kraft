@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-10-24-17-24-0000                       *
+ *                        Version 2026-11-09-19-00-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -3812,10 +3812,6 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        fOnPreStep:TKraftRigidBodyOnStep;
        fOnPostStep:TKraftRigidBodyOnStep;
 
-{$ifdef KraftPasMPThreadSafeBVH}
-       fMultipleReaderSingleWriterLockState:TPasMPInt32;
-{$endif}
-
        function GetAngularMomentum:TKraftVector3;
        procedure SetAngularMomentum(const NewAngularMomentum:TKraftVector3);
 
@@ -3827,6 +3823,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 {$ifdef KraftConstraintGraphColoring}
        procedure UpdateAwakeListMembership;
 {$endif}
+
+       procedure InternalSetToAwake;
 
       public
 
@@ -50428,10 +50426,6 @@ begin
 
  fRigidBodyType:=krbtUnknown;
 
-{$ifdef KraftPasMPThreadSafeBVH}
- fMultipleReaderSingleWriterLockState:=0;
-{$endif}
-
  if assigned(fPhysics.fRigidBodyLast) then begin
   fPhysics.fRigidBodyLast.fRigidBodyNext:=self;
   fRigidBodyPrevious:=fPhysics.fRigidBodyLast;
@@ -51537,6 +51531,30 @@ begin
 end;
 
 procedure TKraftRigidBody.SetToAwake;
+// A wake up changes more than this body: it propagates over the constraint edges to the partner bodies, and
+// with constraint graph coloring it also updates the awake body list and the color classes of the constraint
+// graph, which grow by reallocation. The setters which wake a body (transformation, forces, velocities and so
+// on) may run in parallel jobs in the thread safe build, so the whole transition runs under the global
+// physics lock there. The unlocked test only skips the lock in the common already awake case; the binding
+// test is repeated inside the lock.
+begin
+ if not (krbfAwake in fFlags) then begin
+{$ifdef KraftPasMPThreadSafeBVH}
+  fPhysics.fLock.Acquire;
+  try
+{$endif}
+   InternalSetToAwake;
+{$ifdef KraftPasMPThreadSafeBVH}
+  finally
+   fPhysics.fLock.Release;
+  end;
+{$endif}
+ end;
+end;
+
+procedure TKraftRigidBody.InternalSetToAwake;
+// The wake up transition itself, without locking. The propagation to the constraint partners recurses into
+// this method and not into SetToAwake, so the global lock is taken only once per wake up.
 var ConstraintEdge:PKraftConstraintEdge;
 begin
  if not (krbfAwake in fFlags) then begin
@@ -51550,7 +51568,7 @@ begin
   ConstraintEdge:=fConstraintEdgeFirst;
   while assigned(ConstraintEdge) do begin
    if assigned(ConstraintEdge^.OtherRigidBody) and (ConstraintEdge^.OtherRigidBody<>self) then begin
-    ConstraintEdge^.OtherRigidBody.SetToAwake;
+    ConstraintEdge^.OtherRigidBody.InternalSetToAwake;
    end;
    ConstraintEdge:=ConstraintEdge^.Next;
   end;
@@ -51558,18 +51576,30 @@ begin
 end;
 
 procedure TKraftRigidBody.SetToSleep;
+// Counterpart of SetToAwake: the flag change and, with constraint graph coloring, the awake body list and
+// constraint graph update run under the global physics lock in the thread safe build, so that they are
+// serialized against wake ups from parallel jobs.
 {$ifdef KraftConstraintGraphColoring}
 var WasAwake:boolean;
 {$endif}
 begin
-{$ifdef KraftConstraintGraphColoring}
- WasAwake:=krbfAwake in fFlags;
+{$ifdef KraftPasMPThreadSafeBVH}
+ fPhysics.fLock.Acquire;
+ try
 {$endif}
- Exclude(fFlags,krbfAwake);
 {$ifdef KraftConstraintGraphColoring}
- UpdateAwakeListMembership;
- if WasAwake then begin
-  fPhysics.fConstraintGraph.SynchronizeRigidBody(self);
+  WasAwake:=krbfAwake in fFlags;
+{$endif}
+  Exclude(fFlags,krbfAwake);
+{$ifdef KraftConstraintGraphColoring}
+  UpdateAwakeListMembership;
+  if WasAwake then begin
+   fPhysics.fConstraintGraph.SynchronizeRigidBody(self);
+  end;
+{$endif}
+{$ifdef KraftPasMPThreadSafeBVH}
+ finally
+  fPhysics.fLock.Release;
  end;
 {$endif}
  fSleepTime:=0.0;
@@ -51675,13 +51705,7 @@ begin
   fSweep.c:=fSweep.c0;
   fSweep.q:=fSweep.q0;
   SynchronizeProxies;//
-{$ifdef KraftPasMPThreadSafeBVH}
-  TPasMPMultipleReaderSingleWriterSpinLock.AcquireWrite(fMultipleReaderSingleWriterLockState);
-{$endif}
   SetToAwake;
-{$ifdef KraftPasMPThreadSafeBVH}
-  TPasMPMultipleReaderSingleWriterSpinLock.ReleaseWrite(fMultipleReaderSingleWriterLockState);
-{$endif}
   if fRigidBodyType in [krbtUnknown,krbtStatic] then begin
    UpdateWorldTransformation;
   end;
@@ -51704,13 +51728,7 @@ begin
   result:=true;
   fSweep.c:=fSweep.c0;
   SynchronizeProxies;
-{$ifdef KraftPasMPThreadSafeBVH}
-  TPasMPMultipleReaderSingleWriterSpinLock.AcquireWrite(fMultipleReaderSingleWriterLockState);
-{$endif}
   SetToAwake;
-{$ifdef KraftPasMPThreadSafeBVH}
-  TPasMPMultipleReaderSingleWriterSpinLock.ReleaseWrite(fMultipleReaderSingleWriterLockState);
-{$endif}
   if fRigidBodyType in [krbtUnknown,krbtStatic] then begin
    UpdateWorldTransformation;
   end;
@@ -51728,13 +51746,7 @@ begin
   result:=true;
   fSweep.c:=fSweep.c0;
   SynchronizeProxies;
-{$ifdef KraftPasMPThreadSafeBVH}
-  TPasMPMultipleReaderSingleWriterSpinLock.AcquireWrite(fMultipleReaderSingleWriterLockState);
-{$endif}
   SetToAwake;
-{$ifdef KraftPasMPThreadSafeBVH}
-  TPasMPMultipleReaderSingleWriterSpinLock.ReleaseWrite(fMultipleReaderSingleWriterLockState);
-{$endif}
   if fRigidBodyType in [krbtUnknown,krbtStatic] then begin
    UpdateWorldTransformation;
   end;
@@ -51766,13 +51778,7 @@ begin
   fSweep.c:=fSweep.c0;
   fSweep.q:=fSweep.q0;
   SynchronizeProxies;
-{$ifdef KraftPasMPThreadSafeBVH}
-  TPasMPMultipleReaderSingleWriterSpinLock.AcquireWrite(fMultipleReaderSingleWriterLockState);
-{$endif}
   SetToAwake;
-{$ifdef KraftPasMPThreadSafeBVH}
-  TPasMPMultipleReaderSingleWriterSpinLock.ReleaseWrite(fMultipleReaderSingleWriterLockState);
-{$endif}
   if fRigidBodyType in [krbtUnknown,krbtStatic] then begin
    UpdateWorldTransformation;
   end;
@@ -51796,13 +51802,7 @@ begin
   fSweep.c:=fSweep.c0;
   fSweep.q:=fSweep.q0;
   SynchronizeProxies;
-{$ifdef KraftPasMPThreadSafeBVH}
-  TPasMPMultipleReaderSingleWriterSpinLock.AcquireWrite(fMultipleReaderSingleWriterLockState);
-{$endif}
   SetToAwake;
-{$ifdef KraftPasMPThreadSafeBVH}
-  TPasMPMultipleReaderSingleWriterSpinLock.ReleaseWrite(fMultipleReaderSingleWriterLockState);
-{$endif}
   if fRigidBodyType in [krbtUnknown,krbtStatic] then begin
    UpdateWorldTransformation;
   end;
