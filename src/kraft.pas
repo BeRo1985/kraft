@@ -1,7 +1,7 @@
 (******************************************************************************
  *                            KRAFT PHYSICS ENGINE                            *
  ******************************************************************************
- *                        Version 2026-11-09-23-30-0000                       *
+ *                        Version 2026-11-17-04-59-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -1833,10 +1833,22 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
 
      TKraftConvexHullUsers=array of TKraftConvexHullUser;
 
+     // How Build thins a convex hull down to a maximum point count. Fewer points make every contact cheaper,
+     // and the two modes differ in what of the shape they keep. Adding the point which lies furthest outside
+     // the hull so far keeps the volume, but the rim of a flat face sticks out only a little past the rest, so
+     // a flat base is the first thing to go, and a body that should stand on it balances on a single point.
+     // Sampling the outermost point in evenly spread directions keeps the outline the body rests on and
+     // touches with from every side instead, and it keeps the large flat faces flat.
+     TKraftConvexHullReductionMode=(kchrmFarthestPoint,    // greedy, furthest point outside first (the default)
+                                    kchrmSupportSampling); // support points of evenly spread directions, large flat faces kept
+
      { TKraftConvexHull }
 
      TKraftConvexHull=class(TPersistent)
       private
+
+       // Only used by Build with a point limit
+       fReductionMode:TKraftConvexHullReductionMode;
 
        // May be nil, which makes the convex hull standalone: it is then not linked into any convex hull
        // list, so that no TKraft instance frees it in its destructor. Freeing it is up to the caller then,
@@ -1955,6 +1967,8 @@ type TKraftForceMode=(kfmForce,        // The unit of the force parameter is app
        property MassData:TKraftMassData read fMassData;
 
        property Centroid:TKraftVector3 read fCentroid;
+
+       property ReductionMode:TKraftConvexHullReductionMode read fReductionMode write fReductionMode; // how Build thins the hull down to its point limit
 
      end;
 
@@ -30005,6 +30019,8 @@ begin
 
  fPhysics:=aPhysics;
 
+ fReductionMode:=kchrmFarthestPoint;
+
  // Only a standalone convex hull can have more than one user and thus needs the bookkeeping for it
  fUsers:=nil;
  fCountUsers:=0;
@@ -30521,6 +30537,272 @@ begin
  end;
 end;
 
+type PConvexHullSupportSamplingFace=^TConvexHullSupportSamplingFace;
+     TConvexHullSupportSamplingFace=record
+      Area:double;
+      Normal:TConvexHullVector;
+      Index:TKraftInt32;
+     end;
+     TConvexHullSupportSamplingFaces=array of TConvexHullSupportSamplingFace;
+
+// Larger faces first, equal ones in face order
+function CompareConvexHullSupportSamplingFaces(const a,b:pointer):TKraftInt32;
+begin
+ if PConvexHullSupportSamplingFace(a)^.Area>PConvexHullSupportSamplingFace(b)^.Area then begin
+  result:=-1;
+ end else if PConvexHullSupportSamplingFace(a)^.Area<PConvexHullSupportSamplingFace(b)^.Area then begin
+  result:=1;
+ end else begin
+  result:=PConvexHullSupportSamplingFace(a)^.Index-PConvexHullSupportSamplingFace(b)^.Index;
+ end;
+end;
+
+// The point reduction of kchrmSupportSampling. It builds the full convex hull of the points first and then
+// replaces them by at most MaximumOutputPoints of its vertices:
+// - The large flat faces of the full hull, largest first, each with a spread out subset of its own vertices
+//   (the outermost one for evenly spread directions within its plane), with at most half of the budget for
+//   all of them. These all lie in the plane of the face, so the face stays exactly flat however few of them
+//   are kept, and a vertex of it that is picked by a direction below cannot stick out of it either. A face
+//   counts as large from LargeFaceAreaFactor times the median face area on: the caps of a cylinder, the base
+//   of a bowling pin or the sides of a bevelled box, but none of the faces of an evenly tessellated surface.
+// - With the rest of the budget, the outermost hull vertex for directions spread evenly over the sphere along
+//   a Fibonacci spiral, as many directions as still fit into the budget.
+procedure ConvexHullSupportSamplingProcess(var Points:TConvexHullVectors;const MaximumOutputPoints:TKraftInt32;const UserDefinedTolerance:double);
+const LargeFaceAreaFactor=4.0;
+var HullPoints:TConvexHullVectors;
+    HullFaces:TKraftQuickHullOutputFaces;
+    Faces:TConvexHullSupportSamplingFaces;
+    Kept,Sampled:array of boolean;
+    CountHullPoints,CountKept,CountSampled,FaceBudget,Target,FaceIndex,Index,OtherIndex,VertexIndex,
+    CountDirections,BestCountDirections:TKraftInt32;
+    MedianArea:double;
+    Origin,AreaVector:TConvexHullVector;
+ // The full convex hull of the points, as vertices and faces with indices into these
+ procedure BuildFullHull;
+ var QuickHull:TKraftQuickHull;
+     QuickHullVertex:TKraftQuickHullVertex;
+     PointIndex:TKraftInt32;
+ begin
+  QuickHull:=TKraftQuickHull.Create;
+  try
+   if UserDefinedTolerance>0.0 then begin
+    QuickHull.fExplicitTolerance:=UserDefinedTolerance;
+   end;
+   QuickHull.Reset;
+   for PointIndex:=0 to length(Points)-1 do begin
+    QuickHull.AddPoint(Points[PointIndex].x,Points[PointIndex].y,Points[PointIndex].z);
+   end;
+   QuickHull.Build(-1);
+   CountHullPoints:=QuickHull.fCountVertices;
+   SetLength(HullPoints,CountHullPoints);
+   for PointIndex:=0 to CountHullPoints-1 do begin
+    QuickHullVertex:=TKraftQuickHullVertex(QuickHull.fPointBuffer[QuickHull.fVertexPointIndices[PointIndex]]);
+    HullPoints[PointIndex].x:=QuickHullVertex.Point.x;
+    HullPoints[PointIndex].y:=QuickHullVertex.Point.y;
+    HullPoints[PointIndex].z:=QuickHullVertex.Point.z;
+    HullPoints[PointIndex].HashNext:=-1;
+   end;
+   QuickHull.GetFaces(HullFaces);
+  finally
+   QuickHull.Free;
+  end;
+ end;
+ // Marks in Sampled the outermost vertex of a face for aCountDirections directions spread evenly around its
+ // plane, and returns how many distinct ones these are
+ function SampleFace(const aFace:PConvexHullSupportSamplingFace;const aCountDirections:TKraftInt32):TKraftInt32;
+ var Tangent,Bitangent,Direction,Axis:TConvexHullVector;
+     DirectionIndex,FaceVertexIndex,BestIndex:TKraftInt32;
+     Angle,Distance,BestDistance:double;
+ begin
+  result:=0;
+  for FaceVertexIndex:=0 to length(HullFaces[aFace^.Index])-1 do begin
+   Sampled[HullFaces[aFace^.Index,FaceVertexIndex]]:=false;
+  end;
+  if abs(aFace^.Normal.x)<0.5 then begin
+   Axis.x:=1.0;
+   Axis.y:=0.0;
+   Axis.z:=0.0;
+  end else begin
+   Axis.x:=0.0;
+   Axis.y:=1.0;
+   Axis.z:=0.0;
+  end;
+  Tangent:=ConvexHullVectorNormalize(ConvexHullVectorCross(aFace^.Normal,Axis));
+  Bitangent:=ConvexHullVectorCross(aFace^.Normal,Tangent);
+  for DirectionIndex:=0 to aCountDirections-1 do begin
+   Angle:=(DirectionIndex*2.0*pi)/aCountDirections;
+   Direction:=ConvexHullVectorAdd(ConvexHullVectorScale(Tangent,cos(Angle)),ConvexHullVectorScale(Bitangent,sin(Angle)));
+   BestIndex:=HullFaces[aFace^.Index,0];
+   BestDistance:=ConvexHullVectorDot(HullPoints[BestIndex],Direction);
+   for FaceVertexIndex:=1 to length(HullFaces[aFace^.Index])-1 do begin
+    Distance:=ConvexHullVectorDot(HullPoints[HullFaces[aFace^.Index,FaceVertexIndex]],Direction);
+    if BestDistance<Distance then begin
+     BestDistance:=Distance;
+     BestIndex:=HullFaces[aFace^.Index,FaceVertexIndex];
+    end;
+   end;
+   if not Sampled[BestIndex] then begin
+    Sampled[BestIndex]:=true;
+    inc(result);
+   end;
+  end;
+ end;
+ // Marks in Sampled the outermost hull vertex for aCountDirections directions spread evenly over the sphere,
+ // and returns how many distinct ones these are which are not kept already
+ function SampleSphere(const aCountDirections:TKraftInt32):TKraftInt32;
+ var Direction:TConvexHullVector;
+     DirectionIndex,PointIndex,BestIndex:TKraftInt32;
+     Radius,Angle,Distance,BestDistance:double;
+ begin
+  result:=0;
+  for PointIndex:=0 to CountHullPoints-1 do begin
+   Sampled[PointIndex]:=false;
+  end;
+  for DirectionIndex:=0 to aCountDirections-1 do begin
+   Direction.y:=1.0-(((DirectionIndex*2.0)+1.0)/aCountDirections);
+   Radius:=sqrt(Max(0.0,1.0-sqr(Direction.y)));
+   Angle:=DirectionIndex*(pi*(3.0-sqrt(5.0)));
+   Direction.x:=cos(Angle)*Radius;
+   Direction.z:=sin(Angle)*Radius;
+   BestIndex:=0;
+   BestDistance:=ConvexHullVectorDot(HullPoints[0],Direction);
+   for PointIndex:=1 to CountHullPoints-1 do begin
+    Distance:=ConvexHullVectorDot(HullPoints[PointIndex],Direction);
+    if BestDistance<Distance then begin
+     BestDistance:=Distance;
+     BestIndex:=PointIndex;
+    end;
+   end;
+   if not (Kept[BestIndex] or Sampled[BestIndex]) then begin
+    Sampled[BestIndex]:=true;
+    inc(result);
+   end;
+  end;
+ end;
+begin
+ HullPoints:=nil;
+ HullFaces:=nil;
+ Faces:=nil;
+ Kept:=nil;
+ Sampled:=nil;
+ try
+
+  BuildFullHull;
+
+  if CountHullPoints>MaximumOutputPoints then begin
+
+   SetLength(Kept,CountHullPoints);
+   SetLength(Sampled,CountHullPoints);
+   for Index:=0 to CountHullPoints-1 do begin
+    Kept[Index]:=false;
+    Sampled[Index]:=false;
+   end;
+   CountKept:=0;
+
+   // Area and normal of every face, largest first
+   SetLength(Faces,length(HullFaces));
+   for FaceIndex:=0 to length(HullFaces)-1 do begin
+    AreaVector.x:=0.0;
+    AreaVector.y:=0.0;
+    AreaVector.z:=0.0;
+    Origin:=HullPoints[HullFaces[FaceIndex,0]];
+    for VertexIndex:=1 to length(HullFaces[FaceIndex])-2 do begin
+     AreaVector:=ConvexHullVectorAdd(AreaVector,
+                                     ConvexHullVectorCross(ConvexHullVectorSub(HullPoints[HullFaces[FaceIndex,VertexIndex]],Origin),
+                                                           ConvexHullVectorSub(HullPoints[HullFaces[FaceIndex,VertexIndex+1]],Origin)));
+    end;
+    Faces[FaceIndex].Area:=ConvexHullVectorLength(AreaVector)*0.5;
+    Faces[FaceIndex].Normal:=ConvexHullVectorNormalize(AreaVector);
+    Faces[FaceIndex].Index:=FaceIndex;
+   end;
+   if length(Faces)>1 then begin
+    DirectIntroSort(@Faces[0],0,length(Faces)-1,SizeOf(TConvexHullSupportSamplingFace),CompareConvexHullSupportSamplingFaces);
+   end;
+   if length(Faces)>0 then begin
+    MedianArea:=Faces[length(Faces) shr 1].Area;
+   end else begin
+    MedianArea:=0.0;
+   end;
+
+   // The large flat faces, each with as many directions as give at most as many distinct vertices as fit
+   FaceBudget:=MaximumOutputPoints shr 1;
+   for Index:=0 to length(Faces)-1 do begin
+    if (Faces[Index].Area<=0.0) or (Faces[Index].Area<(MedianArea*LargeFaceAreaFactor)) or (FaceBudget<3) then begin
+     break;
+    end;
+    Target:=Min(length(HullFaces[Faces[Index].Index]),FaceBudget);
+    BestCountDirections:=Target;
+    CountDirections:=Target;
+    repeat
+     CountSampled:=SampleFace(@Faces[Index],CountDirections);
+     if CountSampled>Target then begin
+      break;
+     end;
+     BestCountDirections:=CountDirections;
+     inc(CountDirections);
+    until (CountSampled>=Target) or (CountDirections>(Target*8));
+    SampleFace(@Faces[Index],BestCountDirections);
+    for VertexIndex:=0 to length(HullFaces[Faces[Index].Index])-1 do begin
+     OtherIndex:=HullFaces[Faces[Index].Index,VertexIndex];
+     if Sampled[OtherIndex] then begin
+      Sampled[OtherIndex]:=false;
+      if not Kept[OtherIndex] then begin
+       Kept[OtherIndex]:=true;
+       inc(CountKept);
+       dec(FaceBudget);
+      end;
+     end;
+    end;
+   end;
+
+   // The rest of the budget for directions spread evenly over the sphere, again as many as give at most as
+   // many new distinct vertices as fit, stepping faster while far below
+   Target:=MaximumOutputPoints-CountKept;
+   if Target>0 then begin
+    BestCountDirections:=Target;
+    CountDirections:=Target;
+    repeat
+     CountSampled:=SampleSphere(CountDirections);
+     if CountSampled>Target then begin
+      break;
+     end;
+     BestCountDirections:=CountDirections;
+     inc(CountDirections,Max(1,(Target-CountSampled) shr 1));
+    until (CountSampled>=Target) or (CountDirections>(Target*16));
+    SampleSphere(BestCountDirections);
+    for Index:=0 to CountHullPoints-1 do begin
+     if Sampled[Index] then begin
+      Kept[Index]:=true;
+      inc(CountKept);
+     end;
+    end;
+   end;
+
+   SetLength(Points,CountKept);
+   OtherIndex:=0;
+   for Index:=0 to CountHullPoints-1 do begin
+    if Kept[Index] then begin
+     Points[OtherIndex]:=HullPoints[Index];
+     inc(OtherIndex);
+    end;
+   end;
+
+  end else begin
+
+   // Within the budget anyway
+   Points:=HullPoints;
+
+  end;
+
+ finally
+  HullPoints:=nil;
+  HullFaces:=nil;
+  Faces:=nil;
+  Kept:=nil;
+  Sampled:=nil;
+ end;
+end;
+
 procedure TKraftConvexHull.BuildInternal(const AMaximumCountConvexHullPoints:TKraftInt32;const AUserDefinedTolerance:double);
 const HashBits=8;
       HashSize=1 shl HashBits;
@@ -30575,6 +30857,7 @@ var PointIndex,TriangleIndex,TriangleVertexIndex,VertexIndex,OtherVertexIndex,{O
     InputIsCoplanar:boolean;
     TemporaryGrahamScanVectors,HullGrahamScanVectors:TConvexHullGrahamScanVectors;
     Triangle:PConvexHullTriangle;
+    QuickHullMaximumCountConvexHullPoints:TKraftInt32;
 begin
  fFaces:=nil;
  fCountFaces:=0;
@@ -30805,14 +31088,34 @@ begin
 
     end else begin
 
+     QuickHullMaximumCountConvexHullPoints:=AMaximumCountConvexHullPoints;
+
      if AMaximumCountConvexHullPoints>0 then begin
 
-      // Here we're using triangular-output-based stan hull as maximum vertex count prefilter for the
-      // non-triangular-output-based quick hull implementation
-      StanHullProcess(TempPoints,TempTriangles,AMaximumCountConvexHullPoints,AUserDefinedTolerance);
+      case fReductionMode of
 
-      // Throw the temporary output triangles of the stan hull algorithm away, because we do need only the filtered remain points
-      SetLength(TempTriangles,0);
+       kchrmSupportSampling:begin
+
+        ConvexHullSupportSamplingProcess(TempPoints,AMaximumCountConvexHullPoints,AUserDefinedTolerance);
+
+        // The remaining points are vertices of the full hull and within the limit already, and the quick hull
+        // below must keep all of them, since a limit there would thin them out again by its own measure
+        QuickHullMaximumCountConvexHullPoints:=-1;
+
+       end;
+
+       else begin
+
+        // Here we're using triangular-output-based stan hull as maximum vertex count prefilter for the
+        // non-triangular-output-based quick hull implementation
+        StanHullProcess(TempPoints,TempTriangles,AMaximumCountConvexHullPoints,AUserDefinedTolerance);
+
+        // Throw the temporary output triangles of the stan hull algorithm away, because we do need only the filtered remain points
+        SetLength(TempTriangles,0);
+
+       end;
+
+      end;
 
      end;
 
@@ -30825,7 +31128,7 @@ begin
       for PointIndex:=0 to length(TempPoints)-1 do begin
        QuickHullInstance.AddPoint(TempPoints[PointIndex].x,TempPoints[PointIndex].y,TempPoints[PointIndex].z);
       end;
-      QuickHullInstance.Build(AMaximumCountConvexHullPoints);
+      QuickHullInstance.Build(QuickHullMaximumCountConvexHullPoints);
       SetLength(TempPoints,QuickHullInstance.fCountVertices);
       for PointIndex:=0 to QuickHullInstance.fCountVertices-1 do begin
        QuickHullVertex:=TKraftQuickHullVertex(QuickHullInstance.fPointBuffer[QuickHullInstance.fVertexPointIndices[PointIndex]]);
